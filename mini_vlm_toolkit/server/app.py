@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from mini_vlm_tool_kit.tool_registry.loader import load_tools
+from mini_vlm_toolkit.tool_registry.loader import load_tools
 
 
 tool_instances, tool_metadata = load_tools()
@@ -36,4 +36,4 @@ def execute_tool(request: ExecuteRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=8101)

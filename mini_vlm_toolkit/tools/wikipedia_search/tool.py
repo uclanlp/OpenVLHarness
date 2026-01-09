@@ -1,4 +1,4 @@
-from mini_vlm_tool_kit.tools.base import BaseTool
+from mini_vlm_toolkit.tools.base import BaseTool
 
 TOOL_NAME = "Wikipedia_RAG_Search_Tool"
 

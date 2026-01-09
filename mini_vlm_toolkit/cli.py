@@ -1,13 +1,13 @@
 import argparse
 import json
 
-from mini_vlm_tool_kit.client.client import ToolClient
-from mini_vlm_tool_kit.tools.python_executor.tool import Python_Executor_Tool
+from mini_vlm_toolkit.client.client import ToolClient
+from mini_vlm_toolkit.tools.python_executor.tool import Python_Executor_Tool
 
 
 def main():
     parser = argparse.ArgumentParser(description="Mini VLM Tool Kit CLI")
-    parser.add_argument("--server", help="Server base URL, e.g. http://127.0.0.1:8001")
+    parser.add_argument("--server", help="Server base URL, e.g. http://127.0.0.1:8101")
     parser.add_argument("--tool", required=True, help="Tool name, e.g. Python_Executor_Tool")
     parser.add_argument("--code", required=True, help="Python code to execute")
     parser.add_argument("--timeout", type=int, default=5, help="Execution timeout in seconds")

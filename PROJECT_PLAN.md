@@ -19,9 +19,9 @@ Non-goals:
 
 ## Reference Source
 When referencing AgentFlow code or behavior, only use:
-- `mini_vlm_tool_kit/reference/AgentFlow`
+- `reference/AgentFlow`
 
-Do not reference any external path outside `mini_vlm_tool_kit`.
+Do not reference any external path outside `mini-vlm-toolkit`.
 
 ## Supported Tools (AgentFlow parity)
 These tools are the initial compatibility target:
@@ -53,7 +53,7 @@ Each tool will follow the BaseTool-like contract:
 - Required method: `execute(**kwargs)`.
 
 ### Tool Registry
-- Load tool modules from `mini_vlm_tool_kit/tools/<tool_dir>/tool.py`.
+- Load tool modules from `mini_vlm_toolkit/tools/<tool_dir>/tool.py`.
 - Map external tool names to internal module/class names (AgentFlow pattern).
 - Store tool metadata and a cached instance per tool.
 
@@ -84,27 +84,30 @@ We will reuse a small engine wrapper (or a minimal subset from AgentFlow) but ke
 
 ## Project Layout (planned)
 ```
-mini_vlm_tool_kit/
+mini-vlm-toolkit/
   PROJECT_PLAN.md
   README.md
-  tools/
-    base.py
-    base_generator/tool.py
-    google_search/tool.py
-    web_search/tool.py
-    wikipedia_search/tool.py
-    python_coder/tool.py
-  tool_registry/
-    loader.py
-    mapping.py
-  server/
-    app.py
-    models.py
-  client/
-    client.py
-    parser.py
-  llm/
-    engine.py
+  mini_vlm_toolkit/
+    __init__.py
+    cli.py
+    tools/
+      base.py
+      base_generator/tool.py
+      google_search/tool.py
+      web_search/tool.py
+      wikipedia_search/tool.py
+      python_coder/tool.py
+    tool_registry/
+      loader.py
+      mapping.py
+    server/
+      app.py
+      models.py
+    client/
+      client.py
+      parser.py
+    llm/
+      engine.py
   scripts/
     run_server.sh
   tests/
@@ -136,7 +139,7 @@ python tests/test_<tool>.py
 
 Example usage:
 ```
-./scripts/run_server.sh --host 127.0.0.1 --port 8001
+./scripts/run_server.sh --host 127.0.0.1 --port 8101
 ```
 
 ## Environment Variables (planned)
@@ -160,4 +163,4 @@ Example usage:
 ## Implementation Notes
 - Keep code minimal, flat, and explicit.
 - Avoid framework bloat or heavy dependencies beyond FastAPI, requests, and minimal LLM client.
-- Keep all references to AgentFlow under `mini_vlm_tool_kit/reference/AgentFlow`.
+- Keep all references to AgentFlow under `reference/AgentFlow`.

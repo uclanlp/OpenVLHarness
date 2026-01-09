@@ -1,10 +1,11 @@
 import re
 import signal
+import threading
 from contextlib import contextmanager
 from io import StringIO
 import contextlib
 
-from mini_vlm_tool_kit.tools.base import BaseTool
+from mini_vlm_toolkit.tools.base import BaseTool
 
 TOOL_NAME = "Python_Executor_Tool"
 
@@ -15,6 +16,15 @@ class TimeoutError(Exception):
 
 @contextmanager
 def timeout(seconds):
+    if not seconds or seconds <= 0:
+        yield
+        return
+
+    if threading.current_thread() is not threading.main_thread():
+        # Signal-based timeouts only work on the main thread.
+        yield
+        return
+
     def handler(signum, frame):
         raise TimeoutError("Execution timed out")
 

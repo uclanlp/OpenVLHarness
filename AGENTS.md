@@ -2,20 +2,20 @@
 
 ## Project Structure & Module Organization
 This repository is a small Python toolkit for tool execution and a FastAPI server. Key paths:
-- `client/`: HTTP client and LLM tool-call helpers.
-- `server/`: FastAPI app (`server/app.py`) and entrypoint for the tool server.
-- `tools/`: Tool implementations grouped by tool name (each subdir has `tool.py`).
-- `tool_registry/`: Loader that registers tools for the server.
-- `llm/`: LLM engine wrapper used for tool-call generation.
+- `mini_vlm_toolkit/client/`: HTTP client and LLM tool-call helpers.
+- `mini_vlm_toolkit/server/`: FastAPI app (`mini_vlm_toolkit/server/app.py`) and entrypoint for the tool server.
+- `mini_vlm_toolkit/tools/`: Tool implementations grouped by tool name (each subdir has `tool.py`).
+- `mini_vlm_toolkit/tool_registry/`: Loader that registers tools for the server.
+- `mini_vlm_toolkit/llm/`: LLM engine wrapper used for tool-call generation.
 - `tests/`: Standalone Python test scripts.
 - `scripts/`: Helper scripts such as `scripts/run_server.sh`.
-- `cli.py`: CLI entrypoint for local or server execution.
+- `mini_vlm_toolkit/cli.py`: CLI entrypoint for local or server execution.
 
 ## Build, Test, and Development Commands
 - `pip install -r requirements.txt` installs runtime dependencies.
-- `./scripts/run_server.sh` starts the FastAPI server (uses `HOST`/`PORT`, defaults to `127.0.0.1:8001`).
-- `curl http://127.0.0.1:8001/tools` lists available tools.
-- `PYTHONPATH="$(pwd)" python cli.py --tool Python_Executor_Tool --code "print(2+2)\nvalue=4"` runs a tool locally; keep `PYTHONPATH` set so `mini_vlm_tool_kit.*` imports resolve.
+- `./scripts/run_server.sh` starts the FastAPI server (uses `HOST`/`PORT`, defaults to `127.0.0.1:8101`).
+- `curl http://127.0.0.1:8101/tools` lists available tools.
+- `PYTHONPATH="$(pwd)" python -m mini_vlm_toolkit.cli --tool Python_Executor_Tool --code "print(2+2)\nvalue=4"` runs a tool locally; keep `PYTHONPATH` set so `mini_vlm_toolkit.*` imports resolve.
 - `PYTHONPATH="$(pwd)" python tests/test_python_executor.py` runs the current test script.
 
 ## Coding Style & Naming Conventions

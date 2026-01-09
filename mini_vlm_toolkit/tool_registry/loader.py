@@ -1,15 +1,15 @@
 import importlib
 import inspect
 
-from mini_vlm_tool_kit.tools.base import BaseTool
+from mini_vlm_toolkit.tools.base import BaseTool
 
 TOOL_MODULES = [
-    "mini_vlm_tool_kit.tools.python_executor.tool",
-    "mini_vlm_tool_kit.tools.base_generator.tool",
-    "mini_vlm_tool_kit.tools.google_search.tool",
-    "mini_vlm_tool_kit.tools.web_search.tool",
-    "mini_vlm_tool_kit.tools.wikipedia_search.tool",
-    "mini_vlm_tool_kit.tools.python_coder.tool",
+    "mini_vlm_toolkit.tools.python_executor.tool",
+    "mini_vlm_toolkit.tools.base_generator.tool",
+    "mini_vlm_toolkit.tools.google_search.tool",
+    "mini_vlm_toolkit.tools.web_search.tool",
+    "mini_vlm_toolkit.tools.wikipedia_search.tool",
+    "mini_vlm_toolkit.tools.python_coder.tool",
 ]
 
 
