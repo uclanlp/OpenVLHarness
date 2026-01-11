@@ -25,10 +25,6 @@ Do not reference any external path outside `mini-vlm-toolkit`.
 
 ## Supported Tools (AgentFlow parity)
 These tools are the initial compatibility target:
-- Generalist_Solution_Generator_Tool
-  - Summary: general LLM responder
-  - Input: `query: str`
-  - Output: `str`
 - Gemini_Google_Search_Tool
   - Summary: Gemini-backed Google search w/ optional citations
   - Input: `query: str`, `add_citations: bool`
@@ -92,7 +88,6 @@ mini-vlm-toolkit/
     cli.py
     tools/
       base.py
-      base_generator/tool.py
       gemini_google_search/tool.py
       serper_google_search/tool.py
       single_url_qa/tool.py
@@ -111,7 +106,6 @@ mini-vlm-toolkit/
   scripts/
     run_server.sh
   tests/
-    test_base_generator.py
     test_gemini_google_search.py
     test_serper_google_search.py
     test_single_url_qa.py

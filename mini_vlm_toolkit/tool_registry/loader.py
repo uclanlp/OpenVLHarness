@@ -6,7 +6,6 @@ from mini_vlm_toolkit.tools.base import BaseTool
 
 DEFAULT_TOOL_MODULES = [
     "mini_vlm_toolkit.tools.python_executor.tool",
-    "mini_vlm_toolkit.tools.base_generator.tool",
     "mini_vlm_toolkit.tools.gemini_google_search.tool",
     "mini_vlm_toolkit.tools.serper_google_search.tool",
     "mini_vlm_toolkit.tools.single_url_qa.tool",

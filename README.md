@@ -76,10 +76,8 @@ export LLM_BASE_URL=http://localhost:8004/v1
 ```
 
 ## TODO
-- Implement remaining tools: Generalist_Solution_Generator_Tool.
-- Add API key files for Gemini/Serper/OpenAI tools and run their tests when you return.
 - Incorporate tools from the Visual Scratchpad paper.
-- Incorporate tools from OpenThinking (https://arxiv.org/pdf/2505.08617).
+- Incorporate tools from OpenThinkIMG (https://arxiv.org/pdf/2505.08617).
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
