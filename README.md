@@ -6,12 +6,24 @@ Minimal research toolkit with a tool server and client. The first fully implemen
 
 Install dependencies:
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-client.txt
+```
+
+Optional SAM3 server dependencies:
+```bash
+pip install -r requirements-server.txt
 ```
 
 Start the server:
 ```bash
 export PYTHONPATH="$(pwd)"
+./scripts/run_server.sh
+```
+
+Start the server with a specific tool list:
+```bash
+export PYTHONPATH="$(pwd)"
+export TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool,mini_vlm_toolkit.tools.sam3_segment.tool"
 ./scripts/run_server.sh
 ```
 
@@ -39,6 +51,7 @@ Each tool has a standalone test script. The Python executor test includes:
 2) client invocation via server
 3) LLM-generated tool call via client
    - The LLM-assisted step builds a prompt and parses tool args in the test script.
+This direct + client + LLM-assisted pattern should be the default for new tool tests.
 
 Run:
 ```bash
@@ -61,6 +74,11 @@ Example for vLLM Qwen3-8B at port 8004:
 export LLM_MODEL=Qwen/Qwen3-8B
 export LLM_BASE_URL=http://localhost:8004/v1
 ```
+
+## TODO
+- Implement remaining tools: Generalist_Solution_Generator_Tool, Gemini_Google_Search_Tool, Serper_Google_Search_Tool, Single_URL_QA_Tool.
+- Incorporate tools from the Visual Scratchpad paper.
+- Incorporate tools from OpenThinking (https://arxiv.org/pdf/2505.08617).
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.

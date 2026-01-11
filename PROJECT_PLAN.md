@@ -29,18 +29,18 @@ These tools are the initial compatibility target:
   - Summary: general LLM responder
   - Input: `query: str`
   - Output: `str`
-- Ground_Google_Search_Tool
-  - Summary: grounded Google search w/ optional citations
+- Gemini_Google_Search_Tool
+  - Summary: Gemini-backed Google search w/ optional citations
   - Input: `query: str`, `add_citations: bool`
   - Output: `str`
-- Web_RAG_Search_Tool
-  - Summary: RAG over a specific URL (fetch, chunk, embed, rank, summarize)
+- Serper_Google_Search_Tool
+  - Summary: Serper-backed Google search that returns URLs
+  - Input: `query: str`, `num_results: int`
+  - Output: `list[str]`
+- Single_URL_QA_Tool
+  - Summary: QA over a specific URL (fetch, chunk, embed, rank, summarize)
   - Input: `query: str`, `url: str`
   - Output: `str`
-- Wikipedia_RAG_Search_Tool
-  - Summary: Wikipedia search, LLM page selection, Web RAG per page
-  - Input: `query: str`
-  - Output: `dict`
 - Python_Code_Generator_Tool
   - Summary: LLM generates Python snippet for math-like tasks, executes in restricted mode
   - Input: `query: str`
@@ -93,9 +93,9 @@ mini-vlm-toolkit/
     tools/
       base.py
       base_generator/tool.py
-      google_search/tool.py
-      web_search/tool.py
-      wikipedia_search/tool.py
+      gemini_google_search/tool.py
+      serper_google_search/tool.py
+      single_url_qa/tool.py
       python_coder/tool.py
     tool_registry/
       loader.py
@@ -112,9 +112,9 @@ mini-vlm-toolkit/
     run_server.sh
   tests/
     test_base_generator.py
-    test_google_search.py
-    test_web_search.py
-    test_wikipedia_search.py
+    test_gemini_google_search.py
+    test_serper_google_search.py
+    test_single_url_qa.py
     test_python_coder.py
   reference/
     AgentFlow/...

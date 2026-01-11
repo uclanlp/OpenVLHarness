@@ -43,6 +43,16 @@ def extract_code(text):
     return text.strip()
 
 
+def safe_repr(value):
+    try:
+        representation = repr(value)
+    except Exception as exc:
+        return f"<repr_error {type(value).__name__}: {exc}>"
+    if not isinstance(representation, str):
+        return f"<repr_error {type(value).__name__}: non-string repr>"
+    return representation
+
+
 class Python_Executor_Tool(BaseTool):
     def __init__(self):
         super().__init__(
@@ -78,7 +88,7 @@ class Python_Executor_Tool(BaseTool):
 
         printed_output = stdout_buffer.getvalue().strip()
         variables = {
-            k: repr(v)
+            k: safe_repr(v)
             for k, v in local_vars.items()
             if not k.startswith("__")
         }

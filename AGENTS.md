@@ -10,9 +10,10 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 - `tests/`: Standalone Python test scripts.
 - `scripts/`: Helper scripts such as `scripts/run_server.sh`.
 - `mini_vlm_toolkit/cli.py`: CLI entrypoint for local or server execution.
+- `reference/`: External reference materials; do not edit for project changes.
 
 ## Build, Test, and Development Commands
-- `pip install -r requirements.txt` installs runtime dependencies.
+- `pip install -r requirements-client.txt` installs runtime dependencies.
 - `./scripts/run_server.sh` starts the FastAPI server (uses `HOST`/`PORT`, defaults to `127.0.0.1:8101`).
 - `curl http://127.0.0.1:8101/tools` lists available tools.
 - `PYTHONPATH="$(pwd)" python -m mini_vlm_toolkit.cli --tool Python_Executor_Tool --code "print(2+2)\nvalue=4"` runs a tool locally; keep `PYTHONPATH` set so `mini_vlm_toolkit.*` imports resolve.
