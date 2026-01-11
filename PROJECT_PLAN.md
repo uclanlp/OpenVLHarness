@@ -11,6 +11,7 @@ Build a minimal research toolkit that exposes the AgentFlow toolset via a small 
   3) invoke tools via an LLM that emits tool-call code.
 - Provide test scripts for each AgentFlow tool (3 tests each).
 - Provide a single shell script to configure and run the server.
+- Port selected OpenThinkIMG tools into in-process BaseTool implementations (no external controller/worker infrastructure).
 
 Non-goals:
 - Production-grade auth, billing, or multi-tenant isolation.
@@ -41,6 +42,36 @@ These tools are the initial compatibility target:
   - Summary: LLM generates Python snippet for math-like tasks, executes in restricted mode
   - Input: `query: str`
   - Output: `dict`
+
+## Planned Tools (Vision tool ports)
+We will port tool logic directly into `mini_vlm_toolkit/tools` and skip all external controller/worker or Gradio servers.
+Key decisions (recorded so new contributors do not need prior context):
+- GroundingDINO: use OpenThinkIMG's data-first implementation and return structured boxes/phrases (no VisualSketchpad wrapper).
+- Crop: normalized coordinates are the primary interface (better composition with DINO outputs); pixel coords are optional via an explicit flag/enum.
+- Zoom tools: keep both variants as separate tools.
+  - `ZoomInSubfigure`: OpenThinkIMG behavior (subplot selection by description).
+  - `ZoomInImageByBBox`: VisualSketchpad behavior (bbox-based crop with padding).
+- Segmentation tools: keep both variants as separate tools.
+  - `SegmentRegionAroundPoint`: point-guided segmentation implemented via SAM3 (replace OpenThinkIMG SAM2).
+  - `SegmentAndMark`: full-image segmentation with numbered masks (VisualSketchpad Semantic-SAM).
+
+Planned OpenThinkIMG-derived tools:
+- GroundingDINO: image + text query -> bounding boxes (+ size)
+- OCR: image -> text strings
+- crop: image + region coordinates -> cropped image (normalized primary)
+- point: image + target description -> point coordinates
+- SegmentRegionAroundPoint: image + point -> localized mask (SAM3)
+- ZoomInSubfigure: image + description -> subplot images
+- drawline: image + region + corner indices -> annotated image
+- DrawHorizontalLineByY: image + Y-coordinate -> annotated image
+- DrawVerticalLineByX: image + X-coordinate -> annotated image
+
+Planned VisualSketchpad-derived tools:
+- SegmentAndMark: image + granularity -> annotated image + list of bboxes
+- ZoomInImageByBBox: image + bbox -> cropped image
+- Depth: image -> depth map
+- OverlayImages: base image + overlay + alpha + bbox -> blended image
+- SlidingWindowDetection: image + objects -> candidate crops + boxes (uses detection internally)
 
 ## Core Design
 ### Tool Interface

@@ -1,6 +1,6 @@
 # Mini VLM Tool Kit
 
-Minimal research toolkit with a tool server and client. The first fully implemented tool is `Python_Executor_Tool`.
+Minimal research toolkit with a tool server and client.
 
 ## Quick Start
 
@@ -31,6 +31,7 @@ List tools:
 ```bash
 curl http://127.0.0.1:8101/tools
 ```
+By default the server loads the tool modules listed in `mini_vlm_toolkit/tool_registry/loader.py`.
 
 ## CLI (no Python required)
 
@@ -69,6 +70,9 @@ LLM test environment:
 - `LLM_BASE_URL` (optional, default http://localhost:8004/v1)
 - `LLM_API_KEY` (optional, default "local")
 
+Server-based tests expect the tool server to be running or `TOOL_SERVER_URL` to point to a running instance. 
+Some tools require API keys in the files listed in Notes below.
+
 Example for vLLM Qwen3-8B at port 8004:
 ```bash
 export LLM_MODEL=Qwen/Qwen3-8B
@@ -76,12 +80,28 @@ export LLM_BASE_URL=http://localhost:8004/v1
 ```
 
 ## TODO
-- Incorporate tools from the Visual Scratchpad paper.
+- Incorporate tools from the Visual Sketchpad paper (ported in-process; no external servers).
 - Incorporate tools from OpenThinkIMG (https://arxiv.org/pdf/2505.08617).
+  - GroundingDINO (use OpenThinkIMG implementation)
+  - OCR
+  - crop (normalized coords primary; pixel coords optional)
+  - point
+  - SegmentRegionAroundPoint (implement via SAM3, point-guided)
+  - ZoomInSubfigure (subplot selection by description)
+  - drawline (region + corner indices)
+  - DrawHorizontalLineByY
+  - DrawVerticalLineByX
+- Incorporate tools from VisualSketchpad (https://arxiv.org/abs/2406.09403).
+  - segment_and_mark (full-image segmentation with numbered masks)
+  - zoom_in_image_by_bbox (bbox-based zoom)
+  - depth (depth estimation)
+  - overlay_images (alpha blend an overlay into a base image)
+  - sliding_window_detection (small-object helper that runs detection on crops)
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
-- Placeholder tools exist for AgentFlow parity and raise `NotImplementedError`.
+- Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
+- `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
