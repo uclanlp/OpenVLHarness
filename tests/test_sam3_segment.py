@@ -12,6 +12,7 @@ from mini_vlm_toolkit.config import (
 )
 from mini_vlm_toolkit.llm.engine import LLMEngine
 from mini_vlm_toolkit.tools.sam3_segment.tool import SAM3_Segment_Tool
+from tests.utils import ensure_sam3_server, ensure_tool_server
 
 
 SAM3_SERVER_URL = os.getenv("SAM3_SERVER_URL", "http://127.0.0.1:8083")
@@ -186,6 +187,10 @@ def test_llm_invocation():
 
 
 def main():
+    if not ensure_tool_server(TOOL_SERVER_URL, required_tools=["SAM3_Segment_Tool"]):
+        return
+    if not ensure_sam3_server(SAM3_SERVER_URL):
+        return
     test_direct_invocation()
     test_client_invocation()
     test_llm_invocation()

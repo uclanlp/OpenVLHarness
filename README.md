@@ -76,10 +76,16 @@ export LLM_BASE_URL=http://localhost:8004/v1
 ```
 
 ## TODO
-- Implement remaining tools: Generalist_Solution_Generator_Tool, Gemini_Google_Search_Tool, Serper_Google_Search_Tool, Single_URL_QA_Tool.
+- Implement remaining tools: Generalist_Solution_Generator_Tool.
+- Add API key files for Gemini/Serper/OpenAI tools and run their tests when you return.
 - Incorporate tools from the Visual Scratchpad paper.
 - Incorporate tools from OpenThinking (https://arxiv.org/pdf/2505.08617).
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
 - Placeholder tools exist for AgentFlow parity and raise `NotImplementedError`.
+- API key files are read from:
+  - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
+  - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
+  - `mini_vlm_toolkit/tools/single_url_qa/openai_api_key`
+- Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, and `python tests/test_single_url_qa.py`.

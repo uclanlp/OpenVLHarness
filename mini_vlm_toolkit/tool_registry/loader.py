@@ -36,6 +36,18 @@ def load_tools():
             if not issubclass(obj, BaseTool) or obj is BaseTool:
                 continue
             instance = obj()
+            issues = []
+            try:
+                issues = instance.sanity_check() or []
+            except Exception as exc:
+                issues = [str(exc)]
+            if isinstance(issues, str):
+                issues = [issues]
+            if issues:
+                formatted = "\n".join(f"- {issue}" for issue in issues)
+                raise RuntimeError(
+                    f"Sanity check failed for {instance.tool_name}:\n{formatted}"
+                )
             tool_instances[instance.tool_name] = instance
             tool_metadata[instance.tool_name] = instance.get_metadata()
 

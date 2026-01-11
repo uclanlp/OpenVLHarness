@@ -31,5 +31,8 @@ class BaseTool:
             "require_llm_engine": self.require_llm_engine,
         }
 
+    def sanity_check(self):
+        return []
+
     def execute(self, *args, **kwargs):
         raise NotImplementedError("Tool must implement execute().")

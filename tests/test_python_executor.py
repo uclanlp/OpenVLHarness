@@ -10,6 +10,7 @@ from mini_vlm_toolkit.config import (
 )
 from mini_vlm_toolkit.llm.engine import LLMEngine
 from mini_vlm_toolkit.tools.python_executor.tool import Python_Executor_Tool
+from tests.utils import ensure_tool_server
 
 
 SERVER_URL = os.getenv("TOOL_SERVER_URL", "http://127.0.0.1:8101")
@@ -171,6 +172,8 @@ def test_llm_invocation():
 
 
 def main():
+    if not ensure_tool_server(SERVER_URL, required_tools=["Python_Executor_Tool"]):
+        return
     log_step("Python executor tests")
     test_direct_invocation()
     test_direct_invocation_nonstandard_outputs()

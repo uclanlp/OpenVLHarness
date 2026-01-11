@@ -8,6 +8,7 @@ from mini_vlm_toolkit.config import (
     DEFAULT_LLM_MODEL,
 )
 from mini_vlm_toolkit.tools.python_coder.tool import Python_Coder_Tool
+from tests.utils import ensure_tool_server
 
 
 SERVER_URL = os.getenv("TOOL_SERVER_URL", "http://127.0.0.1:8101")
@@ -65,6 +66,10 @@ def test_client_invocation():
 
 
 def main():
+    if not ensure_tool_server(
+        SERVER_URL, required_tools=["Python_Code_Generator_Tool"]
+    ):
+        return
     test_direct_invocation()
     test_client_invocation()
     print("Python coder tool test completed.")
