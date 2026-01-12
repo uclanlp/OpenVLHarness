@@ -6,6 +6,31 @@ Minimal research toolkit with a tool server and client.
 
 See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-assisted tool calls).
 
+## Implemented Tools
+
+| Tool | Description |
+| --- | --- |
+| `Crop_Tool` | Crop an image using normalized or pixel coordinates. |
+| `Depth_Tool` | Estimate depth from an image using a Depth-Anything server. |
+| `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
+| `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
+| `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
+| `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
+| `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
+| `OCR_Tool` | Extract text strings from an image using an OCR server. |
+| `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
+| `Point_Tool` | Extract point coordinates from text or provided points and return normalized coordinates. |
+| `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
+| `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
+| `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
+| `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
+| `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
+| `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
+| `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
+| `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
+| `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
+| `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
+
 ## Quick Start
 
 Install dependencies:
@@ -60,31 +85,6 @@ List tools:
 curl http://127.0.0.1:8101/tools
 ```
 By default `scripts/run_server.sh` sets `TOOL_MODULES` to a curated list (see the script). If you run `uvicorn` directly, the fallback tool list is in `mini_vlm_toolkit/tool_registry/loader.py`.
-
-## Implemented Tools
-
-| Tool | Description |
-| --- | --- |
-| `Crop_Tool` | Crop an image using normalized or pixel coordinates. |
-| `Depth_Tool` | Estimate depth from an image using a Depth-Anything server. |
-| `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
-| `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
-| `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
-| `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
-| `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
-| `OCR_Tool` | Extract text strings from an image using an OCR server. |
-| `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
-| `Point_Tool` | Extract point coordinates from text or provided points and return normalized coordinates. |
-| `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
-| `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
-| `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
-| `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
-| `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
-| `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
-| `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
-| `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
-| `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
-| `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
 
 ## CLI (no Python required)
 
