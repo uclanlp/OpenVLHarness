@@ -13,7 +13,7 @@ Install dependencies:
 pip install -r requirements-client.txt
 ```
 
-Optional SAM3 server dependencies:
+Optional heavy tool dependencies (SAM3, GroundingDINO, OCR):
 ```bash
 pip install -r requirements-server.txt
 ```
@@ -30,6 +30,18 @@ export PYTHONPATH="$(pwd)"
 ./scripts/run_sam3_server.sh
 ```
 
+Start the OCR model server (required for the OCR tool):
+```bash
+export PYTHONPATH="$(pwd)"
+./scripts/run_ocr_server.sh
+```
+
+Start the GroundingDINO model server (required for the GroundingDINO tool):
+```bash
+export PYTHONPATH="$(pwd)"
+./scripts/run_grounding_dino_server.sh
+```
+
 Start the server with a specific tool list:
 ```bash
 export PYTHONPATH="$(pwd)"
@@ -41,7 +53,7 @@ List tools:
 ```bash
 curl http://127.0.0.1:8101/tools
 ```
-By default the server loads the tool modules listed in `mini_vlm_toolkit/tool_registry/loader.py`.
+By default `scripts/run_server.sh` sets `TOOL_MODULES` to a curated list (see the script). If you run `uvicorn` directly, the fallback tool list is in `mini_vlm_toolkit/tool_registry/loader.py`.
 
 ## CLI (no Python required)
 
@@ -83,6 +95,7 @@ python tests/test_drawline_tool.py
 python tests/test_draw_horizontal_line_by_y_tool.py
 python tests/test_draw_vertical_line_by_x_tool.py
 python tests/test_grounding_dino_tool.py
+python tests/test_ocr_tool.py
 python tests/test_overlay_images_tool.py
 python tests/test_point_tool.py
 python tests/test_zoom_in_subfigure_tool.py
@@ -107,7 +120,7 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - Incorporate tools from the Visual Sketchpad paper (ported in-process; no external servers).
 - Incorporate tools from OpenThinkIMG (https://arxiv.org/pdf/2505.08617).
   - GroundingDINO (HF server wrapper, base model) [completed]
-  - OCR
+  - OCR (EasyOCR server wrapper) [completed]
   - crop (normalized coords primary; pixel coords optional) [completed]
   - point [completed]
   - SegmentRegionAroundPoint (implement via SAM3, point-guided)
@@ -127,6 +140,7 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./scripts/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
+- OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./scripts/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`

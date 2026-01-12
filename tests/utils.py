@@ -14,6 +14,9 @@ DEFAULT_VISION_TEST_IMAGE_URL = (
 DEFAULT_OVERLAY_TEST_IMAGE_URL = (
     "https://raw.githubusercontent.com/python-pillow/Pillow/main/Tests/images/pil123rgba.png"
 )
+DEFAULT_OCR_TEST_IMAGE_URL = (
+    "https://raw.githubusercontent.com/JaidedAI/EasyOCR/master/examples/english.png"
+)
 
 
 def ensure_tool_server(server_url, required_tools=None, timeout_seconds=5):
@@ -75,6 +78,22 @@ def ensure_grounding_dino_server(server_url, timeout_seconds=5):
     return True
 
 
+def ensure_ocr_server(server_url, timeout_seconds=5):
+    if not server_url:
+        print("OCR_SERVER_URL is not set; skipping OCR tests.")
+        return False
+    endpoint = f"{server_url.rstrip('/')}/health"
+    try:
+        response = requests.get(endpoint, timeout=timeout_seconds)
+    except Exception as exc:
+        print(f"OCR server unavailable at {endpoint}: {exc}")
+        return False
+    if response.status_code != 200:
+        print(f"OCR server unhealthy at {endpoint}: status {response.status_code}")
+        return False
+    return True
+
+
 def ensure_test_image(
     env_var="VISION_TEST_IMAGE",
     url_env_var="VISION_TEST_IMAGE_URL",
@@ -107,6 +126,15 @@ def ensure_overlay_image():
         url_env_var="OVERLAY_TEST_IMAGE_URL",
         default_url=DEFAULT_OVERLAY_TEST_IMAGE_URL,
         filename="overlay_tools_demo.png",
+    )
+
+
+def ensure_ocr_test_image():
+    return ensure_test_image(
+        env_var="OCR_TEST_IMAGE",
+        url_env_var="OCR_TEST_IMAGE_URL",
+        default_url=DEFAULT_OCR_TEST_IMAGE_URL,
+        filename="ocr_tools_demo.png",
     )
 
 

@@ -19,13 +19,14 @@ DEFAULT_TOOL_MODULES=(
   "mini_vlm_toolkit.tools.draw_horizontal_line_by_y.tool"
   "mini_vlm_toolkit.tools.draw_vertical_line_by_x.tool"
   "mini_vlm_toolkit.tools.point.tool"
+  "mini_vlm_toolkit.tools.ocr.tool"
   "mini_vlm_toolkit.tools.zoom_in_subfigure.tool"
   "mini_vlm_toolkit.tools.zoom_in_image_by_bbox.tool"
 )
 
 HEAVY_TOOL_MODULES=(
     #"mini_vlm_toolkit.tools.sam3_segment.tool"
-    "mini_vlm_toolkit.tools.grounding_dino.tool"
+    #"mini_vlm_toolkit.tools.grounding_dino.tool"
 )
 
 if [[ -z "${TOOL_MODULES:-}" ]]; then
