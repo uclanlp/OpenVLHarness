@@ -5,3 +5,4 @@ openai
 google-genai
 beautifulsoup4
 numpy
+Pillow

@@ -65,6 +65,19 @@ export PYTHONPATH="$(pwd)"
 python tests/test_execute_direct.py
 ```
 
+Additional vision-tool tests (each downloads sample images into `tests/data` on first run):
+```bash
+export PYTHONPATH="$(pwd)"
+python tests/test_crop_tool.py
+python tests/test_drawline_tool.py
+python tests/test_draw_horizontal_line_by_y_tool.py
+python tests/test_draw_vertical_line_by_x_tool.py
+python tests/test_overlay_images_tool.py
+python tests/test_point_tool.py
+python tests/test_zoom_in_subfigure_tool.py
+python tests/test_zoom_in_image_by_bbox_tool.py
+```
+
 LLM test environment:
 - `LLM_MODEL` (optional, default Qwen/Qwen3-8B)
 - `LLM_BASE_URL` (optional, default http://localhost:8004/v1)

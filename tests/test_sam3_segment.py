@@ -12,7 +12,13 @@ from mini_vlm_toolkit.config import (
 )
 from mini_vlm_toolkit.llm.engine import LLMEngine
 from mini_vlm_toolkit.tools.sam3_segment.tool import SAM3_Segment_Tool
-from tests.utils import ensure_sam3_server, ensure_tool_server
+from tests.utils import (
+    build_test_id,
+    decode_base64_image,
+    ensure_sam3_server,
+    ensure_tool_server,
+    save_test_output,
+)
 
 
 SAM3_SERVER_URL = os.getenv("SAM3_SERVER_URL", "http://127.0.0.1:8083")
@@ -96,6 +102,13 @@ def test_direct_invocation():
     if result.get("masks_png_b64"):
         mask_png = base64.b64decode(result["masks_png_b64"][0])
         assert mask_png, "Expected non-empty decoded mask bytes"
+        for idx, mask_b64 in enumerate(result["masks_png_b64"]):
+            mask_image = decode_base64_image(mask_b64)
+            save_test_output(
+                mask_image,
+                build_test_id(__file__, "test_direct_invocation"),
+                suffix=f"mask_{idx}",
+            )
 
 
 def test_client_invocation():
@@ -126,6 +139,14 @@ def test_client_invocation():
 
     assert "boxes" in result, "Expected boxes in SAM3 response"
     assert "scores" in result, "Expected scores in SAM3 response"
+    if result.get("masks_png_b64"):
+        for idx, mask_b64 in enumerate(result["masks_png_b64"]):
+            mask_image = decode_base64_image(mask_b64)
+            save_test_output(
+                mask_image,
+                build_test_id(__file__, "test_client_invocation"),
+                suffix=f"mask_{idx}",
+            )
 
 
 def test_llm_invocation():
@@ -184,6 +205,14 @@ def test_llm_invocation():
 
     assert "boxes" in result, "Expected boxes in SAM3 response"
     assert "scores" in result, "Expected scores in SAM3 response"
+    if result.get("masks_png_b64"):
+        for idx, mask_b64 in enumerate(result["masks_png_b64"]):
+            mask_image = decode_base64_image(mask_b64)
+            save_test_output(
+                mask_image,
+                build_test_id(__file__, "test_llm_invocation"),
+                suffix=f"mask_{idx}",
+            )
 
 
 def main():
