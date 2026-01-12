@@ -11,7 +11,7 @@ Build a minimal research toolkit that exposes the AgentFlow toolset via a small 
   3) invoke tools via an LLM that emits tool-call code.
 - Provide test scripts for each AgentFlow tool (3 tests each).
 - Provide a single shell script to configure and run the server.
-- Port selected OpenThinkIMG tools into BaseTool implementations. Heavyweight models (SAM3, GroundingDINO, OCR) run as standalone model servers that the toolkit wraps, avoiding controller/worker infrastructure.
+- Port selected OpenThinkIMG tools into BaseTool implementations. Heavyweight models (SAM3, GroundingDINO, OCR, Depth) run as standalone model servers that the toolkit wraps, avoiding controller/worker infrastructure.
 
 Non-goals:
 - Production-grade auth, billing, or multi-tenant isolation.
@@ -45,9 +45,11 @@ These tools are the initial compatibility target:
 
 ## Planned Tools (Vision tool ports)
 We will port tool logic directly into `mini_vlm_toolkit/tools` and skip all external controller/worker or Gradio servers. Heavyweight models are served via dedicated FastAPI servers that the toolkit calls as wrappers.
+Remaining unimplemented tools are deferred for now (not planned in the near term).
 Key decisions (recorded so new contributors do not need prior context):
 - GroundingDINO: run a Hugging Face GroundingDINO model server (default `IDEA-Research/grounding-dino-base`) and wrap it from the toolkit; return data-first boxes/scores/labels (no VisualSketchpad wrapper).
 - OCR: run an EasyOCR model server (CPU by default) and wrap it from the toolkit; EasyOCR downloads weights on first run.
+- Depth: run a Depth-Anything model server (CPU default) and wrap it from the toolkit; server returns a depth colormap image.
 - Crop: normalized coordinates are the primary interface (better composition with DINO outputs); pixel coords are optional via an explicit flag/enum.
 - Zoom tools: keep both variants as separate tools.
   - `ZoomInSubfigure`: OpenThinkIMG behavior (subplot selection by description).
@@ -56,22 +58,11 @@ Key decisions (recorded so new contributors do not need prior context):
   - `SegmentRegionAroundPoint`: point-guided segmentation implemented via SAM3 (replace OpenThinkIMG SAM2).
   - `SegmentAndMark`: full-image segmentation with numbered masks (VisualSketchpad Semantic-SAM).
 
-Planned OpenThinkIMG-derived tools:
-- GroundingDINO: image + text query -> bounding boxes (+ size), served via a dedicated model server
-- OCR: image -> text strings, served via an EasyOCR model server (CPU default)
-- crop: image + region coordinates -> cropped image (normalized primary)
-- point: image + target description -> point coordinates
+Remaining OpenThinkIMG-derived tools (deferred):
 - SegmentRegionAroundPoint: image + point -> localized mask (SAM3 model server)
-- ZoomInSubfigure: image + description -> subplot images
-- drawline: image + region + corner indices -> annotated image
-- DrawHorizontalLineByY: image + Y-coordinate -> annotated image
-- DrawVerticalLineByX: image + X-coordinate -> annotated image
 
-Planned VisualSketchpad-derived tools:
+Remaining VisualSketchpad-derived tools (deferred):
 - SegmentAndMark: image + granularity -> annotated image + list of bboxes
-- ZoomInImageByBBox: image + bbox -> cropped image
-- Depth: image -> depth map
-- OverlayImages: base image + overlay + alpha + bbox -> blended image
 - SlidingWindowDetection: image + objects -> candidate crops + boxes (uses detection internally)
 
 ## Core Design

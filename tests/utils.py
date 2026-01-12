@@ -17,6 +17,7 @@ DEFAULT_OVERLAY_TEST_IMAGE_URL = (
 DEFAULT_OCR_TEST_IMAGE_URL = (
     "https://raw.githubusercontent.com/JaidedAI/EasyOCR/master/examples/english.png"
 )
+DEFAULT_DEPTH_TEST_IMAGE_URL = DEFAULT_VISION_TEST_IMAGE_URL
 
 
 def ensure_tool_server(server_url, required_tools=None, timeout_seconds=5):
@@ -94,6 +95,22 @@ def ensure_ocr_server(server_url, timeout_seconds=5):
     return True
 
 
+def ensure_depth_server(server_url, timeout_seconds=5):
+    if not server_url:
+        print("DEPTH_ANYTHING_SERVER_URL is not set; skipping depth tests.")
+        return False
+    endpoint = f"{server_url.rstrip('/')}/health"
+    try:
+        response = requests.get(endpoint, timeout=timeout_seconds)
+    except Exception as exc:
+        print(f"Depth server unavailable at {endpoint}: {exc}")
+        return False
+    if response.status_code != 200:
+        print(f"Depth server unhealthy at {endpoint}: status {response.status_code}")
+        return False
+    return True
+
+
 def ensure_test_image(
     env_var="VISION_TEST_IMAGE",
     url_env_var="VISION_TEST_IMAGE_URL",
@@ -135,6 +152,15 @@ def ensure_ocr_test_image():
         url_env_var="OCR_TEST_IMAGE_URL",
         default_url=DEFAULT_OCR_TEST_IMAGE_URL,
         filename="ocr_tools_demo.png",
+    )
+
+
+def ensure_depth_test_image():
+    return ensure_test_image(
+        env_var="DEPTH_TEST_IMAGE",
+        url_env_var="DEPTH_TEST_IMAGE_URL",
+        default_url=DEFAULT_DEPTH_TEST_IMAGE_URL,
+        filename="depth_tools_demo.jpg",
     )
 
 

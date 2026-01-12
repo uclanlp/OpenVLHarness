@@ -13,7 +13,7 @@ Install dependencies:
 pip install -r requirements-client.txt
 ```
 
-Optional heavy tool dependencies (SAM3, GroundingDINO, OCR):
+Optional heavy tool dependencies (SAM3, GroundingDINO, OCR, Depth):
 ```bash
 pip install -r requirements-server.txt
 ```
@@ -42,6 +42,12 @@ export PYTHONPATH="$(pwd)"
 ./scripts/run_grounding_dino_server.sh
 ```
 
+Start the Depth-Anything model server (required for the Depth tool):
+```bash
+export PYTHONPATH="$(pwd)"
+./scripts/run_depth_anything_server.sh
+```
+
 Start the server with a specific tool list:
 ```bash
 export PYTHONPATH="$(pwd)"
@@ -54,6 +60,31 @@ List tools:
 curl http://127.0.0.1:8101/tools
 ```
 By default `scripts/run_server.sh` sets `TOOL_MODULES` to a curated list (see the script). If you run `uvicorn` directly, the fallback tool list is in `mini_vlm_toolkit/tool_registry/loader.py`.
+
+## Implemented Tools
+
+| Tool | Description |
+| --- | --- |
+| `Crop_Tool` | Crop an image using normalized or pixel coordinates. |
+| `Depth_Tool` | Estimate depth from an image using a Depth-Anything server. |
+| `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
+| `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
+| `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
+| `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
+| `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
+| `OCR_Tool` | Extract text strings from an image using an OCR server. |
+| `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
+| `Point_Tool` | Extract point coordinates from text or provided points and return normalized coordinates. |
+| `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
+| `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
+| `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
+| `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
+| `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
+| `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
+| `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
+| `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
+| `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
+| `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
 
 ## CLI (no Python required)
 
@@ -91,6 +122,7 @@ Additional vision-tool tests (each downloads sample images into `tests/data` on 
 ```bash
 export PYTHONPATH="$(pwd)"
 python tests/test_crop_tool.py
+python tests/test_depth_tool.py
 python tests/test_drawline_tool.py
 python tests/test_draw_horizontal_line_by_y_tool.py
 python tests/test_draw_vertical_line_by_x_tool.py
@@ -116,33 +148,20 @@ export LLM_MODEL=Qwen/Qwen3-8B
 export LLM_BASE_URL=http://localhost:8004/v1
 ```
 
-## TODO
-- Incorporate tools from the Visual Sketchpad paper (ported in-process; no external servers).
-- Incorporate tools from OpenThinkIMG (https://arxiv.org/pdf/2505.08617).
-  - GroundingDINO (HF server wrapper, base model) [completed]
-  - OCR (EasyOCR server wrapper) [completed]
-  - crop (normalized coords primary; pixel coords optional) [completed]
-  - point [completed]
-  - SegmentRegionAroundPoint (implement via SAM3, point-guided)
-  - ZoomInSubfigure (subplot selection by description) [completed]
-  - drawline (region + corner indices) [completed]
-  - DrawHorizontalLineByY [completed]
-  - DrawVerticalLineByX [completed]
-- Incorporate tools from VisualSketchpad (https://arxiv.org/abs/2406.09403).
-  - segment_and_mark (full-image segmentation with numbered masks)
-  - zoom_in_image_by_bbox (bbox-based zoom) [completed]
-  - depth (depth estimation)
-  - overlay_images (alpha blend an overlay into a base image) [completed]
-  - sliding_window_detection (small-object helper that runs detection on crops)
-
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./scripts/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./scripts/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
+- Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./scripts/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
   - `mini_vlm_toolkit/tools/single_url_qa/openai_api_key`
 - Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, and `python tests/test_single_url_qa.py`.
+
+## TODO
+- Remaining tool ports are deferred for now (not planned in the near term).
+- OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
+- VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
