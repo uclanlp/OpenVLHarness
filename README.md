@@ -2,6 +2,10 @@
 
 Minimal research toolkit with a tool server and client.
 
+## Tutorial
+
+See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-assisted tool calls).
+
 ## Quick Start
 
 Install dependencies:
@@ -65,13 +69,14 @@ export PYTHONPATH="$(pwd)"
 python tests/test_execute_direct.py
 ```
 
-Additional vision-tool tests (each downloads sample images into `tests/data` on first run):
+Additional vision-tool tests (each downloads sample images into `tests/data` on first run and saves outputs to `tests/output`):
 ```bash
 export PYTHONPATH="$(pwd)"
 python tests/test_crop_tool.py
 python tests/test_drawline_tool.py
 python tests/test_draw_horizontal_line_by_y_tool.py
 python tests/test_draw_vertical_line_by_x_tool.py
+python tests/test_grounding_dino_tool.py
 python tests/test_overlay_images_tool.py
 python tests/test_point_tool.py
 python tests/test_zoom_in_subfigure_tool.py
@@ -95,26 +100,27 @@ export LLM_BASE_URL=http://localhost:8004/v1
 ## TODO
 - Incorporate tools from the Visual Sketchpad paper (ported in-process; no external servers).
 - Incorporate tools from OpenThinkIMG (https://arxiv.org/pdf/2505.08617).
-  - GroundingDINO (use OpenThinkIMG implementation)
+  - GroundingDINO (use OpenThinkIMG implementation) [completed]
   - OCR
-  - crop (normalized coords primary; pixel coords optional)
-  - point
+  - crop (normalized coords primary; pixel coords optional) [completed]
+  - point [completed]
   - SegmentRegionAroundPoint (implement via SAM3, point-guided)
-  - ZoomInSubfigure (subplot selection by description)
-  - drawline (region + corner indices)
-  - DrawHorizontalLineByY
-  - DrawVerticalLineByX
+  - ZoomInSubfigure (subplot selection by description) [completed]
+  - drawline (region + corner indices) [completed]
+  - DrawHorizontalLineByY [completed]
+  - DrawVerticalLineByX [completed]
 - Incorporate tools from VisualSketchpad (https://arxiv.org/abs/2406.09403).
   - segment_and_mark (full-image segmentation with numbered masks)
-  - zoom_in_image_by_bbox (bbox-based zoom)
+  - zoom_in_image_by_bbox (bbox-based zoom) [completed]
   - depth (depth estimation)
-  - overlay_images (alpha blend an overlay into a base image)
+  - overlay_images (alpha blend an overlay into a base image) [completed]
   - sliding_window_detection (small-object helper that runs detection on crops)
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
+- GroundingDINO expects `GROUNDING_DINO_CONFIG_PATH` and `GROUNDING_DINO_CHECKPOINT_PATH` to point to the config and checkpoint files, plus `groundingdino`, `torch`, and `torchvision` installed.
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
