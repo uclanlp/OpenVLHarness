@@ -1,33 +1,102 @@
+import mimetypes
+import os
+
+import requests
+
 from mini_vlm_toolkit.tools.base import BaseTool
 
 TOOL_NAME = "GroundingDINO_Tool"
+DEFAULT_SERVER_URL = "http://127.0.0.1:8084"
+DEFAULT_BOX_THRESHOLD = 0.4
+DEFAULT_TEXT_THRESHOLD = 0.3
 
 
 class GroundingDINO_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Detect objects in an image using GroundingDINO and return bounding boxes.",
-            tool_version="0.1.0",
+            tool_description=(
+                "Detect objects in an image using a GroundingDINO server and return "
+                "bounding boxes."
+            ),
+            tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "query": "str - object names or short phrases to detect",
+                "query": "str - object names or short phrases to detect (separate with '.')",
                 "box_threshold": "float - confidence threshold for boxes",
                 "text_threshold": "float - confidence threshold for text",
+                "server_url": "str - override GroundingDINO server URL",
+                "timeout_seconds": "int - request timeout in seconds",
             },
-            output_type="dict - boxes, logits, phrases, size",
+            output_type=(
+                "dict - boxes (pixel xyxy), boxes_normalized, scores, labels, size [H, W]"
+            ),
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", query=\"bus\")",
-                    "description": "Detect buses in an image.",
+                    "command": (
+                        "execution = tool.execute(image_path=\"/path/to/image.jpg\", "
+                        "query=\"bus\", box_threshold=0.4, text_threshold=0.3)"
+                    ),
+                    "description": "Detect buses in an image via the GroundingDINO server.",
                 }
             ],
             user_metadata={
                 "source": "OpenThinkIMG",
-                "status": "placeholder",
-                "notes": "Data-first output; annotations handled separately.",
+                "status": "implemented",
+                "server_env": "GROUNDING_DINO_SERVER_URL",
+                "default_server_url": DEFAULT_SERVER_URL,
+                "notes": "Wrapper around the Hugging Face GroundingDINO server.",
             },
         )
 
-    def execute(self, image_path, query, box_threshold=0.35, text_threshold=0.25):
-        raise NotImplementedError("GroundingDINO_Tool is not implemented yet.")
+    def sanity_check(self):
+        server_url = os.getenv("GROUNDING_DINO_SERVER_URL", DEFAULT_SERVER_URL).rstrip(
+            "/"
+        )
+        health_url = f"{server_url}/health"
+        try:
+            response = requests.get(health_url, timeout=5)
+        except Exception as exc:
+            return [f"GroundingDINO server unreachable at {health_url}: {exc}"]
+        if response.status_code != 200:
+            return [
+                f"GroundingDINO server unhealthy at {health_url}: {response.status_code}"
+            ]
+        return []
+
+    def execute(
+        self,
+        image_path,
+        query,
+        box_threshold=DEFAULT_BOX_THRESHOLD,
+        text_threshold=DEFAULT_TEXT_THRESHOLD,
+        server_url=None,
+        timeout_seconds=120,
+    ):
+        if not query:
+            raise ValueError("query is required")
+        if not image_path:
+            raise ValueError("image_path is required")
+        if not os.path.isfile(image_path):
+            raise FileNotFoundError(f"image_path not found: {image_path}")
+
+        resolved_server_url = (
+            server_url or os.getenv("GROUNDING_DINO_SERVER_URL", DEFAULT_SERVER_URL)
+        ).rstrip("/")
+        endpoint = f"{resolved_server_url}/v1/grounding_dino"
+
+        content_type = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
+        data = {
+            "query": query,
+            "box_threshold": str(box_threshold),
+            "text_threshold": str(text_threshold),
+        }
+        with open(image_path, "rb") as handle:
+            files = {
+                "image": (os.path.basename(image_path), handle, content_type),
+            }
+            response = requests.post(
+                endpoint, files=files, data=data, timeout=timeout_seconds
+            )
+            response.raise_for_status()
+            return response.json()

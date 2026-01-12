@@ -24,6 +24,12 @@ export PYTHONPATH="$(pwd)"
 ./scripts/run_server.sh
 ```
 
+Start the SAM3 model server (required for the SAM3 tool):
+```bash
+export PYTHONPATH="$(pwd)"
+./scripts/run_sam3_server.sh
+```
+
 Start the server with a specific tool list:
 ```bash
 export PYTHONPATH="$(pwd)"
@@ -100,7 +106,7 @@ export LLM_BASE_URL=http://localhost:8004/v1
 ## TODO
 - Incorporate tools from the Visual Sketchpad paper (ported in-process; no external servers).
 - Incorporate tools from OpenThinkIMG (https://arxiv.org/pdf/2505.08617).
-  - GroundingDINO (use OpenThinkIMG implementation) [completed]
+  - GroundingDINO (HF server wrapper, base model) [completed]
   - OCR
   - crop (normalized coords primary; pixel coords optional) [completed]
   - point [completed]
@@ -120,7 +126,7 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - The executor runs code with `exec()` and no sandboxing.
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
-- GroundingDINO expects `GROUNDING_DINO_CONFIG_PATH` and `GROUNDING_DINO_CHECKPOINT_PATH` to point to the config and checkpoint files, plus `groundingdino`, `torch`, and `torchvision` installed.
+- GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./scripts/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`

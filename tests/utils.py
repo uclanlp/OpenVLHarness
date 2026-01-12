@@ -57,6 +57,24 @@ def ensure_sam3_server(server_url, timeout_seconds=5):
     return True
 
 
+def ensure_grounding_dino_server(server_url, timeout_seconds=5):
+    if not server_url:
+        print("GROUNDING_DINO_SERVER_URL is not set; skipping GroundingDINO tests.")
+        return False
+    endpoint = f"{server_url.rstrip('/')}/health"
+    try:
+        response = requests.get(endpoint, timeout=timeout_seconds)
+    except Exception as exc:
+        print(f"GroundingDINO server unavailable at {endpoint}: {exc}")
+        return False
+    if response.status_code != 200:
+        print(
+            f"GroundingDINO server unhealthy at {endpoint}: status {response.status_code}"
+        )
+        return False
+    return True
+
+
 def ensure_test_image(
     env_var="VISION_TEST_IMAGE",
     url_env_var="VISION_TEST_IMAGE_URL",

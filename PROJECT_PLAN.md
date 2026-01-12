@@ -46,7 +46,7 @@ These tools are the initial compatibility target:
 ## Planned Tools (Vision tool ports)
 We will port tool logic directly into `mini_vlm_toolkit/tools` and skip all external controller/worker or Gradio servers.
 Key decisions (recorded so new contributors do not need prior context):
-- GroundingDINO: use OpenThinkIMG's data-first implementation and return structured boxes/phrases (no VisualSketchpad wrapper).
+- GroundingDINO: run a Hugging Face GroundingDINO model server (default `IDEA-Research/grounding-dino-base`) and wrap it from the toolkit; return data-first boxes/scores/labels (no VisualSketchpad wrapper).
 - Crop: normalized coordinates are the primary interface (better composition with DINO outputs); pixel coords are optional via an explicit flag/enum.
 - Zoom tools: keep both variants as separate tools.
   - `ZoomInSubfigure`: OpenThinkIMG behavior (subplot selection by description).
@@ -56,7 +56,7 @@ Key decisions (recorded so new contributors do not need prior context):
   - `SegmentAndMark`: full-image segmentation with numbered masks (VisualSketchpad Semantic-SAM).
 
 Planned OpenThinkIMG-derived tools:
-- GroundingDINO: image + text query -> bounding boxes (+ size)
+- GroundingDINO: image + text query -> bounding boxes (+ size), served via a dedicated model server
 - OCR: image -> text strings
 - crop: image + region coordinates -> cropped image (normalized primary)
 - point: image + target description -> point coordinates

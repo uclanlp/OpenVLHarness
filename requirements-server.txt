@@ -6,6 +6,8 @@ google-genai
 beautifulsoup4
 numpy
 Pillow
+python-multipart
+einops
 
 git+https://github.com/facebookresearch/sam3.git
 decord

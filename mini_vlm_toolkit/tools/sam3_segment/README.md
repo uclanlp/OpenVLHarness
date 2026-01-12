@@ -6,7 +6,7 @@ from `reference/tool-vision/servers/sam3_server.py` for convenience.
 ## Running the SAM3 server
 
 ```bash
-mini_vlm_toolkit/tools/sam3_segment/run_sam3_server.sh
+./scripts/run_sam3_server.sh
 ```
 
 Environment variables (optional):
