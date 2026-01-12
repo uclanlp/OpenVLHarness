@@ -100,53 +100,31 @@ python -m mini_vlm_toolkit.cli --server http://127.0.0.1:8101 --tool Python_Exec
 
 ## Tests
 
-Each tool has a standalone test script. The Python executor test includes:
-1) direct tool invocation
-2) client invocation via server
-3) LLM-generated tool call via client
-   - The LLM-assisted step builds a prompt and parses tool args in the test script.
-This direct + client + LLM-assisted pattern should be the default for new tool tests.
-
-Run:
 ```bash
 export PYTHONPATH="$(pwd)"
 python tests/test_python_executor.py
 ```
-Direct execution helper test:
-```bash
-export PYTHONPATH="$(pwd)"
-python tests/test_execute_direct.py
-```
 
-Additional vision-tool tests (each downloads sample images into `tests/data` on first run and saves outputs to `tests/output`):
-```bash
-export PYTHONPATH="$(pwd)"
-python tests/test_crop_tool.py
-python tests/test_depth_tool.py
-python tests/test_drawline_tool.py
-python tests/test_draw_horizontal_line_by_y_tool.py
-python tests/test_draw_vertical_line_by_x_tool.py
-python tests/test_grounding_dino_tool.py
-python tests/test_ocr_tool.py
-python tests/test_overlay_images_tool.py
-python tests/test_point_tool.py
-python tests/test_zoom_in_subfigure_tool.py
-python tests/test_zoom_in_image_by_bbox_tool.py
-```
+- Run any tool test with `python tests/test_<tool>.py`.
+- Server-based tests need the tool server running or `TOOL_SERVER_URL`.
+- LLM-assisted tests read `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY` (defaults in code).
+- Vision tests download sample images into `tests/data` and write outputs to `tests/output`.
+- Web/URL QA tests require API keys (see Notes).
 
-LLM test environment:
-- `LLM_MODEL` (optional, default Qwen/Qwen3-8B)
-- `LLM_BASE_URL` (optional, default http://localhost:8004/v1)
-- `LLM_API_KEY` (optional, default "local")
-
-Server-based tests expect the tool server to be running or `TOOL_SERVER_URL` to point to a running instance. 
-Some tools require API keys in the files listed in Notes below.
-
-Example for vLLM Qwen3-8B at port 8004:
+Example LLM env:
 ```bash
 export LLM_MODEL=Qwen/Qwen3-8B
 export LLM_BASE_URL=http://localhost:8004/v1
 ```
+
+## References
+- `reference/` holds read-only snapshots of upstream repos; do not edit them for project changes.
+- `reference/AgentFlow`
+- `reference/OpenThinkIMG`
+- `reference/VisualSketchpad`
+- `reference/tool-vision`
+- `reference/GroundingDINO`
+- `reference/dpr-reproduction`
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.

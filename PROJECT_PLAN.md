@@ -18,9 +18,14 @@ Non-goals:
 - Full AgentFlow solver/planner stack.
 - Model Context Protocol (MCP) integration (explicitly deferred).
 
-## Reference Source
-When referencing AgentFlow code or behavior, only use:
+## Reference Sources
+When referencing external code or behavior, only use the repos under `reference/`:
 - `reference/AgentFlow`
+- `reference/OpenThinkIMG`
+- `reference/VisualSketchpad`
+- `reference/tool-vision`
+- `reference/GroundingDINO`
+- `reference/dpr-reproduction`
 
 Do not reference any external path outside `mini-vlm-toolkit`.
 
@@ -135,6 +140,11 @@ mini-vlm-toolkit/
     test_python_coder.py
   reference/
     AgentFlow/...
+    OpenThinkIMG/...
+    VisualSketchpad/...
+    tool-vision/...
+    GroundingDINO/...
+    dpr-reproduction/...
 ```
 
 ## Test Requirements (per tool)
@@ -180,4 +190,4 @@ Example usage:
 ## Implementation Notes
 - Keep code minimal, flat, and explicit.
 - Avoid framework bloat or heavy dependencies beyond FastAPI, requests, and minimal LLM client.
-- Keep all references to AgentFlow under `reference/AgentFlow`.
+- Keep all reference materials under `reference/` (read-only).
