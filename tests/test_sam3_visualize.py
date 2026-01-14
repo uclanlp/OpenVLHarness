@@ -121,7 +121,7 @@ def test_direct_invocation():
             prompt=prompt,
             image_path=image_path,
             return_masks_png_b64=True,
-            max_masks=6,
+            max_masks=20,
             server_url=SAM3_SERVER_URL,
         )
 
@@ -169,7 +169,7 @@ def test_client_invocation():
                 "prompt": prompt,
                 "image_path": image_path,
                 "return_masks_png_b64": True,
-                "max_masks": 6,
+                "max_masks": 20,
                 "server_url": SAM3_SERVER_URL,
             },
         )
@@ -236,7 +236,7 @@ def test_llm_invocation():
                 "prompt": prompt,
                 "image_path": image_path,
                 "return_masks_png_b64": True,
-                "max_masks": 6,
+                "max_masks": 20,
                 "server_url": SAM3_SERVER_URL,
             },
         )

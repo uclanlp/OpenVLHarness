@@ -230,7 +230,7 @@ sam3_response = client.execute(
     {
         "prompt": "shoe",
         "image_path": image_path,
-        "max_masks": 6,
+        "max_masks": 20,
         "return_masks_png_b64": True,
     },
 )
