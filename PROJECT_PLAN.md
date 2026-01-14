@@ -62,6 +62,9 @@ Key decisions (recorded so new contributors do not need prior context):
 - Segmentation tools: keep both variants as separate tools.
   - `SegmentRegionAroundPoint`: point-guided segmentation implemented via SAM3 (replace OpenThinkIMG SAM2).
   - `SegmentAndMark`: full-image segmentation with numbered masks (VisualSketchpad Semantic-SAM).
+- Visualization tools: SAM3 mask overlays for all masks and zoomed single-mask views (grounding-agent compatible).
+  - SAM3 segment responses should optionally include a default all-masks visualization for quick review.
+  - Tests: `tests/test_sam3_visualize.py` (SAM3 server) and `tests/test_sam3_visualize_synthetic.py` (synthetic).
 
 Remaining OpenThinkIMG-derived tools (deferred):
 - SegmentRegionAroundPoint: image + point -> localized mask (SAM3 model server)
@@ -97,6 +100,7 @@ Each tool will follow the BaseTool-like contract:
      - LLM generates code containing `execution = tool.execute(...)` lines.
      - Client parses these calls into `{tool_name, args}`.
      - Client calls the server with structured requests.
+     - Parser should also accept JSON tool-call outputs that include a tool name and args.
 
 ### LLM Engines
 Allowed providers:
@@ -152,6 +156,8 @@ Each test script should include 3 tests:
 1) Direct invocation: instantiate tool and call `execute` locally.
 2) Client invocation: call the tool via the HTTP server.
 3) LLM invocation: prompt LLM to generate `execution = tool.execute(...)`, parse, then call server.
+
+LLM tests should set `max_tokens` to 8192 to reduce the risk of truncated tool-call code.
 
 Each test should be runnable as a standalone script:
 ```

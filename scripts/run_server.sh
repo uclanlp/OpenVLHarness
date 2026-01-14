@@ -15,6 +15,7 @@ DEFAULT_TOOL_MODULES=(
   "mini_vlm_toolkit.tools.python_coder.tool"
   "mini_vlm_toolkit.tools.crop.tool"
   "mini_vlm_toolkit.tools.overlay_images.tool"
+  "mini_vlm_toolkit.tools.sam3_visualize.tool"
   "mini_vlm_toolkit.tools.drawline.tool"
   "mini_vlm_toolkit.tools.draw_horizontal_line_by_y.tool"
   "mini_vlm_toolkit.tools.draw_vertical_line_by_x.tool"
@@ -24,10 +25,10 @@ DEFAULT_TOOL_MODULES=(
 )
 
 HEAVY_TOOL_MODULES=(
-    #"mini_vlm_toolkit.tools.sam3_segment.tool"
-    #"mini_vlm_toolkit.tools.grounding_dino.tool"
-    #"mini_vlm_toolkit.tools.ocr.tool"
-    #"mini_vlm_toolkit.tools.depth.tool"
+    "mini_vlm_toolkit.tools.sam3_segment.tool"
+    "mini_vlm_toolkit.tools.grounding_dino.tool"
+    "mini_vlm_toolkit.tools.ocr.tool"
+    "mini_vlm_toolkit.tools.depth.tool"
 )
 
 if [[ -z "${TOOL_MODULES:-}" ]]; then

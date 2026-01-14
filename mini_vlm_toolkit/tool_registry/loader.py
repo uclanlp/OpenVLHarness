@@ -11,6 +11,7 @@ DEFAULT_TOOL_MODULES = [
     "mini_vlm_toolkit.tools.single_url_qa.tool",
     "mini_vlm_toolkit.tools.python_coder.tool",
     "mini_vlm_toolkit.tools.sam3_segment.tool",
+    "mini_vlm_toolkit.tools.sam3_visualize.tool",
     "mini_vlm_toolkit.tools.grounding_dino.tool",
     "mini_vlm_toolkit.tools.ocr.tool",
     "mini_vlm_toolkit.tools.crop.tool",

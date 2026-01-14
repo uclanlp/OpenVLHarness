@@ -23,6 +23,8 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
 | `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
+| `SAM3_VisualizeAllMasks_Tool` | Overlay all SAM3 masks on an image (grounding-agent or SAM3 server format). |
+| `SAM3_VisualizeSingleMask_Tool` | Overlay a single SAM3 mask and return a zoomed-in view. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
 | `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
@@ -42,6 +44,8 @@ Optional heavy tool dependencies (SAM3, GroundingDINO, OCR, Depth):
 ```bash
 pip install -r requirements-server.txt
 ```
+SAM3 visualization tools are lightweight (Pillow/numpy). If you pass grounding-agent RLE masks,
+they require `pycocotools` from the server requirements.
 
 Start the server:
 ```bash
@@ -76,9 +80,11 @@ export PYTHONPATH="$(pwd)"
 Start the server with a specific tool list:
 ```bash
 export PYTHONPATH="$(pwd)"
-export TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool,mini_vlm_toolkit.tools.sam3_segment.tool"
+export TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool,mini_vlm_toolkit.tools.sam3_segment.tool,mini_vlm_toolkit.tools.sam3_visualize.tool"
 ./scripts/run_server.sh
 ```
+Note: `mini_vlm_toolkit.tools.sam3_visualize.tool` defines two tools:
+`SAM3_VisualizeAllMasks_Tool` and `SAM3_VisualizeSingleMask_Tool`.
 
 List tools:
 ```bash
@@ -129,6 +135,7 @@ export LLM_BASE_URL=http://localhost:8004/v1
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
+- If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./scripts/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./scripts/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
@@ -138,8 +145,11 @@ export LLM_BASE_URL=http://localhost:8004/v1
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
   - `mini_vlm_toolkit/tools/single_url_qa/openai_api_key`
 - Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, and `python tests/test_single_url_qa.py`.
+- SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
+- SAM3: return an all-masks visualization by default (with an opt-out switch).
+- Client parser: accept JSON tool-call outputs that include a tool name and args.
 - Remaining tool ports are deferred for now (not planned in the near term).
 - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
 - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.

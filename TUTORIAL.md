@@ -4,7 +4,7 @@ This tutorial is for colleagues training vision-language models to generate tool
 
 ## Prereqs
 
-Install dependencies and start the server (install torch first). You can ask Di to start a server and forward to your machine as well.
+Install dependencies and start the server (install torch first). You can ask Di to start a server and forward to your machine as well. If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 ```bash
 pip install -r requirements-server.txt
 export PYTHONPATH="$(pwd)"
@@ -163,7 +163,7 @@ image_path = "tests/data/sam3_demo.jpg"
 response = client.execute(
     "SAM3_Segment_Tool",
     {
-        "prompt": "cow",
+        "prompt": "shoe",
         "image_path": image_path,
         "max_masks": 3,
         "return_masks_png_b64": True,
@@ -196,7 +196,7 @@ prompt = (
     f"Tool name: SAM3_Segment_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
-    "User request: Segment the cow in the image and return up to 3 masks.\n"
+    "User request: Segment the shoes in the image and return up to 3 masks.\n"
     "Return only the code block."
 )
 
@@ -205,17 +205,57 @@ engine = LLMEngine(
     base_url=os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL),
     api_key=os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY),
 )
-llm_output = engine.generate(prompt, max_tokens=1024, temperature=0.4)
+llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.4)
 args = parse_tool_execute_args(llm_output)
 
 # Guardrails if the LLM omitted required fields.
-args.setdefault("prompt", "cow")
+args.setdefault("prompt", "shoe")
 args.setdefault("image_path", image_path)
 args.setdefault("max_masks", 3)
 args.setdefault("return_masks_png_b64", True)
 
 response = client.execute("SAM3_Segment_Tool", args)
 print(response["result"])
+```
+
+### Visualize SAM3 masks
+```python
+from mini_vlm_toolkit.client.client import ToolClient
+
+client = ToolClient("http://127.0.0.1:8101")
+image_path = "tests/data/sam3_demo.jpg"
+
+sam3_response = client.execute(
+    "SAM3_Segment_Tool",
+    {
+        "prompt": "shoe",
+        "image_path": image_path,
+        "max_masks": 6,
+        "return_masks_png_b64": True,
+    },
+)
+
+viz_all = client.execute(
+    "SAM3_VisualizeAllMasks_Tool",
+    {
+        "image_path": image_path,
+        "predictions": sam3_response["result"],
+        "predictions_format": "sam3_server",
+    },
+)
+print(viz_all["result"]["image_base64"])
+
+viz_single = client.execute(
+    "SAM3_VisualizeSingleMask_Tool",
+    {
+        "image_path": image_path,
+        "predictions": sam3_response["result"],
+        "predictions_format": "sam3_server",
+        "mask_index": 0,
+    },
+)
+print(viz_single["result"]["overlay_image_base64"])
+print(viz_single["result"]["zoomed_image_base64"])
 ```
 
 ## Notes for VLM tool-call training
