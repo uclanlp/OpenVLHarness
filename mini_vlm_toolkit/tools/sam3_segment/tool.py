@@ -22,9 +22,10 @@ class SAM3_Segment_Tool(BaseTool):
                 "prompt": "str - text prompt to segment",
                 "image_path": "str - local path to the image file",
                 "return_masks_png_b64": "bool - return PNG masks as base64",
+                "return_all_masks_viz": "bool - return all masks visualization as base64",
                 "max_masks": "int - optional limit on mask count",
             },
-            output_type="dict - SAM3 server response",
+            output_type="dict - SAM3 server response (with optional visualization)",
             demo_commands=[
                 {
                     "command": (
@@ -56,6 +57,7 @@ class SAM3_Segment_Tool(BaseTool):
         prompt,
         image_path,
         return_masks_png_b64=True,
+        return_all_masks_viz=True,
         max_masks=None,
         server_url=None,
         timeout_seconds=300,
@@ -73,9 +75,10 @@ class SAM3_Segment_Tool(BaseTool):
         endpoint = f"{resolved_server_url}/v1/segment"
 
         content_type = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
+        request_masks = bool(return_masks_png_b64) or bool(return_all_masks_viz)
         data = {
             "prompt": prompt,
-            "return_masks_png_b64": str(bool(return_masks_png_b64)).lower(),
+            "return_masks_png_b64": str(request_masks).lower(),
         }
         if max_masks is not None:
             data["max_masks"] = str(max_masks)
@@ -88,4 +91,30 @@ class SAM3_Segment_Tool(BaseTool):
                 endpoint, files=files, data=data, timeout=timeout_seconds
             )
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+
+        if "error" in result:
+            return result
+
+        if return_all_masks_viz:
+            from mini_vlm_toolkit.tools.image_utils import load_image, pil_to_base64
+            from mini_vlm_toolkit.tools.sam3_visualize.tool import (
+                SAM3_VisualizeAllMasks_Tool,
+            )
+
+            if result.get("masks_png_b64"):
+                viz_tool = SAM3_VisualizeAllMasks_Tool()
+                viz = viz_tool.execute(
+                    image_path=image_path,
+                    predictions=result,
+                    predictions_format="sam3_server",
+                )
+                result["all_masks_viz_base64"] = viz["image_base64"]
+            else:
+                image = load_image(image_path)
+                result["all_masks_viz_base64"] = pil_to_base64(image)
+
+        if not return_masks_png_b64 and "masks_png_b64" in result:
+            result.pop("masks_png_b64", None)
+
+        return result

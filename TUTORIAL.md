@@ -197,6 +197,8 @@ response = client.execute(
 )
 print(response["result"])
 ```
+`SAM3_Segment_Tool` returns `all_masks_viz_base64` by default (overlay of all masks).
+Set `return_all_masks_viz=False` to skip generating the visualization.
 
 ### Call from an LLM (generate tool call, parse, execute)
 ```python
@@ -240,6 +242,7 @@ args = tool_call["args"]
 args.setdefault("prompt", "shoe")
 args.setdefault("image_path", image_path)
 args.setdefault("return_masks_png_b64", True)
+args.setdefault("return_all_masks_viz", True)
 
 response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
@@ -260,6 +263,8 @@ sam3_response = client.execute(
         "return_masks_png_b64": True,
     },
 )
+
+print(sam3_response["result"]["all_masks_viz_base64"])
 
 viz_all = client.execute(
     "SAM3_VisualizeAllMasks_Tool",

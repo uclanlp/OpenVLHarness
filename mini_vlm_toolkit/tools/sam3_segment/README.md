@@ -25,3 +25,10 @@ You need a Python environment that can import and run the SAM3 server:
 4) If you download SAM3 from source, make sure `PYTHONPATH` includes the SAM3 package path.
 
 The toolkit itself only needs `requests` to call the server.
+
+## Output visualization
+
+`SAM3_Segment_Tool` returns `all_masks_viz_base64` by default. Set
+`return_all_masks_viz=False` to skip generating the visualization.
+If you set `return_masks_png_b64=False` while keeping the visualization enabled,
+the tool still requests masks from the server and removes them from the final response.

@@ -187,9 +187,6 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 
 ## TODO
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
-- Docs: clarify heavy tool dependencies vs main server requirements.
-- SAM3: return an all-masks visualization by default (with an opt-out switch).
-- Docs: refresh `TUTORIAL.md` or add a new tutorial after config/script changes land.
 - Tool onboarding: add a scaffolding helper for new tools.
 - Remaining tool ports are deferred for now (not planned in the near term).
 - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
