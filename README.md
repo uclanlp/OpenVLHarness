@@ -47,21 +47,31 @@ pip install -r requirements-server.txt
 SAM3 visualization tools are lightweight (Pillow/numpy). If you pass grounding-agent RLE masks,
 they require `pycocotools` from the server requirements.
 
+Before launching your own server, check whether one is already running so you can reuse it:
+```bash
+python scripts/scan_server_status.py
+```
+The helper scans ports 8000-9000 and prints tool-server tool lists and any subtool servers it finds.
+
 Start the server:
 ```bash
 cp .env.example .env
-# Edit .env to set TOOL_MODULES (required) and optional HEAVY_TOOL_MODULES.
+# Edit .env to set LIGHT_TOOL_MODULES (use "auto" to discover tools) and/or HEAVY_TOOL_MODULES.
 ./scripts/run_server.sh
 ```
 `scripts/run_server.sh` sources the repo-root `.env` for
-`HOST`, `PORT`, `TOOL_MODULES`, `HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides
+`HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides
 (main server only).
+It builds `TOOL_MODULES` from `LIGHT_TOOL_MODULES` + `HEAVY_TOOL_MODULES`.
+Do not set `TOOL_MODULES` directly when using `scripts/run_server.sh`.
 
 Start the SAM3 model server (required for the SAM3 tool):
 ```bash
 ./mini_vlm_toolkit/tools/sam3_segment/run_sam3_server.sh
 ```
 Model server scripts live in their tool folders and do not read `.env`.
+Use the tool-specific `*_PORT`/`*_HOST` env vars to change subserver ports (see Notes),
+and run `python scripts/scan_server_status.py` to confirm they are up.
 
 Start the OCR model server (required for the OCR tool):
 ```bash
@@ -80,10 +90,15 @@ Start the Depth-Anything model server (required for the Depth tool):
 
 Start the server with a specific tool list:
 ```bash
-export TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool,mini_vlm_toolkit.tools.sam3_segment.tool,mini_vlm_toolkit.tools.sam3_visualize.tool"
+export LIGHT_TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool,mini_vlm_toolkit.tools.sam3_visualize.tool"
+export HEAVY_TOOL_MODULES="mini_vlm_toolkit.tools.sam3_segment.tool"
 ./scripts/run_server.sh
 ```
 Exports override `.env` values for the same keys.
+Set `LIGHT_TOOL_MODULES=auto` to discover all `mini_vlm_toolkit/tools/*/tool.py` modules.
+Auto discovery skips tools that fail imports or sanity checks; explicit lists are strict.
+When `LIGHT_TOOL_MODULES=auto`, `HEAVY_TOOL_MODULES` is ignored.
+If set, `LIGHT_TOOL_MODULES` must be either `auto` or a list of module paths (no mixing).
 Note: `mini_vlm_toolkit.tools.sam3_visualize.tool` defines two tools:
 `SAM3_VisualizeAllMasks_Tool` and `SAM3_VisualizeSingleMask_Tool`.
 
@@ -91,7 +106,8 @@ List tools:
 ```bash
 curl http://127.0.0.1:8101/tools
 ```
-`scripts/run_server.sh` requires `TOOL_MODULES` (see `.env.example`). If you run `uvicorn` directly, the fallback tool list is in `mini_vlm_toolkit/tool_registry/loader.py`.
+`scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (see `.env.example`).
+If you run `uvicorn` directly, `TOOL_MODULES=auto` (or unset) triggers tool auto-discovery.
 
 ## CLI (no Python required)
 
@@ -146,6 +162,8 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
 - Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
+- Subserver ports can be overridden via env vars: SAM3 uses `HOST`/`PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
+- Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
@@ -155,13 +173,12 @@ export LLM_BASE_URL=http://localhost:8004/v1
 
 ## TODO
 - New tool: LLM router that forwards OpenAI-style chat messages to vLLM servers via env-based model->base_url mapping (one base URL per model).
-- Tool onboarding: reduce manual edits for new tools (manifest/auto-discovery + scaffolding helper).
-- Tool onboarding: auto-discovery mode skips tools with missing deps or failed sanity checks, while explicit `TOOL_MODULES` stays strict.
-- Docs: clarify heavy tool dependencies vs main server requirements.
-- Docs: refresh `TUTORIAL.md` or add a new tutorial after config/script changes land.
 - Client parser: accept JSON tool-call outputs that include a tool name and args.
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Client parser: split into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.
+- Docs: clarify heavy tool dependencies vs main server requirements.
+- Docs: refresh `TUTORIAL.md` or add a new tutorial after config/script changes land.
+- Tool onboarding: add a scaffolding helper for new tools.
 - SAM3: return an all-masks visualization by default (with an opt-out switch).
 - Remaining tool ports are deferred for now (not planned in the near term).
 - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).

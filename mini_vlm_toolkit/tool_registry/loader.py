@@ -1,55 +1,72 @@
 import importlib
 import inspect
 import os
+import sys
 
 from mini_vlm_toolkit.tools.base import BaseTool
 
-DEFAULT_TOOL_MODULES = [
-    "mini_vlm_toolkit.tools.python_executor.tool",
-    "mini_vlm_toolkit.tools.gemini_google_search.tool",
-    "mini_vlm_toolkit.tools.serper_google_search.tool",
-    "mini_vlm_toolkit.tools.single_url_qa.tool",
-    "mini_vlm_toolkit.tools.python_coder.tool",
-    "mini_vlm_toolkit.tools.sam3_segment.tool",
-    "mini_vlm_toolkit.tools.sam3_visualize.tool",
-    "mini_vlm_toolkit.tools.grounding_dino.tool",
-    "mini_vlm_toolkit.tools.ocr.tool",
-    "mini_vlm_toolkit.tools.crop.tool",
-    "mini_vlm_toolkit.tools.point.tool",
-    "mini_vlm_toolkit.tools.segment_region_around_point.tool",
-    "mini_vlm_toolkit.tools.zoom_in_subfigure.tool",
-    "mini_vlm_toolkit.tools.drawline.tool",
-    "mini_vlm_toolkit.tools.draw_horizontal_line_by_y.tool",
-    "mini_vlm_toolkit.tools.draw_vertical_line_by_x.tool",
-    "mini_vlm_toolkit.tools.segment_and_mark.tool",
-    "mini_vlm_toolkit.tools.zoom_in_image_by_bbox.tool",
-    "mini_vlm_toolkit.tools.depth.tool",
-    "mini_vlm_toolkit.tools.overlay_images.tool",
-    "mini_vlm_toolkit.tools.sliding_window_detection.tool",
-]
+def _discover_tool_modules():
+    tools_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tools")
+    modules = []
+    if not os.path.isdir(tools_dir):
+        return modules
+    for entry in sorted(os.listdir(tools_dir)):
+        tool_path = os.path.join(tools_dir, entry, "tool.py")
+        if os.path.isfile(tool_path):
+            modules.append(f"mini_vlm_toolkit.tools.{entry}.tool")
+    return modules
 
 
 def _get_tool_modules():
     raw_modules = os.getenv("TOOL_MODULES")
-    if raw_modules is None:
-        return DEFAULT_TOOL_MODULES
+    if raw_modules is None or not raw_modules.strip():
+        return _discover_tool_modules(), True
 
     modules = [item.strip() for item in raw_modules.split(",") if item.strip()]
     if not modules:
         raise RuntimeError("TOOL_MODULES was set but empty")
-    return modules
+
+    lowered = [item.lower() for item in modules]
+    if "auto" in lowered:
+        if len(modules) != 1:
+            raise RuntimeError(
+                "TOOL_MODULES must be either 'auto' or a comma-separated list of modules"
+            )
+        return _discover_tool_modules(), True
+
+    return modules, False
 
 
 def load_tools():
     tool_instances = {}
     tool_metadata = {}
 
-    for module_path in _get_tool_modules():
-        module = importlib.import_module(module_path)
+    module_paths, auto_mode = _get_tool_modules()
+
+    for module_path in module_paths:
+        try:
+            module = importlib.import_module(module_path)
+        except Exception as exc:
+            if auto_mode:
+                print(
+                    f"Skipping tool module {module_path}: import failed: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            raise
         for name, obj in inspect.getmembers(module, inspect.isclass):
             if not issubclass(obj, BaseTool) or obj is BaseTool:
                 continue
-            instance = obj()
+            try:
+                instance = obj()
+            except Exception as exc:
+                if auto_mode:
+                    print(
+                        f"Skipping tool class {module_path}.{name}: init failed: {exc}",
+                        file=sys.stderr,
+                    )
+                    continue
+                raise
             issues = []
             try:
                 issues = instance.sanity_check() or []
@@ -59,6 +76,14 @@ def load_tools():
                 issues = [issues]
             if issues:
                 formatted = "\n".join(f"- {issue}" for issue in issues)
+                if auto_mode:
+                    print(
+                        "Skipping tool {name}: sanity check failed:\n{issues}".format(
+                            name=instance.tool_name, issues=formatted
+                        ),
+                        file=sys.stderr,
+                    )
+                    continue
                 raise RuntimeError(
                     f"Sanity check failed for {instance.tool_name}:\n{formatted}"
                 )

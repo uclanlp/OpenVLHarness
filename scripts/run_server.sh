@@ -8,20 +8,26 @@ ENV_FILE="$ROOT_DIR/.env"
 PRE_HOST="${HOST-}"
 PRE_PORT="${PORT-}"
 PRE_TOOL_MODULES="${TOOL_MODULES-}"
+PRE_LIGHT_TOOL_MODULES="${LIGHT_TOOL_MODULES-}"
 PRE_HEAVY_TOOL_MODULES="${HEAVY_TOOL_MODULES-}"
 PRE_SAM3_SERVER_URL="${SAM3_SERVER_URL-}"
 PRE_GROUNDING_DINO_SERVER_URL="${GROUNDING_DINO_SERVER_URL-}"
 PRE_OCR_SERVER_URL="${OCR_SERVER_URL-}"
 PRE_DEPTH_ANYTHING_SERVER_URL="${DEPTH_ANYTHING_SERVER_URL-}"
 
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  set +u
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set -u
-  set +a
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Missing .env file at $ENV_FILE. Create it from .env.example." >&2
+  exit 1
 fi
+
+ENV_FILE_REALPATH="$(realpath "$ENV_FILE")"
+
+set -a
+set +u
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set -u
+set +a
 
 if [[ -n "$PRE_HOST" ]]; then
   HOST="$PRE_HOST"
@@ -29,8 +35,8 @@ fi
 if [[ -n "$PRE_PORT" ]]; then
   PORT="$PRE_PORT"
 fi
-if [[ -n "$PRE_TOOL_MODULES" ]]; then
-  TOOL_MODULES="$PRE_TOOL_MODULES"
+if [[ -n "$PRE_LIGHT_TOOL_MODULES" ]]; then
+  LIGHT_TOOL_MODULES="$PRE_LIGHT_TOOL_MODULES"
 fi
 if [[ -n "$PRE_HEAVY_TOOL_MODULES" ]]; then
   HEAVY_TOOL_MODULES="$PRE_HEAVY_TOOL_MODULES"
@@ -55,14 +61,34 @@ fi
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8101}"
 
-if [[ -z "${TOOL_MODULES:-}" ]]; then
-  echo "TOOL_MODULES is required. Set it in $ENV_FILE or export it before running." >&2
+if [[ -n "$PRE_TOOL_MODULES" || -n "${TOOL_MODULES:-}" ]]; then
+  echo "TOOL_MODULES is not read by scripts/run_server.sh. Use LIGHT_TOOL_MODULES/HEAVY_TOOL_MODULES instead." >&2
   exit 1
 fi
 
-if [[ -n "${HEAVY_TOOL_MODULES:-}" ]]; then
-  TOOL_MODULES="${TOOL_MODULES},${HEAVY_TOOL_MODULES}"
+if [[ -z "${LIGHT_TOOL_MODULES:-}" && -z "${HEAVY_TOOL_MODULES:-}" ]]; then
+  echo "Set LIGHT_TOOL_MODULES or HEAVY_TOOL_MODULES in $ENV_FILE or export them before running." >&2
+  exit 1
 fi
+
+if [[ "${LIGHT_TOOL_MODULES:-}" == "auto" ]]; then
+  if [[ -n "${HEAVY_TOOL_MODULES:-}" ]]; then
+    echo "HEAVY_TOOL_MODULES is ignored when LIGHT_TOOL_MODULES=auto." >&2
+  fi
+  MODE="auto"
+  TOOL_MODULES="auto"
+else
+  MODE="explicit"
+  TOOL_MODULES="${LIGHT_TOOL_MODULES:-}"
+  if [[ -n "${HEAVY_TOOL_MODULES:-}" ]]; then
+    if [[ -n "${TOOL_MODULES}" ]]; then
+      TOOL_MODULES="${TOOL_MODULES},${HEAVY_TOOL_MODULES}"
+    else
+      TOOL_MODULES="${HEAVY_TOOL_MODULES}"
+    fi
+  fi
+fi
+echo "Loaded env: ${ENV_FILE_REALPATH} (mode=${MODE})" >&2
 export TOOL_MODULES
 
 exec env TOOL_MODULES="$TOOL_MODULES" uvicorn mini_vlm_toolkit.server.app:app --host "$HOST" --port "$PORT"

@@ -39,7 +39,7 @@ Point the wrapper to the model server:
 ```bash
 export GROUNDING_DINO_SERVER_URL="http://127.0.0.1:8084"
 export PYTHONPATH="$(pwd)"
-export TOOL_MODULES="mini_vlm_toolkit.tools.grounding_dino.tool"
+export LIGHT_TOOL_MODULES="mini_vlm_toolkit.tools.grounding_dino.tool"
 ./scripts/run_server.sh
 ```
 

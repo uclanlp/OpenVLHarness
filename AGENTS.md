@@ -19,8 +19,8 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 - `reference/`: External reference materials; do not edit for project changes.
 
 ## Tool Registry & Launch Defaults
-- `scripts/run_server.sh` builds `TOOL_MODULES` from `DEFAULT_TOOL_MODULES` and appends `HEAVY_TOOL_MODULES`; override `TOOL_MODULES` to customize.
-- `mini_vlm_toolkit/tool_registry/loader.py` uses `TOOL_MODULES` when set, otherwise falls back to its own `DEFAULT_TOOL_MODULES` list.
+- `scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` (`auto` or a comma-separated list) or `HEAVY_TOOL_MODULES`, and appends `HEAVY_TOOL_MODULES` only when `LIGHT_TOOL_MODULES` is explicit; it builds `TOOL_MODULES` and ignores direct `TOOL_MODULES`.
+- `mini_vlm_toolkit/tool_registry/loader.py` uses `TOOL_MODULES`; `auto` (or unset) triggers tool auto-discovery that skips failed imports/sanity checks.
 - Some modules define multiple tools (for example `mini_vlm_toolkit.tools.sam3_visualize.tool`).
 
 ## Build, Test, and Development Commands
@@ -32,18 +32,16 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 - `PYTHONPATH="$(pwd)" python -m mini_vlm_toolkit.cli --server http://127.0.0.1:8101 --tool Python_Executor_Tool --code "print(5*3)\nvalue=15"` runs via server.
 - `PYTHONPATH="$(pwd)" python tests/test_python_executor.py` runs a test script.
 - Model servers (run separately when needed):
-  - `./scripts/run_sam3_server.sh`
-  - `./scripts/run_grounding_dino_server.sh`
-  - `./scripts/run_ocr_server.sh`
-  - `./scripts/run_depth_anything_server.sh`
+  - `./mini_vlm_toolkit/tools/sam3_segment/run_sam3_server.sh`
+  - `./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh`
+  - `./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh`
+  - `./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh`
 
 ## Adding a New Tool (Workflow)
 1) Check relevant implementations in `reference/` and confirm the intended behavior/inputs/outputs before coding.
 2) Create `mini_vlm_toolkit/tools/<tool_name>/tool.py` + `__init__.py`; follow `BaseTool` metadata conventions and keep inputs explicit.
 3) Add tests in `tests/test_<tool_name>_tool.py` following the direct/client/LLM pattern; add any new images to `tests/data`.
-4) Decide if the tool is heavy (external model server or large deps) or default (lightweight). Update:
-   - `scripts/run_server.sh` to place the tool module in `DEFAULT_TOOL_MODULES` or `HEAVY_TOOL_MODULES`.
-   - `mini_vlm_toolkit/tool_registry/loader.py` fallback list.
+4) Decide if the tool is heavy (external model server or large deps) or default (lightweight). If you use explicit tool lists, update `.env` to place the module in `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES`. With `LIGHT_TOOL_MODULES=auto`, no list edits are needed.
 5) Update docs (`README.md`, `TUTORIAL.md`) and note any new env vars or API key files.
 
 ## Coding Style & Naming Conventions
@@ -70,8 +68,8 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 
 ## Configuration & Security Notes
 - The Python executor runs `exec()` without sandboxing; avoid untrusted code.
-- Tool lists are driven by `TOOL_MODULES`; see `scripts/run_server.sh` for defaults.
-- Environment variables commonly used: `HOST`, `PORT`, `TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`.
+- Tool lists are driven by `LIGHT_TOOL_MODULES` + `HEAVY_TOOL_MODULES`; see `.env.example` for sample lists.
+- Environment variables commonly used: `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`.
 - Model server URLs:
   - `SAM3_SERVER_URL`
   - `GROUNDING_DINO_SERVER_URL`

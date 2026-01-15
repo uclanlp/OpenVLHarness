@@ -81,7 +81,7 @@ Each tool will follow the BaseTool-like contract:
 - Required method: `execute(**kwargs)`.
 
 ### Tool Registry
-- Load tool modules from `mini_vlm_toolkit/tools/<tool_dir>/tool.py`.
+- Auto-discover tool modules from `mini_vlm_toolkit/tools/<tool_dir>/tool.py` when `TOOL_MODULES=auto` (or unset); otherwise load the explicit module list from `TOOL_MODULES`. Auto discovery skips tools that fail imports or sanity checks.
 - Map external tool names to internal module/class names (AgentFlow pattern).
 - Store tool metadata and a cached instance per tool.
 
@@ -170,7 +170,7 @@ python tests/test_<tool>.py
 - source the repo-root `.env` for main server settings
 - start the server on a configurable host/port
 - print the tool list endpoint for quick verification
-It requires `TOOL_MODULES` and optionally appends `HEAVY_TOOL_MODULES`.
+It requires `LIGHT_TOOL_MODULES` (`auto` or a comma-separated list) or `HEAVY_TOOL_MODULES`, and appends `HEAVY_TOOL_MODULES` only when `LIGHT_TOOL_MODULES` is explicit.
 Shell exports override `.env` values for the same keys.
 
 Example usage:
@@ -202,8 +202,7 @@ Planned: clarify heavy tool dependencies vs main server requirements in docs and
 Planned: refresh `TUTORIAL.md` or add a new tutorial after config/script changes.
 Planned: decide whether LLM-based argument correction lives as a separate parser layer or an optional fallback inside the existing parser.
 Planned: split parser into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.
-Planned: streamline new-tool onboarding (single manifest or auto-discovery) and add a scaffolding helper.
-Planned: auto-discovery skips tools with missing deps or failed sanity checks, while explicit `TOOL_MODULES` remains strict.
+Planned: add a scaffolding helper for new tools.
 
 ## Implementation Notes
 - Keep code minimal, flat, and explicit.

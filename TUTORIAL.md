@@ -5,17 +5,33 @@ This tutorial is for colleagues training vision-language models to generate tool
 ## Prereqs
 
 Install dependencies and start the server (install torch first). You can ask Di to start a server and forward to your machine as well. If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
+
+Before launching your own server, check whether one is already running so you can reuse it:
+```bash
+python scripts/scan_server_status.py
+```
+It scans ports 8000-9000 and prints tools on each tool server plus any subtool servers it detects.
 ```bash
 pip install -r requirements-server.txt
 cp .env.example .env
-# Edit .env to set TOOL_MODULES (required) and optional HEAVY_TOOL_MODULES.
+# Edit .env to set LIGHT_TOOL_MODULES (use "auto" to discover tools) and/or HEAVY_TOOL_MODULES.
 ./scripts/run_server.sh
 ```
 Exports in your shell override `.env` values for the same keys.
+Auto discovery skips tools that fail imports or sanity checks; explicit lists are strict.
+When `LIGHT_TOOL_MODULES=auto`, `HEAVY_TOOL_MODULES` is ignored.
+If set, `LIGHT_TOOL_MODULES` must be either `auto` or a list of module paths (no mixing).
+Do not set `TOOL_MODULES` directly when using `scripts/run_server.sh`.
 
 By default the server listens at `http://127.0.0.1:8101`.
 
 If you don't need to start the server on your end, you can install the lighter `requirements-client.txt`.
+
+Subserver ports are configurable via env vars (SAM3 uses `HOST`/`PORT`, GroundingDINO uses
+`GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses
+`DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
+`python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
+
 
 ## Endpoint layout
 

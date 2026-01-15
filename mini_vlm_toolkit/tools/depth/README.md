@@ -43,6 +43,6 @@ Point the wrapper to the model server:
 ```bash
 export DEPTH_ANYTHING_SERVER_URL="http://127.0.0.1:8082"
 export PYTHONPATH="$(pwd)"
-export TOOL_MODULES="mini_vlm_toolkit.tools.depth.tool"
+export LIGHT_TOOL_MODULES="mini_vlm_toolkit.tools.depth.tool"
 ./scripts/run_server.sh
 ```

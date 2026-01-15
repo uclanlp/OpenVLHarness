@@ -38,6 +38,6 @@ Point the wrapper to the model server:
 ```bash
 export OCR_SERVER_URL="http://127.0.0.1:8085"
 export PYTHONPATH="$(pwd)"
-export TOOL_MODULES="mini_vlm_toolkit.tools.ocr.tool"
+export LIGHT_TOOL_MODULES="mini_vlm_toolkit.tools.ocr.tool"
 ./scripts/run_server.sh
 ```
