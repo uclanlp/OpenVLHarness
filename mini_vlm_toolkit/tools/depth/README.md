@@ -28,8 +28,7 @@ Set optional environment variables:
 Start the server:
 
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_depth_anything_server.sh
+./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh
 ```
 
 Health check:

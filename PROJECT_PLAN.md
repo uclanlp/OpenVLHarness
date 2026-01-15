@@ -167,15 +167,16 @@ python tests/test_<tool>.py
 
 ## Server Script
 `scripts/run_server.sh` should:
-- set minimal env vars (if provided)
+- source the repo-root `.env` for main server settings
 - start the server on a configurable host/port
 - print the tool list endpoint for quick verification
-Planned: source a repo-root `.env` for `HOST`, `PORT`, `TOOL_MODULES`,
-`HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides (main server only).
+It requires `TOOL_MODULES` and optionally appends `HEAVY_TOOL_MODULES`.
+Shell exports override `.env` values for the same keys.
 
 Example usage:
 ```
-./scripts/run_server.sh --host 127.0.0.1 --port 8101
+cp .env.example .env
+./scripts/run_server.sh
 ```
 
 ## Environment Variables (planned)
@@ -184,8 +185,8 @@ Example usage:
 - `VLLM_BASE_URL` for OpenAI-compatible vLLM endpoints
 - `DEFAULT_LLM_PROVIDER` optional, `openai|together|vllm`
 - `DEFAULT_MODEL` optional model name
-Planned: move model server launch scripts into their tool folders; they will
-continue to use their tool-specific env vars and will not source `.env`.
+Model server launch scripts live in their tool folders; they continue to use
+tool-specific env vars and do not source `.env`.
 
 ## Parallel Work Plan
 - Person A: Tool registry + BaseTool + mapping logic.

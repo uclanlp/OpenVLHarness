@@ -24,8 +24,7 @@ Set optional environment variables:
 Start the server:
 
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_grounding_dino_server.sh
+./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh
 ```
 
 Health check:

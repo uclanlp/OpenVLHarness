@@ -14,7 +14,7 @@ pip install easyocr
 
 Set optional environment variables:
 - `OCR_LANGS` (default: `ch_sim,en`)
-- `OCR_GPU` (`true` or `false`, default: `false`)
+- `OCR_GPU` (`true`, `false`, or `auto`, default: `auto`)
 - `OCR_MODEL_DIR` (optional model storage directory)
 - `OCR_DOWNLOAD_ENABLED` (`true` or `false`, default: `true`)
 - `OCR_HOST` (default: `127.0.0.1`)
@@ -23,8 +23,7 @@ Set optional environment variables:
 Start the server:
 
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_ocr_server.sh
+./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh
 ```
 
 Health check:

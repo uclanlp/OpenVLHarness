@@ -11,7 +11,7 @@ import torch
 
 
 LANGS_ENV = os.getenv("OCR_LANGS", "ch_sim,en")
-GPU_ENV = os.getenv("OCR_GPU", "false")
+GPU_ENV = os.getenv("OCR_GPU", "auto")
 MODEL_DIR = os.getenv("OCR_MODEL_DIR", "").strip()
 DOWNLOAD_ENABLED = os.getenv("OCR_DOWNLOAD_ENABLED", "true")
 
@@ -34,9 +34,12 @@ def _parse_langs(raw):
 
 
 def _resolve_gpu():
-    if str(GPU_ENV).lower() in ("1", "true", "yes", "on"):
+    raw = str(GPU_ENV).lower().strip()
+    if raw in ("1", "true", "yes", "on"):
         return torch.cuda.is_available()
-    return False
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return torch.cuda.is_available()
 
 
 def _resolve_download_enabled():

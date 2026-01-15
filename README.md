@@ -49,45 +49,41 @@ they require `pycocotools` from the server requirements.
 
 Start the server:
 ```bash
-export PYTHONPATH="$(pwd)"
+cp .env.example .env
+# Edit .env to set TOOL_MODULES (required) and optional HEAVY_TOOL_MODULES.
 ./scripts/run_server.sh
 ```
-Planned: `scripts/run_server.sh` will source a repo-root `.env` for
+`scripts/run_server.sh` sources the repo-root `.env` for
 `HOST`, `PORT`, `TOOL_MODULES`, `HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides
 (main server only).
 
 Start the SAM3 model server (required for the SAM3 tool):
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_sam3_server.sh
+./mini_vlm_toolkit/tools/sam3_segment/run_sam3_server.sh
 ```
-Planned: move the model server scripts into their tool folders (they will not
-read `.env`).
+Model server scripts live in their tool folders and do not read `.env`.
 
 Start the OCR model server (required for the OCR tool):
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_ocr_server.sh
+./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh
 ```
 
 Start the GroundingDINO model server (required for the GroundingDINO tool):
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_grounding_dino_server.sh
+./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh
 ```
 
 Start the Depth-Anything model server (required for the Depth tool):
 ```bash
-export PYTHONPATH="$(pwd)"
-./scripts/run_depth_anything_server.sh
+./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh
 ```
 
 Start the server with a specific tool list:
 ```bash
-export PYTHONPATH="$(pwd)"
 export TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool,mini_vlm_toolkit.tools.sam3_segment.tool,mini_vlm_toolkit.tools.sam3_visualize.tool"
 ./scripts/run_server.sh
 ```
+Exports override `.env` values for the same keys.
 Note: `mini_vlm_toolkit.tools.sam3_visualize.tool` defines two tools:
 `SAM3_VisualizeAllMasks_Tool` and `SAM3_VisualizeSingleMask_Tool`.
 
@@ -95,7 +91,7 @@ List tools:
 ```bash
 curl http://127.0.0.1:8101/tools
 ```
-By default `scripts/run_server.sh` sets `TOOL_MODULES` to a curated list (see the script). If you run `uvicorn` directly, the fallback tool list is in `mini_vlm_toolkit/tool_registry/loader.py`.
+`scripts/run_server.sh` requires `TOOL_MODULES` (see `.env.example`). If you run `uvicorn` directly, the fallback tool list is in `mini_vlm_toolkit/tool_registry/loader.py`.
 
 ## CLI (no Python required)
 
@@ -114,6 +110,11 @@ python -m mini_vlm_toolkit.cli --server http://127.0.0.1:8101 --tool Python_Exec
 ```bash
 export PYTHONPATH="$(pwd)"
 python tests/test_python_executor.py
+```
+
+- Run all test scripts (prints a clean PASS/FAIL summary):
+```bash
+./scripts/run_tests.sh
 ```
 
 - Run any tool test with `python tests/test_<tool>.py`.
@@ -142,9 +143,9 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
-- GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./scripts/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
-- OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./scripts/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
-- Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./scripts/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
+- GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
+- OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
+- Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
@@ -153,8 +154,6 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
-- Server config: source a repo-root `.env` for main server settings (not subservers).
-- Model server launchers: move to tool folders (no `.env` sourcing).
 - New tool: LLM router that forwards OpenAI-style chat messages to vLLM servers via env-based model->base_url mapping (one base URL per model).
 - Tool onboarding: reduce manual edits for new tools (manifest/auto-discovery + scaffolding helper).
 - Tool onboarding: auto-discovery mode skips tools with missing deps or failed sanity checks, while explicit `TOOL_MODULES` stays strict.

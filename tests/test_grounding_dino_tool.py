@@ -165,7 +165,7 @@ def test_llm_invocation():
         "Detect the main subject in the image using GroundingDINO.",
         image_path,
     )
-    llm_output = engine.generate(prompt, max_tokens=2048, temperature=0.6)
+    llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.6)
     log_output("LLM output", llm_output)
     args = parse_tool_execute_args(llm_output)
     args.setdefault("image_path", image_path)

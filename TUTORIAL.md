@@ -7,9 +7,11 @@ This tutorial is for colleagues training vision-language models to generate tool
 Install dependencies and start the server (install torch first). You can ask Di to start a server and forward to your machine as well. If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 ```bash
 pip install -r requirements-server.txt
-export PYTHONPATH="$(pwd)"
+cp .env.example .env
+# Edit .env to set TOOL_MODULES (required) and optional HEAVY_TOOL_MODULES.
 ./scripts/run_server.sh
 ```
+Exports in your shell override `.env` values for the same keys.
 
 By default the server listens at `http://127.0.0.1:8101`.
 
