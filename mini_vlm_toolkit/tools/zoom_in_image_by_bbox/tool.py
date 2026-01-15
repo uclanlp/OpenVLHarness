@@ -18,7 +18,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", bbox=[0.1, 0.2, 0.3, 0.4])",
+                    "command": "ZoomInImageByBBox_Tool(image_path=\"/path/to/image.jpg\", bbox=[0.1, 0.2, 0.3, 0.4])",
                     "description": "Crop around a bbox with padding.",
                 }
             ],

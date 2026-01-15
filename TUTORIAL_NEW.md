@@ -8,7 +8,7 @@ This is a focused walkthrough for researchers who want to: (1) launch a tool ser
 - `mini_vlm_toolkit/tools/base.py`: `BaseTool` metadata contract (`tool_name`, `input_types`, `output_type`).
 - `mini_vlm_toolkit/tool_registry/loader.py`: loads tools from `TOOL_MODULES` (`auto` or comma-separated module list).
 - `mini_vlm_toolkit/server/app.py`: FastAPI server with `/tools` and `/execute`.
-- `mini_vlm_toolkit/client/`: `ToolClient` and `parse_tool_execute_args`.
+- `mini_vlm_toolkit/client/`: `ToolClient`, `python_tool_call_parser.py` (Python tool-call parsing), `json_tool_call_parser.py` (TODO).
 - `mini_vlm_toolkit/llm/engine.py`: LLM wrapper used to generate tool-call code.
 - `scripts/run_server.sh`: starts the tool server; requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (builds `TOOL_MODULES`, ignore direct `TOOL_MODULES`).
 - Tool model servers (heavy tools) live under their tool directories, for example:
@@ -62,7 +62,8 @@ metadata = client.list_tools()["Python_Executor_Tool"]
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: execution = tool.execute(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
+    "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: Python_Executor_Tool\n"
     f"Tool metadata: {metadata}\n"
@@ -82,16 +83,16 @@ print(llm_output)
 
 ## 2) Parse the tool call + execute via the parser + client
 
-The parser expects a `tool.execute(...)` call in the LLM output. Parse it into args, then execute with the client.
+The Python tool-call parser expects a `ToolName(...)` call in the LLM output. JSON tool-call parsing is a TODO.
 
 ```python
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call
 
 client = ToolClient("http://127.0.0.1:8101")
-args = parse_tool_execute_args(llm_output)
+tool_call = parse_python_tool_call(llm_output)
 
-response = client.execute("Python_Executor_Tool", args)
+response = client.execute(tool_call["tool_name"], tool_call["args"])
 print(response["result"])
 ```
 

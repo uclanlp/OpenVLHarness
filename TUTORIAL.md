@@ -73,7 +73,7 @@ print(response["result"])
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -86,7 +86,8 @@ metadata = client.list_tools()["Python_Executor_Tool"]
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: execution = tool.execute(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
+    "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: Python_Executor_Tool\n"
     f"Tool metadata: {metadata}\n"
@@ -100,9 +101,9 @@ engine = LLMEngine(
     api_key=os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY),
 )
 llm_output = engine.generate(prompt, max_tokens=1024, temperature=0.4)
-args = parse_tool_execute_args(llm_output)
+tool_call = parse_python_tool_call(llm_output)
 
-response = client.execute("Python_Executor_Tool", args)
+response = client.execute(tool_call["tool_name"], tool_call["args"])
 print(response["result"])
 ```
 
@@ -133,7 +134,7 @@ print(response["result"])  # {'cropped_image_base64': '...'}
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -147,7 +148,8 @@ image_path = "tests/data/vision_tools_demo.jpg"
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: execution = tool.execute(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
+    "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: ZoomInImageByBBox_Tool\n"
     f"Tool metadata: {metadata}\n"
@@ -162,14 +164,15 @@ engine = LLMEngine(
     api_key=os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY),
 )
 llm_output = engine.generate(prompt, max_tokens=1024, temperature=0.4)
-args = parse_tool_execute_args(llm_output)
+tool_call = parse_python_tool_call(llm_output)
+args = tool_call["args"]
 
 # Guardrails if the LLM omitted required fields.
 args.setdefault("image_path", image_path)
 args.setdefault("bbox", [0.05, 0.05, 0.45, 0.45])
 args.setdefault("padding", 0.05)
 
-response = client.execute("ZoomInImageByBBox_Tool", args)
+response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
 ```
 
@@ -201,7 +204,7 @@ print(response["result"])
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -215,7 +218,8 @@ image_path = "tests/data/sam3_demo.jpg"
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: execution = tool.execute(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
+    "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: SAM3_Segment_Tool\n"
     f"Tool metadata: {metadata}\n"
@@ -230,7 +234,8 @@ engine = LLMEngine(
     api_key=os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY),
 )
 llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.4)
-args = parse_tool_execute_args(llm_output)
+tool_call = parse_python_tool_call(llm_output)
+args = tool_call["args"]
 
 # Guardrails if the LLM omitted required fields.
 args.setdefault("prompt", "shoe")
@@ -238,7 +243,7 @@ args.setdefault("image_path", image_path)
 args.setdefault("max_masks", 3)
 args.setdefault("return_masks_png_b64", True)
 
-response = client.execute("SAM3_Segment_Tool", args)
+response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
 ```
 
@@ -309,5 +314,5 @@ print(response["result"]["data"][0]["embedding"][:8])
 ## Notes for VLM tool-call training
 
 - The server only sees the `tool_name` and `args`. If your model needs image context, handle that on the model side and pass the image path through the tool call.
-- The parser expects a `tool.execute(...)` call in Python code. Keep the prompt strict to make parsing reliable.
+- The Python tool-call parser expects a `ToolName(...)` call in code. JSON tool-call parsing is a TODO (`mini_vlm_toolkit/client/json_tool_call_parser.py`).
 - You can use `client.list_tools()` to capture tool metadata for training prompts or schema conditioning.

@@ -26,7 +26,7 @@ class OverlayImages_Tool(BaseTool):
             output_type="dict - blended_image_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(base_image_path=\"/path/to/base.jpg\", overlay_image_path=\"/path/to/overlay.jpg\", alpha=0.6)",
+                    "command": "OverlayImages_Tool(base_image_path=\"/path/to/base.jpg\", overlay_image_path=\"/path/to/overlay.jpg\", alpha=0.6)",
                     "description": "Overlay images with transparency.",
                 }
             ],

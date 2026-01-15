@@ -18,7 +18,7 @@ class SlidingWindowDetection_Tool(BaseTool):
             output_type="dict - patches, boxes",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", objects=[\"sign\"])",
+                    "command": "SlidingWindowDetection_Tool(image_path=\"/path/to/image.jpg\", objects=[\"sign\"])",
                     "description": "Search for small objects using sliding windows.",
                 }
             ],

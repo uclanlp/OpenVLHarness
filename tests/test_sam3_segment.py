@@ -4,7 +4,7 @@ import os
 import urllib.request
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -62,7 +62,8 @@ def ensure_test_image():
 def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path):
     return (
         "Generate a single Python code block that calls this tool.\n"
-        "The code must include exactly one line: execution = tool.execute(...).\n"
+        "The code must include exactly one line: ToolName(...).\n"
+        "Use the tool name as the function name.\n"
         "Use keyword arguments only.\n"
         f"Tool name: {tool_name}\n"
         f"Tool metadata: {tool_metadata}\n"
@@ -192,7 +193,7 @@ def test_llm_invocation():
     log_output("Generation params", generation_params)
     llm_output = engine.generate(prompt, **generation_params)
     log_output("LLM output", llm_output)
-    args = parse_tool_execute_args(llm_output)
+    args = parse_python_tool_call_args(llm_output)
     log_output("Parsed args", args)
     if "server_url" not in args:
         args["server_url"] = SAM3_SERVER_URL

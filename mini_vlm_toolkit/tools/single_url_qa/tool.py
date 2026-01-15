@@ -52,7 +52,7 @@ class Single_URL_QA_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(query=\"What is the mass of the moon?\", "
+                        "Single_URL_QA_Tool(query=\"What is the mass of the moon?\", "
                         "url=\"https://en.wikipedia.org/wiki/Moon\")"
                     ),
                     "description": "Answer a question using a Wikipedia page.",

@@ -27,13 +27,13 @@ class Gemini_Google_Search_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(query=\"What is the capital of France?\")"
+                        "Gemini_Google_Search_Tool(query=\"What is the capital of France?\")"
                     ),
                     "description": "Search for a general fact with citations.",
                 },
                 {
                     "command": (
-                        "execution = tool.execute(query=\"Who won Euro 2024?\", "
+                        "Gemini_Google_Search_Tool(query=\"Who won Euro 2024?\", "
                         "add_citations=False)"
                     ),
                     "description": "Search without citations.",

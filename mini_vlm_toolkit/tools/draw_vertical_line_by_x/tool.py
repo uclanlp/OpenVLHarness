@@ -20,7 +20,7 @@ class DrawVerticalLineByX_Tool(BaseTool):
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", x=0.5)",
+                    "command": "DrawVerticalLineByX_Tool(image_path=\"/path/to/image.jpg\", x=0.5)",
                     "description": "Draw a vertical line at x=0.5.",
                 }
             ],

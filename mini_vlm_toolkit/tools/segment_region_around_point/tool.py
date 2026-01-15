@@ -17,7 +17,7 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
             output_type="dict - masks or mask encodings",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", points=[[0.5, 0.5]])",
+                    "command": "SegmentRegionAroundPoint_Tool(image_path=\"/path/to/image.jpg\", points=[[0.5, 0.5]])",
                     "description": "Segment the region around a point.",
                 }
             ],

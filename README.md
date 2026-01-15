@@ -34,7 +34,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
 | `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
 
-Before using the quick start below, you are better off checking `TUTORIAL_NEW.md` for the latest guidance.
+Instead of using the quick start below, you are better off checking `TUTORIAL_NEW.md` and `TUTORIAL.md` for the guidance.
 
 ## Quick Start
 
@@ -177,6 +177,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Subserver ports can be overridden via env vars: SAM3 uses `HOST`/`PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.
+- Python tool-call parsing lives in `mini_vlm_toolkit/client/python_tool_call_parser.py` and expects `ToolName(...)` calls. JSON tool-call parsing is a TODO in `mini_vlm_toolkit/client/json_tool_call_parser.py`.
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
@@ -187,11 +188,10 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 ## TODO
 - Client parser: accept JSON tool-call outputs that include a tool name and args.
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
-- Client parser: split into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.
 - Docs: clarify heavy tool dependencies vs main server requirements.
+- SAM3: return an all-masks visualization by default (with an opt-out switch).
 - Docs: refresh `TUTORIAL.md` or add a new tutorial after config/script changes land.
 - Tool onboarding: add a scaffolding helper for new tools.
-- SAM3: return an all-masks visualization by default (with an opt-out switch).
 - Remaining tool ports are deferred for now (not planned in the near term).
 - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
 - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.

@@ -64,7 +64,7 @@ class SAM3_VisualizeAllMasks_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(image_path=\"/path/to/image.jpg\", "
+                        "SAM3_VisualizeAllMasks_Tool(image_path=\"/path/to/image.jpg\", "
                         "predictions=sam3_output)"
                     ),
                     "description": "Overlay all SAM3 masks on the image.",
@@ -132,7 +132,7 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(image_path=\"/path/to/image.jpg\", "
+                        "SAM3_VisualizeSingleMask_Tool(image_path=\"/path/to/image.jpg\", "
                         "predictions=sam3_output, mask_index=0)"
                     ),
                     "description": "Overlay a single mask and return a zoomed-in panel.",

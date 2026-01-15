@@ -18,7 +18,7 @@ class SegmentAndMark_Tool(BaseTool):
             output_type="dict - annotated_image_base64, bboxes",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", granularity=1.8)",
+                    "command": "SegmentAndMark_Tool(image_path=\"/path/to/image.jpg\", granularity=1.8)",
                     "description": "Segment and label the image.",
                 }
             ],

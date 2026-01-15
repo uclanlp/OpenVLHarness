@@ -72,7 +72,7 @@ class LLM_Direct_Generator_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute("
+                        "LLM_Direct_Generator_Tool("
                         "model=\"Qwen/Qwen3-8B\", "
                         "messages=[{\"role\": \"user\", \"content\": \"Hi\"}], "
                         "max_tokens=64"
@@ -82,7 +82,7 @@ class LLM_Direct_Generator_Tool(BaseTool):
                 },
                 {
                     "command": (
-                        "execution = tool.execute("
+                        "LLM_Direct_Generator_Tool("
                         "model=\"Qwen/Qwen3-Embedding-8B\", "
                         "request_type=\"embeddings\", "
                         "input=[\"Hello world\", \"Embedding example\"]"

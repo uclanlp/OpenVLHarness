@@ -28,7 +28,7 @@ class SAM3_Segment_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(prompt=\"cow\", "
+                        "SAM3_Segment_Tool(prompt=\"cow\", "
                         "image_path=\"/path/to/cow.jpg\", max_masks=3)"
                     ),
                     "description": "Segment a cow image using the external SAM3 server.",

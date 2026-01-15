@@ -1,5 +1,13 @@
+"""Parser for Python tool-call lines such as ToolName(...).
+
+JSON tool-call parsing is a TODO in json_tool_call_parser.py.
+"""
+
 import ast
 import re
+
+
+TOOL_CALL_PATTERN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*_Tool)\s*\(")
 
 
 def _strip_think_blocks(text):
@@ -22,25 +30,18 @@ def _extract_code(text):
     blocks = _extract_code_blocks(text)
     if blocks:
         for block in blocks:
-            if "tool.execute" in block:
+            if TOOL_CALL_PATTERN.search(block):
                 return block
         return blocks[0]
     return text.strip()
 
 
-def _extract_tool_execute_snippet(text):
-    match = re.search(r"tool\.execute\s*\(", text)
+def _extract_tool_call_snippet(text):
+    match = TOOL_CALL_PATTERN.search(text)
     if not match:
         return None
 
-    line_start = text.rfind("\n", 0, match.start()) + 1
-    line_prefix = text[line_start:match.start()]
-    exec_index = line_prefix.rfind("execution")
-    if exec_index != -1:
-        start = line_start + exec_index
-    else:
-        start = match.start()
-
+    start = match.start()
     depth = 0
     in_string = None
     escape = False
@@ -91,65 +92,78 @@ def _extract_tool_execute_snippet(text):
     return snippet or None
 
 
-def _parse_execute_args_from_code(code):
+def _parse_python_tool_call_from_code(code):
     tree = ast.parse(code)
+    tool_calls = []
 
-    saw_execute = False
-    saw_positional = False
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        if not isinstance(node.func, ast.Attribute):
+        if not isinstance(node.func, ast.Name):
             continue
-        if node.func.attr != "execute":
+        if not node.func.id.endswith("_Tool"):
             continue
-        if not isinstance(node.func.value, ast.Name):
-            continue
-        if node.func.value.id != "tool":
-            continue
+        tool_calls.append(node)
 
-        saw_execute = True
-        if node.args:
-            saw_positional = True
-            continue
+    if not tool_calls:
+        raise ValueError("No ToolName(...) call found")
+    if len(tool_calls) > 1:
+        raise ValueError("Multiple ToolName(...) calls found")
 
-        args = {}
-        for kw in node.keywords:
-            if kw.arg is None:
-                raise ValueError("Kwargs must be named")
-            args[kw.arg] = ast.literal_eval(kw.value)
-
-        return args
-
-    if saw_execute and saw_positional:
+    call = tool_calls[0]
+    if call.args:
         raise ValueError("Only keyword arguments are supported")
-    raise ValueError("No tool.execute(...) call found")
+
+    args = {}
+    for kw in call.keywords:
+        if kw.arg is None:
+            raise ValueError("Kwargs must be named")
+        args[kw.arg] = ast.literal_eval(kw.value)
+
+    return call.func.id, args
 
 
-def parse_tool_execute_args(text):
+def _should_abort_on_error(exc):
+    return isinstance(exc, ValueError) and str(exc) == "Multiple ToolName(...) calls found"
+
+
+def parse_python_tool_call(text):
     cleaned = _strip_think_blocks(text)
     code = _extract_code(cleaned)
     last_error = None
     try:
-        return _parse_execute_args_from_code(code)
+        tool_name, args = _parse_python_tool_call_from_code(code)
+        return {"tool_name": tool_name, "args": args}
     except (SyntaxError, ValueError) as exc:
+        if _should_abort_on_error(exc):
+            raise
         last_error = exc
 
     for block in _extract_code_blocks(cleaned):
         try:
-            return _parse_execute_args_from_code(block)
+            tool_name, args = _parse_python_tool_call_from_code(block)
+            return {"tool_name": tool_name, "args": args}
         except (SyntaxError, ValueError) as exc:
+            if _should_abort_on_error(exc):
+                raise
             last_error = exc
 
     for source in (code, cleaned):
-        snippet = _extract_tool_execute_snippet(source)
+        snippet = _extract_tool_call_snippet(source)
         if not snippet:
             continue
         try:
-            return _parse_execute_args_from_code(snippet)
+            tool_name, args = _parse_python_tool_call_from_code(snippet)
+            return {"tool_name": tool_name, "args": args}
         except (SyntaxError, ValueError) as exc:
+            if _should_abort_on_error(exc):
+                raise
             last_error = exc
 
     if last_error:
         raise last_error
-    raise ValueError("No tool.execute(...) call found")
+    raise ValueError("No ToolName(...) call found")
+
+
+def parse_python_tool_call_args(text):
+    return parse_python_tool_call(text)["args"]

@@ -39,7 +39,7 @@ class Serper_Google_Search_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(query=\"OpenAI\", num_results=5)"
+                        "Serper_Google_Search_Tool(query=\"OpenAI\", num_results=5)"
                     ),
                     "description": "Fetch top URLs using Serper.",
                 }

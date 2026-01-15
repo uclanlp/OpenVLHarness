@@ -26,7 +26,7 @@ class OCR_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(image_path=\"/path/to/scan.png\", "
+                        "OCR_Tool(image_path=\"/path/to/scan.png\", "
                         "languages=[\"en\"])"
                     ),
                     "description": "Extract text from an image using the OCR server.",

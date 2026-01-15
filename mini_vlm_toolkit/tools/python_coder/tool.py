@@ -128,14 +128,14 @@ class Python_Coder_Tool(BaseTool):
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {
-                    "command": 'execution = tool.execute(query="Find the sum of prime numbers up to 50")',
+                    "command": 'Python_Code_Generator_Tool(query="Find the sum of prime numbers up to 50")',
                     "description": "Generate a Python code snippet to find the sum of prime numbers up to 50.",
                 },
                 {
                     "command": (
                         'query="Given the list [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], '
                         'calculate the sum of squares of odd numbers"\n'
-                        "execution = tool.execute(query=query)"
+                        "Python_Code_Generator_Tool(query=query)"
                     ),
                     "description": (
                         "Generate a Python function for a specific mathematical operation"

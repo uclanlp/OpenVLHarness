@@ -27,7 +27,7 @@ class Depth_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(image_path=\"/path/to/image.jpg\")"
+                        "Depth_Tool(image_path=\"/path/to/image.jpg\")"
                     ),
                     "description": "Generate a depth map using the depth server.",
                 }

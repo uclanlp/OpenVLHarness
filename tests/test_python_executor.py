@@ -2,7 +2,10 @@ import json
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import (
+    parse_python_tool_call,
+    parse_python_tool_call_args,
+)
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -27,7 +30,8 @@ def log_output(label, payload):
 def build_tool_call_prompt(tool_name, tool_metadata, user_request):
     return (
         "Generate a single Python code block that calls this tool.\n"
-        "The code must include exactly one line: execution = tool.execute(...).\n"
+        "The code must include exactly one line: ToolName(...).\n"
+        "Use the tool name as the function name.\n"
         f"Tool name: {tool_name}\n"
         f"Tool metadata: {tool_metadata}\n"
         f"User request: {user_request}\n"
@@ -73,44 +77,53 @@ def test_direct_invocation_nonstandard_outputs():
     ), "Expected fallback repr for NonStringRepr"
 
 
-def test_parse_tool_execute_args_with_explanatory_text():
+def test_parse_python_tool_call_args_with_explanatory_text():
     log_step("Parse tool args with extra text")
     llm_output = (
         "Okay, let's see. The user wants a tool call.\n"
-        "execution = tool.execute(code=\"print(3)\\nvalue = 3\")\n"
+        "Python_Executor_Tool(code=\"print(3)\\nvalue = 3\")\n"
         "That should do it."
     )
-    args = parse_tool_execute_args(llm_output)
+    args = parse_python_tool_call_args(llm_output)
     log_output("Parsed args", args)
     assert "print(3)" in args["code"], "Expected code to include print(3)"
 
 
-def test_parse_tool_execute_args_with_fenced_block():
+def test_parse_python_tool_call_args_with_fenced_block():
     log_step("Parse tool args with fenced code block")
     llm_output = (
         "Here is the code:\n"
         "```\n"
-        "execution = tool.execute(code=\"print(4)\")\n"
+        "Python_Executor_Tool(code=\"print(4)\")\n"
         "```\n"
     )
-    args = parse_tool_execute_args(llm_output)
+    args = parse_python_tool_call_args(llm_output)
     log_output("Parsed args", args)
     assert args["code"] == "print(4)", "Expected code to match print(4)"
 
 
-def test_parse_tool_execute_args_with_think_block():
+def test_parse_python_tool_call_args_with_think_block():
     log_step("Parse tool args with think block")
     llm_output = (
         "<think>\n"
-        "The tool call should be: execution = tool.execute(...).\n"
+        "The tool call should be: ToolName(...).\n"
         "</think>\n"
         "``` python\n"
-        "execution = tool.execute(code=\"value = 7 + 9\\nprint(value)\")\n"
+        "Python_Executor_Tool(code=\"value = 7 + 9\\nprint(value)\")\n"
         "```\n"
     )
-    args = parse_tool_execute_args(llm_output)
+    args = parse_python_tool_call_args(llm_output)
     log_output("Parsed args", args)
     assert "value = 7 + 9" in args["code"], "Expected code to include the sum"
+
+
+def test_parse_python_tool_call_with_tool_name():
+    log_step("Parse tool call with tool name")
+    llm_output = "Python_Executor_Tool(code=\"print(11)\")"
+    parsed = parse_python_tool_call(llm_output)
+    log_output("Parsed tool call", parsed)
+    assert parsed["tool_name"] == "Python_Executor_Tool"
+    assert parsed["args"]["code"] == "print(11)"
 
 
 def test_client_invocation():
@@ -161,7 +174,7 @@ def test_llm_invocation():
     log_output("Generation params", generation_params)
     llm_output = engine.generate(prompt, **generation_params)
     log_output("LLM output", llm_output)
-    args = parse_tool_execute_args(llm_output)
+    args = parse_python_tool_call_args(llm_output)
     log_output("Parsed args", args)
     response = client.execute("Python_Executor_Tool", args)
     log_output("Response", response)
@@ -177,9 +190,10 @@ def main():
     log_step("Python executor tests")
     test_direct_invocation()
     test_direct_invocation_nonstandard_outputs()
-    test_parse_tool_execute_args_with_explanatory_text()
-    test_parse_tool_execute_args_with_fenced_block()
-    test_parse_tool_execute_args_with_think_block()
+    test_parse_python_tool_call_args_with_explanatory_text()
+    test_parse_python_tool_call_args_with_fenced_block()
+    test_parse_python_tool_call_args_with_think_block()
+    test_parse_python_tool_call_with_tool_name()
     test_client_invocation()
     test_llm_invocation()
     print("All python executor tests passed.")

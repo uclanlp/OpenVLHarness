@@ -18,7 +18,7 @@ class Crop_Tool(BaseTool):
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", coords=[0.1, 0.2, 0.6, 0.7])",
+                    "command": "Crop_Tool(image_path=\"/path/to/image.jpg\", coords=[0.1, 0.2, 0.6, 0.7])",
                     "description": "Crop with normalized coordinates.",
                 }
             ],

@@ -19,7 +19,7 @@ class ZoomInSubfigure_Tool(BaseTool):
             output_type="dict - subplot_images_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/chart.png\", description=\"top-left subplot\")",
+                    "command": "ZoomInSubfigure_Tool(image_path=\"/path/to/chart.png\", description=\"top-left subplot\")",
                     "description": "Select subplot images by description.",
                 }
             ],

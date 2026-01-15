@@ -20,7 +20,7 @@ class DrawHorizontalLineByY_Tool(BaseTool):
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", y=0.5)",
+                    "command": "DrawHorizontalLineByY_Tool(image_path=\"/path/to/image.jpg\", y=0.5)",
                     "description": "Draw a horizontal line at y=0.5.",
                 }
             ],

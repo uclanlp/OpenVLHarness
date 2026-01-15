@@ -4,7 +4,7 @@ import os
 from PIL import Image
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.parser import parse_tool_execute_args
+from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
     DEFAULT_LLM_BASE_URL,
@@ -34,7 +34,8 @@ def log_output(label, payload):
 def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path):
     return (
         "Generate a single Python code block that calls this tool.\n"
-        "The code must include exactly one line: execution = tool.execute(...).\n"
+        "The code must include exactly one line: ToolName(...).\n"
+        "Use the tool name as the function name.\n"
         "Use keyword arguments only.\n"
         f"Tool name: {tool_name}\n"
         f"Tool metadata: {tool_metadata}\n"
@@ -142,7 +143,7 @@ def test_llm_invocation():
     )
     llm_output = engine.generate(prompt, max_tokens=2048, temperature=0.4)
     log_output("LLM output", llm_output)
-    args = parse_tool_execute_args(llm_output)
+    args = parse_python_tool_call_args(llm_output)
     args.setdefault("image_path", image_path)
     args.setdefault("description", "top right")
 

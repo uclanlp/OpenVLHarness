@@ -65,7 +65,7 @@ class Python_Executor_Tool(BaseTool):
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {
-                    "command": 'execution = tool.execute(code="print(2 + 2)")',
+                    "command": 'Python_Executor_Tool(code="print(2 + 2)")',
                     "description": "Execute a simple arithmetic snippet."
                 }
             ],

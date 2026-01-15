@@ -34,7 +34,7 @@ class GroundingDINO_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "execution = tool.execute(image_path=\"/path/to/image.jpg\", "
+                        "GroundingDINO_Tool(image_path=\"/path/to/image.jpg\", "
                         "query=\"bus\", box_threshold=0.4, text_threshold=0.3)"
                     ),
                     "description": "Detect buses in an image via the GroundingDINO server.",

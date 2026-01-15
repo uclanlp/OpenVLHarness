@@ -24,7 +24,7 @@ class Point_Tool(BaseTool):
             output_type="dict - points (normalized x,y)",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", target=\"leftmost cup\")",
+                    "command": "Point_Tool(image_path=\"/path/to/image.jpg\", target=\"leftmost cup\")",
                     "description": "Predict a point for the target object.",
                 }
             ],

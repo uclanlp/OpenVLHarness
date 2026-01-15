@@ -21,7 +21,7 @@ class DrawLine_Tool(BaseTool):
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "execution = tool.execute(image_path=\"/path/to/image.jpg\", box=[0, 10, 100, 200], corner_a=1, corner_b=3)",
+                    "command": "DrawLine_Tool(image_path=\"/path/to/image.jpg\", box=[0, 10, 100, 200], corner_a=1, corner_b=3)",
                     "description": "Draw a line between box corners.",
                 }
             ],

@@ -98,8 +98,8 @@ Each tool will follow the BaseTool-like contract:
   1) Direct local call (`tool.execute(...)`).
   2) Remote server call (`POST /execute`).
   3) LLM codegen call:
-     - LLM generates code containing `execution = tool.execute(...)` lines.
-     - Client parses these calls into `{tool_name, args}`.
+     - LLM generates code containing `ToolName(...)` lines.
+     - Client parses these calls into `{tool_name, args}` (Python tool-call parser).
      - Client calls the server with structured requests.
      - Parser should also accept JSON tool-call outputs that include a tool name and args.
 
@@ -156,7 +156,7 @@ mini-vlm-toolkit/
 Each test script should include 3 tests:
 1) Direct invocation: instantiate tool and call `execute` locally.
 2) Client invocation: call the tool via the HTTP server.
-3) LLM invocation: prompt LLM to generate `execution = tool.execute(...)`, parse, then call server.
+3) LLM invocation: prompt LLM to generate `ToolName(...)`, parse, then call server.
 
 LLM tests should set `max_tokens` to 8192 to reduce the risk of truncated tool-call code.
 
@@ -200,11 +200,11 @@ tool-specific env vars and do not source `.env`.
 ## Risks / Open Decisions
 - Python tool execution safety: keep restricted and local.
 - Web tools require network and API keys (Google, OpenAI). For tests, allow a small fallback mock or skip if env vars are missing.
-- LLM codegen parsing: do not exec arbitrary code. Parse AST and only accept `tool.execute(...)` calls.
+- LLM codegen parsing: do not exec arbitrary code. Parse AST and only accept `ToolName(...)` calls.
 Planned: clarify heavy tool dependencies vs main server requirements in docs and env setup.
 Planned: refresh `TUTORIAL.md` or add a new tutorial after config/script changes.
 Planned: decide whether LLM-based argument correction lives as a separate parser layer or an optional fallback inside the existing parser.
-Planned: split parser into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.
+Planned: add JSON tool-call parsing and an LLM-assisted fixer module alongside the Python tool-call parser.
 Planned: add a scaffolding helper for new tools.
 
 ## Implementation Notes
