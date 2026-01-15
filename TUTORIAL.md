@@ -32,6 +32,12 @@ Subserver ports are configurable via env vars (SAM3 uses `HOST`/`PORT`, Groundin
 `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
 `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 
+`LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) and optional
+`LLM_DIRECT_MODEL_API_KEYS`/`LLM_DIRECT_API_KEY` (defaults to `EMPTY` for no auth). Base URLs
+may include `/v1`; if omitted, `/v1` is appended automatically.
+It is a heavy tool in the sense that you must launch the OpenAI-compatible model servers (for example
+vLLM) yourself and configure the `.env` mappings.
+
 
 ## Endpoint layout
 
@@ -274,6 +280,30 @@ viz_single = client.execute(
 )
 print(viz_single["result"]["overlay_image_base64"])
 print(viz_single["result"]["zoomed_image_base64"])
+```
+
+## Example 4: Qwen3 embeddings via LLM_Direct_Generator_Tool
+
+Make sure your vLLM server is running and `.env` maps the embedding model name to its base URL
+(see `mini_vlm_toolkit/tools/llm_direct_generator/README.md`).
+
+```python
+from mini_vlm_toolkit.client.client import ToolClient
+
+client = ToolClient("http://127.0.0.1:8101")
+
+response = client.execute(
+    "LLM_Direct_Generator_Tool",
+    {
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "request_type": "embeddings",
+        "input": [
+            "The capital of China is Beijing.",
+            "Gravity is a force that attracts two bodies towards each other.",
+        ],
+    },
+)
+print(response["result"]["data"][0]["embedding"][:8])
 ```
 
 ## Notes for VLM tool-call training

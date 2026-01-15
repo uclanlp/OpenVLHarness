@@ -20,6 +20,11 @@ This is a focused walkthrough for researchers who want to: (1) launch a tool ser
   `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses
   `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use `python scripts/scan_server_status.py` to confirm
   tool/subtool servers are reachable.
+- `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) plus optional
+  `LLM_DIRECT_MODEL_API_KEYS`/`LLM_DIRECT_API_KEY` (defaults to `EMPTY` for no auth). Base URLs
+  may include `/v1`; if omitted, `/v1` is appended automatically.
+- `LLM_Direct_Generator_Tool` is a heavy tool in the sense that you must launch the OpenAI-compatible
+  model servers (for example vLLM) yourself and configure the `.env` mappings.
 
 ## 1) Start a server with a subset of tools + LLM predicts a tool call
 
@@ -71,7 +76,7 @@ engine = LLMEngine(
     api_key=os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY),
 )
 
-llm_output = engine.generate(prompt, max_tokens=1024, temperature=0.4)
+llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.6)
 print(llm_output)
 ```
 

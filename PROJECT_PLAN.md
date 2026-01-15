@@ -51,7 +51,7 @@ These tools are the initial compatibility target:
 ## Planned Tools (Vision tool ports)
 We will port tool logic directly into `mini_vlm_toolkit/tools` and skip all external controller/worker or Gradio servers. Heavyweight models are served via dedicated FastAPI servers that the toolkit calls as wrappers.
 Remaining unimplemented tools are deferred for now (not planned in the near term).
-Planned tool: an LLM router that forwards OpenAI-style chat messages to vLLM servers (OpenAI-compatible), with env-based model->base_url mapping and one base URL per model.
+Implemented tool: `LLM_Direct_Generator_Tool` forwards OpenAI-style chat messages to OpenAI-compatible vLLM servers via env-based model->base_url mapping (one base URL per model).
 Key decisions (recorded so new contributors do not need prior context):
 - GroundingDINO: run a Hugging Face GroundingDINO model server (default `IDEA-Research/grounding-dino-base`) and wrap it from the toolkit; return data-first boxes/scores/labels (no VisualSketchpad wrapper).
 - OCR: run an EasyOCR model server (CPU by default) and wrap it from the toolkit; EasyOCR downloads weights on first run.
@@ -185,6 +185,9 @@ cp .env.example .env
 - `VLLM_BASE_URL` for OpenAI-compatible vLLM endpoints
 - `DEFAULT_LLM_PROVIDER` optional, `openai|together|vllm`
 - `DEFAULT_MODEL` optional model name
+- `LLM_DIRECT_MODEL_BASE_URLS` for `LLM_Direct_Generator_Tool` (model:base_url)
+- `LLM_DIRECT_MODEL_API_KEYS` for per-model keys (optional)
+- `LLM_DIRECT_API_KEY` fallback key (defaults to `EMPTY` for no auth)
 Model server launch scripts live in their tool folders; they continue to use
 tool-specific env vars and do not source `.env`.
 

@@ -20,6 +20,90 @@ DEFAULT_OCR_TEST_IMAGE_URL = (
 DEFAULT_DEPTH_TEST_IMAGE_URL = DEFAULT_VISION_TEST_IMAGE_URL
 
 
+def load_env_file(env_path=None, override=False):
+    root_dir = os.path.dirname(os.path.dirname(__file__))
+    env_path = env_path or os.path.join(root_dir, ".env")
+    if not os.path.isfile(env_path):
+        return False
+
+    with open(env_path, "r") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export ") :].strip()
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                continue
+            if value and value[0] == value[-1] and value[0] in ("\"", "'"):
+                value = value[1:-1]
+            if override or key not in os.environ:
+                os.environ[key] = value
+    return True
+
+
+def get_model_base_url_from_env(model_name, env_var="LLM_DIRECT_MODEL_BASE_URLS"):
+    if not model_name:
+        return None
+    raw_value = os.getenv(env_var)
+    if not raw_value:
+        return None
+    for item in raw_value.split(","):
+        entry = item.strip()
+        if not entry or ":" not in entry:
+            continue
+        name, base_url = entry.split(":", 1)
+        name = name.strip()
+        base_url = base_url.strip()
+        if name == model_name and base_url:
+            return base_url
+    return None
+
+
+def ensure_openai_compat_server(base_url, timeout_seconds=5):
+    if not base_url:
+        return False
+    trimmed = base_url.rstrip("/")
+    endpoint = f"{trimmed}/models" if trimmed.endswith("/v1") else f"{trimmed}/v1/models"
+    try:
+        response = requests.get(endpoint, timeout=timeout_seconds)
+    except Exception as exc:
+        print(f"LLM server unavailable at {endpoint}: {exc}")
+        return False
+    if response.status_code != 200:
+        print(f"LLM server unhealthy at {endpoint}: status {response.status_code}")
+        return False
+    return True
+
+
+def ensure_model_available(base_url, model_name, timeout_seconds=5):
+    if not model_name:
+        return False
+    trimmed = base_url.rstrip("/")
+    endpoint = f"{trimmed}/models" if trimmed.endswith("/v1") else f"{trimmed}/v1/models"
+    try:
+        response = requests.get(endpoint, timeout=timeout_seconds)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        print(f"LLM model listing unavailable at {endpoint}: {exc}")
+        return False
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        print(f"Unexpected model list payload from {endpoint}")
+        return False
+    for entry in data:
+        if isinstance(entry, dict) and entry.get("id") == model_name:
+            return True
+    print(f"Model {model_name} not found in {endpoint}")
+    return False
+
+
 def ensure_tool_server(server_url, required_tools=None, timeout_seconds=5):
     if not server_url:
         print("TOOL_SERVER_URL is not set; skipping tests.")

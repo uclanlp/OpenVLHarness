@@ -9,6 +9,7 @@ START_PORT = 8000
 END_PORT = 9000
 CONNECT_TIMEOUT_SEC = 0.15
 HTTP_TIMEOUT_SEC = 0.4
+MAX_MODEL_DETAIL_ITEMS = 8
 
 
 def _port_open(host, port):
@@ -30,6 +31,42 @@ def _get_json(host, port, path):
         return None
 
 
+def _openai_models_info(host, port):
+    models = _get_json(host, port, "/v1/models")
+    if not isinstance(models, dict):
+        return None
+    data = models.get("data")
+    if not isinstance(data, list):
+        return None
+
+    model_ids = []
+    owned_by = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if model_id:
+            model_ids.append(str(model_id))
+        owner = item.get("owned_by")
+        if owner:
+            owned_by.append(str(owner))
+
+    if not model_ids:
+        return None
+
+    return {
+        "model_ids": sorted(set(model_ids)),
+        "owned_by": sorted(set(owned_by)),
+    }
+
+
+def _is_vllm_model_info(info):
+    for owner in info.get("owned_by", []):
+        if "vllm" in owner.lower():
+            return True
+    return False
+
+
 def _tool_names(host, port):
     tools = _get_json(host, port, "/tools")
     if not isinstance(tools, dict):
@@ -39,29 +76,41 @@ def _tool_names(host, port):
 
 def _identify_subtool(host, port):
     health = _get_json(host, port, "/health")
-    if not isinstance(health, dict) or health.get("status") != "ok":
-        return None
+    health_ok = isinstance(health, dict) and health.get("status") == "ok"
 
-    if "languages" in health:
-        return "OCR", health
-    if "colormap_default" in health:
-        return "Depth Anything", health
-    if "model_id" in health and "device" in health:
-        return "Grounding DINO", health
+    if health_ok:
+        if "languages" in health:
+            return "OCR", health
+        if "colormap_default" in health:
+            return "Depth Anything", health
+        if "model_id" in health and "device" in health:
+            return "Grounding DINO", health
 
-    models = _get_json(host, port, "/v1/models")
-    if isinstance(models, dict):
-        for item in models.get("data", []):
-            if isinstance(item, dict) and item.get("id") == "sam3-image":
-                return "SAM3 Segmentation", health
+    models_info = _openai_models_info(host, port)
+    if models_info:
+        if "sam3-image" in models_info.get("model_ids", []):
+            return "SAM3 Segmentation", health if health_ok else models_info
+        if _is_vllm_model_info(models_info):
+            return "vLLM", models_info
 
-    return "Unknown (health ok)", health
+    if health_ok:
+        return "Unknown (health ok)", health
+
+    return None
 
 
 def _format_tools_line(tool_names):
     if not tool_names:
         return "(no tools reported)"
     return ", ".join(tool_names)
+
+
+def _format_list(items, limit=MAX_MODEL_DETAIL_ITEMS):
+    if not items:
+        return ""
+    if len(items) <= limit:
+        return ", ".join(items)
+    return ", ".join(items[:limit]) + f", +{len(items) - limit} more"
 
 
 def _format_subtool_details(name, details):
@@ -101,6 +150,16 @@ def _format_subtool_details(name, details):
             parts.append(f"device: {device}")
         return " | " + " | ".join(parts) if parts else ""
 
+    if name == "vLLM":
+        parts = []
+        model_ids = details.get("model_ids")
+        owners = details.get("owned_by")
+        if model_ids:
+            parts.append("models: " + _format_list(model_ids))
+        if owners:
+            parts.append("owned_by: " + _format_list(owners))
+        return " | " + " | ".join(parts) if parts else ""
+
     return ""
 
 
@@ -115,6 +174,7 @@ def main():
         tool_names = _tool_names(HOST, port)
         if tool_names is not None:
             tool_servers.append((port, tool_names))
+            continue
 
         subtool = _identify_subtool(HOST, port)
         if subtool:

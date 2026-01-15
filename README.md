@@ -21,6 +21,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
 | `Point_Tool` | Extract point coordinates from text or provided points and return normalized coordinates. |
 | `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
+| `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
 | `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
 | `SAM3_VisualizeAllMasks_Tool` | Overlay all SAM3 masks on an image (grounding-agent or SAM3 server format). |
@@ -32,6 +33,8 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
 | `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
 | `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
+
+Before using the quick start below, you are better off checking `TUTORIAL_NEW.md` for the latest guidance.
 
 ## Quick Start
 
@@ -46,6 +49,8 @@ pip install -r requirements-server.txt
 ```
 SAM3 visualization tools are lightweight (Pillow/numpy). If you pass grounding-agent RLE masks,
 they require `pycocotools` from the server requirements.
+`LLM_Direct_Generator_Tool` is also a heavy tool in the sense that it depends on an external
+OpenAI-compatible model server (for example vLLM), but it does not require `requirements-server.txt`.
 
 Before launching your own server, check whether one is already running so you can reuse it:
 ```bash
@@ -145,6 +150,13 @@ export LLM_MODEL=Qwen/Qwen3-8B
 export LLM_BASE_URL=http://localhost:8004/v1
 ```
 
+Example LLM direct generator env:
+```bash
+export LLM_DIRECT_MODEL_BASE_URLS=Qwen/Qwen3-8B:http://localhost:8004/v1
+# Optional: per-model API keys (defaults to EMPTY = no auth)
+export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
+```
+
 ## References
 - `reference/` holds read-only snapshots of upstream repos; do not edit them for project changes.
 - `reference/AgentFlow`
@@ -164,6 +176,7 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
 - Subserver ports can be overridden via env vars: SAM3 uses `HOST`/`PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
+- `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.
 - API key files are read from:
   - `mini_vlm_toolkit/tools/gemini_google_search/google_api_key`
   - `mini_vlm_toolkit/tools/serper_google_search/serper_api_key`
@@ -172,7 +185,6 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
-- New tool: LLM router that forwards OpenAI-style chat messages to vLLM servers via env-based model->base_url mapping (one base URL per model).
 - Client parser: accept JSON tool-call outputs that include a tool name and args.
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Client parser: split into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.

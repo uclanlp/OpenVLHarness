@@ -69,7 +69,7 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 ## Configuration & Security Notes
 - The Python executor runs `exec()` without sandboxing; avoid untrusted code.
 - Tool lists are driven by `LIGHT_TOOL_MODULES` + `HEAVY_TOOL_MODULES`; see `.env.example` for sample lists.
-- Environment variables commonly used: `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`.
+- Environment variables commonly used: `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_DIRECT_MODEL_BASE_URLS`, `LLM_DIRECT_MODEL_API_KEYS`, `LLM_DIRECT_API_KEY`.
 - Model server URLs:
   - `SAM3_SERVER_URL`
   - `GROUNDING_DINO_SERVER_URL`
