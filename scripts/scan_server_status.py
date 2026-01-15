@@ -131,6 +131,7 @@ def main():
 
     print("")
     print(f"Subtool Server Status (ports {START_PORT}-{END_PORT})")
+    print("- Note: subtool ports are local to this machine. A subtool can still be invoked via the tool server if it appears in the server tool list, even when its subtool port is not visible here (the server may be forwarded from elsewhere).")
     if subtool_servers:
         for port, name, details in subtool_servers:
             extra = _format_subtool_details(name, details)

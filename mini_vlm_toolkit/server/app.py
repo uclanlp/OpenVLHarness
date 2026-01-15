@@ -63,6 +63,11 @@ def list_tools():
     return tool_metadata
 
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "tool_count": len(tool_metadata), "tools": sorted(tool_metadata)}
+
+
 @app.post("/execute")
 def execute_tool(request: ExecuteRequest):
     tool = tool_instances.get(request.tool_name)
