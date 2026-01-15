@@ -192,7 +192,6 @@ response = client.execute(
     {
         "prompt": "shoe",
         "image_path": image_path,
-        "max_masks": 3,
         "return_masks_png_b64": True,
     },
 )
@@ -224,7 +223,7 @@ prompt = (
     f"Tool name: SAM3_Segment_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
-    "User request: Segment the shoes in the image and return up to 3 masks.\n"
+    "User request: Segment the shoes in the image.\n"
     "Return only the code block."
 )
 
@@ -240,7 +239,6 @@ args = tool_call["args"]
 # Guardrails if the LLM omitted required fields.
 args.setdefault("prompt", "shoe")
 args.setdefault("image_path", image_path)
-args.setdefault("max_masks", 3)
 args.setdefault("return_masks_png_b64", True)
 
 response = client.execute(tool_call["tool_name"], args)
@@ -259,7 +257,6 @@ sam3_response = client.execute(
     {
         "prompt": "shoe",
         "image_path": image_path,
-        "max_masks": 20,
         "return_masks_png_b64": True,
     },
 )

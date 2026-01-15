@@ -88,7 +88,6 @@ def test_direct_invocation():
         prompt="basketball hoop",
         image_path=image_path,
         return_masks_png_b64=True,
-        max_masks=3,
         server_url=server_url,
     )
     log_output("Result", result)
@@ -128,7 +127,6 @@ def test_client_invocation():
             "prompt": "basketball hoop",
             "image_path": image_path,
             "return_masks_png_b64": True,
-            "max_masks": 3,
             "server_url": SAM3_SERVER_URL,
         },
     )
@@ -181,7 +179,7 @@ def test_llm_invocation():
     prompt = build_tool_call_prompt(
         "SAM3_Segment_Tool",
         metadata,
-        "Segment the basketball hoop in the image and return up to 2 masks.",
+        "Segment the basketball hoop in the image.",
         image_path,
     )
     log_output("Prompt", prompt)

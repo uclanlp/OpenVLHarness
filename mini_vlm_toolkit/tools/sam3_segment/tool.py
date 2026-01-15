@@ -29,7 +29,7 @@ class SAM3_Segment_Tool(BaseTool):
                 {
                     "command": (
                         "SAM3_Segment_Tool(prompt=\"cow\", "
-                        "image_path=\"/path/to/cow.jpg\", max_masks=3)"
+                        "image_path=\"/path/to/cow.jpg\")"
                     ),
                     "description": "Segment a cow image using the external SAM3 server.",
                 }
