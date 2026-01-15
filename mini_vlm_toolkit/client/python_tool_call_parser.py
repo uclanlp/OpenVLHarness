@@ -1,6 +1,6 @@
 """Parser for Python tool-call lines such as ToolName(...).
 
-JSON tool-call parsing is a TODO in json_tool_call_parser.py.
+For JSON tool-call parsing, see json_tool_call_parser.py.
 """
 
 import ast

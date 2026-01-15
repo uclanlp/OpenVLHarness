@@ -311,5 +311,5 @@ print(response["result"]["data"][0]["embedding"][:8])
 ## Notes for VLM tool-call training
 
 - The server only sees the `tool_name` and `args`. If your model needs image context, handle that on the model side and pass the image path through the tool call.
-- The Python tool-call parser expects a `ToolName(...)` call in code. JSON tool-call parsing is a TODO (`mini_vlm_toolkit/client/json_tool_call_parser.py`).
+- The Python tool-call parser expects a `ToolName(...)` call in code. JSON tool-call parsing (`mini_vlm_toolkit/client/json_tool_call_parser.py`) accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - You can use `client.list_tools()` to capture tool metadata for training prompts or schema conditioning.

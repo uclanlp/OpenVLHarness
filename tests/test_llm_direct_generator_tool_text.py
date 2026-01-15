@@ -2,6 +2,7 @@ import json
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
+from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call_args
 from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
@@ -53,7 +54,18 @@ def ensure_direct_model_ready():
     return base_url
 
 
-def build_tool_call_prompt(tool_name, tool_metadata, user_request):
+def build_tool_call_prompt(tool_name, tool_metadata, user_request, call_format="python"):
+    if call_format == "json":
+        return (
+            "Generate a JSON tool call object.\n"
+            "Use {\"tool_name\": \"ToolName\", \"args\": {...}} "
+            "or {\"name\": \"ToolName\", \"arguments\": {...}}.\n"
+            "Use keyword arguments only.\n"
+            f"Tool name: {tool_name}\n"
+            f"Tool metadata: {tool_metadata}\n"
+            f"User request: {user_request}\n"
+            "Return only the JSON object."
+        )
     return (
         "Generate a single Python code block that calls this tool.\n"
         "The code must include exactly one line: ToolName(...).\n"
@@ -113,8 +125,8 @@ def test_client_invocation():
     assert_response_payload(result)
 
 
-def test_llm_invocation():
-    log_step("LLM-assisted invocation via server")
+def test_llm_invocation_python():
+    log_step("LLM-assisted invocation via server (python)")
     base_url = ensure_direct_model_ready()
     if not base_url:
         return
@@ -139,10 +151,53 @@ def test_llm_invocation():
             "Send a short greeting to the configured model and keep the response brief. "
             "Use max_tokens=32 and temperature=0.2."
         ),
+        call_format="python",
     )
     llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.4)
     log_output("LLM output", llm_output)
     args = parse_python_tool_call_args(llm_output)
+    args.setdefault("model", MODEL_NAME)
+    args.setdefault("messages", [{"role": "user", "content": "Say hello."}])
+    args.setdefault("max_tokens", 32)
+    args.setdefault("temperature", 0.2)
+
+    response = client.execute(TOOL_NAME, args)
+    log_output("Response", response)
+    result = response["result"]
+    assert_response_payload(result)
+
+
+def test_llm_invocation_json():
+    log_step("LLM-assisted invocation via server (json)")
+    base_url = ensure_direct_model_ready()
+    if not base_url:
+        return
+    if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
+        return
+
+    engine = LLMEngine(
+        model=os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL),
+        base_url=os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL),
+        api_key=os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY),
+    )
+
+    client = ToolClient(SERVER_URL)
+    tools = client.list_tools()
+    metadata = tools[TOOL_NAME]
+    log_output("Tool metadata", metadata)
+
+    prompt = build_tool_call_prompt(
+        TOOL_NAME,
+        metadata,
+        (
+            "Send a short greeting to the configured model and keep the response brief. "
+            "Use max_tokens=32 and temperature=0.2."
+        ),
+        call_format="json",
+    )
+    llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.4)
+    log_output("LLM output", llm_output)
+    args = parse_json_tool_call_args(llm_output)
     args.setdefault("model", MODEL_NAME)
     args.setdefault("messages", [{"role": "user", "content": "Say hello."}])
     args.setdefault("max_tokens", 32)
@@ -162,7 +217,8 @@ def main():
 
     test_direct_invocation()
     test_client_invocation()
-    test_llm_invocation()
+    test_llm_invocation_python()
+    test_llm_invocation_json()
     print("LLM direct generator text-model tests completed.")
 
 

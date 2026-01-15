@@ -2,6 +2,7 @@ import json
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
+from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call_args
 from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
@@ -30,7 +31,19 @@ def log_output(label, payload):
     print(f"{label}:\n{json.dumps(payload, indent=2, sort_keys=True)}")
 
 
-def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path):
+def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path, call_format="python"):
+    if call_format == "json":
+        return (
+            "Generate a JSON tool call object.\n"
+            "Use {\"tool_name\": \"ToolName\", \"args\": {...}} "
+            "or {\"name\": \"ToolName\", \"arguments\": {...}}.\n"
+            "Use keyword arguments only.\n"
+            f"Tool name: {tool_name}\n"
+            f"Tool metadata: {tool_metadata}\n"
+            f"Image path to use: {image_path}\n"
+            f"User request: {user_request}\n"
+            "Return only the JSON object."
+        )
     return (
         "Generate a single Python code block that calls this tool.\n"
         "The code must include exactly one line: ToolName(...).\n"
@@ -83,8 +96,8 @@ def test_client_invocation():
     assert pixel != (255, 255, 255)
 
 
-def test_llm_invocation():
-    log_step("DrawLine LLM-assisted invocation via server")
+def test_llm_invocation_python():
+    log_step("DrawLine LLM-assisted invocation via server (python)")
     image_path = ensure_blank_image()
 
     model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
@@ -110,6 +123,7 @@ def test_llm_invocation():
         metadata,
         "Draw a dashed line from corner 1 to corner 3 of box [15, 15, 85, 85].",
         image_path,
+        call_format="python",
     )
     llm_output = engine.generate(prompt, max_tokens=2048, temperature=0.4)
     log_output("LLM output", llm_output)
@@ -122,7 +136,52 @@ def test_llm_invocation():
     response = client.execute("DrawLine_Tool", args)
     log_output("Response", response)
     edited = decode_base64_image(response["result"]["edited_image_base64"]).convert("RGB")
-    save_test_output(edited, build_test_id(__file__, "test_llm_invocation"))
+    save_test_output(edited, build_test_id(__file__, "test_llm_invocation_python"))
+    pixel = edited.getpixel((17, 17))
+    assert pixel != (255, 255, 255)
+
+
+def test_llm_invocation_json():
+    log_step("DrawLine LLM-assisted invocation via server (json)")
+    image_path = ensure_blank_image()
+
+    model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
+    base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+    api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
+    log_output(
+        "LLM config",
+        {
+            "model": model,
+            "base_url": base_url,
+            "api_key_set": bool(api_key),
+        },
+    )
+    engine = LLMEngine(model=model, base_url=base_url, api_key=api_key)
+
+    client = ToolClient(SERVER_URL)
+    tools = client.list_tools()
+    metadata = tools["DrawLine_Tool"]
+    log_output("DrawLine_Tool metadata", metadata)
+
+    prompt = build_tool_call_prompt(
+        "DrawLine_Tool",
+        metadata,
+        "Draw a dashed line from corner 1 to corner 3 of box [15, 15, 85, 85].",
+        image_path,
+        call_format="json",
+    )
+    llm_output = engine.generate(prompt, max_tokens=2048, temperature=0.4)
+    log_output("LLM output", llm_output)
+    args = parse_json_tool_call_args(llm_output)
+    args.setdefault("image_path", image_path)
+    args.setdefault("box", [15, 15, 85, 85])
+    args.setdefault("corner_a", 1)
+    args.setdefault("corner_b", 3)
+
+    response = client.execute("DrawLine_Tool", args)
+    log_output("Response", response)
+    edited = decode_base64_image(response["result"]["edited_image_base64"]).convert("RGB")
+    save_test_output(edited, build_test_id(__file__, "test_llm_invocation_json"))
     pixel = edited.getpixel((17, 17))
     assert pixel != (255, 255, 255)
 
@@ -132,7 +191,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
-    test_llm_invocation()
+    test_llm_invocation_python()
+    test_llm_invocation_json()
     print("Draw line tool test completed.")
 
 

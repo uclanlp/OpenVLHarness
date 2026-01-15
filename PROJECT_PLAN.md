@@ -101,7 +101,7 @@ Each tool will follow the BaseTool-like contract:
      - LLM generates code containing `ToolName(...)` lines.
      - Client parses these calls into `{tool_name, args}` (Python tool-call parser).
      - Client calls the server with structured requests.
-     - Parser should also accept JSON tool-call outputs that include a tool name and args.
+     - Parser also accepts JSON tool-call outputs with `{tool_name, args}` or OpenAI-style `{name, arguments}`.
 
 ### LLM Engines
 Allowed providers:
@@ -204,7 +204,7 @@ tool-specific env vars and do not source `.env`.
 Planned: clarify heavy tool dependencies vs main server requirements in docs and env setup.
 Planned: refresh `TUTORIAL.md` or add a new tutorial after config/script changes.
 Planned: decide whether LLM-based argument correction lives as a separate parser layer or an optional fallback inside the existing parser.
-Planned: add JSON tool-call parsing and an LLM-assisted fixer module alongside the Python tool-call parser.
+Planned: add an LLM-assisted fixer module alongside the Python/JSON tool-call parsers.
 Planned: add a scaffolding helper for new tools.
 
 ## Implementation Notes

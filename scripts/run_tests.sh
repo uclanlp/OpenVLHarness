@@ -12,15 +12,21 @@ fi
 
 pass_count=0
 fail_count=0
+total_count=${#TESTS[@]}
 
-for test_path in "${TESTS[@]}"; do
+echo "Running $total_count tests."
+
+for idx in "${!TESTS[@]}"; do
+  test_path="${TESTS[$idx]}"
   test_name="$(basename "$test_path")"
+  progress=$((idx + 1))
   output_file="$(mktemp)"
+  echo "RUN  [$progress/$total_count]: $test_name"
   if python "$test_path" >"$output_file" 2>&1; then
-    echo "PASS: $test_name"
+    echo "PASS [$progress/$total_count]: $test_name"
     pass_count=$((pass_count + 1))
   else
-    echo "FAIL: $test_name"
+    echo "FAIL [$progress/$total_count]: $test_name"
     cat "$output_file"
     fail_count=$((fail_count + 1))
   fi

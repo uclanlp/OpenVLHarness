@@ -8,7 +8,7 @@ This is a focused walkthrough for researchers who want to: (1) launch a tool ser
 - `mini_vlm_toolkit/tools/base.py`: `BaseTool` metadata contract (`tool_name`, `input_types`, `output_type`).
 - `mini_vlm_toolkit/tool_registry/loader.py`: loads tools from `TOOL_MODULES` (`auto` or comma-separated module list).
 - `mini_vlm_toolkit/server/app.py`: FastAPI server with `/tools` and `/execute`.
-- `mini_vlm_toolkit/client/`: `ToolClient`, `python_tool_call_parser.py` (Python tool-call parsing), `json_tool_call_parser.py` (TODO).
+- `mini_vlm_toolkit/client/`: `ToolClient`, `python_tool_call_parser.py` (Python tool-call parsing), `json_tool_call_parser.py` (JSON tool-call parsing).
 - `mini_vlm_toolkit/llm/engine.py`: LLM wrapper used to generate tool-call code.
 - `scripts/run_server.sh`: starts the tool server; requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (builds `TOOL_MODULES`, ignore direct `TOOL_MODULES`).
 - Tool model servers (heavy tools) live under their tool directories, for example:
@@ -83,7 +83,7 @@ print(llm_output)
 
 ## 2) Parse the tool call + execute via the parser + client
 
-The Python tool-call parser expects a `ToolName(...)` call in the LLM output. JSON tool-call parsing is a TODO.
+The Python tool-call parser expects a `ToolName(...)` call in the LLM output. JSON tool-call parsing accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 
 ```python
 from mini_vlm_toolkit.client.client import ToolClient
@@ -94,6 +94,15 @@ tool_call = parse_python_tool_call(llm_output)
 
 response = client.execute(tool_call["tool_name"], tool_call["args"])
 print(response["result"])
+```
+
+For JSON tool calls:
+
+```python
+from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call
+
+tool_call = parse_json_tool_call(llm_output_json)
+response = client.execute(tool_call["tool_name"], tool_call["args"])
 ```
 
 If the LLM output is missing required fields, insert guardrails before executing (for example, set a default `code` value).

@@ -4,6 +4,7 @@ import os
 import urllib.request
 
 from mini_vlm_toolkit.client.client import ToolClient
+from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call_args
 from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
@@ -59,7 +60,19 @@ def ensure_test_image():
     return image_path
 
 
-def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path):
+def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path, call_format="python"):
+    if call_format == "json":
+        return (
+            "Generate a JSON tool call object.\n"
+            "Use {\"tool_name\": \"ToolName\", \"args\": {...}} "
+            "or {\"name\": \"ToolName\", \"arguments\": {...}}.\n"
+            "Use keyword arguments only.\n"
+            f"Tool name: {tool_name}\n"
+            f"Tool metadata: {tool_metadata}\n"
+            f"Image path to use: {image_path}\n"
+            f"User request: {user_request}\n"
+            "Return only the JSON object."
+        )
     return (
         "Generate a single Python code block that calls this tool.\n"
         "The code must include exactly one line: ToolName(...).\n"
@@ -148,8 +161,8 @@ def test_client_invocation():
             )
 
 
-def test_llm_invocation():
-    log_step("SAM3 LLM-assisted invocation via server")
+def test_llm_invocation_python():
+    log_step("SAM3 LLM-assisted invocation via server (python)")
     image_path = ensure_test_image()
     if not image_path:
         print("SAM3 test image unavailable; skipping SAM3 LLM test.")
@@ -181,10 +194,11 @@ def test_llm_invocation():
         metadata,
         "Segment the basketball hoop in the image.",
         image_path,
+        call_format="python",
     )
     log_output("Prompt", prompt)
     generation_params = {
-        "max_tokens": 8192,
+        "max_tokens": 16384,
         "temperature": 0.6,
         "top_p": 0.95,
     }
@@ -209,7 +223,74 @@ def test_llm_invocation():
             mask_image = decode_base64_image(mask_b64)
             save_test_output(
                 mask_image,
-                build_test_id(__file__, "test_llm_invocation"),
+                build_test_id(__file__, "test_llm_invocation_python"),
+                suffix=f"mask_{idx}",
+            )
+
+
+def test_llm_invocation_json():
+    log_step("SAM3 LLM-assisted invocation via server (json)")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping SAM3 LLM test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
+    base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+    api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
+    log_output(
+        "LLM config",
+        {
+            "model": model,
+            "base_url": base_url,
+            "api_key_set": bool(api_key),
+        },
+    )
+    engine = LLMEngine(model=model, base_url=base_url, api_key=api_key)
+
+    client = ToolClient(TOOL_SERVER_URL)
+    tools = client.list_tools()
+    metadata = tools["SAM3_Segment_Tool"]
+    log_output("Tools", {"tool_names": sorted(tools.keys())})
+    log_output("SAM3_Segment_Tool metadata", metadata)
+
+    prompt = build_tool_call_prompt(
+        "SAM3_Segment_Tool",
+        metadata,
+        "Segment the basketball hoop in the image.",
+        image_path,
+        call_format="json",
+    )
+    log_output("Prompt", prompt)
+    generation_params = {
+        "max_tokens": 16384,
+        "temperature": 0.6,
+        "top_p": 0.95,
+    }
+    log_output("Generation params", generation_params)
+    llm_output = engine.generate(prompt, **generation_params)
+    log_output("LLM output", llm_output)
+    args = parse_json_tool_call_args(llm_output)
+    log_output("Parsed args", args)
+    if "server_url" not in args:
+        args["server_url"] = SAM3_SERVER_URL
+    response = client.execute("SAM3_Segment_Tool", args)
+    log_output("Response", response)
+
+    result = response["result"]
+    if "error" in result:
+        raise AssertionError(f"SAM3 server error: {result['error']}")
+
+    assert "boxes" in result, "Expected boxes in SAM3 response"
+    assert "scores" in result, "Expected scores in SAM3 response"
+    if result.get("masks_png_b64"):
+        for idx, mask_b64 in enumerate(result["masks_png_b64"]):
+            mask_image = decode_base64_image(mask_b64)
+            save_test_output(
+                mask_image,
+                build_test_id(__file__, "test_llm_invocation_json"),
                 suffix=f"mask_{idx}",
             )
 
@@ -221,7 +302,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
-    test_llm_invocation()
+    test_llm_invocation_python()
+    test_llm_invocation_json()
     print("SAM3 segment tool test completed.")
 
 

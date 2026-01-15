@@ -2,6 +2,7 @@ import json
 import os
 
 from mini_vlm_toolkit.client.client import ToolClient
+from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call_args
 from mini_vlm_toolkit.client.python_tool_call_parser import (
     parse_python_tool_call,
     parse_python_tool_call_args,
@@ -27,7 +28,17 @@ def log_output(label, payload):
     print(f"{label}:\n{json.dumps(payload, indent=2, sort_keys=True)}")
 
 
-def build_tool_call_prompt(tool_name, tool_metadata, user_request):
+def build_tool_call_prompt(tool_name, tool_metadata, user_request, call_format="python"):
+    if call_format == "json":
+        return (
+            "Generate a JSON tool call object.\n"
+            "Use {\"tool_name\": \"ToolName\", \"args\": {...}} "
+            "or {\"name\": \"ToolName\", \"arguments\": {...}}.\n"
+            f"Tool name: {tool_name}\n"
+            f"Tool metadata: {tool_metadata}\n"
+            f"User request: {user_request}\n"
+            "Return only the JSON object."
+        )
     return (
         "Generate a single Python code block that calls this tool.\n"
         "The code must include exactly one line: ToolName(...).\n"
@@ -139,8 +150,8 @@ def test_client_invocation():
     assert result["variables"]["value"] == "10", "Expected value to be 10"
 
 
-def test_llm_invocation():
-    log_step("LLM-assisted invocation via server")
+def test_llm_invocation_python():
+    log_step("LLM-assisted invocation via server (python)")
     model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
     api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
@@ -164,6 +175,7 @@ def test_llm_invocation():
         "Python_Executor_Tool",
         metadata,
         "Write Python code that prints 7 + 9 and stores the result in a variable named value.",
+        call_format="python",
     )
     log_output("Prompt", prompt)
     generation_params = {
@@ -184,6 +196,52 @@ def test_llm_invocation():
     assert result["variables"]["value"] == "16", "Expected value to be 16"
 
 
+def test_llm_invocation_json():
+    log_step("LLM-assisted invocation via server (json)")
+    model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
+    base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+    api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
+    log_output(
+        "LLM config",
+        {
+            "model": model,
+            "base_url": base_url,
+            "api_key_set": bool(api_key),
+        },
+    )
+    engine = LLMEngine(model=model, base_url=base_url, api_key=api_key)
+
+    client = ToolClient(SERVER_URL)
+    tools = client.list_tools()
+    metadata = tools["Python_Executor_Tool"]
+    log_output("Tools", {"tool_names": sorted(tools.keys())})
+    log_output("Python_Executor_Tool metadata", metadata)
+
+    prompt = build_tool_call_prompt(
+        "Python_Executor_Tool",
+        metadata,
+        "Write Python code that prints 7 + 9 and stores the result in a variable named value.",
+        call_format="json",
+    )
+    log_output("Prompt", prompt)
+    generation_params = {
+        "max_tokens": 8192,
+        "temperature": 0.6,
+        "top_p": 0.95,
+    }
+    log_output("Generation params", generation_params)
+    llm_output = engine.generate(prompt, **generation_params)
+    log_output("LLM output", llm_output)
+    args = parse_json_tool_call_args(llm_output)
+    log_output("Parsed args", args)
+    response = client.execute("Python_Executor_Tool", args)
+    log_output("Response", response)
+
+    result = response["result"]
+    assert "16" in result["printed_output"], "Expected printed output to contain 16"
+    assert result["variables"]["value"] == "16", "Expected value to be 16"
+
+
 def main():
     if not ensure_tool_server(SERVER_URL, required_tools=["Python_Executor_Tool"]):
         return
@@ -195,7 +253,8 @@ def main():
     test_parse_python_tool_call_args_with_think_block()
     test_parse_python_tool_call_with_tool_name()
     test_client_invocation()
-    test_llm_invocation()
+    test_llm_invocation_python()
+    test_llm_invocation_json()
     print("All python executor tests passed.")
 
 

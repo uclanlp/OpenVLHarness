@@ -4,6 +4,7 @@ import os
 from PIL import Image
 
 from mini_vlm_toolkit.client.client import ToolClient
+from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call_args
 from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
 from mini_vlm_toolkit.config import (
     DEFAULT_LLM_API_KEY,
@@ -33,7 +34,22 @@ def log_output(label, payload):
     print(f"{label}:\n{json.dumps(payload, indent=2, sort_keys=True)}")
 
 
-def build_tool_call_prompt(tool_name, tool_metadata, user_request, base_image, overlay_image):
+def build_tool_call_prompt(
+    tool_name, tool_metadata, user_request, base_image, overlay_image, call_format="python"
+):
+    if call_format == "json":
+        return (
+            "Generate a JSON tool call object.\n"
+            "Use {\"tool_name\": \"ToolName\", \"args\": {...}} "
+            "or {\"name\": \"ToolName\", \"arguments\": {...}}.\n"
+            "Use keyword arguments only.\n"
+            f"Tool name: {tool_name}\n"
+            f"Tool metadata: {tool_metadata}\n"
+            f"Base image path: {base_image}\n"
+            f"Overlay image path: {overlay_image}\n"
+            f"User request: {user_request}\n"
+            "Return only the JSON object."
+        )
     return (
         "Generate a single Python code block that calls this tool.\n"
         "The code must include exactly one line: ToolName(...).\n"
@@ -95,8 +111,8 @@ def test_client_invocation():
     assert blended.size[0] > 0 and blended.size[1] > 0
 
 
-def test_llm_invocation():
-    log_step("Overlay LLM-assisted invocation via server")
+def test_llm_invocation_python():
+    log_step("Overlay LLM-assisted invocation via server (python)")
     base_image = ensure_test_image()
     overlay_image = ensure_overlay_image()
     if not base_image or not overlay_image:
@@ -127,6 +143,7 @@ def test_llm_invocation():
         "Overlay the second image onto the top-left quarter with alpha 0.6.",
         base_image,
         overlay_image,
+        call_format="python",
     )
     llm_output = engine.generate(prompt, max_tokens=2048, temperature=0.4)
     log_output("LLM output", llm_output)
@@ -139,7 +156,56 @@ def test_llm_invocation():
     response = client.execute("OverlayImages_Tool", args)
     log_output("Response", response)
     blended = decode_base64_image(response["result"]["blended_image_base64"])
-    save_test_output(blended, build_test_id(__file__, "test_llm_invocation"))
+    save_test_output(blended, build_test_id(__file__, "test_llm_invocation_python"))
+    assert blended.size[0] > 0 and blended.size[1] > 0
+
+
+def test_llm_invocation_json():
+    log_step("Overlay LLM-assisted invocation via server (json)")
+    base_image = ensure_test_image()
+    overlay_image = ensure_overlay_image()
+    if not base_image or not overlay_image:
+        print("Test images unavailable; skipping overlay LLM test.")
+        return
+
+    model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
+    base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+    api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
+    log_output(
+        "LLM config",
+        {
+            "model": model,
+            "base_url": base_url,
+            "api_key_set": bool(api_key),
+        },
+    )
+    engine = LLMEngine(model=model, base_url=base_url, api_key=api_key)
+
+    client = ToolClient(SERVER_URL)
+    tools = client.list_tools()
+    metadata = tools["OverlayImages_Tool"]
+    log_output("OverlayImages_Tool metadata", metadata)
+
+    prompt = build_tool_call_prompt(
+        "OverlayImages_Tool",
+        metadata,
+        "Overlay the second image onto the top-left quarter with alpha 0.6.",
+        base_image,
+        overlay_image,
+        call_format="json",
+    )
+    llm_output = engine.generate(prompt, max_tokens=2048, temperature=0.4)
+    log_output("LLM output", llm_output)
+    args = parse_json_tool_call_args(llm_output)
+    args.setdefault("base_image_path", base_image)
+    args.setdefault("overlay_image_path", overlay_image)
+    args.setdefault("alpha", 0.6)
+    args.setdefault("bounding_box", [0.0, 0.0, 0.5, 0.5])
+
+    response = client.execute("OverlayImages_Tool", args)
+    log_output("Response", response)
+    blended = decode_base64_image(response["result"]["blended_image_base64"])
+    save_test_output(blended, build_test_id(__file__, "test_llm_invocation_json"))
     assert blended.size[0] > 0 and blended.size[1] > 0
 
 
@@ -148,7 +214,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
-    test_llm_invocation()
+    test_llm_invocation_python()
+    test_llm_invocation_json()
     print("Overlay images tool test completed.")
 
 
