@@ -98,7 +98,7 @@ def test_direct_invocation():
 
     tool = SAM3_Segment_Tool()
     result = tool.execute(
-        prompt="basketball hoop",
+        prompt="shoe",
         image_path=image_path,
         return_masks_png_b64=True,
         server_url=server_url,
@@ -144,7 +144,7 @@ def test_direct_invocation_viz_flags():
 
     tool = SAM3_Segment_Tool()
     result_keep_viz = tool.execute(
-        prompt="basketball hoop",
+        prompt="shoe",
         image_path=image_path,
         return_masks_png_b64=False,
         return_all_masks_viz=True,
@@ -163,7 +163,7 @@ def test_direct_invocation_viz_flags():
     ), "Did not expect masks_png_b64 when return_masks_png_b64 is False"
 
     result_no_viz = tool.execute(
-        prompt="basketball hoop",
+        prompt="shoe",
         image_path=image_path,
         return_masks_png_b64=True,
         return_all_masks_viz=False,
@@ -192,7 +192,7 @@ def test_client_invocation():
     response = client.execute(
         "SAM3_Segment_Tool",
         {
-            "prompt": "basketball hoop",
+            "prompt": "shoe",
             "image_path": image_path,
             "return_masks_png_b64": True,
             "server_url": SAM3_SERVER_URL,
@@ -255,7 +255,7 @@ def test_llm_invocation_python():
     prompt = build_tool_call_prompt(
         "SAM3_Segment_Tool",
         metadata,
-        "Segment the basketball hoop in the image.",
+        "Segment the shoe in the image.",
         image_path,
         call_format="python",
     )
@@ -331,7 +331,7 @@ def test_llm_invocation_json():
     prompt = build_tool_call_prompt(
         "SAM3_Segment_Tool",
         metadata,
-        "Segment the basketball hoop in the image.",
+        "Segment the shoe in the image.",
         image_path,
         call_format="json",
     )
