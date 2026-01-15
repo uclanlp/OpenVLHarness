@@ -52,12 +52,17 @@ Start the server:
 export PYTHONPATH="$(pwd)"
 ./scripts/run_server.sh
 ```
+Planned: `scripts/run_server.sh` will source a repo-root `.env` for
+`HOST`, `PORT`, `TOOL_MODULES`, `HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides
+(main server only).
 
 Start the SAM3 model server (required for the SAM3 tool):
 ```bash
 export PYTHONPATH="$(pwd)"
 ./scripts/run_sam3_server.sh
 ```
+Planned: move the model server scripts into their tool folders (they will not
+read `.env`).
 
 Start the OCR model server (required for the OCR tool):
 ```bash
@@ -148,8 +153,17 @@ export LLM_BASE_URL=http://localhost:8004/v1
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
-- SAM3: return an all-masks visualization by default (with an opt-out switch).
+- Server config: source a repo-root `.env` for main server settings (not subservers).
+- Model server launchers: move to tool folders (no `.env` sourcing).
+- New tool: LLM router that forwards OpenAI-style chat messages to vLLM servers via env-based model->base_url mapping (one base URL per model).
+- Tool onboarding: reduce manual edits for new tools (manifest/auto-discovery + scaffolding helper).
+- Tool onboarding: auto-discovery mode skips tools with missing deps or failed sanity checks, while explicit `TOOL_MODULES` stays strict.
+- Docs: clarify heavy tool dependencies vs main server requirements.
+- Docs: refresh `TUTORIAL.md` or add a new tutorial after config/script changes land.
 - Client parser: accept JSON tool-call outputs that include a tool name and args.
+- Client parser: add an optional LLM-based argument fixer for malformed tool calls.
+- Client parser: split into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.
+- SAM3: return an all-masks visualization by default (with an opt-out switch).
 - Remaining tool ports are deferred for now (not planned in the near term).
 - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
 - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.

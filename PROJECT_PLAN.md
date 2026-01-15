@@ -51,6 +51,7 @@ These tools are the initial compatibility target:
 ## Planned Tools (Vision tool ports)
 We will port tool logic directly into `mini_vlm_toolkit/tools` and skip all external controller/worker or Gradio servers. Heavyweight models are served via dedicated FastAPI servers that the toolkit calls as wrappers.
 Remaining unimplemented tools are deferred for now (not planned in the near term).
+Planned tool: an LLM router that forwards OpenAI-style chat messages to vLLM servers (OpenAI-compatible), with env-based model->base_url mapping and one base URL per model.
 Key decisions (recorded so new contributors do not need prior context):
 - GroundingDINO: run a Hugging Face GroundingDINO model server (default `IDEA-Research/grounding-dino-base`) and wrap it from the toolkit; return data-first boxes/scores/labels (no VisualSketchpad wrapper).
 - OCR: run an EasyOCR model server (CPU by default) and wrap it from the toolkit; EasyOCR downloads weights on first run.
@@ -169,6 +170,8 @@ python tests/test_<tool>.py
 - set minimal env vars (if provided)
 - start the server on a configurable host/port
 - print the tool list endpoint for quick verification
+Planned: source a repo-root `.env` for `HOST`, `PORT`, `TOOL_MODULES`,
+`HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides (main server only).
 
 Example usage:
 ```
@@ -181,6 +184,8 @@ Example usage:
 - `VLLM_BASE_URL` for OpenAI-compatible vLLM endpoints
 - `DEFAULT_LLM_PROVIDER` optional, `openai|together|vllm`
 - `DEFAULT_MODEL` optional model name
+Planned: move model server launch scripts into their tool folders; they will
+continue to use their tool-specific env vars and will not source `.env`.
 
 ## Parallel Work Plan
 - Person A: Tool registry + BaseTool + mapping logic.
@@ -192,6 +197,12 @@ Example usage:
 - Python tool execution safety: keep restricted and local.
 - Web tools require network and API keys (Google, OpenAI). For tests, allow a small fallback mock or skip if env vars are missing.
 - LLM codegen parsing: do not exec arbitrary code. Parse AST and only accept `tool.execute(...)` calls.
+Planned: clarify heavy tool dependencies vs main server requirements in docs and env setup.
+Planned: refresh `TUTORIAL.md` or add a new tutorial after config/script changes.
+Planned: decide whether LLM-based argument correction lives as a separate parser layer or an optional fallback inside the existing parser.
+Planned: split parser into modules for (1) single-line calls, (2) JSON calls, (3) LLM-assisted fixer.
+Planned: streamline new-tool onboarding (single manifest or auto-discovery) and add a scaffolding helper.
+Planned: auto-discovery skips tools with missing deps or failed sanity checks, while explicit `TOOL_MODULES` remains strict.
 
 ## Implementation Notes
 - Keep code minimal, flat, and explicit.
