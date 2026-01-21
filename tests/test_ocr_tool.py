@@ -18,6 +18,7 @@ from tests.utils import (
     ensure_ocr_server,
     ensure_ocr_test_image,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -96,6 +97,31 @@ def test_direct_invocation():
 
     annotated = annotate_ocr_boxes(image_path, result.get("results", []))
     save_test_output(annotated, build_test_id(__file__, "test_direct_invocation"))
+
+
+def test_subserver_error_propagation():
+    log_step("OCR subserver error propagation")
+    image_path = ensure_ocr_test_image()
+    if not image_path:
+        print("OCR test image unavailable; skipping error test.")
+        return
+
+    tool = OCR_Tool()
+    payload = {"detail": "ocr dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                image_path=image_path,
+                languages=OCR_LANGUAGES,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "ocr dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected OCR error but request succeeded")
 
 
 def test_client_invocation():
@@ -228,6 +254,7 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_ocr_server(OCR_SERVER_URL):
         return
     if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):

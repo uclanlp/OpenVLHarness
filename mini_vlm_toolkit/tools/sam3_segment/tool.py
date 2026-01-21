@@ -4,6 +4,7 @@ import os
 import requests
 
 from mini_vlm_toolkit.tools.base import BaseTool
+from mini_vlm_toolkit.tools.http_utils import raise_for_status_with_detail
 
 
 TOOL_NAME = "SAM3_Segment_Tool"
@@ -90,7 +91,7 @@ class SAM3_Segment_Tool(BaseTool):
             response = requests.post(
                 endpoint, files=files, data=data, timeout=timeout_seconds
             )
-            response.raise_for_status()
+            raise_for_status_with_detail(response, prefix="SAM3 server error")
             result = response.json()
 
         if "error" in result:

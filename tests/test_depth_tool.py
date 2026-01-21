@@ -17,6 +17,7 @@ from tests.utils import (
     ensure_depth_server,
     ensure_depth_test_image,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -75,6 +76,30 @@ def test_direct_invocation():
 
     depth_image = decode_base64_image(result["depth_map_base64"])
     save_test_output(depth_image, build_test_id(__file__, "test_direct_invocation"))
+
+
+def test_subserver_error_propagation():
+    log_step("Depth subserver error propagation")
+    image_path = ensure_depth_test_image()
+    if not image_path:
+        print("Depth test image unavailable; skipping error test.")
+        return
+
+    tool = Depth_Tool()
+    payload = {"detail": "depth dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                image_path=image_path,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "depth dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected depth error but request succeeded")
 
 
 def test_client_invocation():
@@ -207,6 +232,7 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_depth_server(DEPTH_SERVER_URL):
         return
     if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):

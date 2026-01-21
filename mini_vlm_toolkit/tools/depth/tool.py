@@ -4,6 +4,7 @@ import os
 import requests
 
 from mini_vlm_toolkit.tools.base import BaseTool
+from mini_vlm_toolkit.tools.http_utils import raise_for_status_with_detail
 
 TOOL_NAME = "Depth_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8082"
@@ -83,5 +84,5 @@ class Depth_Tool(BaseTool):
             response = requests.post(
                 endpoint, files=files, data=data, timeout=timeout_seconds
             )
-            response.raise_for_status()
+            raise_for_status_with_detail(response, prefix="Depth server error")
             return response.json()

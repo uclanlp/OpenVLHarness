@@ -18,6 +18,7 @@ from tests.utils import (
     decode_base64_image,
     ensure_sam3_server,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -130,6 +131,33 @@ def test_direct_invocation():
             build_test_id(__file__, "test_direct_invocation"),
             suffix="all_masks_viz",
         )
+
+
+def test_subserver_error_propagation():
+    log_step("SAM3 subserver error propagation")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping error test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    tool = SAM3_Segment_Tool()
+    payload = {"detail": "sam3 dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                prompt="shoe",
+                image_path=image_path,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "sam3 dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected SAM3 error but request succeeded")
 
 
 def test_direct_invocation_viz_flags():
@@ -377,6 +405,7 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_tool_server(TOOL_SERVER_URL, required_tools=["SAM3_Segment_Tool"]):
         return
     if not ensure_sam3_server(SAM3_SERVER_URL):

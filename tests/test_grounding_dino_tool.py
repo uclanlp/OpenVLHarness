@@ -23,6 +23,7 @@ from tests.utils import (
     ensure_grounding_dino_server,
     ensure_test_image,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -111,6 +112,33 @@ def test_direct_invocation():
 
     annotated = annotate_boxes(image_path, result.get("boxes", []))
     save_test_output(annotated, build_test_id(__file__, "test_direct_invocation"))
+
+
+def test_subserver_error_propagation():
+    log_step("GroundingDINO subserver error propagation")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping GroundingDINO error test.")
+        return
+
+    tool = GroundingDINO_Tool()
+    payload = {"detail": "groundingdino dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                image_path=image_path,
+                query="person",
+                box_threshold=DEFAULT_BOX_THRESHOLD,
+                text_threshold=DEFAULT_TEXT_THRESHOLD,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "groundingdino dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected GroundingDINO error but request succeeded")
 
 
 def test_client_invocation():
@@ -252,6 +280,7 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_grounding_dino_server(GROUNDING_DINO_SERVER_URL):
         return
     if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
