@@ -186,8 +186,11 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
+- Fix error propagation for heavy tools: when subserver calls fail, capture response body/JSON and surface it in tool exceptions (include status + message, truncate large payloads).
+- Rui: adding a GUI grounder
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Tool onboarding: add a scaffolding helper for new tools.
+- Server error payloads: return structured error details (client now surfaces `detail`).
 - Remaining tool ports are deferred for now (not planned in the near term).
-- OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
-- VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
+  - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
+  - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
