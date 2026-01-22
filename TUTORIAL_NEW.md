@@ -42,6 +42,7 @@ export LIGHT_TOOL_MODULES="mini_vlm_toolkit.tools.python_executor.tool"
 ```
 
 Heavy tools: if your subset includes tools that depend on external model servers (SAM3, GroundingDINO, OCR, Depth), start those model servers first by running the corresponding `run_*_server.sh` inside the tool directory, using the correct conda environment for that model. The main tool server does not need those heavy dependencies installed as long as the model servers are already running.
+SAM3 tools accept `image_base64` for remote clients; use it instead of `image_path` when the tool server cannot see your local filesystem.
 
 
 Example: ask an LLM to predict a tool call (the server needs to be running so you can grab tool metadata).

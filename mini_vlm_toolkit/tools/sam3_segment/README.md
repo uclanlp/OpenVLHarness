@@ -26,6 +26,21 @@ You need a Python environment that can import and run the SAM3 server:
 
 The toolkit itself only needs `requests` to call the server.
 
+## Image inputs
+
+`SAM3_Segment_Tool` accepts either `image_path` (server-local path) or
+`image_base64` (base64-encoded image data, optionally a data URL). Provide
+exactly one of the two.
+
+```python
+import base64
+
+with open("tests/data/sam3_demo.jpg", "rb") as handle:
+    image_base64 = base64.b64encode(handle.read()).decode("utf-8")
+
+tool.execute(prompt="shoe", image_base64=image_base64)
+```
+
 ## Output visualization
 
 `SAM3_Segment_Tool` returns `all_masks_viz_base64` by default. Set

@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import urllib.request
@@ -74,6 +75,11 @@ def ensure_sam3_demo_image():
         print(f"Failed to download SAM3 test image: {exc}")
         return None
     return image_path
+
+
+def encode_image_base64(image_path):
+    with open(image_path, "rb") as handle:
+        return base64.b64encode(handle.read()).decode("utf-8")
 
 
 def select_prompt_with_multiple_masks(result_lookup):
@@ -164,6 +170,58 @@ def test_direct_invocation():
     save_test_output(zoomed, build_test_id(__file__, "test_direct_invocation"), suffix="zoomed")
 
 
+def test_direct_invocation_base64():
+    log_step("SAM3 visualize direct invocation (image_base64)")
+    image_path = ensure_sam3_demo_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping SAM3 visualize direct test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    image_base64 = encode_image_base64(image_path)
+    segment_tool = SAM3_Segment_Tool()
+
+    def run_segment(prompt):
+        return segment_tool.execute(
+            prompt=prompt,
+            image_base64=image_base64,
+            return_masks_png_b64=True,
+            server_url=SAM3_SERVER_URL,
+        )
+
+    prompt, result = select_prompt_with_multiple_masks(run_segment)
+    log_output("Segment prompt", {"prompt": prompt})
+    log_output("SAM3 result summary", {"num_masks": len(result.get("masks_png_b64") or [])})
+
+    tool_all = SAM3_VisualizeAllMasks_Tool()
+    result_all = tool_all.execute(
+        image_base64=image_base64,
+        predictions=result,
+        predictions_format="sam3_server",
+    )
+    all_image = decode_base64_image(result_all["image_base64"])
+    save_test_output(
+        all_image, build_test_id(__file__, "test_direct_invocation_base64"), suffix="all"
+    )
+
+    tool_single = SAM3_VisualizeSingleMask_Tool()
+    result_single = tool_single.execute(
+        image_base64=image_base64,
+        predictions=result,
+        predictions_format="sam3_server",
+        mask_index=0,
+    )
+    overlay = decode_base64_image(result_single["overlay_image_base64"])
+    zoomed = decode_base64_image(result_single["zoomed_image_base64"])
+    save_test_output(
+        overlay, build_test_id(__file__, "test_direct_invocation_base64"), suffix="single"
+    )
+    save_test_output(
+        zoomed, build_test_id(__file__, "test_direct_invocation_base64"), suffix="zoomed"
+    )
+
+
 def test_client_invocation():
     log_step("SAM3 visualize client invocation via server (real image)")
     image_path = ensure_sam3_demo_image()
@@ -215,6 +273,66 @@ def test_client_invocation():
     zoomed = decode_base64_image(response_single["result"]["zoomed_image_base64"])
     save_test_output(overlay, build_test_id(__file__, "test_client_invocation"), suffix="single")
     save_test_output(zoomed, build_test_id(__file__, "test_client_invocation"), suffix="zoomed")
+
+
+def test_client_invocation_base64():
+    log_step("SAM3 visualize client invocation via server (image_base64)")
+    image_path = ensure_sam3_demo_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping SAM3 visualize client test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(TOOL_SERVER_URL)
+
+    def run_segment(prompt):
+        response = client.execute(
+            "SAM3_Segment_Tool",
+            {
+                "prompt": prompt,
+                "image_base64": image_base64,
+                "return_masks_png_b64": True,
+                "server_url": SAM3_SERVER_URL,
+            },
+        )
+        return response["result"]
+
+    prompt, sam3_result = select_prompt_with_multiple_masks(run_segment)
+    log_output("Segment prompt", {"prompt": prompt})
+    log_output("SAM3 result summary", {"num_masks": len(sam3_result.get("masks_png_b64") or [])})
+
+    response_all = client.execute(
+        "SAM3_VisualizeAllMasks_Tool",
+        {
+            "image_base64": image_base64,
+            "predictions": sam3_result,
+            "predictions_format": "sam3_server",
+        },
+    )
+    all_image = decode_base64_image(response_all["result"]["image_base64"])
+    save_test_output(
+        all_image, build_test_id(__file__, "test_client_invocation_base64"), suffix="all"
+    )
+
+    response_single = client.execute(
+        "SAM3_VisualizeSingleMask_Tool",
+        {
+            "image_base64": image_base64,
+            "predictions": sam3_result,
+            "predictions_format": "sam3_server",
+            "mask_index": 0,
+        },
+    )
+    overlay = decode_base64_image(response_single["result"]["overlay_image_base64"])
+    zoomed = decode_base64_image(response_single["result"]["zoomed_image_base64"])
+    save_test_output(
+        overlay, build_test_id(__file__, "test_client_invocation_base64"), suffix="single"
+    )
+    save_test_output(
+        zoomed, build_test_id(__file__, "test_client_invocation_base64"), suffix="zoomed"
+    )
 
 
 def test_llm_invocation_python():
@@ -362,7 +480,9 @@ def main():
     if not ensure_sam3_server(SAM3_SERVER_URL):
         return
     test_direct_invocation()
+    test_direct_invocation_base64()
     test_client_invocation()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("SAM3 visualize tool test completed.")

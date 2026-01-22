@@ -171,6 +171,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
+- SAM3 tools accept `image_base64` for remote clients; pass exactly one of `image_path` or `image_base64`.
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
 - Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
@@ -187,6 +188,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
+- Support client-side image uploads for other image-path tools (base64 inputs).
 - Rui: adding a GUI grounder
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Tool onboarding: add a scaffolding helper for new tools.

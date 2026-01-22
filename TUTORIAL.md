@@ -197,6 +197,27 @@ response = client.execute(
 )
 print(response["result"])
 ```
+If the tool server runs on another machine, send the image bytes instead of a server-local path:
+```python
+import base64
+
+from mini_vlm_toolkit.client.client import ToolClient
+
+client = ToolClient("http://127.0.0.1:8101")
+image_path = "tests/data/sam3_demo.jpg"
+with open(image_path, "rb") as handle:
+    image_base64 = base64.b64encode(handle.read()).decode("utf-8")
+
+response = client.execute(
+    "SAM3_Segment_Tool",
+    {
+        "prompt": "shoe",
+        "image_base64": image_base64,
+        "return_masks_png_b64": True,
+    },
+)
+print(response["result"])
+```
 `SAM3_Segment_Tool` returns `all_masks_viz_base64` by default (overlay of all masks).
 Set `return_all_masks_viz=False` to skip generating the visualization.
 
@@ -288,6 +309,8 @@ viz_single = client.execute(
 print(viz_single["result"]["overlay_image_base64"])
 print(viz_single["result"]["zoomed_image_base64"])
 ```
+If you used `image_base64` for segmentation, pass the same `image_base64` to the visualize tools
+instead of `image_path` (provide exactly one of the two).
 
 ## Example 4: Qwen3 embeddings via LLM_Direct_Generator_Tool
 

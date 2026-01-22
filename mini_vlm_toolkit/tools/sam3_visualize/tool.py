@@ -6,7 +6,12 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from mini_vlm_toolkit.tools.base import BaseTool
-from mini_vlm_toolkit.tools.image_utils import clamp, load_image, pil_to_base64
+from mini_vlm_toolkit.tools.image_utils import (
+    clamp,
+    load_image,
+    load_image_base64,
+    pil_to_base64,
+)
 
 try:
     from pycocotools import mask as mask_utils
@@ -53,6 +58,7 @@ class SAM3_VisualizeAllMasks_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "predictions": "dict - grounding-agent predictions or SAM3 server output",
                 "mask_alpha": "float - mask alpha",
                 "label_mode": "str - label mode ('1' to show indices, '0' to hide)",
@@ -78,15 +84,18 @@ class SAM3_VisualizeAllMasks_Tool(BaseTool):
 
     def execute(
         self,
-        image_path,
-        predictions,
+        image_path=None,
+        image_base64=None,
+        predictions=None,
         mask_alpha=_DEFAULT_ALPHA,
         label_mode="1",
         predictions_format="auto",
         font_size_multiplier=1.2,
         boarder_width_multiplier=0.0,
     ):
-        image = load_image(image_path)
+        if predictions is None:
+            raise ValueError("predictions is required")
+        image = _resolve_image(image_path, image_base64)
         masks, boxes = _parse_predictions(
             predictions, image, predictions_format=predictions_format
         )
@@ -118,6 +127,7 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "predictions": "dict - grounding-agent predictions or SAM3 server output",
                 "mask_index": "int - index of the mask to visualize",
                 "mask_alpha": "float - mask alpha",
@@ -146,16 +156,21 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
 
     def execute(
         self,
-        image_path,
-        predictions,
-        mask_index,
+        image_path=None,
+        image_base64=None,
+        predictions=None,
+        mask_index=None,
         mask_alpha=_DEFAULT_ALPHA,
         label_mode="1",
         predictions_format="auto",
         font_size_multiplier=1.2,
         boarder_width_multiplier=0.0,
     ):
-        image = load_image(image_path)
+        if predictions is None:
+            raise ValueError("predictions is required")
+        if mask_index is None:
+            raise ValueError("mask_index is required")
+        image = _resolve_image(image_path, image_base64)
         masks, boxes = _parse_predictions(
             predictions, image, predictions_format=predictions_format
         )
@@ -214,6 +229,16 @@ def _parse_predictions(predictions, image, predictions_format="auto"):
     if fmt == "grounding_agent":
         return _parse_grounding_agent_predictions(predictions, image)
     return _parse_sam3_server_predictions(predictions, image)
+
+
+def _resolve_image(image_path, image_base64):
+    if image_path and image_base64:
+        raise ValueError("Provide exactly one of image_path or image_base64")
+    if image_base64:
+        return load_image_base64(image_base64)
+    if image_path:
+        return load_image(image_path)
+    raise ValueError("image_path or image_base64 is required")
 
 
 def _parse_grounding_agent_predictions(predictions, image):
