@@ -10,8 +10,6 @@ END_PORT = 9000
 CONNECT_TIMEOUT_SEC = 0.15
 HTTP_TIMEOUT_SEC = 0.4
 MAX_MODEL_DETAIL_ITEMS = 8
-
-
 def _port_open(host, port):
     try:
         with socket.create_connection((host, port), timeout=CONNECT_TIMEOUT_SEC):
@@ -67,11 +65,11 @@ def _is_vllm_model_info(info):
     return False
 
 
-def _tool_names(host, port):
+def _tool_metadata(host, port):
     tools = _get_json(host, port, "/tools")
     if not isinstance(tools, dict):
         return None
-    return sorted(tools.keys())
+    return tools
 
 
 def _identify_subtool(host, port):
@@ -99,10 +97,15 @@ def _identify_subtool(host, port):
     return None
 
 
-def _format_tools_line(tool_names):
+def _format_tools_line(tool_names, llm_direct_suffix=None):
     if not tool_names:
         return "(no tools reported)"
-    return ", ".join(tool_names)
+    formatted = []
+    for name in tool_names:
+        if name == "LLM_Direct_Generator_Tool" and llm_direct_suffix:
+            name = name + llm_direct_suffix
+        formatted.append(name)
+    return ", ".join(formatted)
 
 
 def _format_list(items, limit=MAX_MODEL_DETAIL_ITEMS):
@@ -111,6 +114,27 @@ def _format_list(items, limit=MAX_MODEL_DETAIL_ITEMS):
     if len(items) <= limit:
         return ", ".join(items)
     return ", ".join(items[:limit]) + f", +{len(items) - limit} more"
+
+
+def _llm_direct_suffix_from_metadata(tool_metadata):
+    if not isinstance(tool_metadata, dict):
+        return None
+    llm_meta = tool_metadata.get("LLM_Direct_Generator_Tool")
+    if not isinstance(llm_meta, dict):
+        return None
+    description = llm_meta.get("tool_description", "")
+    marker = "Configured models:"
+    if marker not in description:
+        return None
+    tail = description.split(marker, 1)[1].strip()
+    if not tail:
+        return " (models: none)"
+    if tail.startswith("(") and tail.endswith(")"):
+        return f" (models: {tail[1:-1].strip()})"
+    models = [item.strip() for item in tail.split(",") if item.strip()]
+    if not models:
+        return " (models: none)"
+    return " (models: " + _format_list(models) + ")"
 
 
 def _format_subtool_details(name, details):
@@ -171,9 +195,9 @@ def main():
         if not _port_open(HOST, port):
             continue
 
-        tool_names = _tool_names(HOST, port)
-        if tool_names is not None:
-            tool_servers.append((port, tool_names))
+        tool_metadata = _tool_metadata(HOST, port)
+        if tool_metadata is not None:
+            tool_servers.append((port, tool_metadata))
             continue
 
         subtool = _identify_subtool(HOST, port)
@@ -183,8 +207,10 @@ def main():
 
     print(f"Tool Server Status (ports {START_PORT}-{END_PORT})")
     if tool_servers:
-        for port, tool_names in tool_servers:
-            tools_line = _format_tools_line(tool_names)
+        for port, tool_metadata in tool_servers:
+            tool_names = sorted(tool_metadata.keys())
+            llm_direct_suffix = _llm_direct_suffix_from_metadata(tool_metadata)
+            tools_line = _format_tools_line(tool_names, llm_direct_suffix)
             print(f"- http://{HOST}:{port} | tools: {tools_line}")
     else:
         print("- None found.")

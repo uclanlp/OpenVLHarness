@@ -192,6 +192,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Tool onboarding: add a scaffolding helper for new tools.
 - Server error payloads: return structured error details (client now surfaces `detail`).
+- Tool metadata: clean up `/tools` `input_types` output (remove inline comments).
 - Remaining tool ports are deferred for now (not planned in the near term).
   - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
   - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
