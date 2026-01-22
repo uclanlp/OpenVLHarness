@@ -16,6 +16,7 @@ from mini_vlm_toolkit.tools.crop.tool import Crop_Tool
 from tests.utils import (
     build_test_id,
     decode_base64_image,
+    encode_image_base64,
     ensure_test_image,
     ensure_tool_server,
     save_test_output,
@@ -120,6 +121,52 @@ def test_client_invocation():
     assert cropped.size[0] > 0 and cropped.size[1] > 0
 
 
+def test_direct_invocation_base64():
+    log_step("Crop direct invocation (base64)")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping crop base64 direct test.")
+        return
+
+    image_base64 = encode_image_base64(image_path)
+    tool = Crop_Tool()
+    result = tool.execute(
+        image_base64=image_base64,
+        coords=[0.1, 0.2, 0.6, 0.7],
+        coords_type="normalized_xyxy",
+    )
+    log_output("Result", result)
+    cropped = decode_base64_image(result["cropped_image_base64"])
+    save_test_output(
+        cropped, build_test_id(__file__, "test_direct_invocation_base64")
+    )
+    assert cropped.size[0] > 0 and cropped.size[1] > 0
+
+
+def test_client_invocation_base64():
+    log_step("Crop client invocation via server (base64)")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping crop base64 client test.")
+        return
+
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "Crop_Tool",
+        {
+            "image_base64": image_base64,
+            "coords": [0.15, 0.25, 0.5, 0.6],
+            "coords_type": "normalized_xyxy",
+        },
+    )
+    log_output("Response", response)
+    result = response["result"]
+    cropped = decode_base64_image(result["cropped_image_base64"])
+    save_test_output(cropped, build_test_id(__file__, "test_client_invocation_base64"))
+    assert cropped.size[0] > 0 and cropped.size[1] > 0
+
+
 def test_llm_invocation_python():
     log_step("Crop LLM-assisted invocation via server (python)")
     image_path = ensure_test_image()
@@ -219,6 +266,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Crop tool test completed.")

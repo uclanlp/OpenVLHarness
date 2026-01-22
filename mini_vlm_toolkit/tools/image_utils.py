@@ -57,6 +57,18 @@ def load_image_base64(image_base64):
         raise ValueError(f"image_base64 is not a valid image: {exc}") from exc
 
 
+def resolve_image_input(image_path=None, image_base64=None, image_label="image"):
+    if image_path and image_base64:
+        raise ValueError(
+            f"Provide exactly one of {image_label}_path or {image_label}_base64"
+        )
+    if image_path:
+        return load_image(image_path)
+    if image_base64:
+        return load_image_base64(image_base64)
+    raise ValueError(f"{image_label}_path or {image_label}_base64 is required")
+
+
 def pil_to_base64(image, image_format="PNG"):
     buffer = io.BytesIO()
     image.save(buffer, format=image_format)

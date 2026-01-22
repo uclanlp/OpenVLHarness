@@ -1,6 +1,7 @@
 import base64
 import contextlib
 import json
+import mimetypes
 import os
 import threading
 import urllib.request
@@ -286,6 +287,15 @@ def ensure_depth_test_image():
 def decode_base64_image(image_base64):
     data = base64.b64decode(image_base64)
     return Image.open(BytesIO(data))
+
+
+def encode_image_base64(image_path, include_data_url=False):
+    with open(image_path, "rb") as handle:
+        encoded = base64.b64encode(handle.read()).decode("utf-8")
+    if not include_data_url:
+        return encoded
+    content_type = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
+    return f"data:{content_type};base64,{encoded}"
 
 
 def ensure_blank_image(filename="blank_canvas.png", size=(200, 200), color=(255, 255, 255)):

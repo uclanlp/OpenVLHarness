@@ -11,6 +11,7 @@ class SlidingWindowDetection_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "objects": "list[str] - objects to detect",
                 "box_threshold": "float - confidence threshold for boxes",
                 "text_threshold": "float - confidence threshold for text",
@@ -29,5 +30,12 @@ class SlidingWindowDetection_Tool(BaseTool):
             },
         )
 
-    def execute(self, image_path, objects, box_threshold=0.35, text_threshold=0.25):
+    def execute(
+        self,
+        image_path=None,
+        objects=None,
+        box_threshold=0.35,
+        text_threshold=0.25,
+        image_base64=None,
+    ):
         raise NotImplementedError("SlidingWindowDetection_Tool is not implemented yet.")

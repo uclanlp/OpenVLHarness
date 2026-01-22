@@ -14,6 +14,7 @@ from mini_vlm_toolkit.tools.depth.tool import Depth_Tool, TOOL_NAME
 from tests.utils import (
     build_test_id,
     decode_base64_image,
+    encode_image_base64,
     ensure_depth_server,
     ensure_depth_test_image,
     ensure_tool_server,
@@ -129,6 +130,54 @@ def test_client_invocation():
     save_test_output(depth_image, build_test_id(__file__, "test_client_invocation"))
 
 
+def test_direct_invocation_base64():
+    log_step("Depth direct invocation (base64)")
+    if not ensure_depth_server(DEPTH_SERVER_URL):
+        return
+    image_path = ensure_depth_test_image()
+    if not image_path:
+        print("Depth test image unavailable; skipping base64 direct test.")
+        return
+
+    tool = Depth_Tool()
+    result = tool.execute(
+        image_base64=encode_image_base64(image_path),
+        server_url=DEPTH_SERVER_URL,
+    )
+    log_output("Result", result)
+    assert "depth_map_base64" in result, "Expected depth_map_base64 in response"
+
+    depth_image = decode_base64_image(result["depth_map_base64"])
+    save_test_output(depth_image, build_test_id(__file__, "test_direct_invocation_base64"))
+
+
+def test_client_invocation_base64():
+    log_step("Depth client invocation via server (base64)")
+    if not ensure_depth_server(DEPTH_SERVER_URL):
+        return
+    if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
+        return
+    image_path = ensure_depth_test_image()
+    if not image_path:
+        print("Depth test image unavailable; skipping base64 client test.")
+        return
+
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        TOOL_NAME,
+        {
+            "image_base64": encode_image_base64(image_path),
+            "server_url": DEPTH_SERVER_URL,
+        },
+    )
+    log_output("Response", response)
+    result = response["result"]
+    assert "depth_map_base64" in result, "Expected depth_map_base64 in response"
+
+    depth_image = decode_base64_image(result["depth_map_base64"])
+    save_test_output(depth_image, build_test_id(__file__, "test_client_invocation_base64"))
+
+
 def test_llm_invocation_python():
     log_step("Depth LLM-assisted invocation via server (python)")
     if not ensure_depth_server(DEPTH_SERVER_URL):
@@ -239,6 +288,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Depth tool tests completed.")

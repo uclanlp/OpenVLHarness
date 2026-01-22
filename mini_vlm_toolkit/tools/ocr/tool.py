@@ -6,6 +6,7 @@ import requests
 
 from mini_vlm_toolkit.tools.base import BaseTool
 from mini_vlm_toolkit.tools.http_utils import raise_for_status_with_detail
+from mini_vlm_toolkit.tools.image_utils import decode_base64_image_data
 
 TOOL_NAME = "OCR_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8085"
@@ -19,6 +20,7 @@ class OCR_Tool(BaseTool):
             tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "languages": "list[str] | str - optional language list, e.g. ['en']",
                 "server_url": "str - override OCR server URL",
                 "timeout_seconds": "int - request timeout in seconds",
@@ -55,14 +57,17 @@ class OCR_Tool(BaseTool):
 
     def execute(
         self,
-        image_path,
+        image_path=None,
         languages=None,
         server_url=None,
         timeout_seconds=120,
+        image_base64=None,
     ):
-        if not image_path:
-            raise ValueError("image_path is required")
-        if not os.path.isfile(image_path):
+        if not image_path and not image_base64:
+            raise ValueError("image_path or image_base64 is required")
+        if image_path and image_base64:
+            raise ValueError("Provide exactly one of image_path or image_base64")
+        if image_path and not os.path.isfile(image_path):
             raise FileNotFoundError(f"image_path not found: {image_path}")
 
         resolved_server_url = (
@@ -70,7 +75,7 @@ class OCR_Tool(BaseTool):
         ).rstrip("/")
         endpoint = f"{resolved_server_url}/v1/ocr"
 
-        content_type = mimetypes.guess_type(image_path)[0] or "application/octet-stream"
+        content_type = None
         data = {}
         if languages:
             if isinstance(languages, (list, tuple)):
@@ -78,12 +83,26 @@ class OCR_Tool(BaseTool):
             else:
                 data["languages"] = str(languages)
 
-        with open(image_path, "rb") as handle:
-            files = {
-                "image": (os.path.basename(image_path), handle, content_type),
-            }
-            response = requests.post(
-                endpoint, files=files, data=data, timeout=timeout_seconds
+        if image_path:
+            content_type = (
+                mimetypes.guess_type(image_path)[0] or "application/octet-stream"
             )
-            raise_for_status_with_detail(response, prefix="OCR server error")
-            return response.json()
+            with open(image_path, "rb") as handle:
+                files = {
+                    "image": (os.path.basename(image_path), handle, content_type),
+                }
+                response = requests.post(
+                    endpoint, files=files, data=data, timeout=timeout_seconds
+                )
+                raise_for_status_with_detail(response, prefix="OCR server error")
+                return response.json()
+
+        image_bytes, content_type = decode_base64_image_data(image_base64)
+        files = {
+            "image": ("image", image_bytes, content_type or "application/octet-stream"),
+        }
+        response = requests.post(
+            endpoint, files=files, data=data, timeout=timeout_seconds
+        )
+        raise_for_status_with_detail(response, prefix="OCR server error")
+        return response.json()

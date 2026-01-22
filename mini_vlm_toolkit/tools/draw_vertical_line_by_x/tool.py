@@ -1,7 +1,12 @@
 from PIL import ImageColor, ImageDraw
 
 from mini_vlm_toolkit.tools.base import BaseTool
-from mini_vlm_toolkit.tools.image_utils import clamp, draw_dashed_line, load_image, pil_to_base64
+from mini_vlm_toolkit.tools.image_utils import (
+    clamp,
+    draw_dashed_line,
+    pil_to_base64,
+    resolve_image_input,
+)
 
 TOOL_NAME = "DrawVerticalLineByX_Tool"
 
@@ -14,6 +19,7 @@ class DrawVerticalLineByX_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "x": "float - x coordinate (normalized or pixel)",
                 "coord_type": "str - normalized or pixel",
             },
@@ -31,8 +37,10 @@ class DrawVerticalLineByX_Tool(BaseTool):
             },
         )
 
-    def execute(self, image_path, x, coord_type="normalized"):
-        image = load_image(image_path)
+    def execute(
+        self, image_path=None, x=None, coord_type="normalized", image_base64=None
+    ):
+        image = resolve_image_input(image_path=image_path, image_base64=image_base64)
         width, height = image.size
         x_value = float(x)
         if coord_type == "normalized":

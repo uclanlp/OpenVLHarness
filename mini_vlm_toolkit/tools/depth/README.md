@@ -4,6 +4,11 @@ This tool is a wrapper around a dedicated Depth-Anything model server (Hugging F
 `AutoModelForDepthEstimation`). The model server runs separately from the mini VLM
 tool server.
 
+## Image inputs
+
+`Depth_Tool` accepts either `image_path` (server-local path) or `image_base64`
+(base64-encoded image or data URL). Provide exactly one.
+
 ## 1) Install dependencies (model server env)
 
 Install compatible `torch` and `transformers`:

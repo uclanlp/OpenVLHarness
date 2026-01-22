@@ -4,6 +4,19 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="$ROOT_DIR"
 
+OUTPUT_DIR="$ROOT_DIR/tests/output"
+BACKUP_DIR="$OUTPUT_DIR/backup"
+mkdir -p "$BACKUP_DIR"
+
+shopt -s nullglob
+for path in "$OUTPUT_DIR"/test_*; do
+  mv "$path" "$BACKUP_DIR"/
+done
+shopt -u nullglob
+
+before_snapshot="$(mktemp)"
+find "$OUTPUT_DIR" -path "$BACKUP_DIR" -prune -o -type f -print | sort >"$before_snapshot"
+
 TESTS=("$ROOT_DIR"/tests/test_*.py)
 if [[ ${#TESTS[@]} -eq 0 || ! -e "${TESTS[0]}" ]]; then
   echo "No tests found in $ROOT_DIR/tests" >&2
@@ -34,6 +47,22 @@ for idx in "${!TESTS[@]}"; do
 done
 
 echo "Summary: $pass_count passed, $fail_count failed."
+
+after_snapshot="$(mktemp)"
+find "$OUTPUT_DIR" -path "$BACKUP_DIR" -prune -o -type f -print | sort >"$after_snapshot"
+
+timestamp="$(date +%Y%m%d_%H%M%S)"
+run_dir="$OUTPUT_DIR/tests_$timestamp"
+mkdir -p "$run_dir"
+
+comm -13 "$before_snapshot" "$after_snapshot" | while IFS= read -r path; do
+  rel_path="${path#"$OUTPUT_DIR"/}"
+  dest_path="$run_dir/$rel_path"
+  mkdir -p "$(dirname "$dest_path")"
+  mv "$path" "$dest_path"
+done
+
+rm -f "$before_snapshot" "$after_snapshot"
 
 if [[ $fail_count -ne 0 ]]; then
   exit 1

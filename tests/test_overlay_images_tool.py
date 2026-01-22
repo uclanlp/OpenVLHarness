@@ -16,6 +16,7 @@ from mini_vlm_toolkit.tools.overlay_images.tool import OverlayImages_Tool
 from tests.utils import (
     build_test_id,
     decode_base64_image,
+    encode_image_base64,
     ensure_overlay_image,
     ensure_test_image,
     ensure_tool_server,
@@ -108,6 +109,52 @@ def test_client_invocation():
     log_output("Response", response)
     blended = decode_base64_image(response["result"]["blended_image_base64"])
     save_test_output(blended, build_test_id(__file__, "test_client_invocation"))
+    assert blended.size[0] > 0 and blended.size[1] > 0
+
+
+def test_direct_invocation_base64():
+    log_step("Overlay direct invocation (base64)")
+    base_image = ensure_test_image()
+    overlay_image = ensure_overlay_image()
+    if not base_image or not overlay_image:
+        print("Test images unavailable; skipping overlay base64 direct test.")
+        return
+
+    tool = OverlayImages_Tool()
+    result = tool.execute(
+        base_image_base64=encode_image_base64(base_image),
+        overlay_image_base64=encode_image_base64(overlay_image),
+        alpha=0.6,
+        bounding_box=[0.2, 0.2, 0.5, 0.5],
+    )
+    log_output("Result", result)
+
+    blended = decode_base64_image(result["blended_image_base64"])
+    save_test_output(blended, build_test_id(__file__, "test_direct_invocation_base64"))
+    assert blended.size[0] > 0 and blended.size[1] > 0
+
+
+def test_client_invocation_base64():
+    log_step("Overlay client invocation via server (base64)")
+    base_image = ensure_test_image()
+    overlay_image = ensure_overlay_image()
+    if not base_image or not overlay_image:
+        print("Test images unavailable; skipping overlay base64 client test.")
+        return
+
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "OverlayImages_Tool",
+        {
+            "base_image_base64": encode_image_base64(base_image),
+            "overlay_image_base64": encode_image_base64(overlay_image),
+            "alpha": 0.6,
+            "bounding_box": [0.1, 0.1, 0.4, 0.4],
+        },
+    )
+    log_output("Response", response)
+    blended = decode_base64_image(response["result"]["blended_image_base64"])
+    save_test_output(blended, build_test_id(__file__, "test_client_invocation_base64"))
     assert blended.size[0] > 0 and blended.size[1] > 0
 
 
@@ -214,6 +261,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Overlay images tool test completed.")

@@ -4,6 +4,11 @@ This tool is a wrapper around a dedicated EasyOCR model server. The model server
 runs separately from the mini VLM tool server. EasyOCR downloads model weights on
 first run (by default under `~/.EasyOCR`).
 
+## Image inputs
+
+`OCR_Tool` accepts either `image_path` (server-local path) or `image_base64`
+(base64-encoded image or data URL). Provide exactly one.
+
 ## 1) Install dependencies (model server env)
 
 ```bash

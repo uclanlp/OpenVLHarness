@@ -4,14 +4,14 @@
 This repository is a small Python toolkit for tool execution and a FastAPI server. Key paths:
 - `mini_vlm_toolkit/tools/`: Tool packages (each subdir has `tool.py` + `__init__.py`); heavy tools may also include `server.py`/`sam3_server.py` and a `README.md`.
 - `mini_vlm_toolkit/tools/base.py`: `BaseTool` definition and metadata contract.
-- `mini_vlm_toolkit/tools/image_utils.py`: Shared image helpers.
+- `mini_vlm_toolkit/tools/image_utils.py`: Shared image helpers (path/base64 decoding + `resolve_image_input`).
 - `mini_vlm_toolkit/tool_registry/`: Tool loader and registry (`mini_vlm_toolkit/tool_registry/loader.py`).
 - `mini_vlm_toolkit/server/`: FastAPI app (`mini_vlm_toolkit/server/app.py`).
 - `mini_vlm_toolkit/client/`: HTTP client + tool-call parsers (`python_tool_call_parser.py`, `json_tool_call_parser.py`).
 - `mini_vlm_toolkit/llm/`: LLM engine wrapper used for tool-call generation.
 - `mini_vlm_toolkit/tool_runner.py`: Minimal direct tool runner helper.
 - `mini_vlm_toolkit/config.py`: Default LLM config values.
-- `tests/`: Standalone Python test scripts + `tests/utils.py`.
+- `tests/`: Standalone Python test scripts + `tests/utils.py` (includes base64 encoding helpers for image tests).
 - `tests/data`: Sample images (downloaded if missing).
 - `tests/output`: Generated test images (gitignored).
 - `scripts/`: Helper scripts (tool server, tests, status checks, model servers).
@@ -45,6 +45,7 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 ## Adding a New Tool (Workflow)
 1) Check relevant implementations in `reference/` and confirm the intended behavior/inputs/outputs before coding.
 2) Create `mini_vlm_toolkit/tools/<tool_name>/tool.py` + `__init__.py`; follow `BaseTool` metadata conventions and keep inputs explicit.
+   - If the tool accepts image inputs, add `image_base64` (or base/overlay variants) and enforce exactly one of path/base64.
 3) Add tests in `tests/test_<tool_name>_tool.py` following the direct/client/LLM pattern; add any new images to `tests/data`.
 4) Decide if the tool is heavy (external model server or large deps) or default (lightweight). If you use explicit tool lists, update `.env` to place the module in `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES`. With `LIGHT_TOOL_MODULES=auto`, no list edits are needed.
 5) Update docs (`README.md`, `TUTORIAL.md`) and note any new env vars or API key files.
@@ -61,6 +62,12 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 - JSON tool-call parser accepts either `{"tool_name": "...", "args": {...}}` or OpenAI-style `{"name": "...", "arguments": {...}}`.
 - Use the JSON parser for OpenAI-style tool call payloads or when the LLM emits JSON directly.
 
+## Image Input Conventions
+- Image tools accept either `image_path` (server-local path) or `image_base64` (base64 string or data URL); require exactly one.
+- `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` in place of paths.
+- For PIL-based tools, prefer `resolve_image_input` from `mini_vlm_toolkit/tools/image_utils.py`.
+- For multipart server tools, use `decode_base64_image_data` and send bytes as multipart files.
+
 ## Coding Style & Naming Conventions
 - Use 4-space indentation and standard PEP 8 conventions.
 - Prefer `snake_case` for modules/functions and `PascalCase` for classes.
@@ -71,7 +78,7 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 
 ## Testing Guidelines
 - Tests are plain scripts that use `assert` (no pytest harness yet).
-- Tool tests usually follow: direct invocation, client invocation via server, LLM-assisted invocation.
+- Tool tests usually follow: direct invocation, client invocation via server, LLM-assisted invocation. Image tools also include base64 variants.
 - Start the tool server before client/LLM tests or set `TOOL_SERVER_URL`.
 - Vision tests download sample images into `tests/data` on first run and save outputs to `tests/output`.
 - The LLM test requires `LLM_MODEL`; `LLM_BASE_URL` and `LLM_API_KEY` are optional.
