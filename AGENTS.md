@@ -1,7 +1,13 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-This repository is a small Python toolkit for tool execution and a FastAPI server. Key paths:
+## Scope and Focus
+This repo hosts two efforts:
+- Tool infra (stable): `mini_vlm_toolkit/tool_infra` contains the lightweight tool server/client stack and is the primary development focus for this agent.
+- Eval/benchmark stack (incoming): a larger VLM evaluation codebase will be merged in at the repo root and under `mini_vlm_toolkit/`. Expect agents, datasets, inference utilities (image/video), configs, and a benchmark runner (for example `run_benchmark.py`). Conventions for that code are still evolving, so do not enforce strict rules there yet.
+
+Default to working inside `mini_vlm_toolkit/tool_infra` unless explicitly asked to touch eval code.
+
+## Tool Infra Layout (mini_vlm_toolkit/tool_infra)
 - `src/tools/`: Tool packages (each subdir has `tool.py` + `__init__.py`); heavy tools may also include `server.py`/`sam3_server.py` and a `README.md`.
 - `src/tools/base.py`: `BaseTool` definition and metadata contract.
 - `src/tools/image_utils.py`: Shared image helpers (path/base64 decoding + `resolve_image_input`).
@@ -27,6 +33,7 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 - Some modules define multiple tools (for example `tools.sam3_visualize.tool`).
 
 ## Build, Test, and Development Commands
+Run these from `mini_vlm_toolkit/tool_infra`.
 - `pip install -r requirements-client.txt` installs runtime deps.
 - `pip install -r requirements-server.txt` installs heavy model server deps (SAM3, GroundingDINO, OCR, Depth).
 - `./scripts/run_server.sh` starts the FastAPI tool server (uses `HOST`/`PORT`, defaults to `127.0.0.1:8101`).
@@ -59,7 +66,7 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 
 ## Tool Call Formats
 - Python code tool-call parser expects `Tool_Name(arg=value, ...)` (tool name is required).
-- JSON tool-call parser accepts either `{"tool_name": "...", "args": {...}}` or OpenAI-style `{"name": "...", "arguments": {...}}`.
+- JSON tool-call parser accepts either `{\"tool_name\": \"...\", \"args\": {...}}` or OpenAI-style `{\"name\": \"...\", \"arguments\": {...}}`.
 - Use the JSON parser for OpenAI-style tool call payloads or when the LLM emits JSON directly.
 
 ## Image Input Conventions
@@ -85,11 +92,6 @@ This repository is a small Python toolkit for tool execution and a FastAPI serve
 - LLM tool tests cover both Python and JSON tool-call parsing paths.
 - Web/URL QA tests require API keys present in the tool directories.
 - SAM3/GroundingDINO/OCR/Depth tests require their respective model servers.
-
-## Commit & Pull Request Guidelines
-- Use concise, imperative commit summaries and include test results in the body when relevant.
-- PRs should include a short summary, tests run, and any new env/config requirements.
-- Call out tool metadata or tool-list changes explicitly.
 
 ## Configuration & Security Notes
 - The Python executor runs `exec()` without sandboxing; avoid untrusted code.
