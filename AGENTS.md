@@ -7,6 +7,22 @@ This repo hosts two efforts:
 
 Default to working inside `mini_vlm_toolkit/tool_infra` unless explicitly asked to touch eval code.
 
+---
+
+## Eval/Benchmark Infra (repo root + mini_vlm_toolkit)
+- Entry point: `run_benchmark.py` loads `.env`, builds an agent from `configs/*.yaml`, runs inference, then calls dataset evaluation.
+- Agent layer: `mini_vlm_toolkit/agent/` includes `BaseAgent` (OpenAI-compatible `/v1/chat/completions`) plus config loading/builders.
+- Dataset registry: `mini_vlm_toolkit/dataset/__init__.py` aggregates dataset classes and exposes `build_dataset`; video variants (frame/fps/pack) are defined in `mini_vlm_toolkit/dataset/video_dataset_config.py` and checked first.
+- Dataset base classes: `mini_vlm_toolkit/dataset/image_base.py`, `mini_vlm_toolkit/dataset/video_base.py`, `mini_vlm_toolkit/dataset/text_base.py`.
+- Inference utilities: `mini_vlm_toolkit/inference_image.py` and `mini_vlm_toolkit/inference_video.py` handle prompt building, API calls, and result file writing/merging.
+- Shared utilities: `mini_vlm_toolkit/smp/` (IO helpers, data root, pred/eval formats) and `mini_vlm_toolkit/utils/` (progress + matching helpers).
+- Data root and formats: set `LMUData` for dataset storage; optional `PRED_FORMAT`/`EVAL_FORMAT` control outputs.
+
+---
+
+## Tool Infra (mini_vlm_toolkit/tool_infra)
+All sections below apply only to tool infra. The eval/benchmark stack above is developed separately.
+
 ## Tool Infra Layout (mini_vlm_toolkit/tool_infra)
 - `src/tools/`: Tool packages (each subdir has `tool.py` + `__init__.py`); heavy tools may also include `server.py`/`sam3_server.py` and a `README.md`.
 - `src/tools/base.py`: `BaseTool` definition and metadata contract.
