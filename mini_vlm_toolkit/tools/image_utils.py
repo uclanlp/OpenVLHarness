@@ -18,6 +18,57 @@ def load_image(image_path):
     return Image.open(image_path).convert("RGB")
 
 
+def decode_base64_image_data(image_base64):
+    if image_base64 is None:
+        raise ValueError("image_base64 is required")
+    if isinstance(image_base64, bytes):
+        raw = image_base64.decode("utf-8", errors="ignore")
+    elif isinstance(image_base64, str):
+        raw = image_base64
+    else:
+        raise ValueError("image_base64 must be a string")
+
+    raw = raw.strip()
+    if not raw:
+        raise ValueError("image_base64 is empty")
+
+    content_type = None
+    if raw.startswith("data:"):
+        if "," not in raw:
+            raise ValueError("image_base64 data URL is missing a comma")
+        header, raw = raw.split(",", 1)
+        content_type = header[5:].split(";", 1)[0].strip() or None
+
+    try:
+        data = base64.b64decode(raw)
+    except Exception as exc:
+        raise ValueError("image_base64 must be valid base64 data") from exc
+
+    if not data:
+        raise ValueError("image_base64 decodes to empty content")
+    return data, content_type
+
+
+def load_image_base64(image_base64):
+    data, _ = decode_base64_image_data(image_base64)
+    try:
+        return Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception as exc:
+        raise ValueError(f"image_base64 is not a valid image: {exc}") from exc
+
+
+def resolve_image_input(image_path=None, image_base64=None, image_label="image"):
+    if image_path and image_base64:
+        raise ValueError(
+            f"Provide exactly one of {image_label}_path or {image_label}_base64"
+        )
+    if image_path:
+        return load_image(image_path)
+    if image_base64:
+        return load_image_base64(image_base64)
+    raise ValueError(f"{image_label}_path or {image_label}_base64 is required")
+
+
 def pil_to_base64(image, image_format="PNG"):
     buffer = io.BytesIO()
     image.save(buffer, format=image_format)

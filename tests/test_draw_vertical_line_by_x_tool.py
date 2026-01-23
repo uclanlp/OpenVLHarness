@@ -14,6 +14,7 @@ from mini_vlm_toolkit.tools.draw_vertical_line_by_x.tool import DrawVerticalLine
 from tests.utils import (
     build_test_id,
     decode_base64_image,
+    encode_image_base64,
     ensure_blank_image,
     ensure_tool_server,
     save_test_output,
@@ -87,6 +88,42 @@ def test_client_invocation():
     log_output("Response", response)
     edited = decode_base64_image(response["result"]["edited_image_base64"]).convert("RGB")
     save_test_output(edited, build_test_id(__file__, "test_client_invocation"))
+    pixel = edited.getpixel((40, 5))
+    assert pixel != (255, 255, 255)
+
+
+def test_direct_invocation_base64():
+    log_step("DrawVerticalLineByX direct invocation (base64)")
+    image_path = ensure_blank_image()
+    image_base64 = encode_image_base64(image_path)
+
+    tool = DrawVerticalLineByX_Tool()
+    result = tool.execute(image_base64=image_base64, x=0.5, coord_type="normalized")
+    log_output("Result", result)
+
+    edited = decode_base64_image(result["edited_image_base64"]).convert("RGB")
+    save_test_output(edited, build_test_id(__file__, "test_direct_invocation_base64"))
+    x_px = int(round(0.5 * edited.size[0]))
+    pixel = edited.getpixel((x_px, 2))
+    assert pixel != (255, 255, 255)
+
+
+def test_client_invocation_base64():
+    log_step("DrawVerticalLineByX client invocation via server (base64)")
+    image_path = ensure_blank_image()
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "DrawVerticalLineByX_Tool",
+        {
+            "image_base64": image_base64,
+            "x": 40,
+            "coord_type": "pixel",
+        },
+    )
+    log_output("Response", response)
+    edited = decode_base64_image(response["result"]["edited_image_base64"]).convert("RGB")
+    save_test_output(edited, build_test_id(__file__, "test_client_invocation_base64"))
     pixel = edited.getpixel((40, 5))
     assert pixel != (255, 255, 255)
 
@@ -188,6 +225,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Draw vertical line tool test completed.")

@@ -11,6 +11,7 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "points": "list[list[float]] - normalized points [[x, y], ...]",
                 "point_labels": "list[int] - optional labels (1 foreground, 0 background)",
             },
@@ -28,5 +29,11 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
             },
         )
 
-    def execute(self, image_path, points, point_labels=None):
+    def execute(
+        self,
+        image_path=None,
+        points=None,
+        point_labels=None,
+        image_base64=None,
+    ):
         raise NotImplementedError("SegmentRegionAroundPoint_Tool is not implemented yet.")

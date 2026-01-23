@@ -16,6 +16,7 @@ from mini_vlm_toolkit.tools.zoom_in_image_by_bbox.tool import ZoomInImageByBBox_
 from tests.utils import (
     build_test_id,
     decode_base64_image,
+    encode_image_base64,
     ensure_test_image,
     ensure_tool_server,
     save_test_output,
@@ -101,6 +102,50 @@ def test_client_invocation():
     log_output("Response", response)
     cropped = decode_base64_image(response["result"]["cropped_image_base64"])
     save_test_output(cropped, build_test_id(__file__, "test_client_invocation"))
+    assert cropped.size[0] > 0 and cropped.size[1] > 0
+
+
+def test_direct_invocation_base64():
+    log_step("ZoomInImageByBBox direct invocation (base64)")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping zoom base64 direct test.")
+        return
+
+    image_base64 = encode_image_base64(image_path)
+    tool = ZoomInImageByBBox_Tool()
+    result = tool.execute(
+        image_base64=image_base64,
+        bbox=[0.2, 0.2, 0.4, 0.4],
+        padding=0.05,
+    )
+    log_output("Result", result)
+
+    cropped = decode_base64_image(result["cropped_image_base64"])
+    save_test_output(cropped, build_test_id(__file__, "test_direct_invocation_base64"))
+    assert cropped.size[0] > 0 and cropped.size[1] > 0
+
+
+def test_client_invocation_base64():
+    log_step("ZoomInImageByBBox client invocation via server (base64)")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping zoom base64 client test.")
+        return
+
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "ZoomInImageByBBox_Tool",
+        {
+            "image_base64": image_base64,
+            "bbox": [0.1, 0.1, 0.3, 0.3],
+            "padding": 0.1,
+        },
+    )
+    log_output("Response", response)
+    cropped = decode_base64_image(response["result"]["cropped_image_base64"])
+    save_test_output(cropped, build_test_id(__file__, "test_client_invocation_base64"))
     assert cropped.size[0] > 0 and cropped.size[1] > 0
 
 
@@ -203,6 +248,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Zoom in by bbox tool test completed.")

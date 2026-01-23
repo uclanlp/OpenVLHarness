@@ -109,7 +109,7 @@ print(response["result"])
 
 ## Example 2: ZoomInImageByBBox tool (vision input)
 
-`ZoomInImageByBBox_Tool` crops an image using a normalized bbox and optional padding. It returns a base64-encoded cropped image.
+`ZoomInImageByBBox_Tool` crops an image using a normalized bbox and optional padding. It returns a base64-encoded cropped image. Image tools accept either `image_path` or `image_base64` (exactly one); `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` instead of paths.
 
 ### Client-only call
 ```python
@@ -127,6 +127,24 @@ response = client.execute(
     },
 )
 print(response["result"])  # {'cropped_image_base64': '...'}
+```
+
+If the tool server cannot access your filesystem, pass `image_base64` instead:
+```python
+import base64
+
+with open(image_path, "rb") as handle:
+    image_base64 = base64.b64encode(handle.read()).decode("utf-8")
+
+response = client.execute(
+    "ZoomInImageByBBox_Tool",
+    {
+        "image_base64": image_base64,
+        "bbox": [0.1, 0.1, 0.4, 0.4],
+        "padding": 0.05,
+    },
+)
+print(response["result"])
 ```
 
 ### Call from an LLM (generate tool call, parse, execute)
@@ -192,6 +210,27 @@ response = client.execute(
     {
         "prompt": "shoe",
         "image_path": image_path,
+        "return_masks_png_b64": True,
+    },
+)
+print(response["result"])
+```
+If the tool server runs on another machine, send the image bytes instead of a server-local path:
+```python
+import base64
+
+from mini_vlm_toolkit.client.client import ToolClient
+
+client = ToolClient("http://127.0.0.1:8101")
+image_path = "tests/data/sam3_demo.jpg"
+with open(image_path, "rb") as handle:
+    image_base64 = base64.b64encode(handle.read()).decode("utf-8")
+
+response = client.execute(
+    "SAM3_Segment_Tool",
+    {
+        "prompt": "shoe",
+        "image_base64": image_base64,
         "return_masks_png_b64": True,
     },
 )
@@ -288,6 +327,8 @@ viz_single = client.execute(
 print(viz_single["result"]["overlay_image_base64"])
 print(viz_single["result"]["zoomed_image_base64"])
 ```
+If you used `image_base64` for segmentation, pass the same `image_base64` to the visualize tools
+instead of `image_path` (provide exactly one of the two).
 
 ## Example 4: Qwen3 embeddings via LLM_Direct_Generator_Tool
 
@@ -315,6 +356,6 @@ print(response["result"]["data"][0]["embedding"][:8])
 
 ## Notes for VLM tool-call training
 
-- The server only sees the `tool_name` and `args`. If your model needs image context, handle that on the model side and pass the image path through the tool call.
+- The server only sees the `tool_name` and `args`. If your model needs image context, handle that on the model side and pass either `image_path` or `image_base64` through the tool call (use `base_image_base64`/`overlay_image_base64` for overlays).
 - The Python tool-call parser expects a `ToolName(...)` call in code. JSON tool-call parsing (`mini_vlm_toolkit/client/json_tool_call_parser.py`) accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - You can use `client.list_tools()` to capture tool metadata for training prompts or schema conditioning.

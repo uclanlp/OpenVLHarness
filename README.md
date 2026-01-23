@@ -171,10 +171,12 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Run commands from the repo root or set `PYTHONPATH="$(pwd)"` so imports resolve.
 - If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 - `sam3_segment` expects its extra dependencies (`requirements-server.txt`) and a working GPU setup.
+- Image tools accept base64 inputs for remote clients; pass exactly one of `image_path` or `image_base64` (use `base_image_base64`/`overlay_image_base64` for `OverlayImages_Tool`).
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./mini_vlm_toolkit/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./mini_vlm_toolkit/tools/ocr/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
 - Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./mini_vlm_toolkit/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
 - Subserver ports can be overridden via env vars: SAM3 uses `HOST`/`PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
+- Heavy tool wrappers surface subserver error messages (status + detail) and truncate large payloads.
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.
 - Python tool-call parsing lives in `mini_vlm_toolkit/client/python_tool_call_parser.py` and expects `ToolName(...)` calls. JSON tool-call parsing lives in `mini_vlm_toolkit/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
@@ -186,11 +188,14 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
+- Rui: adding a GUI grounder
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Tool onboarding: add a scaffolding helper for new tools.
+- Server error payloads: return structured error details (client now surfaces `detail`).
+- Tool metadata: clean up `/tools` `input_types` output (remove inline comments).
 - Remaining tool ports are deferred for now (not planned in the near term).
-- OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
-- VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
+  - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
+  - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
 
 ## VLM Evaluation Usage
 Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
@@ -200,3 +205,4 @@ Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
 ```
 Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
+

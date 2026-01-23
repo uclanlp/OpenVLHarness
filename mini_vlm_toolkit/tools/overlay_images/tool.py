@@ -3,9 +3,9 @@ from PIL import Image
 from mini_vlm_toolkit.tools.base import BaseTool
 from mini_vlm_toolkit.tools.image_utils import (
     clamp,
-    load_image,
     normalized_xywh_to_pixels,
     pil_to_base64,
+    resolve_image_input,
 )
 
 TOOL_NAME = "OverlayImages_Tool"
@@ -19,7 +19,9 @@ class OverlayImages_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "base_image_path": "str - local path to the base image",
+                "base_image_base64": "str - base64-encoded base image (use instead of base_image_path)",
                 "overlay_image_path": "str - local path to the overlay image",
+                "overlay_image_base64": "str - base64-encoded overlay image (use instead of overlay_image_path)",
                 "alpha": "float - overlay transparency (default 0.6)",
                 "bounding_box": "list[float] - normalized bbox [x, y, w, h]",
             },
@@ -36,9 +38,25 @@ class OverlayImages_Tool(BaseTool):
             },
         )
 
-    def execute(self, base_image_path, overlay_image_path, alpha=0.6, bounding_box=None):
-        base_image = load_image(base_image_path)
-        overlay_image = load_image(overlay_image_path)
+    def execute(
+        self,
+        base_image_path=None,
+        overlay_image_path=None,
+        alpha=0.6,
+        bounding_box=None,
+        base_image_base64=None,
+        overlay_image_base64=None,
+    ):
+        base_image = resolve_image_input(
+            image_path=base_image_path,
+            image_base64=base_image_base64,
+            image_label="base_image",
+        )
+        overlay_image = resolve_image_input(
+            image_path=overlay_image_path,
+            image_base64=overlay_image_base64,
+            image_label="overlay_image",
+        )
 
         if bounding_box is None:
             bounding_box = [0.0, 0.0, 1.0, 1.0]

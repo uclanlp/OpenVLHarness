@@ -7,14 +7,6 @@ import numpy as np
 from PIL import Image
 
 from mini_vlm_toolkit.client.client import ToolClient
-from mini_vlm_toolkit.client.json_tool_call_parser import parse_json_tool_call_args
-from mini_vlm_toolkit.client.python_tool_call_parser import parse_python_tool_call_args
-from mini_vlm_toolkit.config import (
-    DEFAULT_LLM_API_KEY,
-    DEFAULT_LLM_BASE_URL,
-    DEFAULT_LLM_MODEL,
-)
-from mini_vlm_toolkit.llm.engine import LLMEngine
 from mini_vlm_toolkit.tools.sam3_visualize.tool import (
     SAM3_VisualizeAllMasks_Tool,
     SAM3_VisualizeSingleMask_Tool,
@@ -62,36 +54,6 @@ def _build_fake_predictions(image_size):
             [90, 20, 170, 110],
         ],
     }
-
-
-def build_tool_call_prompt(
-    tool_name, tool_metadata, user_request, image_path, predictions, call_format="python"
-):
-    if call_format == "json":
-        return (
-            "Generate a JSON tool call object.\n"
-            "Use {\"tool_name\": \"ToolName\", \"args\": {...}} "
-            "or {\"name\": \"ToolName\", \"arguments\": {...}}.\n"
-            "Use keyword arguments only.\n"
-            f"Tool name: {tool_name}\n"
-            f"Tool metadata: {tool_metadata}\n"
-            f"Image path to use: {image_path}\n"
-            f"Predictions object: {predictions}\n"
-            f"User request: {user_request}\n"
-            "Return only the JSON object."
-        )
-    return (
-        "Generate a single Python code block that calls this tool.\n"
-        "The code must include exactly one line: ToolName(...).\n"
-        "Use the tool name as the function name.\n"
-        "Use keyword arguments only.\n"
-        f"Tool name: {tool_name}\n"
-        f"Tool metadata: {tool_metadata}\n"
-        f"Image path to use: {image_path}\n"
-        f"Predictions object: {predictions}\n"
-        f"User request: {user_request}\n"
-        "Return only the code block."
-    )
 
 
 def test_direct_invocation():
@@ -159,104 +121,12 @@ def test_client_invocation():
     save_test_output(zoomed, build_test_id(__file__, "test_client_invocation"), suffix="zoomed")
 
 
-def test_llm_invocation_python():
-    log_step("SAM3 visualize LLM-assisted invocation via server (python)")
-    image_path = ensure_blank_image(filename="sam3_visualize_demo.png", size=(200, 200))
-    image = Image.open(image_path)
-    predictions = _build_fake_predictions(image.size)
-
-    model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
-    base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
-    api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
-    log_output(
-        "LLM config",
-        {
-            "model": model,
-            "base_url": base_url,
-            "api_key_set": bool(api_key),
-        },
-    )
-    engine = LLMEngine(model=model, base_url=base_url, api_key=api_key)
-
-    client = ToolClient(SERVER_URL)
-    tools = client.list_tools()
-    metadata = tools["SAM3_VisualizeAllMasks_Tool"]
-    log_output("SAM3_VisualizeAllMasks_Tool metadata", metadata)
-
-    prompt = build_tool_call_prompt(
-        "SAM3_VisualizeAllMasks_Tool",
-        metadata,
-        "Overlay all masks on the image with default settings.",
-        image_path,
-        predictions,
-        call_format="python",
-    )
-    llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.4)
-    log_output("LLM output", llm_output)
-    args = parse_python_tool_call_args(llm_output)
-    args.setdefault("image_path", image_path)
-    args.setdefault("predictions", predictions)
-    args.setdefault("predictions_format", "sam3_server")
-
-    response = client.execute("SAM3_VisualizeAllMasks_Tool", args)
-    log_output("Response", response)
-    all_image = decode_base64_image(response["result"]["image_base64"])
-    save_test_output(all_image, build_test_id(__file__, "test_llm_invocation_python"))
-
-
-def test_llm_invocation_json():
-    log_step("SAM3 visualize LLM-assisted invocation via server (json)")
-    image_path = ensure_blank_image(filename="sam3_visualize_demo.png", size=(200, 200))
-    image = Image.open(image_path)
-    predictions = _build_fake_predictions(image.size)
-
-    model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
-    base_url = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
-    api_key = os.getenv("LLM_API_KEY", DEFAULT_LLM_API_KEY)
-    log_output(
-        "LLM config",
-        {
-            "model": model,
-            "base_url": base_url,
-            "api_key_set": bool(api_key),
-        },
-    )
-    engine = LLMEngine(model=model, base_url=base_url, api_key=api_key)
-
-    client = ToolClient(SERVER_URL)
-    tools = client.list_tools()
-    metadata = tools["SAM3_VisualizeAllMasks_Tool"]
-    log_output("SAM3_VisualizeAllMasks_Tool metadata", metadata)
-
-    prompt = build_tool_call_prompt(
-        "SAM3_VisualizeAllMasks_Tool",
-        metadata,
-        "Overlay all masks on the image with default settings.",
-        image_path,
-        predictions,
-        call_format="json",
-    )
-    llm_output = engine.generate(prompt, max_tokens=8192, temperature=0.4)
-    log_output("LLM output", llm_output)
-    args = parse_json_tool_call_args(llm_output)
-    args.setdefault("image_path", image_path)
-    args.setdefault("predictions", predictions)
-    args.setdefault("predictions_format", "sam3_server")
-
-    response = client.execute("SAM3_VisualizeAllMasks_Tool", args)
-    log_output("Response", response)
-    all_image = decode_base64_image(response["result"]["image_base64"])
-    save_test_output(all_image, build_test_id(__file__, "test_llm_invocation_json"))
-
-
 def main():
     required = ["SAM3_VisualizeAllMasks_Tool", "SAM3_VisualizeSingleMask_Tool"]
     if not ensure_tool_server(SERVER_URL, required_tools=required):
         return
     test_direct_invocation()
     test_client_invocation()
-    test_llm_invocation_python()
-    test_llm_invocation_json()
     print("SAM3 visualize tool test completed.")
 
 

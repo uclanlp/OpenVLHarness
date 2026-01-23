@@ -18,6 +18,7 @@ from tests.utils import (
     decode_base64_image,
     ensure_sam3_server,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -58,6 +59,11 @@ def ensure_test_image():
         print(f"Failed to download SAM3 test image: {exc}")
         return None
     return image_path
+
+
+def encode_image_base64(image_path):
+    with open(image_path, "rb") as handle:
+        return base64.b64encode(handle.read()).decode("utf-8")
 
 
 def build_tool_call_prompt(tool_name, tool_metadata, user_request, image_path, call_format="python"):
@@ -130,6 +136,77 @@ def test_direct_invocation():
             build_test_id(__file__, "test_direct_invocation"),
             suffix="all_masks_viz",
         )
+
+
+def test_direct_invocation_base64():
+    log_step("SAM3 direct invocation (image_base64)")
+    image_path = ensure_test_image()
+    server_url = SAM3_SERVER_URL
+    if not image_path:
+        print("SAM3 test image unavailable; skipping SAM3 test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    image_base64 = encode_image_base64(image_path)
+    tool = SAM3_Segment_Tool()
+    result = tool.execute(
+        prompt="shoe",
+        image_base64=image_base64,
+        return_masks_png_b64=True,
+        server_url=server_url,
+    )
+    log_output("Result", result)
+
+    if "error" in result:
+        raise AssertionError(f"SAM3 server error: {result['error']}")
+
+    assert "boxes" in result, "Expected boxes in SAM3 response"
+    assert "scores" in result, "Expected scores in SAM3 response"
+    assert "all_masks_viz_base64" in result, "Expected all-masks visualization in response"
+
+    if result.get("masks_png_b64"):
+        for idx, mask_b64 in enumerate(result["masks_png_b64"]):
+            mask_image = decode_base64_image(mask_b64)
+            save_test_output(
+                mask_image,
+                build_test_id(__file__, "test_direct_invocation_base64"),
+                suffix=f"mask_{idx}",
+            )
+    if result.get("all_masks_viz_base64"):
+        viz_image = decode_base64_image(result["all_masks_viz_base64"])
+        save_test_output(
+            viz_image,
+            build_test_id(__file__, "test_direct_invocation_base64"),
+            suffix="all_masks_viz",
+        )
+
+
+def test_subserver_error_propagation():
+    log_step("SAM3 subserver error propagation")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping error test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    tool = SAM3_Segment_Tool()
+    payload = {"detail": "sam3 dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                prompt="shoe",
+                image_path=image_path,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "sam3 dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected SAM3 error but request succeeded")
 
 
 def test_direct_invocation_viz_flags():
@@ -220,6 +297,52 @@ def test_client_invocation():
         save_test_output(
             viz_image,
             build_test_id(__file__, "test_client_invocation"),
+            suffix="all_masks_viz",
+        )
+
+
+def test_client_invocation_base64():
+    log_step("SAM3 client invocation via server (image_base64)")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping SAM3 client test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(TOOL_SERVER_URL)
+    response = client.execute(
+        "SAM3_Segment_Tool",
+        {
+            "prompt": "shoe",
+            "image_base64": image_base64,
+            "return_masks_png_b64": True,
+            "server_url": SAM3_SERVER_URL,
+        },
+    )
+    log_output("Response", response)
+
+    result = response["result"]
+    if "error" in result:
+        raise AssertionError(f"SAM3 server error: {result['error']}")
+
+    assert "boxes" in result, "Expected boxes in SAM3 response"
+    assert "scores" in result, "Expected scores in SAM3 response"
+    assert "all_masks_viz_base64" in result, "Expected all-masks visualization in response"
+    if result.get("masks_png_b64"):
+        for idx, mask_b64 in enumerate(result["masks_png_b64"]):
+            mask_image = decode_base64_image(mask_b64)
+            save_test_output(
+                mask_image,
+                build_test_id(__file__, "test_client_invocation_base64"),
+                suffix=f"mask_{idx}",
+            )
+    if result.get("all_masks_viz_base64"):
+        viz_image = decode_base64_image(result["all_masks_viz_base64"])
+        save_test_output(
+            viz_image,
+            build_test_id(__file__, "test_client_invocation_base64"),
             suffix="all_masks_viz",
         )
 
@@ -377,13 +500,16 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_tool_server(TOOL_SERVER_URL, required_tools=["SAM3_Segment_Tool"]):
         return
     if not ensure_sam3_server(SAM3_SERVER_URL):
         return
     test_direct_invocation()
+    test_direct_invocation_base64()
     test_direct_invocation_viz_flags()
     test_client_invocation()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("SAM3 segment tool test completed.")

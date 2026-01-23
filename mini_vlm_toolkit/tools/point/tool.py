@@ -1,7 +1,7 @@
 import re
 
 from mini_vlm_toolkit.tools.base import BaseTool
-from mini_vlm_toolkit.tools.image_utils import clamp, load_image
+from mini_vlm_toolkit.tools.image_utils import clamp, resolve_image_input
 
 TOOL_NAME = "Point_Tool"
 
@@ -17,6 +17,7 @@ class Point_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "target": "str - object or region description",
                 "points": "list[list[float]] - optional point list",
                 "coord_type": "str - normalized or pixel (used with points)",
@@ -34,8 +35,15 @@ class Point_Tool(BaseTool):
             },
         )
 
-    def execute(self, image_path, target=None, points=None, coord_type="normalized"):
-        image = load_image(image_path)
+    def execute(
+        self,
+        image_path=None,
+        target=None,
+        points=None,
+        coord_type="normalized",
+        image_base64=None,
+    ):
+        image = resolve_image_input(image_path=image_path, image_base64=image_base64)
         width, height = image.size
 
         normalized_points = []

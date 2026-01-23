@@ -1,5 +1,9 @@
 from mini_vlm_toolkit.tools.base import BaseTool
-from mini_vlm_toolkit.tools.image_utils import crop_image_normalized, load_image, pil_to_base64
+from mini_vlm_toolkit.tools.image_utils import (
+    crop_image_normalized,
+    pil_to_base64,
+    resolve_image_input,
+)
 
 TOOL_NAME = "ZoomInImageByBBox_Tool"
 
@@ -12,6 +16,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "bbox": "list[float] - normalized bbox [x, y, w, h]",
                 "padding": "float - padding added around the box",
             },
@@ -28,13 +33,15 @@ class ZoomInImageByBBox_Tool(BaseTool):
             },
         )
 
-    def execute(self, image_path, bbox, padding=0.05):
+    def execute(
+        self, image_path=None, bbox=None, padding=0.05, image_base64=None
+    ):
         if bbox is None or len(bbox) != 4:
             raise ValueError("bbox must be a list of four values")
         padding = float(padding)
         if padding < 0.05:
             raise ValueError("padding must be at least 0.05")
-        image = load_image(image_path)
+        image = resolve_image_input(image_path=image_path, image_base64=image_base64)
         x, y, w, h = [float(value) for value in bbox]
         x -= padding
         y -= padding

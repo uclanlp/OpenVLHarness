@@ -15,9 +15,11 @@ from mini_vlm_toolkit.llm.engine import LLMEngine
 from mini_vlm_toolkit.tools.ocr.tool import OCR_Tool, TOOL_NAME
 from tests.utils import (
     build_test_id,
+    encode_image_base64,
     ensure_ocr_server,
     ensure_ocr_test_image,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -98,6 +100,31 @@ def test_direct_invocation():
     save_test_output(annotated, build_test_id(__file__, "test_direct_invocation"))
 
 
+def test_subserver_error_propagation():
+    log_step("OCR subserver error propagation")
+    image_path = ensure_ocr_test_image()
+    if not image_path:
+        print("OCR test image unavailable; skipping error test.")
+        return
+
+    tool = OCR_Tool()
+    payload = {"detail": "ocr dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                image_path=image_path,
+                languages=OCR_LANGUAGES,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "ocr dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected OCR error but request succeeded")
+
+
 def test_client_invocation():
     log_step("OCR client invocation via server")
     if not ensure_ocr_server(OCR_SERVER_URL):
@@ -123,6 +150,55 @@ def test_client_invocation():
     assert "texts" in result and isinstance(result["texts"], list)
     annotated = annotate_ocr_boxes(image_path, result.get("results", []))
     save_test_output(annotated, build_test_id(__file__, "test_client_invocation"))
+
+
+def test_direct_invocation_base64():
+    log_step("OCR direct invocation (base64)")
+    if not ensure_ocr_server(OCR_SERVER_URL):
+        return
+    image_path = ensure_ocr_test_image()
+    if not image_path:
+        print("OCR test image unavailable; skipping OCR base64 direct test.")
+        return
+
+    tool = OCR_Tool()
+    result = tool.execute(
+        image_base64=encode_image_base64(image_path),
+        languages=OCR_LANGUAGES,
+        server_url=OCR_SERVER_URL,
+    )
+    log_output("Result", result)
+
+    assert "texts" in result and isinstance(result["texts"], list)
+    annotated = annotate_ocr_boxes(image_path, result.get("results", []))
+    save_test_output(annotated, build_test_id(__file__, "test_direct_invocation_base64"))
+
+
+def test_client_invocation_base64():
+    log_step("OCR client invocation via server (base64)")
+    if not ensure_ocr_server(OCR_SERVER_URL):
+        return
+    if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
+        return
+    image_path = ensure_ocr_test_image()
+    if not image_path:
+        print("OCR test image unavailable; skipping OCR base64 client test.")
+        return
+
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        TOOL_NAME,
+        {
+            "image_base64": encode_image_base64(image_path),
+            "languages": OCR_LANGUAGES,
+            "server_url": OCR_SERVER_URL,
+        },
+    )
+    log_output("Response", response)
+    result = response["result"]
+    assert "texts" in result and isinstance(result["texts"], list)
+    annotated = annotate_ocr_boxes(image_path, result.get("results", []))
+    save_test_output(annotated, build_test_id(__file__, "test_client_invocation_base64"))
 
 
 def test_llm_invocation_python():
@@ -228,12 +304,15 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_ocr_server(OCR_SERVER_URL):
         return
     if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("OCR tool tests completed.")

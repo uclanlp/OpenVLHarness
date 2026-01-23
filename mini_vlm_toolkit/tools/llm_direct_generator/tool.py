@@ -37,6 +37,20 @@ def _parse_mapping(raw_value, env_name):
     return mapping
 
 
+def _format_configured_models():
+    raw_base_urls = os.getenv(MODEL_BASE_URLS_ENV, "")
+    if not raw_base_urls or not raw_base_urls.strip():
+        return "Configured models: (none)"
+    try:
+        mapping = _parse_mapping(raw_base_urls, MODEL_BASE_URLS_ENV)
+    except ValueError:
+        return "Configured models: (invalid env)"
+    if not mapping:
+        return "Configured models: (none)"
+    model_names = sorted(mapping.keys())
+    return "Configured models: " + ", ".join(model_names)
+
+
 def _is_empty_key(value):
     if value is None:
         return True
@@ -49,12 +63,14 @@ def _is_empty_key(value):
 
 class LLM_Direct_Generator_Tool(BaseTool):
     def __init__(self):
+        base_description = (
+            "Send OpenAI-compatible chat or embeddings requests to a configured "
+            "server and return the full JSON payload."
+        )
+        tool_description = f"{base_description} {_format_configured_models()}"
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description=(
-                "Send OpenAI-compatible chat or embeddings requests to a configured "
-                "server and return the full JSON payload."
-            ),
+            tool_description=tool_description,
             tool_version="0.2.0",
             input_types={
                 "model": "str - model name (must map to LLM_DIRECT_MODEL_BASE_URLS)",

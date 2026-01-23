@@ -16,6 +16,7 @@ from mini_vlm_toolkit.tools.zoom_in_subfigure.tool import ZoomInSubfigure_Tool
 from tests.utils import (
     build_test_id,
     decode_base64_image,
+    encode_image_base64,
     ensure_tool_server,
     save_test_output,
 )
@@ -126,6 +127,50 @@ def test_client_invocation():
     assert_center_color(crop, (255, 255, 0))
 
 
+def test_direct_invocation_base64():
+    log_step("ZoomInSubfigure direct invocation (base64)")
+    image_path = ensure_quadrant_image()
+    image_base64 = encode_image_base64(image_path)
+
+    tool = ZoomInSubfigure_Tool()
+    result = tool.execute(
+        image_base64=image_base64,
+        description="top left subplot",
+    )
+    log_output("Result", result)
+
+    images = result["subplot_images_base64"]
+    assert images and len(images) == 1
+    crop = decode_base64_image(images[0]).convert("RGB")
+    save_test_output(
+        crop,
+        build_test_id(__file__, "test_direct_invocation_base64"),
+        suffix="top_left",
+    )
+    assert crop.size == (100, 100)
+    assert_center_color(crop, (255, 0, 0))
+
+
+def test_client_invocation_base64():
+    log_step("ZoomInSubfigure client invocation via server (base64)")
+    image_path = ensure_quadrant_image()
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "ZoomInSubfigure_Tool",
+        {"image_base64": image_base64, "description": "bottom right"},
+    )
+    log_output("Response", response)
+    images = response["result"]["subplot_images_base64"]
+    crop = decode_base64_image(images[0]).convert("RGB")
+    save_test_output(
+        crop,
+        build_test_id(__file__, "test_client_invocation_base64"),
+        suffix="bottom_right",
+    )
+    assert_center_color(crop, (255, 255, 0))
+
+
 def test_llm_invocation_python():
     log_step("ZoomInSubfigure LLM-assisted invocation via server (python)")
     image_path = ensure_quadrant_image()
@@ -227,6 +272,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Zoom in subfigure tool test completed.")

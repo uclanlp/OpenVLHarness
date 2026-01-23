@@ -20,9 +20,11 @@ from mini_vlm_toolkit.tools.grounding_dino.tool import (
 )
 from tests.utils import (
     build_test_id,
+    encode_image_base64,
     ensure_grounding_dino_server,
     ensure_test_image,
     ensure_tool_server,
+    run_json_error_server,
     save_test_output,
 )
 
@@ -113,6 +115,33 @@ def test_direct_invocation():
     save_test_output(annotated, build_test_id(__file__, "test_direct_invocation"))
 
 
+def test_subserver_error_propagation():
+    log_step("GroundingDINO subserver error propagation")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping GroundingDINO error test.")
+        return
+
+    tool = GroundingDINO_Tool()
+    payload = {"detail": "groundingdino dummy error"}
+    with run_json_error_server(payload=payload) as server_url:
+        try:
+            tool.execute(
+                image_path=image_path,
+                query="person",
+                box_threshold=DEFAULT_BOX_THRESHOLD,
+                text_threshold=DEFAULT_TEXT_THRESHOLD,
+                server_url=server_url,
+                timeout_seconds=5,
+            )
+        except Exception as exc:
+            message = str(exc)
+            assert "groundingdino dummy error" in message
+            assert "400" in message
+            return
+    raise AssertionError("Expected GroundingDINO error but request succeeded")
+
+
 def test_client_invocation():
     log_step("GroundingDINO client invocation via server")
     if not ensure_grounding_dino_server(GROUNDING_DINO_SERVER_URL):
@@ -141,6 +170,61 @@ def test_client_invocation():
     assert "boxes" in result, "Expected boxes in GroundingDINO response"
     annotated = annotate_boxes(image_path, result.get("boxes", []))
     save_test_output(annotated, build_test_id(__file__, "test_client_invocation"))
+
+
+def test_direct_invocation_base64():
+    log_step("GroundingDINO direct invocation (base64)")
+    if not ensure_grounding_dino_server(GROUNDING_DINO_SERVER_URL):
+        return
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping GroundingDINO base64 direct test.")
+        return
+
+    query = os.getenv("GROUNDING_DINO_TEST_QUERY", "person")
+    tool = GroundingDINO_Tool()
+    result = tool.execute(
+        image_base64=encode_image_base64(image_path),
+        query=query,
+        box_threshold=DEFAULT_BOX_THRESHOLD,
+        text_threshold=DEFAULT_TEXT_THRESHOLD,
+        server_url=GROUNDING_DINO_SERVER_URL,
+    )
+    log_output("Result", result)
+
+    assert "boxes" in result, "Expected boxes in GroundingDINO response"
+    annotated = annotate_boxes(image_path, result.get("boxes", []))
+    save_test_output(annotated, build_test_id(__file__, "test_direct_invocation_base64"))
+
+
+def test_client_invocation_base64():
+    log_step("GroundingDINO client invocation via server (base64)")
+    if not ensure_grounding_dino_server(GROUNDING_DINO_SERVER_URL):
+        return
+    if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
+        return
+    image_path = ensure_test_image()
+    if not image_path:
+        print("Test image unavailable; skipping GroundingDINO base64 client test.")
+        return
+
+    query = os.getenv("GROUNDING_DINO_TEST_QUERY", "person")
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        TOOL_NAME,
+        {
+            "image_base64": encode_image_base64(image_path),
+            "query": query,
+            "box_threshold": DEFAULT_BOX_THRESHOLD,
+            "text_threshold": DEFAULT_TEXT_THRESHOLD,
+            "server_url": GROUNDING_DINO_SERVER_URL,
+        },
+    )
+    log_output("Response", response)
+    result = response["result"]
+    assert "boxes" in result, "Expected boxes in GroundingDINO response"
+    annotated = annotate_boxes(image_path, result.get("boxes", []))
+    save_test_output(annotated, build_test_id(__file__, "test_client_invocation_base64"))
 
 
 def test_llm_invocation_python():
@@ -252,12 +336,15 @@ def test_llm_invocation_json():
 
 
 def main():
+    test_subserver_error_propagation()
     if not ensure_grounding_dino_server(GROUNDING_DINO_SERVER_URL):
         return
     if not ensure_tool_server(SERVER_URL, required_tools=[TOOL_NAME]):
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("GroundingDINO tool tests completed.")

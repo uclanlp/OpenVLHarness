@@ -15,6 +15,7 @@ from mini_vlm_toolkit.llm.engine import LLMEngine
 from mini_vlm_toolkit.tools.point.tool import Point_Tool
 from tests.utils import (
     build_test_id,
+    encode_image_base64,
     ensure_blank_image,
     ensure_tool_server,
     save_test_output,
@@ -129,6 +130,50 @@ def test_client_invocation():
     )
 
 
+def test_direct_invocation_base64():
+    log_step("Point direct invocation (base64)")
+    image_path = ensure_blank_image()
+    image_base64 = encode_image_base64(image_path)
+
+    tool = Point_Tool()
+    result = tool.execute(
+        image_base64=image_base64,
+        points=[[0.4, 0.6]],
+        coord_type="normalized",
+    )
+    log_output("Result", result)
+    assert result["points"] == [[0.4, 0.6]]
+    save_points_preview(
+        image_path,
+        result["points"],
+        build_test_id(__file__, "test_direct_invocation_base64"),
+        suffix="normalized",
+    )
+
+
+def test_client_invocation_base64():
+    log_step("Point client invocation via server (base64)")
+    image_path = ensure_blank_image()
+    image_base64 = encode_image_base64(image_path)
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "Point_Tool",
+        {
+            "image_base64": image_base64,
+            "points": [[0.2, 0.9]],
+            "coord_type": "normalized",
+        },
+    )
+    log_output("Response", response)
+    points = response["result"]["points"]
+    assert points and len(points[0]) == 2
+    save_points_preview(
+        image_path,
+        points,
+        build_test_id(__file__, "test_client_invocation_base64"),
+    )
+
+
 def test_llm_invocation_python():
     log_step("Point LLM-assisted invocation via server (python)")
     image_path = ensure_blank_image()
@@ -226,6 +271,8 @@ def main():
         return
     test_direct_invocation()
     test_client_invocation()
+    test_direct_invocation_base64()
+    test_client_invocation_base64()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("Point tool test completed.")

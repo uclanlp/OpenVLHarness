@@ -1,7 +1,11 @@
 import re
 
 from mini_vlm_toolkit.tools.base import BaseTool
-from mini_vlm_toolkit.tools.image_utils import crop_image_normalized, load_image, pil_to_base64
+from mini_vlm_toolkit.tools.image_utils import (
+    crop_image_normalized,
+    pil_to_base64,
+    resolve_image_input,
+)
 
 TOOL_NAME = "ZoomInSubfigure_Tool"
 
@@ -14,6 +18,7 @@ class ZoomInSubfigure_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "description": "str - subplot description (title/position)",
             },
             output_type="dict - subplot_images_base64",
@@ -29,8 +34,8 @@ class ZoomInSubfigure_Tool(BaseTool):
             },
         )
 
-    def execute(self, image_path, description):
-        image = load_image(image_path)
+    def execute(self, image_path=None, description=None, image_base64=None):
+        image = resolve_image_input(image_path=image_path, image_base64=image_base64)
         boxes = _select_subfigure_boxes(description or "")
         crops = [crop_image_normalized(image, *bbox) for bbox in boxes]
         return {
