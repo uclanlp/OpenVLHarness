@@ -6,3 +6,4 @@ google-genai
 beautifulsoup4
 numpy
 Pillow
+python-dotenv

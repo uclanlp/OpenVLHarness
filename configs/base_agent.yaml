@@ -1,0 +1,15 @@
+# Example agent configuration
+agent_name: BaseAgent
+
+agent_kwargs:
+  base: "http://localhost:8222"
+  key: "empty"
+  model: "Qwen/Qwen3-VL-8B-Instruct"
+  timeout: 600
+  custom_prompt: false
+  max_tokens: 2048
+  temperature: 0.0
+  top_p: 1.0
+  repetition_penalty: 1.0
+  retry: 3
+  verbose: true

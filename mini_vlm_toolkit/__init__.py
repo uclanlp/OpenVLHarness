@@ -1,1 +1,3 @@
 from mini_vlm_toolkit.tool_runner import execute_direct
+from .inference_video import infer_video_job
+from .inference_image import infer_image_job

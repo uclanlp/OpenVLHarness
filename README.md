@@ -191,3 +191,12 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Remaining tool ports are deferred for now (not planned in the near term).
 - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
 - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
+
+## VLM Evaluation Usage
+Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
+1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
+2. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
+```
+python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
+```
+Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
