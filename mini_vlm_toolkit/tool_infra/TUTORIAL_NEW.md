@@ -110,6 +110,60 @@ response = client.execute(tool_call["tool_name"], tool_call["args"])
 
 If the LLM output is missing required fields, insert guardrails before executing (for example, set a default `code` value).
 
+## 2b) Execute tools via raw HTTP (no client wrapper)
+
+You can call the FastAPI server directly over HTTP without using `ToolClient`.
+
+```bash
+# List available tools
+curl -s http://127.0.0.1:8101/tools
+
+# Health check
+curl -s http://127.0.0.1:8101/health
+
+# Execute a tool
+curl -s http://127.0.0.1:8101/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool_name": "Python_Executor_Tool",
+    "args": {"code": "print(2+2)\nvalue=4"}
+  }'
+```
+
+Python `requests` example:
+
+```python
+import requests
+
+base_url = "http://127.0.0.1:8101"
+
+tools = requests.get(f"{base_url}/tools", timeout=30)
+tools.raise_for_status()
+print(tools.json())
+
+payload = {
+    "tool_name": "Python_Executor_Tool",
+    "args": {"code": "print(2+2)\nvalue=4"},
+}
+response = requests.post(f"{base_url}/execute", json=payload, timeout=300)
+response.raise_for_status()
+print(response.json())
+```
+
+`/execute` expects:
+
+- `tool_name`: string
+- `args`: object (keyword args forwarded to `tool.execute(**args)`)
+
+Response shape:
+
+```json
+{
+  "tool_name": "Python_Executor_Tool",
+  "result": "..."
+}
+```
+
 ## 3) Add a new tool (best done with a coding agent)
 
 It is best to use a coding agent to scaffold the new tool files, metadata, and tests consistently. The typical flow:
