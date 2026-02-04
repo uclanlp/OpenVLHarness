@@ -25,7 +25,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
 | `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
 | `SAM3_VisualizeAllMasks_Tool` | Overlay all SAM3 masks on an image (grounding-agent or SAM3 server format). |
-| `SAM3_VisualizeSingleMask_Tool` | Overlay a single SAM3 mask and return a zoomed-in view. |
+| `SAM3_VisualizeSingleMask_Tool` | Overlay a single SAM3 mask and return a zoomed-in view (supports separate zoom alpha). |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
 | `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
@@ -106,6 +106,18 @@ When `LIGHT_TOOL_MODULES=auto`, `HEAVY_TOOL_MODULES` is ignored.
 If set, `LIGHT_TOOL_MODULES` must be either `auto` or a list of module paths (no mixing).
 Note: `tools.sam3_visualize.tool` defines two tools:
 `SAM3_VisualizeAllMasks_Tool` and `SAM3_VisualizeSingleMask_Tool`.
+
+## Planned Tool Design (VLM Mask Querying)
+
+We plan to add a tool that queries each SAM3 mask with a VLM question, reusing
+existing tool infra components:
+- Name (proposed): `SAM3_QueryEachMask_VLM_Tool`
+- Reuse `SAM3_VisualizeSingleMask_Tool` to render per-mask context + zoomed views.
+- Reuse `LLM_Direct_Generator_Tool` to send OpenAI-compatible VLM requests.
+- Parse `<answer>` tags (yes/no or free-form) and aggregate counts/answers.
+
+This keeps the new tool lightweight and avoids importing the full grounding-agent
+stack into tool_infra.
 
 List tools:
 ```bash

@@ -66,6 +66,10 @@ Key decisions (recorded so new contributors do not need prior context):
 - Visualization tools: SAM3 mask overlays for all masks and zoomed single-mask views (grounding-agent compatible).
   - SAM3 segment responses should optionally include a default all-masks visualization for quick review.
   - Tests: `tests/test_sam3_visualize.py` (SAM3 server) and `tests/test_sam3_visualize_synthetic.py` (synthetic).
+- Planned: add a VLM-backed per-mask query tool (proposed name: `SAM3_QueryEachMask_VLM_Tool`).
+  - Reuse `SAM3_VisualizeSingleMask_Tool` for context + zoomed images (allow separate zoom alpha).
+  - Reuse `LLM_Direct_Generator_Tool` for OpenAI-compatible VLM requests.
+  - Aggregate `<answer>` responses into yes/no counts or free-form answers.
 
 Remaining OpenThinkIMG-derived tools (deferred):
 - SegmentRegionAroundPoint: image + point -> localized mask (SAM3 model server)

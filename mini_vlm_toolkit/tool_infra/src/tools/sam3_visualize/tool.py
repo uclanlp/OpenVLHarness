@@ -131,6 +131,9 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
                 "predictions": "dict - grounding-agent predictions or SAM3 server output",
                 "mask_index": "int - index of the mask to visualize",
                 "mask_alpha": "float - mask alpha",
+                "zoom_mask_alpha": (
+                    "float - optional mask alpha for zoomed view (defaults to mask_alpha)"
+                ),
                 "label_mode": "str - label mode ('1' to show indices, '0' to hide)",
                 "predictions_format": "str - auto|grounding_agent|sam3_server",
                 "font_size_multiplier": "float - scales label text size",
@@ -161,6 +164,7 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
         predictions=None,
         mask_index=None,
         mask_alpha=_DEFAULT_ALPHA,
+        zoom_mask_alpha=None,
         label_mode="1",
         predictions_format="auto",
         font_size_multiplier=1.2,
@@ -196,11 +200,15 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
             mask_index_offset=idx,
         )
 
+        zoom_alpha = alpha
+        if zoom_mask_alpha is not None:
+            zoom_alpha = clamp(float(zoom_mask_alpha), 0.0, 1.0)
+
         zoomed = _render_zoomed_view(
             image=image,
             mask=mask,
             color=color_rgb,
-            mask_alpha=alpha,
+            mask_alpha=zoom_alpha,
         )
 
         return {
