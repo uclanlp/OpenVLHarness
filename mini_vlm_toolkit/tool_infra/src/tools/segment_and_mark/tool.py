@@ -1,6 +1,28 @@
 from tools.base import BaseTool
 
 TOOL_NAME = "SegmentAndMark_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "granularity": {"type": "number", "description": "Segmentation granularity"},
+        "alpha": {"type": "number", "description": "Mask alpha"},
+        "anno_mode": {
+            "type": "array",
+            "description": "Annotation modes",
+            "items": {"type": "string"},
+        },
+    },
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class SegmentAndMark_Tool(BaseTool):
@@ -16,6 +38,7 @@ class SegmentAndMark_Tool(BaseTool):
                 "alpha": "float - mask alpha",
                 "anno_mode": "list[str] - annotation modes (Mask, Mark, Box)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - annotated_image_base64, bboxes",
             demo_commands=[
                 {
