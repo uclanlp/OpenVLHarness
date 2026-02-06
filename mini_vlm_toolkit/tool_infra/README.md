@@ -62,7 +62,7 @@ Start the server:
 ```bash
 cp .env.example .env
 # Edit .env to set LIGHT_TOOL_MODULES (use "auto" to discover tools) and/or HEAVY_TOOL_MODULES.
-./scripts/run_server.sh
+./scripts/run_server.sh $ENV_FILE_NAME
 ```
 `scripts/run_server.sh` sources the tool infra `.env` for
 `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, and `*_SERVER_URL` overrides
