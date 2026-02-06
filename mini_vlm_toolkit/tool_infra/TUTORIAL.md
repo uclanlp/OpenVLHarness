@@ -43,17 +43,21 @@ vLLM) yourself and configure the `.env` mappings.
 
 ## Endpoint layout
 
-The FastAPI server exposes two main endpoints:
+The FastAPI server exposes three main endpoints:
 
 - `GET /tools` returns a JSON dict keyed by tool name.
-- `POST /execute` accepts `{"tool_name": "...", "args": {...}}` and returns `{"tool_name": ..., "result": ...}`.
+- `GET /jsonschema` returns OpenAI-compatible function-tool schemas.
+- `POST /execute` accepts `{"tool_name": "...", "args": {...}, "tool_call_id": "optional"}`.
+  - Success response: `{"ok": true, "tool_name": "...", "result": ..., "error": null, "tool_call_id": "...", "meta": {...}}`
+  - Failure response (non-2xx): `{"ok": false, "tool_name": "...", "result": null, "error": {...}, "tool_call_id": "...", "meta": {...}}`
 
 Quick check:
 ```bash
 curl http://127.0.0.1:8101/tools
+curl http://127.0.0.1:8101/jsonschema
 curl -X POST http://127.0.0.1:8101/execute \
   -H "Content-Type: application/json" \
-  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"}}'
+  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"},"tool_call_id":"call_123"}'
 ```
 
 ## Example 1: Python executor (no vision)

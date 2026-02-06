@@ -123,6 +123,21 @@ List tools:
 ```bash
 curl http://127.0.0.1:8101/tools
 ```
+List OpenAI-compatible tool schemas:
+```bash
+curl http://127.0.0.1:8101/jsonschema
+```
+Execute a tool (optional `tool_call_id` supported):
+```bash
+curl -X POST http://127.0.0.1:8101/execute \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"},"tool_call_id":"call_123"}'
+```
+`POST /execute` response contract:
+- Success keeps legacy fields and adds envelope fields:
+  - `ok: true`, `tool_name`, `result`, `error: null`, `tool_call_id`, `meta`
+- Failure keeps HTTP non-2xx and returns:
+  - `ok: false`, `tool_name`, `result: null`, `error`, `tool_call_id`, `meta`
 `scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (see `.env.example`).
 If you run `uvicorn` directly, `TOOL_MODULES=auto` (or unset) triggers tool auto-discovery.
 
@@ -151,6 +166,11 @@ python tests/test_python_executor.py
 ```
 
 - Run any tool test with `python tests/test_<tool>.py`.
+- New lightweight transport/schema tests (no running tool server required):
+```bash
+python tests/test_execute_transport_contract.py
+python tests/test_jsonschema_generation.py
+```
 - Server-based tests need the tool server running or `TOOL_SERVER_URL`.
 - LLM-assisted tests read `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY` (defaults in code).
 - Vision tests download sample images into `tests/data` and write outputs to `tests/output`.
@@ -191,6 +211,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Heavy tool wrappers surface subserver error messages (status + detail) and truncate large payloads.
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.
+- Tools can now optionally define `input_schema` (JSON Schema for OpenAI-style tool calling). `/jsonschema` uses `input_schema` when present and falls back to inferred schema from `input_types` otherwise.
 - Python tool-call parsing lives in `src/client/python_tool_call_parser.py` and expects `ToolName(...)` calls. JSON tool-call parsing lives in `src/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - API key files are read from:
   - `src/tools/gemini_google_search/google_api_key`
@@ -203,8 +224,8 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Rui: adding a GUI grounder
 - Client parser: add an optional LLM-based argument fixer for malformed tool calls.
 - Tool onboarding: add a scaffolding helper for new tools.
-- Server error payloads: return structured error details (client now surfaces `detail`).
 - Tool metadata: clean up `/tools` `input_types` output (remove inline comments).
+- Add explicit `input_schema` coverage for remaining non-SAM3 tools.
 - Remaining tool ports are deferred for now (not planned in the near term).
   - OpenThinkIMG: `SegmentRegionAroundPoint` (SAM3 point-guided segmentation).
   - VisualSketchpad: `segment_and_mark`, `sliding_window_detection`.
