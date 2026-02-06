@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="$ROOT_DIR/src"
 
-ENV_FILE="$ROOT_DIR/.env"
+# Accept env file name as argument, default to .env
+ENV_FILE_NAME="${1:-.env}"
+ENV_FILE="$ROOT_DIR/$ENV_FILE_NAME"
 PRE_HOST="${HOST-}"
 PRE_PORT="${PORT-}"
 PRE_TOOL_MODULES="${TOOL_MODULES-}"

@@ -31,6 +31,43 @@ def _format_routes():
     return sorted(routes)
 
 
+def _infer_json_type(type_hint):
+    hint = str(type_hint).lower()
+    if "int" in hint:
+        return "integer"
+    if "float" in hint or "double" in hint or "number" in hint:
+        return "number"
+    if "bool" in hint:
+        return "boolean"
+    if "list" in hint or "array" in hint:
+        return "array"
+    if "dict" in hint or "object" in hint:
+        return "object"
+    return "string"
+
+
+def _input_types_to_schema(input_types):
+    properties = {}
+    if isinstance(input_types, dict):
+        for key, desc in input_types.items():
+            properties[key] = {
+                "type": _infer_json_type(desc),
+                "description": str(desc),
+            }
+    elif isinstance(input_types, (list, tuple)):
+        for idx, item in enumerate(input_types):
+            key = f"arg{idx}"
+            properties[key] = {
+                "type": _infer_json_type(item),
+                "description": str(item),
+            }
+    return {
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": True,
+    }
+
+
 @app.on_event("startup")
 def load_tool_registry():
     global tool_instances, tool_metadata
@@ -66,6 +103,26 @@ def list_tools():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "tool_count": len(tool_metadata), "tools": sorted(tool_metadata)}
+
+
+@app.get("/jsonschema")
+def list_tools_jsonschema():
+    json_schemas = []
+    for tool_name in sorted(tool_metadata):
+        metadata = tool_metadata[tool_name]
+        json_schemas.append(
+            {
+                "function":
+                    {
+                    "name": metadata.get("tool_name", tool_name),
+                    "description": metadata.get("tool_description", ""),
+                    "parameters": _input_types_to_schema(metadata.get("input_types")),
+                },
+                "type": "function"
+            }
+            
+        )
+    return json_schemas
 
 
 @app.post("/execute")

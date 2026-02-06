@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+requests
+openai
+google-genai
+beautifulsoup4
+numpy
+Pillow
+python-dotenv
+tqdm
+nano-vectordb

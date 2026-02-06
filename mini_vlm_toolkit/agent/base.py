@@ -6,6 +6,11 @@ from ..smp import get_logger, encode_image_to_base64, parse_file
 import time
 import random as rd
 import copy as cp
+from .utils import _get_json, pretty_print_msgs
+from .constant import DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
+from ..utils import chat_completion_request, filter_kwargs_for_endpoint, tool_execute_request
+from typing import Any, Dict, List, Optional
+import re
 
 class BaseAgent:
 
@@ -42,6 +47,12 @@ class BaseAgent:
         self.wait = 1.0  # wait time between retries
         self.fail_msg = "Error: Unable to get response from the server."
         self.default_kwargs = kwargs
+        self.default_kwargs.update({
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "top_p": self.top_p,
+            "repetition_penalty": self.repetition_penalty,
+        })
 
         # check if server is reachable
         response = requests.get(base + "/v1/models", timeout=20)
@@ -307,5 +318,314 @@ class BaseAgent:
             # delay before each retry
             T = rd.random() * self.wait * 2
             time.sleep(T)
+
+        return self.fail_msg if answer in ['', None] else answer
+    
+
+class BaseAgentWithTools(BaseAgent):
+    def __init__(self, 
+                tool_base, 
+                tool_list = None,
+                max_iterations: int = 15, 
+                **kwargs):
+        super().__init__(**kwargs)
+        self.tool_base = tool_base
+        self.tools = _get_json(self.tool_base, "/tools")
+        self.logger.info(f"Available Tools: {list(self.tools.keys())}")
+        self.json_schema = _get_json(self.tool_base, "/jsonschema")
+        self.max_iterations = max_iterations
+        
+        if tool_list is not None:
+            self.tools = {name: tool for name, tool in self.tools.items() if name in tool_list}
+            self.json_schema = [x for x in self.json_schema if x['function']['name'] in tool_list]
+        
+        if not isinstance(self.tools, dict):
+            raise ValueError(f"Failed to get tools from {self.tool_base}/tools")
+        self.system_prompt = self._construct_system_message()
+
+    def _construct_system_message(self) -> str:
+        return DEFAULT_SYSTEM_PROMPT_V1
+    
+    def _add_user_prompt_prefix(self, msgs) -> str:
+
+        tool_descriptions = ""
+        for name, tool in self.tools.items():
+            payload = {
+                "name": name,
+                "description": tool.get("tool_description", ""),
+                "parameters": tool.get("input_types", {}),
+                "output_types": tool.get("output_types", {})
+            }
+            tool_descriptions += "\n" + json.dumps(payload) 
+
+
+        assert msgs[-1]["role"] == "user"
+
+        last_content = msgs[-1]["content"]
+        if isinstance(last_content, list):
+            for i, it in enumerate(last_content):
+                if it["type"] == "text":
+                    msgs[-1]["content"][i] = {
+                        "type": "text",
+                        "text": DEFAULT_USER_PROMPT_PREFIX_V1.format(tool_descriptions=tool_descriptions, user_query=it["text"])
+                    }
+
+                    break
+        else:
+            msgs[-1]["content"] = {
+                "type": "text",
+                "text": DEFAULT_USER_PROMPT_PREFIX_V1.format(tool_descriptions=tool_descriptions, user_query=last_content["text"])
+            }
+
+        return msgs
+    
+    def _extract_tagged_content(self, text: str, tag: str) -> str:
+        """Extract content between XML-style tags."""
+        pattern = rf"<{tag}>(.*?)</{tag}>"
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    def _extract_json_from_text(self, text: str) -> Optional[Dict[str, Any]]:
+        """Extract JSON object from text, handling various formats."""
+        decoder = json.JSONDecoder()
+        idx = 0
+        candidates = []
+        while idx < len(text):
+            brace = text.find("{", idx)
+            if brace == -1:
+                break
+            try:
+                obj, end = decoder.raw_decode(text, brace)
+                candidates.append(obj)
+                idx = end
+            except json.JSONDecodeError:
+                idx = brace + 1
+
+        # Return the last valid JSON object with an "action" key
+        for obj in reversed(candidates):
+            if isinstance(obj, dict) and "action" in obj:
+                return obj
+
+        # If no action found, return any JSON object
+        if candidates:
+            return candidates[-1]
+
+        return None
+
+    def parse_response(self, response: str) -> Dict[str, Any]:
+        """
+        Parse the structured agent response with perception, thinking, and action sections.
+
+        Args:
+            response: Model response text
+
+        Returns:
+            Dictionary with:
+                - perception: str (what the agent observes)
+                - thinking: str (agent's reasoning)
+                - action: dict (parsed action JSON)
+                - action_type: str ('tool_call', 'final_answer', 'select_masks', or None)
+                - raw: str (original response)
+        """
+        result = {
+            "perception": self._extract_tagged_content(response, "perception"),
+            "thinking": self._extract_tagged_content(response, "thinking"),
+            "action": None,
+            "action_type": None,
+            "raw": response,
+        }
+
+        # Extract action section and parse JSON
+        action_text = self._extract_tagged_content(response, "action")
+        if action_text:
+            action_json = self._extract_json_from_text(action_text)
+            if action_json:
+                result["action"] = action_json
+                result["action_type"] = action_json.get("action")
+
+        # Fallback: if no tagged action, try to find JSON anywhere in response
+        if result["action"] is None:
+            action_json = self._extract_json_from_text(response)
+            if action_json:
+                result["action"] = action_json
+                result["action_type"] = action_json.get("action")
+
+        # Legacy fallback: Look for JSON blocks in the response
+        if result["action"] is None:
+            json_pattern = r"```json\s*(.*?)\s*```"
+            matches = re.findall(json_pattern, response, re.DOTALL)
+
+            for match in matches:
+                try:
+                    action_json = json.loads(match)
+                    if "tool" in action_json and "arguments" in action_json:
+                        result["action"] = action_json
+                        result["action_type"] = action_json.get("action")
+                except json.JSONDecodeError:
+                    continue
+
+        # Also try to find raw JSON objects with legacy format
+        if result["action"] is None:
+            json_obj_pattern = r'\{[^{}]*"tool"[^{}]*"arguments"[^{}]*\}'
+            matches = re.findall(json_obj_pattern, response)
+
+            for match in matches:
+                try:
+                    action_json = json.loads(match)
+                    if "tool" in action_json and "arguments" in action_json:
+                        result["action"] = action_json
+                        result["action_type"] = action_json.get("action")
+                except json.JSONDecodeError:
+                    continue
+
+        return result
+
+    def _parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract tool call from model response.
+
+        Args:
+            response: Model response text
+
+        Returns:
+            Dictionary with 'tool_name' and 'tool_args' keys, or None if no tool call found
+        """
+        parsed = self.parse_response(response)
+
+        if parsed["action_type"] == "tool_call":
+            action = parsed["action"]
+            return {
+                "tool": action.get("tool_name"),
+                "arguments": action.get("tool_args", {}),
+            }
+
+        # Legacy fallback: Look for JSON blocks in the response
+        json_pattern = r"```json\s*(.*?)\s*```"
+        matches = re.findall(json_pattern, response, re.DOTALL)
+
+        for match in matches:
+            try:
+                parsed_json = json.loads(match)
+                if "tool" in parsed_json and "arguments" in parsed_json:
+                    return parsed_json
+            except json.JSONDecodeError:
+                continue
+
+        # Also try to find raw JSON objects with legacy format
+        json_obj_pattern = r'\{[^{}]*"tool"[^{}]*"arguments"[^{}]*\}'
+        matches = re.findall(json_obj_pattern, response)
+
+        for match in matches:
+            try:
+                parsed_json = json.loads(match)
+                if "tool" in parsed_json and "arguments" in parsed_json:
+                    return parsed_json
+            except json.JSONDecodeError:
+                continue
+
+        return None
+
+    def _update_msg_after_execution(self, messages, model_response, tool_response):
+
+        messages.append({"role": "assistant", "content": model_response})
+
+        messages.append(({"role": "user", "content": f"Tool Execution Results: {tool_response}"}))
+
+        return messages
+
+    # ------------------------------------------------------------------ #
+    # Main loop
+    # ------------------------------------------------------------------ #
+    def _run(self, question, **kwargs) -> list[dict]:
+        """
+        Run the ReAct-style loop with OpenAI Function Calling.
+        """
+        msgs = self.prepare_inputs(question)
+        # add available tools to user prompt
+        msgs = self._add_user_prompt_prefix(msgs)
+
+        # Use this for debugging the input messages
+        # pretty_print_msgs(msgs)
+        chat_history = []
+        final_answer = "None"
+        for i in range(self.max_iterations):
+            # Force a final `finish` on the last iteration to avoid hanging
+            if i == self.max_iterations - 1:
+                msgs.append(
+                    {
+                        "role": "user",
+                        "content": "Please call the `final_answer` action to finish the task.",
+                    }
+                )
+
+            # response is json-ify
+            response = chat_completion_request(
+                model=self.model,
+                messages=msgs,
+                base_url=self.api_base,
+                api_key=self.key,
+                tools=self.json_schema,
+                tool_choice="auto",
+                **kwargs,
+            )
+            
+            raw_response = response["choices"][0]["message"]["content"]
+            parsed_response = self.parse_response(raw_response)
+
+            action = parsed_response["action"]
+            action_type = parsed_response["action_type"]
+
+            turn_info = {
+                "turn": i + 1,
+                "perception": parsed_response["perception"],
+                "thinking": parsed_response["thinking"],
+                "action_type": parsed_response["action_type"],
+                "action": parsed_response["action"],
+                "raw": raw_response,
+                "tool_response": None,  # Will be set with the text fed back to the model
+            }
+
+            if action_type == "final_answer":
+                final_answer = action['answer']
+                return final_answer, chat_history
+            
+            elif action_type == "tool_call":
+
+                tool_call = {
+                    "tool_name": parsed_response["action"]["tool_name"],
+                    "args": parsed_response["action"]["tool_args"]
+                }
+
+                try:
+                    tool_response = tool_execute_request(self.tool_base, tool_call, timeout=self.timeout)            
+                except Exception as e:
+                    tool_response = f"Tool execution failed: {str(e)}. Please try a different approach."
+
+                turn_info["tool_response"] = tool_response
+
+            msgs = self._update_msg_after_execution(msgs, raw_response, tool_response)
+            chat_history.append(turn_info)
+
+        return final_answer, chat_history
+
+    def generate(self, message, **kwargs1):
+
+        if self.check_content(message) == 'listdict':
+            message = self.preprocess_message_with_role(message)
+        assert self.check_content(message) in ['str', 'dict', 'liststr', 'listdict'], f'Invalid input type: {message}'
+        message = self.preproc_content(message)
+        assert message is not None and self.check_content(message) == 'listdict'
+        for item in message:
+            assert item['type'] in self.allowed_types, f'Invalid input type: {item["type"]}'
+
+        # merge kwargs
+        kwargs = cp.deepcopy(self.default_kwargs)
+        kwargs.update(kwargs1)
+        kwargs = filter_kwargs_for_endpoint(kwargs, "chat")
+
+        # Run the ReAct-style loop
+        answer, chat_history = self._run(message, **kwargs)
 
         return self.fail_msg if answer in ['', None] else answer

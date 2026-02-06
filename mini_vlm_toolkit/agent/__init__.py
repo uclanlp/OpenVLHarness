@@ -1,8 +1,11 @@
-from .base import BaseAgent
-from .config import load_agent_config, filter_kwargs
+from .base import BaseAgent, BaseAgentWithTools
+from .dvd import DVDAgent
+from .config import load_agent_config
 
 AVAILABLE_AGENTS = {
     'BaseAgent': BaseAgent,
+    'DVDAgent': DVDAgent,
+    'BaseAgentWithTools': BaseAgentWithTools,
 }
 
 def get_agent_class(agent_name: str):
@@ -68,8 +71,6 @@ def build_agent(config_path: str) -> BaseAgent:
     # Get agent class from current module
     agent_class = get_agent_class(agent_name)
     
-    # Filter kwargs to only valid parameters
-    filtered_kwargs = filter_kwargs(agent_class, agent_kwargs)
-    
+    print(f"Building agent '{agent_name}' with kwargs: {agent_kwargs}")
     # Instantiate and return
-    return agent_class(**filtered_kwargs)
+    return agent_class(**agent_kwargs)

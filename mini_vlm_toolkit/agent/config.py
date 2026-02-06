@@ -43,20 +43,3 @@ def load_agent_config(config_path: str) -> Dict[str, Any]:
         raise ValueError("Config must contain 'agent_name' key")
     
     return config
-
-def filter_kwargs(agent_class: Type, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Filter kwargs to only include parameters accepted by the agent class constructor.
-    
-    Args:
-        agent_class: The agent class
-        kwargs: Dictionary of all kwargs
-    
-    Returns:
-        Filtered dictionary with only valid constructor parameters
-    """
-    sig = inspect.signature(agent_class.__init__)
-    valid_params = set(sig.parameters.keys()) - {'self'}
-    
-    filtered = {k: v for k, v in kwargs.items() if k in valid_params}
-    return filtered
