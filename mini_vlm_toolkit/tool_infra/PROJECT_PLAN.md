@@ -18,6 +18,14 @@ Non-goals:
 - Full AgentFlow solver/planner stack.
 - Model Context Protocol (MCP) integration (explicitly deferred).
 
+## Implementation Status (current)
+- Implemented: additive `/execute` transport envelope with
+  `ok/result/error/tool_call_id/meta` while preserving legacy `tool_name/result`.
+- Implemented: optional tool-level `input_schema` support in `BaseTool`;
+  `/jsonschema` prefers `input_schema` and falls back to inferred `input_types`.
+- Implemented: explicit `input_schema` for SAM3-related tools.
+- TODO: add explicit `input_schema` for remaining non-SAM3 tools.
+
 ## Reference Sources
 When referencing external code or behavior, only use the repos under `reference/`:
 - `reference/AgentFlow`
@@ -81,7 +89,7 @@ Remaining VisualSketchpad-derived tools (deferred):
 ## Core Design
 ### Tool Interface
 Each tool will follow the BaseTool-like contract:
-- Metadata: `tool_name`, `tool_description`, `tool_version`, `input_types`, `output_type`, `demo_commands`, `user_metadata`.
+- Metadata: `tool_name`, `tool_description`, `tool_version`, `input_types`, optional `input_schema`, `output_type`, `demo_commands`, `user_metadata`.
 - Required method: `execute(**kwargs)`.
 
 ### Tool Registry
@@ -92,9 +100,13 @@ Each tool will follow the BaseTool-like contract:
 ### Server
 - Minimal FastAPI server with endpoints:
   - `GET /tools` -> list tool metadata
+  - `GET /jsonschema` -> OpenAI-compatible function-tool schemas
   - `POST /execute` -> run a tool by name and args
 - The server executes tools in-process; wrapper tools forward to local model servers for heavyweight models.
-- Timeouts and basic input validation based on `input_types`.
+- `POST /execute` keeps legacy `tool_name/result` and also returns
+  `ok/error/tool_call_id/meta` envelope fields.
+- Optional `tool_call_id` request passthrough for agent call/result correlation.
+- Input contract is documented by `input_schema` when present, otherwise by `input_types` inference.
 - Optional simple log capture for debugging.
 
 ### Client
@@ -104,7 +116,7 @@ Each tool will follow the BaseTool-like contract:
   3) LLM codegen call:
      - LLM generates code containing `ToolName(...)` lines.
      - Client parses these calls into `{tool_name, args}` (Python tool-call parser).
-     - Client calls the server with structured requests.
+     - Client calls the server with structured requests and reads normalized execute envelopes.
      - Parser also accepts JSON tool-call outputs with `{tool_name, args}` or OpenAI-style `{name, arguments}`.
 
 ### LLM Engines
