@@ -2,15 +2,36 @@ import os
 import requests
 import numpy as np
 import json
-from ..smp import get_logger, encode_image_to_base64, parse_file
 import time
 import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
 from .constant import DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
-from ..utils import chat_completion_request, filter_kwargs_for_endpoint, tool_execute_request
+from ..utils.api_utils import chat_completion_request, filter_kwargs_for_endpoint, tool_execute_request
 from typing import Any, Dict, List, Optional
 import re
+
+try:
+    from ..smp import get_logger, encode_image_to_base64, parse_file
+except Exception:  # pragma: no cover - optional heavy deps may be missing for lightweight usage/tests.
+    import base64
+    import logging
+    from io import BytesIO
+
+    def get_logger(name):
+        logger = logging.getLogger(name)
+        if not logger.handlers:
+            logger.addHandler(logging.StreamHandler())
+        logger.setLevel(logging.INFO)
+        return logger
+
+    def encode_image_to_base64(img):
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG")
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    def parse_file(value):
+        return None, value
 
 class BaseAgent:
 
@@ -323,6 +344,20 @@ class BaseAgent:
     
 
 class BaseAgentWithTools(BaseAgent):
+    _IMAGE_RESULT_KEY_HINTS = (
+        "all_masks_viz_base64",
+        "image_base64",
+        "overlay_image_base64",
+        "zoomed_image_base64",
+        "blended_image_base64",
+        "cropped_image_base64",
+        "edited_image_base64",
+        "annotated_image_base64",
+        "depth_map_base64",
+        "masks_png_b64",
+        "subplot_images_base64",
+    )
+
     def __init__(self, 
                 tool_base, 
                 tool_list = None,
@@ -347,36 +382,19 @@ class BaseAgentWithTools(BaseAgent):
         return DEFAULT_SYSTEM_PROMPT_V1
     
     def _add_user_prompt_prefix(self, msgs) -> str:
+        if not msgs or msgs[-1].get("role") != "user":
+            return msgs
 
-        tool_descriptions = ""
-        for name, tool in self.tools.items():
-            payload = {
-                "name": name,
-                "description": tool.get("tool_description", ""),
-                "parameters": tool.get("input_types", {}),
-                "output_types": tool.get("output_types", {})
-            }
-            tool_descriptions += "\n" + json.dumps(payload) 
-
-
-        assert msgs[-1]["role"] == "user"
-
-        last_content = msgs[-1]["content"]
+        last_content = msgs[-1].get("content")
         if isinstance(last_content, list):
-            for i, it in enumerate(last_content):
-                if it["type"] == "text":
-                    msgs[-1]["content"][i] = {
-                        "type": "text",
-                        "text": DEFAULT_USER_PROMPT_PREFIX_V1.format(tool_descriptions=tool_descriptions, user_query=it["text"])
-                    }
-
+            for item in last_content:
+                if isinstance(item, dict) and item.get("type") == "text" and "text" in item:
+                    item["text"] = DEFAULT_USER_PROMPT_PREFIX_V1.format(user_query=item["text"])
                     break
-        else:
-            msgs[-1]["content"] = {
-                "type": "text",
-                "text": DEFAULT_USER_PROMPT_PREFIX_V1.format(tool_descriptions=tool_descriptions, user_query=last_content["text"])
-            }
-
+        elif isinstance(last_content, str):
+            msgs[-1]["content"] = DEFAULT_USER_PROMPT_PREFIX_V1.format(user_query=last_content)
+        elif isinstance(last_content, dict) and "text" in last_content:
+            last_content["text"] = DEFAULT_USER_PROMPT_PREFIX_V1.format(user_query=last_content["text"])
         return msgs
     
     def _extract_tagged_content(self, text: str, tag: str) -> str:
@@ -527,13 +545,251 @@ class BaseAgentWithTools(BaseAgent):
 
         return None
 
-    def _update_msg_after_execution(self, messages, model_response, tool_response):
+    def _normalize_tool_calls(self, tool_calls, turn_idx: int) -> List[Dict[str, Any]]:
+        normalized = []
+        if not isinstance(tool_calls, list):
+            return normalized
 
-        messages.append({"role": "assistant", "content": model_response})
+        for idx, raw_call in enumerate(tool_calls):
+            if not isinstance(raw_call, dict):
+                continue
+            fn = raw_call.get("function") or {}
+            tool_name = fn.get("name")
+            if not tool_name:
+                continue
 
-        messages.append(({"role": "user", "content": f"Tool Execution Results: {tool_response}"}))
+            call_id = raw_call.get("id") or f"call_{turn_idx + 1}_{idx + 1}"
+            raw_args = fn.get("arguments", "{}")
+            args_text = "{}"
+            args_dict = {}
 
-        return messages
+            if isinstance(raw_args, dict):
+                args_dict = raw_args
+                args_text = json.dumps(raw_args, ensure_ascii=False)
+            elif isinstance(raw_args, str):
+                args_text = raw_args
+                if raw_args.strip():
+                    try:
+                        parsed_args = json.loads(raw_args)
+                    except Exception:
+                        parsed_args = {}
+                    if isinstance(parsed_args, dict):
+                        args_dict = parsed_args
+            else:
+                args_text = "{}"
+                args_dict = {}
+
+            normalized.append(
+                {
+                    "id": call_id,
+                    "name": tool_name,
+                    "args": args_dict,
+                    "assistant_tool_call": {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": args_text},
+                    },
+                }
+            )
+        return normalized
+
+    def _normalize_legacy_tool_call(self, action: Dict[str, Any], turn_idx: int) -> List[Dict[str, Any]]:
+        if not isinstance(action, dict):
+            return []
+
+        tool_name = action.get("tool_name") or action.get("name") or action.get("tool")
+        tool_args = action.get("tool_args")
+        if tool_args is None:
+            tool_args = action.get("parameters")
+        if tool_args is None:
+            tool_args = action.get("arguments")
+
+        if isinstance(tool_args, str):
+            try:
+                tool_args = json.loads(tool_args)
+            except Exception:
+                tool_args = {}
+        if not isinstance(tool_args, dict):
+            tool_args = {}
+        if not tool_name:
+            return []
+
+        call_id = f"legacy_call_{turn_idx + 1}_1"
+        return [
+            {
+                "id": call_id,
+                "name": tool_name,
+                "args": tool_args,
+                "assistant_tool_call": {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": json.dumps(tool_args, ensure_ascii=False),
+                    },
+                },
+            }
+        ]
+
+    def _normalize_execute_payload(self, payload, tool_name: str, tool_call_id: str) -> Dict[str, Any]:
+        if isinstance(payload, dict):
+            if "ok" in payload and ("result" in payload or "error" in payload):
+                return {
+                    "ok": bool(payload.get("ok")),
+                    "tool_name": payload.get("tool_name", tool_name),
+                    "result": payload.get("result"),
+                    "error": payload.get("error"),
+                    "tool_call_id": payload.get("tool_call_id", tool_call_id),
+                    "meta": payload.get("meta", {}),
+                }
+            if "result" in payload and ("tool_name" in payload or "error" in payload):
+                return {
+                    "ok": payload.get("error") in (None, "", {}),
+                    "tool_name": payload.get("tool_name", tool_name),
+                    "result": payload.get("result"),
+                    "error": payload.get("error"),
+                    "tool_call_id": payload.get("tool_call_id", tool_call_id),
+                    "meta": payload.get("meta", {}),
+                }
+            return {
+                "ok": True,
+                "tool_name": tool_name,
+                "result": payload,
+                "error": None,
+                "tool_call_id": tool_call_id,
+                "meta": {},
+            }
+
+        return {
+            "ok": True,
+            "tool_name": tool_name,
+            "result": payload,
+            "error": None,
+            "tool_call_id": tool_call_id,
+            "meta": {},
+        }
+
+    def _is_likely_base64(self, value: str) -> bool:
+        if not isinstance(value, str):
+            return False
+        value = value.strip()
+        if len(value) < 64:
+            return False
+        if value.startswith("data:image/"):
+            return True
+        if value.startswith("base64:"):
+            value = value.split(":", 1)[1]
+        return bool(re.fullmatch(r"[A-Za-z0-9+/=\s]+", value))
+
+    def _is_image_result_key(self, key: str) -> bool:
+        k = str(key).lower()
+        if k in self._IMAGE_RESULT_KEY_HINTS:
+            return True
+        if k.endswith("_base64") or k.endswith("_b64"):
+            return any(
+                hint in k
+                for hint in (
+                    "image",
+                    "viz",
+                    "mask",
+                    "depth",
+                    "overlay",
+                    "edited",
+                    "cropped",
+                    "subplot",
+                )
+            )
+        return False
+
+    def _guess_image_mime(self, key: str) -> str:
+        k = str(key).lower()
+        if "jpg" in k or "jpeg" in k:
+            return "image/jpeg"
+        return "image/png"
+
+    def _to_image_data_url(self, key: str, value: str) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        raw = value.strip()
+        if raw.startswith("data:image/"):
+            return raw
+        if raw.startswith("base64:"):
+            raw = raw.split(":", 1)[1]
+        if not self._is_likely_base64(raw):
+            return None
+        mime = self._guess_image_mime(key)
+        return f"data:{mime};base64,{raw}"
+
+    def _extract_image_parts(self, result):
+        if not isinstance(result, dict):
+            return [], result
+
+        image_parts = []
+        compact_result = {}
+        for key, value in result.items():
+            if not self._is_image_result_key(key):
+                compact_result[key] = value
+                continue
+
+            data_urls = []
+            if isinstance(value, str):
+                url = self._to_image_data_url(key, value)
+                if url:
+                    data_urls = [url]
+            elif isinstance(value, list):
+                for item in value:
+                    url = self._to_image_data_url(key, item) if isinstance(item, str) else None
+                    if url:
+                        data_urls.append(url)
+
+            if data_urls:
+                for url in data_urls:
+                    image_parts.append({"type": "image_url", "image_url": {"url": url}})
+            else:
+                compact_result[key] = value
+
+        return image_parts, compact_result
+
+    def _build_tool_message_content(self, payload: Dict[str, Any]):
+        result = payload.get("result")
+        image_parts, compact_result = self._extract_image_parts(result)
+        compact_payload = {
+            "ok": payload.get("ok"),
+            "result": compact_result if isinstance(result, dict) else result,
+            "error": payload.get("error"),
+        }
+
+        try:
+            text_payload = json.dumps(compact_payload, ensure_ascii=False)
+        except Exception:
+            text_payload = str(compact_payload)
+
+        if not image_parts:
+            return text_payload
+
+        return [{"type": "text", "text": text_payload}] + image_parts
+
+    def _extract_final_answer_from_content(self, content: str) -> str:
+        if content is None:
+            return ""
+        if not isinstance(content, str):
+            try:
+                content = json.dumps(content, ensure_ascii=False)
+            except Exception:
+                content = str(content)
+
+        parsed = self.parse_response(content)
+        if parsed.get("action_type") == "final_answer" and isinstance(parsed.get("action"), dict):
+            answer = parsed["action"].get("answer")
+            if isinstance(answer, str) and answer.strip():
+                return answer.strip()
+
+        cleaned = re.sub(r"<perception>.*?</perception>", "", content, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = cleaned.strip()
+        if cleaned.lower().startswith("final answer:"):
+            cleaned = cleaned.split(":", 1)[1].strip()
+        return cleaned or content.strip()
 
     # ------------------------------------------------------------------ #
     # Main loop
@@ -551,16 +807,14 @@ class BaseAgentWithTools(BaseAgent):
         chat_history = []
         final_answer = "None"
         for i in range(self.max_iterations):
-            # Force a final `finish` on the last iteration to avoid hanging
             if i == self.max_iterations - 1:
                 msgs.append(
                     {
                         "role": "user",
-                        "content": "Please call the `final_answer` action to finish the task.",
+                        "content": "Please provide your best final answer now if enough information is available.",
                     }
                 )
 
-            # response is json-ify
             response = chat_completion_request(
                 model=self.model,
                 messages=msgs,
@@ -570,42 +824,79 @@ class BaseAgentWithTools(BaseAgent):
                 tool_choice="auto",
                 **kwargs,
             )
-            
-            raw_response = response["choices"][0]["message"]["content"]
-            parsed_response = self.parse_response(raw_response)
+            message = (response.get("choices") or [{}])[0].get("message", {})
+            raw_response = message.get("content")
+            raw_response = raw_response if isinstance(raw_response, str) else ""
 
-            action = parsed_response["action"]
-            action_type = parsed_response["action_type"]
+            native_tool_calls = self._normalize_tool_calls(message.get("tool_calls"), turn_idx=i)
+            parsed_response = self.parse_response(raw_response)
+            fallback_tool_calls = []
+            if not native_tool_calls and parsed_response.get("action_type") == "tool_call":
+                fallback_tool_calls = self._normalize_legacy_tool_call(parsed_response.get("action"), turn_idx=i)
+
+            effective_tool_calls = native_tool_calls or fallback_tool_calls
 
             turn_info = {
                 "turn": i + 1,
                 "perception": parsed_response["perception"],
                 "thinking": parsed_response["thinking"],
-                "action_type": parsed_response["action_type"],
-                "action": parsed_response["action"],
+                "action_type": "tool_call" if effective_tool_calls else "final_answer",
+                "action": parsed_response.get("action"),
                 "raw": raw_response,
-                "tool_response": None,  # Will be set with the text fed back to the model
+                "tool_responses": [],
             }
 
-            if action_type == "final_answer":
-                final_answer = action['answer']
-                return final_answer, chat_history
-            
-            elif action_type == "tool_call":
-
-                tool_call = {
-                    "tool_name": parsed_response["action"]["tool_name"],
-                    "args": parsed_response["action"]["tool_args"]
+            if effective_tool_calls:
+                assistant_message = {
+                    "role": "assistant",
+                    "content": message.get("content") or "",
+                    "tool_calls": [call["assistant_tool_call"] for call in effective_tool_calls],
                 }
+                msgs.append(assistant_message)
 
-                try:
-                    tool_response = tool_execute_request(self.tool_base, tool_call, timeout=self.timeout)            
-                except Exception as e:
-                    tool_response = f"Tool execution failed: {str(e)}. Please try a different approach."
+                for call in effective_tool_calls:
+                    execute_request = {
+                        "tool_name": call["name"],
+                        "args": call["args"],
+                        "tool_call_id": call["id"],
+                    }
+                    try:
+                        payload = tool_execute_request(
+                            base_url=self.tool_base,
+                            tool_call=execute_request,
+                            timeout=self.timeout,
+                        )
+                        normalized_payload = self._normalize_execute_payload(
+                            payload, tool_name=call["name"], tool_call_id=call["id"]
+                        )
+                    except Exception as e:
+                        normalized_payload = {
+                            "ok": False,
+                            "tool_name": call["name"],
+                            "result": None,
+                            "error": {"code": "tool_execution_error", "message": str(e)},
+                            "tool_call_id": call["id"],
+                            "meta": {},
+                        }
 
-                turn_info["tool_response"] = tool_response
+                    tool_message_content = self._build_tool_message_content(normalized_payload)
+                    tool_message = {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "name": call["name"],
+                        "content": tool_message_content,
+                    }
+                    msgs.append(tool_message)
+                    turn_info["tool_responses"].append(normalized_payload)
 
-            msgs = self._update_msg_after_execution(msgs, raw_response, tool_response)
+                chat_history.append(turn_info)
+                continue
+
+            final_answer = self._extract_final_answer_from_content(raw_response)
+            if final_answer:
+                return final_answer, chat_history
+
+            msgs.append({"role": "assistant", "content": raw_response})
             chat_history.append(turn_info)
 
         return final_answer, chat_history

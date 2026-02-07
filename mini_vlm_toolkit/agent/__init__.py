@@ -1,12 +1,18 @@
 from .base import BaseAgent, BaseAgentWithTools
-from .dvd import DVDAgent
 from .config import load_agent_config
+
+try:
+    from .dvd import DVDAgent
+except Exception:  # pragma: no cover - optional heavy deps may be missing.
+    DVDAgent = None
 
 AVAILABLE_AGENTS = {
     'BaseAgent': BaseAgent,
-    'DVDAgent': DVDAgent,
     'BaseAgentWithTools': BaseAgentWithTools,
 }
+
+if DVDAgent is not None:
+    AVAILABLE_AGENTS['DVDAgent'] = DVDAgent
 
 def get_agent_class(agent_name: str):
     """

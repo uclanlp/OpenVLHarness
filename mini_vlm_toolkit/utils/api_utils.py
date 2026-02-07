@@ -340,8 +340,16 @@ def tool_execute_request(
     tool_call,
     timeout = 120,
 ):
-                                                                                                                                                                                                              
     response = requests.post(f"{base_url}/execute", json=tool_call, timeout=timeout)
     raise_for_status_with_detail(response, prefix="Tool execution request failed")
-
-    return response
+    try:
+        return response.json()
+    except ValueError:
+        return {
+            "ok": True,
+            "tool_name": tool_call.get("tool_name"),
+            "result": response.text,
+            "error": None,
+            "tool_call_id": tool_call.get("tool_call_id"),
+            "meta": {"warning": "non_json_response_from_execute"},
+        }
