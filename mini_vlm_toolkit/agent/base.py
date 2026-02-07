@@ -344,6 +344,7 @@ class BaseAgent:
     
 
 class BaseAgentWithTools(BaseAgent):
+    _DROP_VALUE = object()
     _IMAGE_RESULT_KEY_HINTS = (
         "all_masks_viz_base64",
         "image_base64",
@@ -405,36 +406,9 @@ class BaseAgentWithTools(BaseAgent):
             return match.group(1).strip()
         return ""
 
-    def _extract_json_from_text(self, text: str) -> Optional[Dict[str, Any]]:
-        """Extract JSON object from text, handling various formats."""
-        decoder = json.JSONDecoder()
-        idx = 0
-        candidates = []
-        while idx < len(text):
-            brace = text.find("{", idx)
-            if brace == -1:
-                break
-            try:
-                obj, end = decoder.raw_decode(text, brace)
-                candidates.append(obj)
-                idx = end
-            except json.JSONDecodeError:
-                idx = brace + 1
-
-        # Return the last valid JSON object with an "action" key
-        for obj in reversed(candidates):
-            if isinstance(obj, dict) and "action" in obj:
-                return obj
-
-        # If no action found, return any JSON object
-        if candidates:
-            return candidates[-1]
-
-        return None
-
     def parse_response(self, response: str) -> Dict[str, Any]:
         """
-        Parse the structured agent response with perception, thinking, and action sections.
+        Parse assistant content sections used for debugging/reporting.
 
         Args:
             response: Model response text
@@ -443,107 +417,13 @@ class BaseAgentWithTools(BaseAgent):
             Dictionary with:
                 - perception: str (what the agent observes)
                 - thinking: str (agent's reasoning)
-                - action: dict (parsed action JSON)
-                - action_type: str ('tool_call', 'final_answer', 'select_masks', or None)
                 - raw: str (original response)
         """
-        result = {
+        return {
             "perception": self._extract_tagged_content(response, "perception"),
             "thinking": self._extract_tagged_content(response, "thinking"),
-            "action": None,
-            "action_type": None,
             "raw": response,
         }
-
-        # Extract action section and parse JSON
-        action_text = self._extract_tagged_content(response, "action")
-        if action_text:
-            action_json = self._extract_json_from_text(action_text)
-            if action_json:
-                result["action"] = action_json
-                result["action_type"] = action_json.get("action")
-
-        # Fallback: if no tagged action, try to find JSON anywhere in response
-        if result["action"] is None:
-            action_json = self._extract_json_from_text(response)
-            if action_json:
-                result["action"] = action_json
-                result["action_type"] = action_json.get("action")
-
-        # Legacy fallback: Look for JSON blocks in the response
-        if result["action"] is None:
-            json_pattern = r"```json\s*(.*?)\s*```"
-            matches = re.findall(json_pattern, response, re.DOTALL)
-
-            for match in matches:
-                try:
-                    action_json = json.loads(match)
-                    if "tool" in action_json and "arguments" in action_json:
-                        result["action"] = action_json
-                        result["action_type"] = action_json.get("action")
-                except json.JSONDecodeError:
-                    continue
-
-        # Also try to find raw JSON objects with legacy format
-        if result["action"] is None:
-            json_obj_pattern = r'\{[^{}]*"tool"[^{}]*"arguments"[^{}]*\}'
-            matches = re.findall(json_obj_pattern, response)
-
-            for match in matches:
-                try:
-                    action_json = json.loads(match)
-                    if "tool" in action_json and "arguments" in action_json:
-                        result["action"] = action_json
-                        result["action_type"] = action_json.get("action")
-                except json.JSONDecodeError:
-                    continue
-
-        return result
-
-    def _parse_tool_call(self, response: str) -> Optional[Dict[str, Any]]:
-        """
-        Extract tool call from model response.
-
-        Args:
-            response: Model response text
-
-        Returns:
-            Dictionary with 'tool_name' and 'tool_args' keys, or None if no tool call found
-        """
-        parsed = self.parse_response(response)
-
-        if parsed["action_type"] == "tool_call":
-            action = parsed["action"]
-            return {
-                "tool": action.get("tool_name"),
-                "arguments": action.get("tool_args", {}),
-            }
-
-        # Legacy fallback: Look for JSON blocks in the response
-        json_pattern = r"```json\s*(.*?)\s*```"
-        matches = re.findall(json_pattern, response, re.DOTALL)
-
-        for match in matches:
-            try:
-                parsed_json = json.loads(match)
-                if "tool" in parsed_json and "arguments" in parsed_json:
-                    return parsed_json
-            except json.JSONDecodeError:
-                continue
-
-        # Also try to find raw JSON objects with legacy format
-        json_obj_pattern = r'\{[^{}]*"tool"[^{}]*"arguments"[^{}]*\}'
-        matches = re.findall(json_obj_pattern, response)
-
-        for match in matches:
-            try:
-                parsed_json = json.loads(match)
-                if "tool" in parsed_json and "arguments" in parsed_json:
-                    return parsed_json
-            except json.JSONDecodeError:
-                continue
-
-        return None
 
     def _normalize_tool_calls(self, tool_calls, turn_idx: int) -> List[Dict[str, Any]]:
         normalized = []
@@ -583,6 +463,7 @@ class BaseAgentWithTools(BaseAgent):
                 {
                     "id": call_id,
                     "name": tool_name,
+                    "raw_arguments": args_text,
                     "args": args_dict,
                     "assistant_tool_call": {
                         "id": call_id,
@@ -592,44 +473,6 @@ class BaseAgentWithTools(BaseAgent):
                 }
             )
         return normalized
-
-    def _normalize_legacy_tool_call(self, action: Dict[str, Any], turn_idx: int) -> List[Dict[str, Any]]:
-        if not isinstance(action, dict):
-            return []
-
-        tool_name = action.get("tool_name") or action.get("name") or action.get("tool")
-        tool_args = action.get("tool_args")
-        if tool_args is None:
-            tool_args = action.get("parameters")
-        if tool_args is None:
-            tool_args = action.get("arguments")
-
-        if isinstance(tool_args, str):
-            try:
-                tool_args = json.loads(tool_args)
-            except Exception:
-                tool_args = {}
-        if not isinstance(tool_args, dict):
-            tool_args = {}
-        if not tool_name:
-            return []
-
-        call_id = f"legacy_call_{turn_idx + 1}_1"
-        return [
-            {
-                "id": call_id,
-                "name": tool_name,
-                "args": tool_args,
-                "assistant_tool_call": {
-                    "id": call_id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "arguments": json.dumps(tool_args, ensure_ascii=False),
-                    },
-                },
-            }
-        ]
 
     def _normalize_execute_payload(self, payload, tool_name: str, tool_call_id: str) -> Dict[str, Any]:
         if isinstance(payload, dict):
@@ -720,34 +563,67 @@ class BaseAgentWithTools(BaseAgent):
         mime = self._guess_image_mime(key)
         return f"data:{mime};base64,{raw}"
 
-    def _extract_image_parts(self, result):
-        if not isinstance(result, dict):
-            return [], result
+    def _extract_images_and_scrub_result(
+        self,
+        value: Any,
+        image_parts: List[Dict[str, Any]],
+        *,
+        key_hint: str = "",
+        image_context: bool = False,
+    ):
+        if isinstance(value, dict):
+            compact = {}
+            for key, item in value.items():
+                child_context = image_context or self._is_image_result_key(key)
+                compact_item = self._extract_images_and_scrub_result(
+                    item,
+                    image_parts,
+                    key_hint=str(key),
+                    image_context=child_context,
+                )
+                if compact_item is not self._DROP_VALUE:
+                    compact[key] = compact_item
+            if not compact and image_context:
+                return self._DROP_VALUE
+            return compact
 
-        image_parts = []
-        compact_result = {}
-        for key, value in result.items():
-            if not self._is_image_result_key(key):
-                compact_result[key] = value
-                continue
+        if isinstance(value, list):
+            compact_list = []
+            for item in value:
+                compact_item = self._extract_images_and_scrub_result(
+                    item,
+                    image_parts,
+                    key_hint=key_hint,
+                    image_context=image_context,
+                )
+                if compact_item is not self._DROP_VALUE:
+                    compact_list.append(compact_item)
+            if not compact_list and image_context:
+                return self._DROP_VALUE
+            return compact_list
 
-            data_urls = []
-            if isinstance(value, str):
-                url = self._to_image_data_url(key, value)
+        if isinstance(value, str):
+            raw = value.strip()
+            is_explicit_image = raw.startswith("data:image/")
+            should_try_image = is_explicit_image or image_context or self._is_image_result_key(key_hint)
+            if should_try_image:
+                url = self._to_image_data_url(key_hint or "image", raw)
                 if url:
-                    data_urls = [url]
-            elif isinstance(value, list):
-                for item in value:
-                    url = self._to_image_data_url(key, item) if isinstance(item, str) else None
-                    if url:
-                        data_urls.append(url)
-
-            if data_urls:
-                for url in data_urls:
                     image_parts.append({"type": "image_url", "image_url": {"url": url}})
-            else:
-                compact_result[key] = value
+                    return self._DROP_VALUE
 
+        return value
+
+    def _extract_image_parts(self, result):
+        image_parts = []
+        compact_result = self._extract_images_and_scrub_result(
+            result,
+            image_parts,
+            key_hint="result",
+            image_context=False,
+        )
+        if compact_result is self._DROP_VALUE:
+            compact_result = None
         return image_parts, compact_result
 
     def _build_tool_message_content(self, payload: Dict[str, Any]):
@@ -777,12 +653,6 @@ class BaseAgentWithTools(BaseAgent):
                 content = json.dumps(content, ensure_ascii=False)
             except Exception:
                 content = str(content)
-
-        parsed = self.parse_response(content)
-        if parsed.get("action_type") == "final_answer" and isinstance(parsed.get("action"), dict):
-            answer = parsed["action"].get("answer")
-            if isinstance(answer, str) and answer.strip():
-                return answer.strip()
 
         cleaned = re.sub(r"<perception>.*?</perception>", "", content, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
@@ -830,31 +700,35 @@ class BaseAgentWithTools(BaseAgent):
 
             native_tool_calls = self._normalize_tool_calls(message.get("tool_calls"), turn_idx=i)
             parsed_response = self.parse_response(raw_response)
-            fallback_tool_calls = []
-            if not native_tool_calls and parsed_response.get("action_type") == "tool_call":
-                fallback_tool_calls = self._normalize_legacy_tool_call(parsed_response.get("action"), turn_idx=i)
-
-            effective_tool_calls = native_tool_calls or fallback_tool_calls
 
             turn_info = {
                 "turn": i + 1,
-                "perception": parsed_response["perception"],
-                "thinking": parsed_response["thinking"],
-                "action_type": "tool_call" if effective_tool_calls else "final_answer",
-                "action": parsed_response.get("action"),
-                "raw": raw_response,
+                "assistant": {
+                    "content": raw_response,
+                    "perception": parsed_response["perception"],
+                    "thinking": parsed_response["thinking"],
+                    "tool_calls": [
+                        {
+                            "id": call["id"],
+                            "name": call["name"],
+                            "raw_arguments": call["raw_arguments"],
+                            "args": call["args"],
+                        }
+                        for call in native_tool_calls
+                    ],
+                },
                 "tool_responses": [],
             }
 
-            if effective_tool_calls:
+            if native_tool_calls:
                 assistant_message = {
                     "role": "assistant",
                     "content": message.get("content") or "",
-                    "tool_calls": [call["assistant_tool_call"] for call in effective_tool_calls],
+                    "tool_calls": [call["assistant_tool_call"] for call in native_tool_calls],
                 }
                 msgs.append(assistant_message)
 
-                for call in effective_tool_calls:
+                for call in native_tool_calls:
                     execute_request = {
                         "tool_name": call["name"],
                         "args": call["args"],
@@ -893,11 +767,12 @@ class BaseAgentWithTools(BaseAgent):
                 continue
 
             final_answer = self._extract_final_answer_from_content(raw_response)
+            turn_info["final_answer"] = final_answer
+            chat_history.append(turn_info)
             if final_answer:
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
-            chat_history.append(turn_info)
 
         return final_answer, chat_history
 

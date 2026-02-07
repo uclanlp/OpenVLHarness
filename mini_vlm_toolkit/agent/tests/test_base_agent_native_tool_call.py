@@ -178,12 +178,151 @@ def test_native_tool_call_single_text_tool():
         base_module.tool_execute_request = original_tool_execute_request
 
     assert answer == "4"
-    assert len(chat_history) == 1
-    assert chat_history[0]["action_type"] == "tool_call"
+    assert len(chat_history) == 2
+    assert len(chat_history[0]["assistant"]["tool_calls"]) == 1
+    assert chat_history[0]["assistant"]["perception"] == "I need arithmetic help."
+    assert chat_history[0]["assistant"]["thinking"] == "I should call the Python tool."
     assert len(chat_history[0]["tool_responses"]) == 1
     assert chat_history[0]["tool_responses"][0]["ok"] is True
+    assert chat_history[1]["final_answer"] == "4"
+
+
+def test_native_tool_call_image_result_recursive_extraction():
+    agent = _build_agent()
+    agent.json_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "Image_Tool",
+                "description": "Return image artifacts",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            },
+        }
+    ]
+    state = {"chat_calls": 0}
+
+    tiny_png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2fF6UAAAAASUVORK5CYII="
+    )
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I should inspect masks.</perception>\n"
+                                "<thinking>I need an image-producing tool.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_img_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Image_Tool",
+                                        "arguments": json.dumps({"query": "show masks"}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert tool_msgs
+            tool_msg = tool_msgs[-1]
+            assert tool_msg["tool_call_id"] == "call_img_1"
+            assert tool_msg["name"] == "Image_Tool"
+            assert isinstance(tool_msg["content"], list)
+
+            content_parts = tool_msg["content"]
+            assert content_parts[0]["type"] == "text"
+            image_parts = [p for p in content_parts[1:] if p.get("type") == "image_url"]
+            assert len(image_parts) == 3
+            assert all(p["image_url"]["url"].startswith("data:image/") for p in image_parts)
+
+            compact_payload = json.loads(content_parts[0]["text"])
+            compact_text = content_parts[0]["text"]
+            assert tiny_png_b64 not in compact_text
+            assert "data:image/" not in compact_text
+            assert compact_payload["ok"] is True
+            assert compact_payload["result"]["summary"] == "image artifacts returned"
+            assert compact_payload["result"]["nested"]["other"] == 42
+
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>Received image artifacts.</perception>\n"
+                                "<thinking>I can now answer directly.</thinking>\n"
+                                "done"
+                            ),
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "Image_Tool"
+        assert tool_call["tool_call_id"] == "call_img_1"
+        return {
+            "ok": True,
+            "tool_name": "Image_Tool",
+            "result": {
+                "summary": "image artifacts returned",
+                "nested": {
+                    "all_masks_viz_base64": tiny_png_b64,
+                    "other": 42,
+                },
+                "artifacts": [
+                    {"image_base64": tiny_png_b64},
+                    {"note": "keep me"},
+                ],
+                "mask_gallery": {
+                    "items": [
+                        {"mask_png_b64": tiny_png_b64},
+                    ]
+                },
+            },
+            "error": None,
+            "tool_call_id": "call_img_1",
+            "meta": {},
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Return an image tool result."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "done"
+    assert len(chat_history) == 2
+    assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_Tool"
+    assert chat_history[1]["final_answer"] == "done"
 
 
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
+    test_native_tool_call_image_result_recursive_extraction()
     print("PASS: test_native_tool_call_single_text_tool")
+    print("PASS: test_native_tool_call_image_result_recursive_extraction")
