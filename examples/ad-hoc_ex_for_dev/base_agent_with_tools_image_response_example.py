@@ -38,7 +38,7 @@ def main():
     question = (
         "Call SAM3_Segment_Tool exactly once with these arguments: "
         f'{{"image_path": "{image_path}", "prompt": "person", '
-        '"return_all_masks_viz": true, "return_masks_png_b64": false}}. '
+        '"return_all_masks_viz": true, "return_masks_png_b64": false}. '
         "Then provide a final answer with the numeric mask count."
     )
     inputs = [{"type": "text", "value": question}]
