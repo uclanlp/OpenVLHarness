@@ -58,6 +58,15 @@ longvideobench_dataset = {
     'LongVideoBench_0.5fps_subs': partial(LongVideoBench, dataset='LongVideoBench', fps=0.5, use_subtitle=True)
 }
 
+lvbench_dataset = {
+    'LVBench_8frame': partial(LVBench, dataset='LVBench', nframe=8),
+    'LVBench_16frame': partial(LVBench, dataset='LVBench', nframe=16),
+    'LVBench_32frame': partial(LVBench, dataset='LVBench', nframe=32),
+    'LVBench_64frame': partial(LVBench, dataset='LVBench', nframe=64),
+    'LVBench_1fps': partial(LVBench, dataset='LVBench', fps=1.0),
+    'LVBench_0.5fps': partial(LVBench, dataset='LVBench', fps=0.5),
+}
+
 mlvu_dataset = {
     'MLVU_8frame': partial(MLVU, dataset='MLVU', nframe=8),
     'MLVU_64frame': partial(MLVU, dataset='MLVU', nframe=64),
@@ -213,7 +222,7 @@ dataset_groups = [
     mlvu_dataset, tempcompass_dataset, cgbench_dataset, worldsense_dataset, tamperbench_dataset,
     megabench_dataset, qbench_video_dataset, moviechat1k_dataset, vdc_dataset, video_holmes_dataset, vcrbench_dataset,
     cg_av_counting_dataset, video_mmlu_dataset, egoexobench_dataset, dream_1k_dataset, video_tt_dataset,
-    vsibench_dataset
+    vsibench_dataset,lvbench_dataset
 ]
 
 for grp in dataset_groups:
