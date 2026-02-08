@@ -109,13 +109,34 @@ def main():
         max_tokens=1024,
     )
 
+    # Keep this prompt exactly aligned with qwen3_vl_tool_call_demo_chat.ipynb.
     question = (
-        "Call SAM3_Segment_Tool exactly once with these arguments: "
-        f'{{"image_path": "{image_path}", "prompt": "person", '
-        '"return_all_masks_viz": true, "return_masks_png_b64": false}. '
-        "Then provide a final answer with the numeric mask count."
+        "How many children are visible? Reason step by step. "
+        "In your first assistant turn, do a step-by-step analysis and then emit exactly one "
+        "tool call for SAM3_Segment_Tool (prompt should be the entity to segment) and image_path "
+        "set to the same image. After receiving the tool response image, continue reasoning step "
+        "by step based on that tool image and then give the final numeric answer."
     )
-    inputs = [{"type": "text", "value": question}]
+
+    use_notebook_image_input = os.getenv("USE_NOTEBOOK_IMAGE_INPUT", "1") not in {"0", "false", "False"}
+    if use_notebook_image_input:
+        try:
+            import PIL  # noqa: F401
+            inputs = [
+                {"type": "image", "value": str(image_path)},
+                {"type": "text", "value": question},
+            ]
+        except Exception as exc:
+            print(f"Warning: Pillow unavailable ({exc}); falling back to text-only prompt.")
+            question = (
+                f"{question}\nUse this exact image_path when calling SAM3_Segment_Tool: {image_path}"
+            )
+            inputs = [{"type": "text", "value": question}]
+    else:
+        question = (
+            f"{question}\nUse this exact image_path when calling SAM3_Segment_Tool: {image_path}"
+        )
+        inputs = [{"type": "text", "value": question}]
 
     answer, chat_history = agent._run(inputs, debug_tool_loop=debug_tool_loop)
     tool_schema_names = [entry.get("function", {}).get("name") for entry in agent.json_schema]
