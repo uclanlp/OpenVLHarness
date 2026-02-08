@@ -57,16 +57,28 @@ class Python_Executor_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Execute a provided Python code snippet and return its output and variables.",
-            tool_version="0.1.0",
+            tool_description=(
+                "Execute a provided Python code snippet and return stdout plus local variables. "
+                "Important: if you need the numeric/text result explicitly, use print(...) and/or "
+                "assign the value to a variable. Bare expressions are executed but their value is "
+                "not returned automatically."
+            ),
+            tool_version="0.2.0",
             input_types={
-                "code": "str - Python code to execute. Can be raw code or a fenced ```python block."
+                "code": (
+                    "str - Python code to execute. Can be raw code or a fenced ```python block. "
+                    "Use print(...) and/or variable assignment if you need explicit values in the result."
+                )
             },
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {
-                    "command": 'Python_Executor_Tool(code="print(2 + 2)")',
-                    "description": "Execute a simple arithmetic snippet."
+                    "command": 'Python_Executor_Tool(code="value = 2 + 2\\nprint(value)")',
+                    "description": "Execute arithmetic and return both printed output and variable value."
+                },
+                {
+                    "command": 'Python_Executor_Tool(code="for i in range(3):\\n    print(i)")',
+                    "description": "Execute a short loop and return stdout."
                 }
             ],
             user_metadata={
