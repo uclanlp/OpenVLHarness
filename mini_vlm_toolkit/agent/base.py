@@ -378,6 +378,8 @@ class BaseAgentWithTools(BaseAgent):
         if not isinstance(self.tools, dict):
             raise ValueError(f"Failed to get tools from {self.tool_base}/tools")
         self.system_prompt = self._construct_system_message()
+        self.last_run_messages = []
+        self.last_chat_history = []
 
     def _construct_system_message(self) -> str:
         return DEFAULT_SYSTEM_PROMPT_V1
@@ -661,6 +663,16 @@ class BaseAgentWithTools(BaseAgent):
             cleaned = cleaned.split(":", 1)[1].strip()
         return cleaned or content.strip()
 
+    def _truncate_for_debug(self, value: Any, max_chars: int = 280) -> str:
+        try:
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        except Exception:
+            text = str(value)
+        text = text.replace("\n", "\\n")
+        if len(text) <= max_chars:
+            return text
+        return f"{text[:max_chars]}... (truncated)"
+
     # ------------------------------------------------------------------ #
     # Main loop
     # ------------------------------------------------------------------ #
@@ -668,6 +680,9 @@ class BaseAgentWithTools(BaseAgent):
         """
         Run the ReAct-style loop with OpenAI Function Calling.
         """
+        debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
+        debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
+
         msgs = self.prepare_inputs(question)
         # add available tools to user prompt
         msgs = self._add_user_prompt_prefix(msgs)
@@ -677,6 +692,8 @@ class BaseAgentWithTools(BaseAgent):
         chat_history = []
         final_answer = "None"
         for i in range(self.max_iterations):
+            if debug_tool_loop:
+                self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
             if i == self.max_iterations - 1:
                 msgs.append(
                     {
@@ -697,9 +714,15 @@ class BaseAgentWithTools(BaseAgent):
             message = (response.get("choices") or [{}])[0].get("message", {})
             raw_response = message.get("content")
             raw_response = raw_response if isinstance(raw_response, str) else ""
+            if debug_tool_loop and raw_response:
+                self.logger.info(
+                    f"[ToolLoop] assistant_content={self._truncate_for_debug(raw_response, max_chars=debug_char_limit)}"
+                )
 
             native_tool_calls = self._normalize_tool_calls(message.get("tool_calls"), turn_idx=i)
             parsed_response = self.parse_response(raw_response)
+            if debug_tool_loop and native_tool_calls:
+                self.logger.info(f"[ToolLoop] tool_calls={len(native_tool_calls)}")
 
             turn_info = {
                 "turn": i + 1,
@@ -729,6 +752,10 @@ class BaseAgentWithTools(BaseAgent):
                 msgs.append(assistant_message)
 
                 for call in native_tool_calls:
+                    if debug_tool_loop:
+                        self.logger.info(
+                            f"[ToolLoop] execute {call['name']} id={call['id']} args={self._truncate_for_debug(call['args'], max_chars=debug_char_limit)}"
+                        )
                     execute_request = {
                         "tool_name": call["name"],
                         "args": call["args"],
@@ -752,8 +779,26 @@ class BaseAgentWithTools(BaseAgent):
                             "tool_call_id": call["id"],
                             "meta": {},
                         }
+                    if debug_tool_loop:
+                        self.logger.info(
+                            f"[ToolLoop] result ok={normalized_payload.get('ok')} id={call['id']} error={self._truncate_for_debug(normalized_payload.get('error'), max_chars=debug_char_limit)}"
+                        )
 
                     tool_message_content = self._build_tool_message_content(normalized_payload)
+                    if debug_tool_loop:
+                        if isinstance(tool_message_content, list):
+                            image_count = sum(
+                                1
+                                for part in tool_message_content
+                                if isinstance(part, dict) and part.get("type") == "image_url"
+                            )
+                            self.logger.info(
+                                f"[ToolLoop] tool_message multimodal parts={len(tool_message_content)} image_parts={image_count}"
+                            )
+                        else:
+                            self.logger.info(
+                                f"[ToolLoop] tool_message text={self._truncate_for_debug(tool_message_content, max_chars=debug_char_limit)}"
+                            )
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": call["id"],
@@ -764,16 +809,28 @@ class BaseAgentWithTools(BaseAgent):
                     turn_info["tool_responses"].append(normalized_payload)
 
                 chat_history.append(turn_info)
+                self.last_run_messages = cp.deepcopy(msgs)
+                self.last_chat_history = cp.deepcopy(chat_history)
                 continue
 
             final_answer = self._extract_final_answer_from_content(raw_response)
             turn_info["final_answer"] = final_answer
             chat_history.append(turn_info)
+            self.last_run_messages = cp.deepcopy(msgs)
+            self.last_chat_history = cp.deepcopy(chat_history)
+            if debug_tool_loop:
+                self.logger.info(
+                    f"[ToolLoop] final_answer={self._truncate_for_debug(final_answer, max_chars=debug_char_limit)}"
+                )
             if final_answer:
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
+            self.last_run_messages = cp.deepcopy(msgs)
+            self.last_chat_history = cp.deepcopy(chat_history)
 
+        self.last_run_messages = cp.deepcopy(msgs)
+        self.last_chat_history = cp.deepcopy(chat_history)
         return final_answer, chat_history
 
     def generate(self, message, **kwargs1):
