@@ -7,7 +7,12 @@ import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
 from .constant import DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
-from ..utils.api_utils import chat_completion_request, filter_kwargs_for_endpoint, tool_execute_request
+from ..utils.api_utils import (
+    chat_completion_request,
+    filter_kwargs_for_endpoint,
+    local_image_to_data_url,
+    tool_execute_request,
+)
 from typing import Any, Dict, List, Optional
 import re
 
@@ -345,6 +350,7 @@ class BaseAgent:
 
 class BaseAgentWithTools(BaseAgent):
     _DROP_VALUE = object()
+    _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
     _IMAGE_RESULT_KEY_HINTS = (
         "all_masks_viz_base64",
         "image_base64",
@@ -380,9 +386,290 @@ class BaseAgentWithTools(BaseAgent):
         self.system_prompt = self._construct_system_message()
         self.last_run_messages = []
         self.last_chat_history = []
+        self._image_registry = {}
+        self._image_alias_to_ref = {}
+        self._image_url_to_ref = {}
+        self._augment_image_path_schema_descriptions()
 
     def _construct_system_message(self) -> str:
         return DEFAULT_SYSTEM_PROMPT_V1
+
+    def _augment_image_path_schema_descriptions(self) -> None:
+        if not isinstance(self.json_schema, list):
+            return
+        suffix = " You may pass a runtime image ID from 'Available image IDs' instead of a filesystem path."
+        for entry in self.json_schema:
+            if not isinstance(entry, dict):
+                continue
+            fn = entry.get("function") or {}
+            params = fn.get("parameters") or {}
+            properties = params.get("properties") or {}
+            if not isinstance(properties, dict):
+                continue
+            for key, spec in properties.items():
+                if not isinstance(spec, dict):
+                    continue
+                key_lower = str(key).lower()
+                if key_lower.endswith("_path") and "image" in key_lower:
+                    desc = spec.get("description", "")
+                    if suffix.strip() not in str(desc):
+                        spec["description"] = f"{desc}{suffix}".strip()
+
+    def _normalize_image_alias(self, alias: str) -> str:
+        if not isinstance(alias, str):
+            return ""
+        return alias.strip().lower()
+
+    def _register_image_data_url(
+        self,
+        ref_id: str,
+        data_url: str,
+        *,
+        source: str,
+        aliases: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        if not isinstance(data_url, str):
+            return None
+        data_url = data_url.strip()
+        if not data_url.startswith("data:image/"):
+            return None
+
+        existing_ref = self._image_url_to_ref.get(data_url)
+        if existing_ref and existing_ref in self._image_registry:
+            entry = self._image_registry[existing_ref]
+            for alias in aliases or []:
+                norm_alias = self._normalize_image_alias(alias)
+                if not norm_alias:
+                    continue
+                self._image_alias_to_ref[norm_alias] = existing_ref
+                entry["aliases"].add(alias)
+            return existing_ref
+
+        entry = {
+            "id": ref_id,
+            "data_url": data_url,
+            "source": source,
+            "aliases": set(),
+        }
+        self._image_registry[ref_id] = entry
+        self._image_url_to_ref[data_url] = ref_id
+
+        for alias in [ref_id] + list(aliases or []):
+            norm_alias = self._normalize_image_alias(alias)
+            if not norm_alias:
+                continue
+            self._image_alias_to_ref[norm_alias] = ref_id
+            entry["aliases"].add(alias)
+
+        return ref_id
+
+    def _build_image_registry_from_inputs(self, question) -> Dict[str, Dict[str, Any]]:
+        self._image_registry = {}
+        self._image_alias_to_ref = {}
+        self._image_url_to_ref = {}
+        if not isinstance(question, list):
+            return self._image_registry
+
+        image_items = []
+        for item in question:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "image" and isinstance(item.get("value"), str):
+                image_items.append(item.get("value").strip())
+
+        for idx, image_value in enumerate(image_items, 1):
+            ref_id = f"input_image_{idx}"
+            aliases = [ref_id, f"image_{idx}"]
+            data_url = None
+            if image_value.startswith("data:image/"):
+                data_url = image_value
+            elif self._is_likely_base64(image_value):
+                raw = image_value
+                if raw.startswith("base64:"):
+                    raw = raw.split(":", 1)[1]
+                data_url = f"data:image/png;base64,{raw}"
+            else:
+                aliases.append(image_value)
+                aliases.append(os.path.basename(image_value))
+                try:
+                    data_url = local_image_to_data_url(image_value)
+                except Exception:
+                    data_url = None
+
+            registered = self._register_image_data_url(
+                ref_id,
+                data_url,
+                source="user_input",
+                aliases=aliases,
+            )
+            if registered and len(image_items) == 1:
+                for alias in self._IMAGE_REGISTRY_DEFAULT_ALIASES:
+                    self._image_alias_to_ref[self._normalize_image_alias(alias)] = registered
+                    self._image_registry[registered]["aliases"].add(alias)
+
+        return self._image_registry
+
+    def _build_image_registry_system_prompt(self) -> str:
+        if not self._image_registry:
+            return ""
+        lines = [
+            "Available image IDs for tool calls:",
+            "When a tool needs image input, pass one of these IDs via the *_image_path field.",
+            "Do NOT invent image file names or paths.",
+        ]
+        for ref_id, entry in self._image_registry.items():
+            source = entry.get("source", "runtime")
+            lines.append(f"- {ref_id}: {source}")
+        return "\n".join(lines)
+
+    def _refresh_system_prompt_in_messages(self, msgs) -> None:
+        dynamic = self._build_image_registry_system_prompt()
+        system_content = self.system_prompt
+        if dynamic:
+            system_content = f"{self.system_prompt}\n\n{dynamic}"
+
+        if msgs and isinstance(msgs[0], dict) and msgs[0].get("role") == "system":
+            msgs[0]["content"] = system_content
+            return
+
+        msgs.insert(0, {"role": "system", "content": system_content})
+
+    def _resolve_registry_image_data_url(self, image_ref: str):
+        if not isinstance(image_ref, str):
+            return None, None
+
+        raw = image_ref.strip()
+        if not raw:
+            return None, None
+
+        if raw.startswith("data:image/"):
+            return raw, None
+
+        if self._is_likely_base64(raw):
+            if raw.startswith("base64:"):
+                raw = raw.split(":", 1)[1]
+            return f"data:image/png;base64,{raw}", None
+
+        alias_candidates = [self._normalize_image_alias(raw)]
+        alias_candidates.append(self._normalize_image_alias(os.path.basename(raw)))
+        for alias in alias_candidates:
+            ref_id = self._image_alias_to_ref.get(alias)
+            if ref_id and ref_id in self._image_registry:
+                return self._image_registry[ref_id]["data_url"], ref_id
+
+        if os.path.isfile(raw):
+            return None, None
+
+        if len(self._image_registry) == 1:
+            only_ref = next(iter(self._image_registry.keys()))
+            return self._image_registry[only_ref]["data_url"], only_ref
+
+        return None, None
+
+    def _is_image_path_key(self, key: str) -> bool:
+        key_lower = str(key).lower()
+        return key_lower.endswith("_path") and "image" in key_lower
+
+    def _resolve_image_paths_in_args(
+        self,
+        value: Any,
+        *,
+        path: str,
+        rewrites: List[Dict[str, Any]],
+        errors: List[Dict[str, Any]],
+    ) -> None:
+        if isinstance(value, dict):
+            for key, child in list(value.items()):
+                child_path = f"{path}.{key}"
+                if isinstance(child, (dict, list)):
+                    self._resolve_image_paths_in_args(
+                        child,
+                        path=child_path,
+                        rewrites=rewrites,
+                        errors=errors,
+                    )
+
+            for path_key in list(value.keys()):
+                if not self._is_image_path_key(path_key):
+                    continue
+                base64_key = f"{path_key[:-5]}_base64"
+                if value.get(base64_key):
+                    continue
+
+                raw_path = value.get(path_key)
+                if not isinstance(raw_path, str) or not raw_path.strip():
+                    continue
+
+                data_url, matched_ref = self._resolve_registry_image_data_url(raw_path)
+                if data_url:
+                    value[base64_key] = data_url
+                    value.pop(path_key, None)
+                    rewrite_item = {
+                        "field": f"{path}.{path_key}",
+                        "target_field": f"{path}.{base64_key}",
+                        "original": raw_path,
+                    }
+                    if matched_ref:
+                        rewrite_item["image_ref"] = matched_ref
+                    rewrites.append(rewrite_item)
+                elif not os.path.isfile(raw_path):
+                    errors.append(
+                        {
+                            "field": f"{path}.{path_key}",
+                            "value": raw_path,
+                            "reason": "unresolved_image_reference",
+                            "available_image_ids": list(self._image_registry.keys()),
+                        }
+                    )
+            return
+
+        if isinstance(value, list):
+            for idx, child in enumerate(value):
+                if isinstance(child, (dict, list)):
+                    self._resolve_image_paths_in_args(
+                        child,
+                        path=f"{path}[{idx}]",
+                        rewrites=rewrites,
+                        errors=errors,
+                    )
+
+    def _resolve_tool_call_args(self, args: Dict[str, Any]):
+        if not isinstance(args, dict):
+            return {}, {"rewrites": [], "errors": []}
+
+        resolved = cp.deepcopy(args)
+        rewrites = []
+        errors = []
+        self._resolve_image_paths_in_args(
+            resolved,
+            path="args",
+            rewrites=rewrites,
+            errors=errors,
+        )
+        return resolved, {"rewrites": rewrites, "errors": errors}
+
+    def _sanitize_ref_token(self, token: str) -> str:
+        safe = re.sub(r"[^A-Za-z0-9_]+", "_", str(token or "tool"))
+        return safe.strip("_") or "tool"
+
+    def _register_tool_output_images(self, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]) -> List[str]:
+        refs = []
+        call_id = self._sanitize_ref_token(payload.get("tool_call_id") or "tool")
+        tool_name = self._sanitize_ref_token(payload.get("tool_name") or "tool")
+        for idx, part in enumerate(image_parts, 1):
+            if not isinstance(part, dict):
+                continue
+            image_url = (part.get("image_url") or {}).get("url")
+            ref_id = f"tool_{call_id}_image_{idx}"
+            assigned_ref = self._register_image_data_url(
+                ref_id,
+                image_url,
+                source=f"tool_output:{tool_name}",
+                aliases=[ref_id, f"{tool_name}_image_{idx}"],
+            )
+            if assigned_ref:
+                refs.append(assigned_ref)
+        return refs
     
     def _add_user_prompt_prefix(self, msgs) -> str:
         if not msgs or msgs[-1].get("role") != "user":
@@ -631,11 +918,14 @@ class BaseAgentWithTools(BaseAgent):
     def _build_tool_message_content(self, payload: Dict[str, Any]):
         result = payload.get("result")
         image_parts, compact_result = self._extract_image_parts(result)
+        image_refs = self._register_tool_output_images(payload, image_parts) if image_parts else []
         compact_payload = {
             "ok": payload.get("ok"),
-            "result": compact_result if isinstance(result, dict) else result,
+            "result": compact_result if isinstance(result, (dict, list)) else result,
             "error": payload.get("error"),
         }
+        if image_refs:
+            compact_payload["image_refs"] = image_refs
 
         try:
             text_payload = json.dumps(compact_payload, ensure_ascii=False)
@@ -683,15 +973,18 @@ class BaseAgentWithTools(BaseAgent):
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
 
+        self._build_image_registry_from_inputs(question)
         msgs = self.prepare_inputs(question)
         # add available tools to user prompt
         msgs = self._add_user_prompt_prefix(msgs)
+        self._refresh_system_prompt_in_messages(msgs)
 
         # Use this for debugging the input messages
         # pretty_print_msgs(msgs)
         chat_history = []
         final_answer = "None"
         for i in range(self.max_iterations):
+            self._refresh_system_prompt_in_messages(msgs)
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
             if i == self.max_iterations - 1:
@@ -752,33 +1045,58 @@ class BaseAgentWithTools(BaseAgent):
                 msgs.append(assistant_message)
 
                 for call in native_tool_calls:
+                    resolved_args, image_resolution = self._resolve_tool_call_args(call["args"])
                     if debug_tool_loop:
                         self.logger.info(
-                            f"[ToolLoop] execute {call['name']} id={call['id']} args={self._truncate_for_debug(call['args'], max_chars=debug_char_limit)}"
+                            f"[ToolLoop] execute {call['name']} id={call['id']} args={self._truncate_for_debug(resolved_args, max_chars=debug_char_limit)}"
                         )
+                        if image_resolution.get("rewrites"):
+                            self.logger.info(
+                                f"[ToolLoop] image_arg_rewrites={self._truncate_for_debug(image_resolution['rewrites'], max_chars=debug_char_limit)}"
+                            )
                     execute_request = {
                         "tool_name": call["name"],
-                        "args": call["args"],
+                        "args": resolved_args,
                         "tool_call_id": call["id"],
                     }
-                    try:
-                        payload = tool_execute_request(
-                            base_url=self.tool_base,
-                            tool_call=execute_request,
-                            timeout=self.timeout,
-                        )
-                        normalized_payload = self._normalize_execute_payload(
-                            payload, tool_name=call["name"], tool_call_id=call["id"]
-                        )
-                    except Exception as e:
+                    if image_resolution.get("errors"):
                         normalized_payload = {
                             "ok": False,
                             "tool_name": call["name"],
                             "result": None,
-                            "error": {"code": "tool_execution_error", "message": str(e)},
+                            "error": {
+                                "code": "unresolved_image_reference",
+                                "message": "Failed to map one or more image_path arguments to runtime images.",
+                                "details": image_resolution.get("errors", []),
+                            },
                             "tool_call_id": call["id"],
-                            "meta": {},
+                            "meta": {"image_resolution": image_resolution},
                         }
+                    else:
+                        try:
+                            payload = tool_execute_request(
+                                base_url=self.tool_base,
+                                tool_call=execute_request,
+                                timeout=self.timeout,
+                            )
+                            normalized_payload = self._normalize_execute_payload(
+                                payload, tool_name=call["name"], tool_call_id=call["id"]
+                            )
+                        except Exception as e:
+                            normalized_payload = {
+                                "ok": False,
+                                "tool_name": call["name"],
+                                "result": None,
+                                "error": {"code": "tool_execution_error", "message": str(e)},
+                                "tool_call_id": call["id"],
+                                "meta": {},
+                            }
+                        if image_resolution.get("rewrites"):
+                            meta = normalized_payload.get("meta")
+                            if not isinstance(meta, dict):
+                                meta = {}
+                            meta["image_resolution"] = image_resolution
+                            normalized_payload["meta"] = meta
                     if debug_tool_loop:
                         self.logger.info(
                             f"[ToolLoop] result ok={normalized_payload.get('ok')} id={call['id']} error={self._truncate_for_debug(normalized_payload.get('error'), max_chars=debug_char_limit)}"

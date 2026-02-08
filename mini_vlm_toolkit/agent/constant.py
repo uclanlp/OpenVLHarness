@@ -8,6 +8,8 @@ Tool-use reliability rules:
 - If a tool result is empty, missing key values, or otherwise non-informative, do NOT guess.
 - Instead, issue another tool call with corrected arguments, or use a better alternative tool.
 - When requesting computed values, ensure the tool output will contain the value explicitly.
+- If a tool requires image input, use only runtime-provided image IDs in *_image_path fields.
+- Do NOT invent image file names or paths.
 
 When you are NOT calling a tool, format your response as:
 

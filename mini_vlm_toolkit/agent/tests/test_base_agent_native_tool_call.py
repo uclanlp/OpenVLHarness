@@ -45,6 +45,7 @@ sys.modules.setdefault("mini_vlm_toolkit.utils", utils_pkg)
 api_utils_stub = types.ModuleType("mini_vlm_toolkit.utils.api_utils")
 api_utils_stub.chat_completion_request = lambda **kwargs: {}
 api_utils_stub.filter_kwargs_for_endpoint = lambda kwargs, _endpoint: kwargs
+api_utils_stub.local_image_to_data_url = lambda _path: "data:image/png;base64,"
 api_utils_stub.tool_execute_request = lambda **kwargs: {}
 sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
@@ -321,8 +322,146 @@ def test_native_tool_call_image_result_recursive_extraction():
     assert chat_history[1]["final_answer"] == "done"
 
 
+def test_native_tool_call_resolves_hallucinated_image_path():
+    agent = _build_agent()
+    agent.json_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "SAM3_Segment_Tool",
+                "description": "Segment with image input",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string"},
+                        "image_path": {"type": "string"},
+                    },
+                },
+            },
+        }
+    ]
+    state = {"chat_calls": 0, "tool_calls": 0}
+    tiny_png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2fF6UAAAAASUVORK5CYII="
+    )
+    expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
+
+    def fake_build_image_registry(_question):
+        agent._image_registry = {
+            "input_image_1": {
+                "id": "input_image_1",
+                "data_url": expected_data_url,
+                "source": "user_input",
+                "aliases": {"input_image_1", "image.jpg"},
+            }
+        }
+        agent._image_alias_to_ref = {
+            "input_image_1": "input_image_1",
+            "image.jpg": "input_image_1",
+        }
+        agent._image_url_to_ref = {expected_data_url: "input_image_1"}
+        return agent._image_registry
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+
+        if state["chat_calls"] == 1:
+            system_text = messages[0]["content"]
+            assert "Available image IDs for tool calls" in system_text
+            assert "input_image_1" in system_text
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need segmentation.</perception>\n"
+                                "<thinking>I will call SAM3.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_img_resolve_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "SAM3_Segment_Tool",
+                                        "arguments": json.dumps(
+                                            {
+                                                "prompt": "children",
+                                                "image_path": "image.jpg",
+                                                "return_all_masks_viz": True,
+                                            }
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert tool_msgs
+            payload = json.loads(tool_msgs[-1]["content"])
+            assert payload["ok"] is True
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>Tool succeeded.</perception>\n"
+                                "<thinking>I can answer now.</thinking>\n"
+                                "done"
+                            ),
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        state["tool_calls"] += 1
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "SAM3_Segment_Tool"
+        assert tool_call["tool_call_id"] == "call_img_resolve_1"
+        assert "image_path" not in tool_call["args"]
+        assert tool_call["args"]["image_base64"] == expected_data_url
+        return {
+            "ok": True,
+            "tool_name": "SAM3_Segment_Tool",
+            "result": {"mask_count": 3},
+            "error": None,
+            "tool_call_id": "call_img_resolve_1",
+            "meta": {},
+        }
+
+    agent._build_image_registry_from_inputs = fake_build_image_registry
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Count the children."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert state["tool_calls"] == 1
+    assert answer == "done"
+    assert len(chat_history) == 2
+    resolution_meta = chat_history[0]["tool_responses"][0]["meta"]["image_resolution"]
+    assert len(resolution_meta["rewrites"]) == 1
+    assert resolution_meta["errors"] == []
+
+
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
+    test_native_tool_call_resolves_hallucinated_image_path()
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
+    print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
