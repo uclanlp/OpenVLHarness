@@ -408,11 +408,28 @@ def tool_execute_request(
             return payload
         return response.json()
     except ValueError:
+        text_preview = response.text
+        if isinstance(text_preview, str) and len(text_preview) > 500:
+            text_preview = text_preview[:500] + "...(truncated)"
+        content_type = ""
+        headers = getattr(response, "headers", {}) or {}
+        if isinstance(headers, dict):
+            content_type = headers.get("Content-Type", "")
         return {
-            "ok": True,
+            "ok": False,
             "tool_name": tool_call.get("tool_name"),
-            "result": response.text,
-            "error": None,
+            "result": None,
+            "error": {
+                "code": "execute_non_json_response",
+                "message": "Execute endpoint returned non-JSON response.",
+                "detail": {
+                    "content_type": content_type,
+                    "response_text_preview": text_preview,
+                },
+            },
             "tool_call_id": tool_call.get("tool_call_id"),
-            "meta": {"warning": "non_json_response_from_execute"},
+            "meta": {
+                "warning": "non_json_response_from_execute",
+                "http_status": response.status_code,
+            },
         }

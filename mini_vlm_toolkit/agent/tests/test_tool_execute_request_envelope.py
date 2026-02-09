@@ -111,7 +111,7 @@ def test_tool_execute_request_non_envelope_4xx_raises():
         api_utils.requests.post = original_post
 
 
-def test_tool_execute_request_ok_non_json_text_fallback():
+def test_tool_execute_request_ok_non_json_text_fallback_as_failure():
     def fake_post(_url, json, timeout):
         assert timeout == 2
         assert json["tool_name"] == "Demo_Tool"
@@ -128,19 +128,22 @@ def test_tool_execute_request_ok_non_json_text_fallback():
     finally:
         api_utils.requests.post = original_post
 
-    assert payload["ok"] is True
-    assert payload["result"] == "raw-text"
+    assert payload["ok"] is False
+    assert payload["result"] is None
+    assert payload["error"]["code"] == "execute_non_json_response"
+    assert payload["error"]["detail"]["response_text_preview"] == "raw-text"
     assert payload["tool_name"] == "Demo_Tool"
     assert payload["tool_call_id"] == "call_4"
     assert payload["meta"]["warning"] == "non_json_response_from_execute"
+    assert payload["meta"]["http_status"] == 200
 
 
 if __name__ == "__main__":
     test_tool_execute_request_passthrough_structured_non_2xx()
     test_tool_execute_request_fills_missing_ids_from_request()
     test_tool_execute_request_non_envelope_4xx_raises()
-    test_tool_execute_request_ok_non_json_text_fallback()
+    test_tool_execute_request_ok_non_json_text_fallback_as_failure()
     print("PASS: test_tool_execute_request_passthrough_structured_non_2xx")
     print("PASS: test_tool_execute_request_fills_missing_ids_from_request")
     print("PASS: test_tool_execute_request_non_envelope_4xx_raises")
-    print("PASS: test_tool_execute_request_ok_non_json_text_fallback")
+    print("PASS: test_tool_execute_request_ok_non_json_text_fallback_as_failure")
