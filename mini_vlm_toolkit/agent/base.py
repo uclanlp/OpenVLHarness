@@ -992,9 +992,13 @@ class BaseAgentWithTools(BaseAgent):
         result = payload.get("result")
         image_parts, compact_result = self._extract_image_parts(result)
         image_refs = self._register_tool_output_images(payload, image_parts) if image_parts else []
+        if image_parts:
+            result_for_text = compact_result
+        else:
+            result_for_text = compact_result if isinstance(result, (dict, list)) else result
         compact_payload = {
             "ok": payload.get("ok"),
-            "result": compact_result if isinstance(result, (dict, list)) else result,
+            "result": result_for_text,
             "error": payload.get("error"),
         }
         if image_refs:
@@ -1045,6 +1049,7 @@ class BaseAgentWithTools(BaseAgent):
         """
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
+        chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         tool_choice = kwargs.pop("tool_choice", self.tool_choice)
         runtime_tools = kwargs.pop("tools", None)
         model_tools = self.json_schema
@@ -1082,6 +1087,7 @@ class BaseAgentWithTools(BaseAgent):
                 api_key=self.key,
                 tools=model_tools,
                 tool_choice=tool_choice,
+                timeout_seconds=chat_timeout_seconds,
                 **kwargs,
             )
             if not isinstance(response, dict):

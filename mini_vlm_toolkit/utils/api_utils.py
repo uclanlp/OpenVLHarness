@@ -249,7 +249,18 @@ def _normalize_embeddings_endpoint(
 # Filter out extra kwargs that are not valid for the endpoint to avoid request failures
 def filter_kwargs_for_endpoint(kwargs: Dict[str, Any], endpoint_type: str) -> Dict[str, Any]:
     valid_keys = {
-        "chat": {"temperature", "max_tokens", "top_p", "stop", "tools", "tool_choice", "response_format", "extra_body", "image_paths"},
+        "chat": {
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "stop",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "extra_body",
+            "image_paths",
+            "timeout_seconds",
+        },
         "embeddings": set(),
     }
     allowed_keys = valid_keys.get(endpoint_type, set())

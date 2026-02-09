@@ -86,6 +86,7 @@ def _build_agent():
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
+    agent.default_kwargs = {}
     return agent
 
 
@@ -459,6 +460,125 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     assert resolution_meta["errors"] == []
 
 
+def test_native_tool_call_image_result_top_level_string_scrubbed():
+    agent = _build_agent()
+    agent.json_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "Image_String_Tool",
+                "description": "Return image as a top-level data URL string",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                },
+            },
+        }
+    ]
+    state = {"chat_calls": 0}
+    tiny_png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2fF6UAAAAASUVORK5CYII="
+    )
+    image_data_url = f"data:image/png;base64,{tiny_png_b64}"
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I should call the image tool.</perception>\n"
+                                "<thinking>I need a visualization.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_img_string_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Image_String_Tool",
+                                        "arguments": json.dumps({"query": "return image"}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert tool_msgs
+            tool_msg = tool_msgs[-1]
+            assert tool_msg["tool_call_id"] == "call_img_string_1"
+            assert tool_msg["name"] == "Image_String_Tool"
+            assert isinstance(tool_msg["content"], list)
+
+            content_parts = tool_msg["content"]
+            assert content_parts[0]["type"] == "text"
+            image_parts = [p for p in content_parts[1:] if p.get("type") == "image_url"]
+            assert len(image_parts) == 1
+            assert image_parts[0]["image_url"]["url"] == image_data_url
+
+            compact_payload = json.loads(content_parts[0]["text"])
+            compact_text = content_parts[0]["text"]
+            assert tiny_png_b64 not in compact_text
+            assert image_data_url not in compact_text
+            assert compact_payload["ok"] is True
+            assert compact_payload["result"] is None
+            assert compact_payload["error"] is None
+
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>Received image output.</perception>\n"
+                                "<thinking>I can provide the final answer.</thinking>\n"
+                                "done"
+                            ),
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "Image_String_Tool"
+        assert tool_call["tool_call_id"] == "call_img_string_1"
+        return {
+            "ok": True,
+            "tool_name": "Image_String_Tool",
+            "result": image_data_url,
+            "error": None,
+            "tool_call_id": "call_img_string_1",
+            "meta": {},
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Return image as top-level string."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "done"
+    assert len(chat_history) == 2
+    assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_String_Tool"
+    assert chat_history[1]["final_answer"] == "done"
+
+
 def test_native_tool_call_forwards_tool_choice_and_extra_body():
     agent = _build_agent()
     state = {"chat_calls": 0}
@@ -535,6 +655,74 @@ def test_native_tool_call_uses_agent_default_tool_choice():
     assert state["chat_calls"] == 1
     assert answer == "done"
     assert len(chat_history) == 1
+
+
+def test_native_tool_call_uses_agent_default_timeout_seconds():
+    agent = _build_agent()
+    agent.timeout = 37
+    state = {"chat_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        assert kwargs.get("timeout_seconds") == 37
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>Use default timeout.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Reply directly."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert state["chat_calls"] == 1
+    assert answer == "done"
+    assert len(chat_history) == 1
+
+
+def test_native_tool_call_timeout_seconds_override_passthrough():
+    agent = _build_agent()
+    state = {"chat_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        assert kwargs.get("timeout_seconds") == 12
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>Use runtime timeout override.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        answer = agent.generate([{"type": "text", "value": "Reply directly."}], timeout_seconds=12)
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert state["chat_calls"] == 1
+    assert answer == "done"
 
 
 def test_native_tool_call_invalid_tool_arguments_soft_fail():
@@ -801,8 +989,11 @@ if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
+    test_native_tool_call_image_result_top_level_string_scrubbed()
     test_native_tool_call_forwards_tool_choice_and_extra_body()
     test_native_tool_call_uses_agent_default_tool_choice()
+    test_native_tool_call_uses_agent_default_timeout_seconds()
+    test_native_tool_call_timeout_seconds_override_passthrough()
     test_native_tool_call_invalid_tool_arguments_soft_fail()
     test_native_tool_call_hard_fail_invalid_chat_response_shape()
     test_native_tool_call_single_image_fallback_metadata()
@@ -812,8 +1003,11 @@ if __name__ == "__main__":
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
+    print("PASS: test_native_tool_call_image_result_top_level_string_scrubbed")
     print("PASS: test_native_tool_call_forwards_tool_choice_and_extra_body")
     print("PASS: test_native_tool_call_uses_agent_default_tool_choice")
+    print("PASS: test_native_tool_call_uses_agent_default_timeout_seconds")
+    print("PASS: test_native_tool_call_timeout_seconds_override_passthrough")
     print("PASS: test_native_tool_call_invalid_tool_arguments_soft_fail")
     print("PASS: test_native_tool_call_hard_fail_invalid_chat_response_shape")
     print("PASS: test_native_tool_call_single_image_fallback_metadata")

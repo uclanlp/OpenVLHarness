@@ -97,7 +97,7 @@ def main():
     )
 
     question = (
-        "Use Python_Executor_Tool to compute 17 * 19. "
+        "Use Python_Executor_Tool to compute 1717 * 1919. "
         "After using tools if needed, provide the final answer."
     )
 
