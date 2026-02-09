@@ -235,6 +235,7 @@ class BaseAgent:
     def chat(self, messages, **kwargs1):
         """The main function for multi-turn chatting. Will call `chat_inner` with the preprocessed input messages."""
         assert hasattr(self, 'chat_inner'), 'The API model should has the `chat_inner` method. '
+        messages = cp.deepcopy(messages)
         for msg in messages:
             assert isinstance(msg, dict) and 'role' in msg and 'content' in msg, msg
             assert self.check_content(msg['content']) in ['str', 'dict', 'liststr', 'listdict'], msg
@@ -252,7 +253,7 @@ class BaseAgent:
 
         for i in range(self.retry):
             try:
-                ret_code, answer, log = self.chat_inner(messages, **kwargs)
+                ret_code, answer, log = self.chat_inner(cp.deepcopy(messages), **kwargs)
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
                     if self.verbose:
                         print(answer)
@@ -280,11 +281,13 @@ class BaseAgent:
 
         for data in message:
             assert isinstance(data, dict)
-            role = data.pop('role', 'user')
+            role = data.get('role', 'user')
             if role == 'system':
-                system_prompt += data['value'] + '\n'
+                system_prompt += data.get('value', '') + '\n'
             else:
-                new_message.append(data)
+                new_item = cp.deepcopy(data)
+                new_item.pop('role', None)
+                new_message.append(new_item)
 
         if system_prompt != '':
             if self.system_prompt is None:
@@ -303,6 +306,7 @@ class BaseAgent:
         Returns:
             str: The generated answer of the Failed Message if failed to obtain answer.
         """
+        message = cp.deepcopy(message)
         if self.check_content(message) == 'listdict':
             message = self.preprocess_message_with_role(message)
         assert self.check_content(message) in ['str', 'dict', 'liststr', 'listdict'], f'Invalid input type: {message}'
@@ -321,7 +325,7 @@ class BaseAgent:
 
         for i in range(self.retry):
             try:
-                ret_code, answer, log = self.generate_inner(message, **kwargs)
+                ret_code, answer, log = self.generate_inner(cp.deepcopy(message), **kwargs)
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
                     if self.verbose:
                         print(answer)
@@ -374,17 +378,24 @@ class BaseAgentWithTools(BaseAgent):
         super().__init__(**kwargs)
         self.tool_base = tool_base
         self.tools = _get_json(self.tool_base, "/tools")
-        self.logger.info(f"Available Tools: {list(self.tools.keys())}")
+        if not isinstance(self.tools, dict):
+            raise ConnectionError(f"Failed to get tools from {self.tool_base}/tools")
         self.json_schema = _get_json(self.tool_base, "/jsonschema")
+        if not isinstance(self.json_schema, list):
+            raise ConnectionError(f"Failed to get tool schemas from {self.tool_base}/jsonschema")
         self.tool_choice = tool_choice
         self.max_iterations = max_iterations
         
         if tool_list is not None:
             self.tools = {name: tool for name, tool in self.tools.items() if name in tool_list}
-            self.json_schema = [x for x in self.json_schema if x['function']['name'] in tool_list]
-        
-        if not isinstance(self.tools, dict):
-            raise ValueError(f"Failed to get tools from {self.tool_base}/tools")
+            self.json_schema = [
+                x for x in self.json_schema
+                if isinstance(x, dict)
+                and isinstance(x.get('function'), dict)
+                and x['function'].get('name') in tool_list
+            ]
+
+        self.logger.info(f"Available Tools: {list(self.tools.keys())}")
         self.system_prompt = self._construct_system_message()
         self.last_run_messages = []
         self.last_chat_history = []
@@ -538,35 +549,39 @@ class BaseAgentWithTools(BaseAgent):
 
     def _resolve_registry_image_data_url(self, image_ref: str):
         if not isinstance(image_ref, str):
-            return None, None
+            return None, None, None
 
         raw = image_ref.strip()
         if not raw:
-            return None, None
+            return None, None, None
 
         if raw.startswith("data:image/"):
-            return raw, None
+            return raw, None, None
 
         if self._is_likely_base64(raw):
             if raw.startswith("base64:"):
                 raw = raw.split(":", 1)[1]
-            return f"data:image/png;base64,{raw}", None
+            return f"data:image/png;base64,{raw}", None, None
 
         alias_candidates = [self._normalize_image_alias(raw)]
         alias_candidates.append(self._normalize_image_alias(os.path.basename(raw)))
         for alias in alias_candidates:
             ref_id = self._image_alias_to_ref.get(alias)
             if ref_id and ref_id in self._image_registry:
-                return self._image_registry[ref_id]["data_url"], ref_id
+                return self._image_registry[ref_id]["data_url"], ref_id, None
 
         if os.path.isfile(raw):
-            return None, None
+            return None, None, None
 
         if len(self._image_registry) == 1:
             only_ref = next(iter(self._image_registry.keys()))
-            return self._image_registry[only_ref]["data_url"], only_ref
+            return (
+                self._image_registry[only_ref]["data_url"],
+                only_ref,
+                "single_image_registry_default",
+            )
 
-        return None, None
+        return None, None, None
 
     def _is_image_path_key(self, key: str) -> bool:
         key_lower = str(key).lower()
@@ -602,7 +617,7 @@ class BaseAgentWithTools(BaseAgent):
                 if not isinstance(raw_path, str) or not raw_path.strip():
                     continue
 
-                data_url, matched_ref = self._resolve_registry_image_data_url(raw_path)
+                data_url, matched_ref, fallback_mode = self._resolve_registry_image_data_url(raw_path)
                 if data_url:
                     value[base64_key] = data_url
                     value.pop(path_key, None)
@@ -613,6 +628,8 @@ class BaseAgentWithTools(BaseAgent):
                     }
                     if matched_ref:
                         rewrite_item["image_ref"] = matched_ref
+                    if fallback_mode:
+                        rewrite_item["fallback_mode"] = fallback_mode
                     rewrites.append(rewrite_item)
                 elif not os.path.isfile(raw_path):
                     errors.append(
@@ -692,7 +709,7 @@ class BaseAgentWithTools(BaseAgent):
     def _extract_tagged_content(self, text: str, tag: str) -> str:
         """Extract content between XML-style tags."""
         pattern = rf"<{tag}>(.*?)</{tag}>"
-        match = re.search(pattern, text, re.DOTALL)
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1).strip()
         return ""
@@ -733,6 +750,7 @@ class BaseAgentWithTools(BaseAgent):
             raw_args = fn.get("arguments", "{}")
             args_text = "{}"
             args_dict = {}
+            parse_error = None
 
             if isinstance(raw_args, dict):
                 args_dict = raw_args
@@ -742,13 +760,32 @@ class BaseAgentWithTools(BaseAgent):
                 if raw_args.strip():
                     try:
                         parsed_args = json.loads(raw_args)
-                    except Exception:
+                    except Exception as exc:
                         parsed_args = {}
+                        parse_error = {
+                            "code": "invalid_tool_arguments_json",
+                            "message": "Tool call arguments are not valid JSON.",
+                            "details": {
+                                "raw_arguments": raw_args,
+                                "exception": str(exc),
+                            },
+                        }
                     if isinstance(parsed_args, dict):
                         args_dict = parsed_args
+                    elif parse_error is None:
+                        parse_error = {
+                            "code": "invalid_tool_arguments_type",
+                            "message": "Tool call arguments JSON must decode to an object.",
+                            "details": {"decoded_type": type(parsed_args).__name__},
+                        }
             else:
                 args_text = "{}"
                 args_dict = {}
+                parse_error = {
+                    "code": "invalid_tool_arguments_type",
+                    "message": "Tool call arguments must be a JSON object or a JSON-encoded string.",
+                    "details": {"raw_type": type(raw_args).__name__},
+                }
 
             normalized.append(
                 {
@@ -761,29 +798,63 @@ class BaseAgentWithTools(BaseAgent):
                         "type": "function",
                         "function": {"name": tool_name, "arguments": args_text},
                     },
+                    "parse_error": parse_error,
                 }
             )
         return normalized
 
+    def _coerce_ok_flag(self, value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lower = value.strip().lower()
+            if lower in {"true", "1", "yes"}:
+                return True
+            if lower in {"false", "0", "no", ""}:
+                return False
+        return bool(value)
+
     def _normalize_execute_payload(self, payload, tool_name: str, tool_call_id: str) -> Dict[str, Any]:
         if isinstance(payload, dict):
             if "ok" in payload and ("result" in payload or "error" in payload):
+                error = payload.get("error")
+                result = payload.get("result")
+                ok = self._coerce_ok_flag(payload.get("ok"))
+                if error not in (None, "", {}) and result in (None, "", {}):
+                    ok = False
                 return {
-                    "ok": bool(payload.get("ok")),
+                    "ok": ok,
                     "tool_name": payload.get("tool_name", tool_name),
-                    "result": payload.get("result"),
-                    "error": payload.get("error"),
+                    "result": result,
+                    "error": error,
                     "tool_call_id": payload.get("tool_call_id", tool_call_id),
                     "meta": payload.get("meta", {}),
                 }
             if "result" in payload and ("tool_name" in payload or "error" in payload):
+                error = payload.get("error")
                 return {
-                    "ok": payload.get("error") in (None, "", {}),
+                    "ok": error in (None, "", {}),
                     "tool_name": payload.get("tool_name", tool_name),
                     "result": payload.get("result"),
-                    "error": payload.get("error"),
+                    "error": error,
                     "tool_call_id": payload.get("tool_call_id", tool_call_id),
                     "meta": payload.get("meta", {}),
+                }
+            if any(key in payload for key in ("error", "detail", "message")):
+                error = payload.get("error")
+                if not isinstance(error, dict):
+                    message = payload.get("detail") or payload.get("message") or str(error)
+                    error = {
+                        "code": "tool_execution_error_payload",
+                        "message": message or "Tool execution returned an error payload.",
+                    }
+                return {
+                    "ok": False,
+                    "tool_name": payload.get("tool_name", tool_name),
+                    "result": payload.get("result"),
+                    "error": error,
+                    "tool_call_id": payload.get("tool_call_id", tool_call_id),
+                    "meta": {"warning": "non_envelope_error_payload"},
                 }
             return {
                 "ok": True,
@@ -791,7 +862,7 @@ class BaseAgentWithTools(BaseAgent):
                 "result": payload,
                 "error": None,
                 "tool_call_id": tool_call_id,
-                "meta": {},
+                "meta": {"warning": "non_envelope_payload"},
             }
 
         return {
@@ -800,7 +871,7 @@ class BaseAgentWithTools(BaseAgent):
             "result": payload,
             "error": None,
             "tool_call_id": tool_call_id,
-            "meta": {},
+            "meta": {"warning": "unstructured_tool_payload"},
         }
 
     def _is_likely_base64(self, value: str) -> bool:
@@ -991,7 +1062,7 @@ class BaseAgentWithTools(BaseAgent):
         # Use this for debugging the input messages
         # pretty_print_msgs(msgs)
         chat_history = []
-        final_answer = "None"
+        final_answer = None
         for i in range(self.max_iterations):
             self._refresh_system_prompt_in_messages(msgs)
             if debug_tool_loop:
@@ -1013,7 +1084,18 @@ class BaseAgentWithTools(BaseAgent):
                 tool_choice=tool_choice,
                 **kwargs,
             )
-            message = (response.get("choices") or [{}])[0].get("message", {})
+            if not isinstance(response, dict):
+                raise RuntimeError(
+                    f"Invalid chat response type: expected dict, got {type(response).__name__}"
+                )
+            choices = response.get("choices")
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                raise RuntimeError(f"Invalid chat response payload: missing choices. Response={self._truncate_for_debug(response)}")
+            message = choices[0].get("message")
+            if not isinstance(message, dict):
+                raise RuntimeError(
+                    f"Invalid chat response payload: choices[0].message must be an object. Response={self._truncate_for_debug(response)}"
+                )
             raw_response = message.get("content")
             raw_response = raw_response if isinstance(raw_response, str) else ""
             if debug_tool_loop and raw_response:
@@ -1038,6 +1120,7 @@ class BaseAgentWithTools(BaseAgent):
                             "name": call["name"],
                             "raw_arguments": call["raw_arguments"],
                             "args": call["args"],
+                            "parse_error": call.get("parse_error"),
                         }
                         for call in native_tool_calls
                     ],
@@ -1054,58 +1137,70 @@ class BaseAgentWithTools(BaseAgent):
                 msgs.append(assistant_message)
 
                 for call in native_tool_calls:
-                    resolved_args, image_resolution = self._resolve_tool_call_args(call["args"])
-                    if debug_tool_loop:
-                        self.logger.info(
-                            f"[ToolLoop] execute {call['name']} id={call['id']} args={self._truncate_for_debug(resolved_args, max_chars=debug_char_limit)}"
-                        )
-                        if image_resolution.get("rewrites"):
-                            self.logger.info(
-                                f"[ToolLoop] image_arg_rewrites={self._truncate_for_debug(image_resolution['rewrites'], max_chars=debug_char_limit)}"
-                            )
-                    execute_request = {
-                        "tool_name": call["name"],
-                        "args": resolved_args,
-                        "tool_call_id": call["id"],
-                    }
-                    if image_resolution.get("errors"):
+                    image_resolution = {"rewrites": [], "errors": []}
+                    parse_error = call.get("parse_error")
+                    if parse_error:
                         normalized_payload = {
                             "ok": False,
                             "tool_name": call["name"],
                             "result": None,
-                            "error": {
-                                "code": "unresolved_image_reference",
-                                "message": "Failed to map one or more image_path arguments to runtime images.",
-                                "details": image_resolution.get("errors", []),
-                            },
+                            "error": parse_error,
                             "tool_call_id": call["id"],
-                            "meta": {"image_resolution": image_resolution},
+                            "meta": {"source": "agent.tool_call_parser"},
                         }
                     else:
-                        try:
-                            payload = tool_execute_request(
-                                base_url=self.tool_base,
-                                tool_call=execute_request,
-                                timeout=self.timeout,
+                        resolved_args, image_resolution = self._resolve_tool_call_args(call["args"])
+                        if debug_tool_loop:
+                            self.logger.info(
+                                f"[ToolLoop] execute {call['name']} id={call['id']} args={self._truncate_for_debug(resolved_args, max_chars=debug_char_limit)}"
                             )
-                            normalized_payload = self._normalize_execute_payload(
-                                payload, tool_name=call["name"], tool_call_id=call["id"]
-                            )
-                        except Exception as e:
+                            if image_resolution.get("rewrites"):
+                                self.logger.info(
+                                    f"[ToolLoop] image_arg_rewrites={self._truncate_for_debug(image_resolution['rewrites'], max_chars=debug_char_limit)}"
+                                )
+                        execute_request = {
+                            "tool_name": call["name"],
+                            "args": resolved_args,
+                            "tool_call_id": call["id"],
+                        }
+                        if image_resolution.get("errors"):
                             normalized_payload = {
                                 "ok": False,
                                 "tool_name": call["name"],
                                 "result": None,
-                                "error": {"code": "tool_execution_error", "message": str(e)},
+                                "error": {
+                                    "code": "unresolved_image_reference",
+                                    "message": "Failed to map one or more image_path arguments to runtime images.",
+                                    "details": image_resolution.get("errors", []),
+                                },
                                 "tool_call_id": call["id"],
-                                "meta": {},
+                                "meta": {"image_resolution": image_resolution},
                             }
-                        if image_resolution.get("rewrites"):
-                            meta = normalized_payload.get("meta")
-                            if not isinstance(meta, dict):
-                                meta = {}
-                            meta["image_resolution"] = image_resolution
-                            normalized_payload["meta"] = meta
+                        else:
+                            try:
+                                payload = tool_execute_request(
+                                    base_url=self.tool_base,
+                                    tool_call=execute_request,
+                                    timeout=self.timeout,
+                                )
+                                normalized_payload = self._normalize_execute_payload(
+                                    payload, tool_name=call["name"], tool_call_id=call["id"]
+                                )
+                            except Exception as e:
+                                normalized_payload = {
+                                    "ok": False,
+                                    "tool_name": call["name"],
+                                    "result": None,
+                                    "error": {"code": "tool_execution_error", "message": str(e)},
+                                    "tool_call_id": call["id"],
+                                    "meta": {},
+                                }
+                            if image_resolution.get("rewrites"):
+                                meta = normalized_payload.get("meta")
+                                if not isinstance(meta, dict):
+                                    meta = {}
+                                meta["image_resolution"] = image_resolution
+                                normalized_payload["meta"] = meta
                     if debug_tool_loop:
                         self.logger.info(
                             f"[ToolLoop] result ok={normalized_payload.get('ok')} id={call['id']} error={self._truncate_for_debug(normalized_payload.get('error'), max_chars=debug_char_limit)}"
@@ -1158,10 +1253,11 @@ class BaseAgentWithTools(BaseAgent):
 
         self.last_run_messages = cp.deepcopy(msgs)
         self.last_chat_history = cp.deepcopy(chat_history)
-        return final_answer, chat_history
+        return self.fail_msg, chat_history
 
     def generate(self, message, **kwargs1):
 
+        message = cp.deepcopy(message)
         if self.check_content(message) == 'listdict':
             message = self.preprocess_message_with_role(message)
         assert self.check_content(message) in ['str', 'dict', 'liststr', 'listdict'], f'Invalid input type: {message}'

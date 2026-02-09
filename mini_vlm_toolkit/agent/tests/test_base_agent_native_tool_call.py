@@ -537,14 +537,286 @@ def test_native_tool_call_uses_agent_default_tool_choice():
     assert len(chat_history) == 1
 
 
+def test_native_tool_call_invalid_tool_arguments_soft_fail():
+    agent = _build_agent()
+    state = {"chat_calls": 0, "tool_execute_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I should call a tool.</perception>\n"
+                                "<thinking>I will execute Python.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_bad_json_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Python_Executor_Tool",
+                                        "arguments": '{"code": "print(2+2)",}',
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert tool_msgs
+            payload = json.loads(tool_msgs[-1]["content"])
+            assert payload["ok"] is False
+            assert payload["error"]["code"] == "invalid_tool_arguments_json"
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>The previous call failed due malformed JSON.</perception>\n"
+                                "<thinking>I can still conclude this test path works.</thinking>\n"
+                                "handled"
+                            ),
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        state["tool_execute_calls"] += 1
+        raise AssertionError("tool_execute_request should not be called for invalid tool-call JSON")
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Trigger malformed tool args."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "handled"
+    assert state["tool_execute_calls"] == 0
+    assert len(chat_history) == 2
+    assert chat_history[0]["assistant"]["tool_calls"][0]["parse_error"]["code"] == "invalid_tool_arguments_json"
+    assert chat_history[0]["tool_responses"][0]["ok"] is False
+    assert chat_history[0]["tool_responses"][0]["error"]["code"] == "invalid_tool_arguments_json"
+
+
+def test_native_tool_call_hard_fail_invalid_chat_response_shape():
+    agent = _build_agent()
+
+    def fake_chat_completion_request(**kwargs):
+        _ = kwargs
+        return {"id": "chatcmpl_dummy_without_choices"}
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        try:
+            agent._run([{"type": "text", "value": "Invalid response shape."}])
+            raise AssertionError("Expected RuntimeError for malformed chat response")
+        except RuntimeError as exc:
+            assert "missing choices" in str(exc).lower()
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+
+def test_native_tool_call_single_image_fallback_metadata():
+    agent = _build_agent()
+    agent.json_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "SAM3_Segment_Tool",
+                "description": "Segment with image input",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string"},
+                        "image_path": {"type": "string"},
+                    },
+                },
+            },
+        }
+    ]
+    state = {"chat_calls": 0}
+    tiny_png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2fF6UAAAAASUVORK5CYII="
+    )
+    expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
+
+    def fake_build_image_registry(_question):
+        agent._image_registry = {
+            "input_image_1": {
+                "id": "input_image_1",
+                "data_url": expected_data_url,
+                "source": "user_input",
+                "aliases": {"input_image_1"},
+            }
+        }
+        agent._image_alias_to_ref = {"input_image_1": "input_image_1"}
+        agent._image_url_to_ref = {expected_data_url: "input_image_1"}
+        return agent._image_registry
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need segmentation.</perception>\n"
+                                "<thinking>I will call SAM3.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_single_fallback_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "SAM3_Segment_Tool",
+                                        "arguments": json.dumps(
+                                            {"prompt": "children", "image_path": "nonexistent_image_name.jpg"}
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Tool succeeded.</perception>\n"
+                            "<thinking>I can answer now.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["args"]["image_base64"] == expected_data_url
+        return {
+            "ok": True,
+            "tool_name": "SAM3_Segment_Tool",
+            "result": {"mask_count": 1},
+            "error": None,
+            "tool_call_id": "call_single_fallback_1",
+            "meta": {},
+        }
+
+    agent._build_image_registry_from_inputs = fake_build_image_registry
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Count the children."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "done"
+    rewrites = chat_history[0]["tool_responses"][0]["meta"]["image_resolution"]["rewrites"]
+    assert len(rewrites) == 1
+    assert rewrites[0]["fallback_mode"] == "single_image_registry_default"
+
+
+def test_preprocess_message_with_role_no_mutation():
+    agent = _build_agent()
+    original = [
+        {"role": "system", "value": "system-a"},
+        {"role": "user", "type": "text", "value": "hello"},
+    ]
+    snapshot = json.loads(json.dumps(original))
+    processed = agent.preprocess_message_with_role(original)
+
+    assert original == snapshot
+    assert processed == [{"type": "text", "value": "hello"}]
+    assert "system-a" in (agent.system_prompt or "")
+
+
+def test_run_returns_fail_msg_when_iterations_exhausted():
+    agent = _build_agent()
+    agent.max_iterations = 1
+
+    def fake_chat_completion_request(**kwargs):
+        _ = kwargs
+        return {"choices": [{"message": {"role": "assistant", "content": ""}}]}
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "No answer please."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert answer == agent.fail_msg
+    assert len(chat_history) == 1
+
+
+def test_normalize_execute_payload_strict_ok_parsing():
+    agent = _build_agent()
+    payload = agent._normalize_execute_payload(
+        {"ok": "false", "result": None, "error": {"code": "bad", "message": "oops"}},
+        tool_name="Demo_Tool",
+        tool_call_id="call_123",
+    )
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "bad"
+
+    payload2 = agent._normalize_execute_payload(
+        {"detail": "tool failed unexpectedly"},
+        tool_name="Demo_Tool",
+        tool_call_id="call_124",
+    )
+    assert payload2["ok"] is False
+    assert payload2["error"]["code"] == "tool_execution_error_payload"
+    assert payload2["tool_call_id"] == "call_124"
+
+
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
     test_native_tool_call_forwards_tool_choice_and_extra_body()
     test_native_tool_call_uses_agent_default_tool_choice()
+    test_native_tool_call_invalid_tool_arguments_soft_fail()
+    test_native_tool_call_hard_fail_invalid_chat_response_shape()
+    test_native_tool_call_single_image_fallback_metadata()
+    test_preprocess_message_with_role_no_mutation()
+    test_run_returns_fail_msg_when_iterations_exhausted()
+    test_normalize_execute_payload_strict_ok_parsing()
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
     print("PASS: test_native_tool_call_forwards_tool_choice_and_extra_body")
     print("PASS: test_native_tool_call_uses_agent_default_tool_choice")
+    print("PASS: test_native_tool_call_invalid_tool_arguments_soft_fail")
+    print("PASS: test_native_tool_call_hard_fail_invalid_chat_response_shape")
+    print("PASS: test_native_tool_call_single_image_fallback_metadata")
+    print("PASS: test_preprocess_message_with_role_no_mutation")
+    print("PASS: test_run_returns_fail_msg_when_iterations_exhausted")
+    print("PASS: test_normalize_execute_payload_strict_ok_parsing")
