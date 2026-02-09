@@ -81,6 +81,7 @@ def _build_agent():
         }
     ]
     agent.max_iterations = 3
+    agent.tool_choice = "auto"
     agent.system_prompt = agent._construct_system_message()
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
@@ -458,10 +459,92 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     assert resolution_meta["errors"] == []
 
 
+def test_native_tool_call_forwards_tool_choice_and_extra_body():
+    agent = _build_agent()
+    state = {"chat_calls": 0}
+    forced_tool_choice = {"type": "function", "function": {"name": "Python_Executor_Tool"}}
+    extra_body = {"min_p": 0.05}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        assert kwargs.get("tool_choice") == forced_tool_choice
+        assert kwargs.get("extra_body") == extra_body
+        assert isinstance(kwargs.get("tools"), list)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Direct answer available.</perception>\n"
+                            "<thinking>No tool execution needed.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        answer, chat_history = agent._run(
+            [{"type": "text", "value": "Reply directly."}],
+            tool_choice=forced_tool_choice,
+            extra_body=extra_body,
+        )
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert state["chat_calls"] == 1
+    assert answer == "done"
+    assert len(chat_history) == 1
+    assert chat_history[0]["assistant"]["tool_calls"] == []
+
+
+def test_native_tool_call_uses_agent_default_tool_choice():
+    agent = _build_agent()
+    agent.tool_choice = "none"
+    state = {"chat_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        assert kwargs.get("tool_choice") == "none"
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>Tool use disabled.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Reply directly."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert state["chat_calls"] == 1
+    assert answer == "done"
+    assert len(chat_history) == 1
+
+
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
+    test_native_tool_call_forwards_tool_choice_and_extra_body()
+    test_native_tool_call_uses_agent_default_tool_choice()
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
+    print("PASS: test_native_tool_call_forwards_tool_choice_and_extra_body")
+    print("PASS: test_native_tool_call_uses_agent_default_tool_choice")

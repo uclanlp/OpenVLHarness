@@ -13,3 +13,8 @@ agent_kwargs:
   repetition_penalty: 1.0
   retry: 3
   verbose: true
+  # Optional provider-specific fields:
+  # extra_body: {}
+  # BaseAgentWithTools only:
+  # tool_choice: "auto"
+  # tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "SAM3_Segment_Tool"]

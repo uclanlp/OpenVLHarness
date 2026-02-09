@@ -368,6 +368,7 @@ class BaseAgentWithTools(BaseAgent):
     def __init__(self, 
                 tool_base, 
                 tool_list = None,
+                tool_choice: Any = "auto",
                 max_iterations: int = 15, 
                 **kwargs):
         super().__init__(**kwargs)
@@ -375,6 +376,7 @@ class BaseAgentWithTools(BaseAgent):
         self.tools = _get_json(self.tool_base, "/tools")
         self.logger.info(f"Available Tools: {list(self.tools.keys())}")
         self.json_schema = _get_json(self.tool_base, "/jsonschema")
+        self.tool_choice = tool_choice
         self.max_iterations = max_iterations
         
         if tool_list is not None:
@@ -972,6 +974,13 @@ class BaseAgentWithTools(BaseAgent):
         """
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
+        tool_choice = kwargs.pop("tool_choice", self.tool_choice)
+        runtime_tools = kwargs.pop("tools", None)
+        model_tools = self.json_schema
+        if isinstance(runtime_tools, list):
+            model_tools = runtime_tools
+        elif runtime_tools is not None and debug_tool_loop:
+            self.logger.info("[ToolLoop] Ignoring non-list runtime tools override; using agent tool schema.")
 
         self._build_image_registry_from_inputs(question)
         msgs = self.prepare_inputs(question)
@@ -1000,8 +1009,8 @@ class BaseAgentWithTools(BaseAgent):
                 messages=msgs,
                 base_url=self.api_base,
                 api_key=self.key,
-                tools=self.json_schema,
-                tool_choice="auto",
+                tools=model_tools,
+                tool_choice=tool_choice,
                 **kwargs,
             )
             message = (response.get("choices") or [{}])[0].get("message", {})
