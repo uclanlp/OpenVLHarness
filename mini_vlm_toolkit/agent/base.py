@@ -477,6 +477,12 @@ class BaseAgentWithTools(BaseAgent):
         return ref_id
 
     def _build_image_registry_from_inputs(self, question) -> Dict[str, Dict[str, Any]]:
+        """Build runtime image IDs from the current user input payload.
+
+        Registers each incoming image as `input_image_<n>` (plus aliases) so
+        model-generated `*_image_path` arguments can be rewritten to
+        `*_image_base64` before `/execute`.
+        """
         self._image_registry = {}
         self._image_alias_to_ref = {}
         self._image_url_to_ref = {}
@@ -536,6 +542,7 @@ class BaseAgentWithTools(BaseAgent):
         return "\n".join(lines)
 
     def _refresh_system_prompt_in_messages(self, msgs) -> None:
+        """Ensure the first message is a system prompt with dynamic image-ID hints."""
         dynamic = self._build_image_registry_system_prompt()
         system_content = self.system_prompt
         if dynamic:
@@ -548,6 +555,7 @@ class BaseAgentWithTools(BaseAgent):
         msgs.insert(0, {"role": "system", "content": system_content})
 
     def _resolve_registry_image_data_url(self, image_ref: str):
+        """Resolve an image reference into data URL + optional matched metadata."""
         if not isinstance(image_ref, str):
             return None, None, None
 
@@ -595,6 +603,11 @@ class BaseAgentWithTools(BaseAgent):
         rewrites: List[Dict[str, Any]],
         errors: List[Dict[str, Any]],
     ) -> None:
+        """Recursively rewrite `*_image_path` fields to `*_image_base64`.
+
+        All successful rewrites and unresolved references are collected in
+        `rewrites/errors` for transparent downstream debugging.
+        """
         if isinstance(value, dict):
             for key, child in list(value.items()):
                 child_path = f"{path}.{key}"
@@ -653,6 +666,7 @@ class BaseAgentWithTools(BaseAgent):
                     )
 
     def _resolve_tool_call_args(self, args: Dict[str, Any]):
+        """Return rewritten tool args plus image-resolution metadata."""
         if not isinstance(args, dict):
             return {}, {"rewrites": [], "errors": []}
 
@@ -672,6 +686,7 @@ class BaseAgentWithTools(BaseAgent):
         return safe.strip("_") or "tool"
 
     def _register_tool_output_images(self, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]) -> List[str]:
+        """Register tool-output images as reusable runtime image references."""
         refs = []
         call_id = self._sanitize_ref_token(payload.get("tool_call_id") or "tool")
         tool_name = self._sanitize_ref_token(payload.get("tool_name") or "tool")
@@ -691,6 +706,7 @@ class BaseAgentWithTools(BaseAgent):
         return refs
     
     def _add_user_prompt_prefix(self, msgs) -> str:
+        """Apply the default user prompt scaffold to the latest user text turn."""
         if not msgs or msgs[-1].get("role") != "user":
             return msgs
 
@@ -734,6 +750,11 @@ class BaseAgentWithTools(BaseAgent):
         }
 
     def _normalize_tool_calls(self, tool_calls, turn_idx: int) -> List[Dict[str, Any]]:
+        """Normalize native OpenAI `tool_calls` into a stable internal format.
+
+        Parsing failures are preserved as structured `parse_error` payloads so
+        the model can receive them as tool errors rather than hard failures.
+        """
         normalized = []
         if not isinstance(tool_calls, list):
             return normalized
@@ -815,6 +836,12 @@ class BaseAgentWithTools(BaseAgent):
         return bool(value)
 
     def _normalize_execute_payload(self, payload, tool_name: str, tool_call_id: str) -> Dict[str, Any]:
+        """Normalize `/execute` responses into the agent envelope contract.
+
+        Handles new transport envelopes, legacy payloads, and raw error-shaped
+        responses while always returning
+        `ok/tool_name/result/error/tool_call_id/meta`.
+        """
         if isinstance(payload, dict):
             if "ok" in payload and ("result" in payload or "error" in payload):
                 error = payload.get("error")
@@ -977,6 +1004,7 @@ class BaseAgentWithTools(BaseAgent):
         return value
 
     def _extract_image_parts(self, result):
+        """Split tool result into image parts and a scrubbed non-image payload."""
         image_parts = []
         compact_result = self._extract_images_and_scrub_result(
             result,
@@ -989,6 +1017,11 @@ class BaseAgentWithTools(BaseAgent):
         return image_parts, compact_result
 
     def _build_tool_message_content(self, payload: Dict[str, Any]):
+        """Build `role=tool` message content (text-only or multimodal).
+
+        Image payloads are moved into `image_url` parts and removed from the
+        text JSON to avoid duplicating large base64 blobs.
+        """
         result = payload.get("result")
         image_parts, compact_result = self._extract_image_parts(result)
         image_refs = self._register_tool_output_images(payload, image_parts) if image_parts else []
@@ -1045,7 +1078,11 @@ class BaseAgentWithTools(BaseAgent):
     # ------------------------------------------------------------------ #
     def _run(self, question, **kwargs) -> list[dict]:
         """
-        Run the ReAct-style loop with OpenAI Function Calling.
+        Run the native tool-calling loop.
+
+        Flow: `chat/completions` -> `message.tool_calls` -> `/execute` ->
+        append `role=tool` results (with `tool_call_id`) -> continue until a
+        final answer is produced or `max_iterations` is reached.
         """
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
@@ -1262,6 +1299,7 @@ class BaseAgentWithTools(BaseAgent):
         return self.fail_msg, chat_history
 
     def generate(self, message, **kwargs1):
+        """Generate one final answer using the native tool-calling loop."""
 
         message = cp.deepcopy(message)
         if self.check_content(message) == 'listdict':
