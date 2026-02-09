@@ -341,8 +341,46 @@ def tool_execute_request(
     timeout = 120,
 ):
     response = requests.post(f"{base_url}/execute", json=tool_call, timeout=timeout)
+
+    payload = None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    # Preserve structured execute envelopes, including non-2xx error payloads.
+    if isinstance(payload, dict) and ("ok" in payload) and ("result" in payload or "error" in payload):
+        envelope = dict(payload)
+        if not envelope.get("tool_name"):
+            envelope["tool_name"] = tool_call.get("tool_name")
+        if not envelope.get("tool_call_id"):
+            envelope["tool_call_id"] = tool_call.get("tool_call_id")
+        meta = envelope.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.setdefault("http_status", response.status_code)
+        envelope["meta"] = meta
+
+        # Server/protocol mismatch guard: non-2xx should not claim success.
+        if not response.ok and bool(envelope.get("ok")):
+            envelope["ok"] = False
+            err = envelope.get("error")
+            if isinstance(err, dict):
+                err = dict(err)
+                err.setdefault("code", "execute_protocol_error")
+                err.setdefault("message", "Execute endpoint returned non-2xx with ok=true payload.")
+            else:
+                err = {
+                    "code": "execute_protocol_error",
+                    "message": "Execute endpoint returned non-2xx with ok=true payload.",
+                }
+            envelope["error"] = err
+        return envelope
+
     raise_for_status_with_detail(response, prefix="Tool execution request failed")
     try:
+        if payload is not None:
+            return payload
         return response.json()
     except ValueError:
         return {
