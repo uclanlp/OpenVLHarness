@@ -20,6 +20,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
                 "bbox": "list[float] - normalized bbox [x, y, w, h]",
                 "padding": "float - padding added around the box",
             },
+            tool_aliases=["image_zoom_in_tool"],
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {

@@ -124,6 +124,17 @@ def _resolve_parameters_schema(metadata, tool_name):
     return _input_types_to_schema(metadata.get("input_types"))
 
 
+def _count_tools():
+    canonical_count = 0
+    alias_count = 0
+    for metadata in tool_metadata.values():
+        if metadata.get("is_alias"):
+            alias_count += 1
+        else:
+            canonical_count += 1
+    return canonical_count, alias_count
+
+
 def _normalize_for_json(value, path="$", warnings=None):
     warnings = warnings if warnings is not None else []
     if value is None or isinstance(value, (str, bool, int)):
@@ -236,9 +247,18 @@ def load_tool_registry():
             for tool_name in sorted(tool_metadata):
                 metadata = tool_metadata[tool_name]
                 _validate_input_schema(metadata.get("input_schema"), tool_name)
+                canonical_tool_name = metadata.get("canonical_tool_name", tool_name)
+                if metadata.get("is_alias"):
+                    print(f"  - {tool_name} (alias for {canonical_tool_name})")
+                    continue
+
                 inputs = _format_input_types(metadata.get("input_types")) or "none"
                 output_type = metadata.get("output_type") or "none"
-                print(f"  - {tool_name} (inputs: {inputs}) -> {output_type}")
+                aliases = metadata.get("tool_aliases") or []
+                alias_suffix = f" | aliases: {aliases}" if aliases else ""
+                print(
+                    f"  - {tool_name} (inputs: {inputs}) -> {output_type}{alias_suffix}"
+                )
     except Exception as exc:
         print(f"Tool startup failed: {exc}")
         raise SystemExit(1)
@@ -257,7 +277,14 @@ def list_tools():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "tool_count": len(tool_metadata), "tools": sorted(tool_metadata)}
+    canonical_count, alias_count = _count_tools()
+    return {
+        "status": "ok",
+        "tool_count": len(tool_metadata),
+        "canonical_tool_count": canonical_count,
+        "alias_tool_count": alias_count,
+        "tools": sorted(tool_metadata),
+    }
 
 
 @app.get("/jsonschema")

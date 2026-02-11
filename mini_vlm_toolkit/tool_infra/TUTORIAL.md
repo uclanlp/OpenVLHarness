@@ -45,11 +45,18 @@ vLLM) yourself and configure the `.env` mappings.
 
 The FastAPI server exposes three main endpoints:
 
-- `GET /tools` returns a JSON dict keyed by tool name.
+- `GET /tools` returns a JSON dict keyed by exposed tool name (canonical names and aliases).
 - `GET /jsonschema` returns OpenAI-compatible function-tool schemas.
 - `POST /execute` accepts `{"tool_name": "...", "args": {...}, "tool_call_id": "optional"}`.
   - Success response: `{"ok": true, "tool_name": "...", "result": ..., "error": null, "tool_call_id": "...", "meta": {...}}`
   - Failure response (non-2xx): `{"ok": false, "tool_name": "...", "result": null, "error": {...}, "tool_call_id": "...", "meta": {...}}`
+
+Alias behavior:
+- Canonical entries in `/tools` include `tool_aliases`, `is_alias: false`, and `canonical_tool_name`.
+- Alias entries include `is_alias: true` and `canonical_tool_name` pointing to the canonical tool.
+- `/jsonschema` includes schemas for both canonical names and aliases.
+- `/execute` accepts canonical names or aliases, and echoes the exact requested `tool_name`.
+- `/health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Quick check:
 ```bash
@@ -92,7 +99,7 @@ metadata = client.list_tools()["Python_Executor_Tool"]
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: ToolName(...).\n"
+    "The code must include exactly one line: tool_name(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: Python_Executor_Tool\n"
@@ -172,7 +179,7 @@ image_path = "tests/data/vision_tools_demo.jpg"
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: ToolName(...).\n"
+    "The code must include exactly one line: tool_name(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: ZoomInImageByBBox_Tool\n"
@@ -264,7 +271,7 @@ image_path = "tests/data/sam3_demo.jpg"
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: ToolName(...).\n"
+    "The code must include exactly one line: tool_name(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: SAM3_Segment_Tool\n"
@@ -363,5 +370,5 @@ print(response["result"]["data"][0]["embedding"][:8])
 ## Notes for VLM tool-call training
 
 - The server only sees the `tool_name` and `args`. If your model needs image context, handle that on the model side and pass either `image_path` or `image_base64` through the tool call (use `base_image_base64`/`overlay_image_base64` for overlays).
-- The Python tool-call parser expects a `ToolName(...)` call in code. JSON tool-call parsing (`src/client/json_tool_call_parser.py`) accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
+- The Python tool-call parser expects one top-level `tool_name(...)` call in code, using keyword arguments. Tool names can be canonical names or aliases (valid Python identifiers). Builtins/keywords are ignored as tool names to reduce false positives. JSON tool-call parsing (`src/client/json_tool_call_parser.py`) accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - You can use `client.list_tools()` to capture tool metadata for training prompts or schema conditioning.

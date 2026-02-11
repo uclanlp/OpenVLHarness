@@ -48,6 +48,7 @@ class Single_URL_QA_Tool(BaseTool):
             ),
             tool_version="1.0.0",
             input_types={"query": "str", "url": "str"},
+            tool_aliases=["web_extractor"],
             output_type="str",
             demo_commands=[
                 {

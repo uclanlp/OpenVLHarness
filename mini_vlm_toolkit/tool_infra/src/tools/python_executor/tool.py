@@ -70,6 +70,7 @@ class Python_Executor_Tool(BaseTool):
                     "Use print(...) and/or variable assignment if you need explicit values in the result."
                 )
             },
+            tool_aliases=["python_executor", "code_interpreter"],
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {

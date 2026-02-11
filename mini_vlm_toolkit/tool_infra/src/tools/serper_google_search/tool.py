@@ -35,6 +35,7 @@ class Serper_Google_Search_Tool(BaseTool):
                 "gl": "str - optional geo location code",
                 "hl": "str - optional language code",
             },
+            tool_aliases=["web_search"],
             output_type="list[str] - list of URLs",
             demo_commands=[
                 {

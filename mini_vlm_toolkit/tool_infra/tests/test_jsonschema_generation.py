@@ -60,9 +60,20 @@ def _find_schema(schemas, tool_name):
 def test_jsonschema_uses_explicit_schema_when_available():
     explicit = _ExplicitSchemaTool()
     fallback = _FallbackSchemaTool()
+    explicit_metadata = explicit.get_metadata()
+    explicit_metadata["tool_aliases"] = ["explicit_schema_tool"]
+    explicit_metadata["is_alias"] = False
+    explicit_metadata["canonical_tool_name"] = explicit.tool_name
+
+    explicit_alias_metadata = dict(explicit_metadata)
+    explicit_alias_metadata["tool_name"] = "explicit_schema_tool"
+    explicit_alias_metadata["is_alias"] = True
+    explicit_alias_metadata["canonical_tool_name"] = explicit.tool_name
+
     with _patch_metadata(
         {
-            explicit.tool_name: explicit.get_metadata(),
+            explicit.tool_name: explicit_metadata,
+            "explicit_schema_tool": explicit_alias_metadata,
             fallback.tool_name: fallback.get_metadata(),
         }
     ):
@@ -80,6 +91,10 @@ def test_jsonschema_uses_explicit_schema_when_available():
     assert "max_results" in fallback_params["properties"]
     assert fallback_params["properties"]["max_results"]["type"] == "integer"
     assert fallback_params["additionalProperties"] is True
+
+    alias_schema = _find_schema(schemas, "explicit_schema_tool")
+    alias_params = alias_schema["function"]["parameters"]
+    assert alias_params == explicit.input_schema
 
 
 def test_invalid_input_schema_raises():

@@ -138,6 +138,15 @@ curl -X POST http://127.0.0.1:8101/execute \
   - `ok: true`, `tool_name`, `result`, `error: null`, `tool_call_id`, `meta`
 - Failure keeps HTTP non-2xx and returns:
   - `ok: false`, `tool_name`, `result: null`, `error`, `tool_call_id`, `meta`
+Tool aliases:
+- Tools can define `tool_aliases` in metadata (`tool.py`), and each tool also gets a generated snake_case alias.
+- `GET /tools` exposes both canonical and alias entries.
+  - Canonical entries include `is_alias: false`, `canonical_tool_name: <canonical>`, `tool_aliases: [...]`.
+  - Alias entries include `is_alias: true`, `canonical_tool_name: <canonical>`.
+- `GET /jsonschema` includes schemas for both canonical and alias names.
+- `POST /execute` accepts canonical names or aliases; response `tool_name` always echoes the requested name.
+- Alias names must be valid Python identifiers. Alias/canonical collisions fail startup.
+- `GET /health` keeps `tool_count` and adds `canonical_tool_count` and `alias_tool_count`.
 `scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (see `.env.example`).
 If you run `uvicorn` directly, `TOOL_MODULES=auto` (or unset) triggers tool auto-discovery.
 
@@ -170,6 +179,7 @@ python tests/test_python_executor.py
 ```bash
 python tests/test_execute_transport_contract.py
 python tests/test_jsonschema_generation.py
+python tests/test_tool_alias_registry.py
 ```
 - Server-based tests need the tool server running or `TOOL_SERVER_URL`.
 - LLM-assisted tests read `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY` (defaults in code).
@@ -212,7 +222,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.
 - Tools can now optionally define `input_schema` (JSON Schema for OpenAI-style tool calling). `/jsonschema` uses `input_schema` when present and falls back to inferred schema from `input_types` otherwise.
-- Python tool-call parsing lives in `src/client/python_tool_call_parser.py` and expects `ToolName(...)` calls. JSON tool-call parsing lives in `src/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
+- Python tool-call parsing lives in `src/client/python_tool_call_parser.py` and accepts one top-level `tool_name(...)` call with keyword arguments. Tool names can be canonical names or aliases (valid Python identifiers). Builtins/keywords are ignored as tool names to reduce false positives. JSON tool-call parsing lives in `src/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - API key files are read from:
   - `src/tools/gemini_google_search/google_api_key`
   - `src/tools/serper_google_search/serper_api_key`

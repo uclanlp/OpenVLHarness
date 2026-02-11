@@ -7,7 +7,7 @@ Run these steps from the tool infra root and set `PYTHONPATH="$(pwd)/src"` so im
 ## Codebase walkthrough (quick map)
 
 - `src/tools/`: tool packages; each tool lives in its own subdir with `tool.py` + `__init__.py`.
-- `src/tools/base.py`: `BaseTool` metadata contract (`tool_name`, `input_types`, optional `input_schema`, `output_type`).
+- `src/tools/base.py`: `BaseTool` metadata contract (`tool_name`, optional `tool_aliases`, `input_types`, optional `input_schema`, `output_type`).
 - `src/tool_registry/loader.py`: loads tools from `TOOL_MODULES` (`auto` or comma-separated module list).
 - `src/server/app.py`: FastAPI server with `/tools`, `/jsonschema`, and `/execute`.
 - `src/client/`: `ToolClient`, `python_tool_call_parser.py` (Python tool-call parsing), `json_tool_call_parser.py` (JSON tool-call parsing).
@@ -65,7 +65,7 @@ metadata = client.list_tools()["Python_Executor_Tool"]
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: ToolName(...).\n"
+    "The code must include exactly one line: tool_name(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: Python_Executor_Tool\n"
@@ -86,7 +86,7 @@ print(llm_output)
 
 ## 2) Parse the tool call + execute via the parser + client
 
-The Python tool-call parser expects a `ToolName(...)` call in the LLM output. JSON tool-call parsing accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
+The Python tool-call parser expects one top-level `tool_name(...)` call in the LLM output, using keyword arguments. The tool name can be a canonical name or an alias (valid Python identifier). JSON tool-call parsing accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 
 ```python
 from client.client import ToolClient
@@ -155,6 +155,16 @@ print(response.json())
 - `tool_name`: string
 - `args`: object (keyword args forwarded to `tool.execute(**args)`)
 - `tool_call_id`: optional string (for agent-side call/result correlation)
+- `tool_name` can be a canonical tool name or an alias.
+
+Alias behavior:
+
+- `GET /tools` exposes canonical and alias entries.
+- Canonical entries include `tool_aliases`, `is_alias: false`, `canonical_tool_name`.
+- Alias entries include `is_alias: true` and point to `canonical_tool_name`.
+- `GET /jsonschema` includes schemas for canonical names and aliases.
+- `POST /execute` echoes the exact requested `tool_name` (canonical or alias).
+- `GET /health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Response shape:
 
@@ -177,6 +187,7 @@ It is best to use a coding agent to scaffold the new tool files, metadata, and t
 
 1) Check relevant implementations in `reference/` and confirm expected inputs/outputs.
 2) Create `src/tools/<tool_name>/tool.py` + `__init__.py`, implement a `_Tool` class that follows `BaseTool` metadata.
+   - Optional: define `tool_aliases` (list of valid Python identifiers). The loader also generates a snake_case alias automatically.
    - Prefer defining `input_schema` (JSON Schema) for new tools; `/jsonschema` uses it directly.
 3) Add `tests/test_<tool_name>_tool.py` with direct, client, and LLM parsing paths.
 4) Register the tool if you want explicit lists to include it:

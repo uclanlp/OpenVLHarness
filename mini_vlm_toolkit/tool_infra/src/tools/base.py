@@ -9,6 +9,7 @@ class BaseTool:
         input_types,
         output_type,
         input_schema=None,
+        tool_aliases=None,
         demo_commands=None,
         user_metadata=None,
     ):
@@ -18,6 +19,7 @@ class BaseTool:
         self.input_types = input_types
         self.output_type = output_type
         self.input_schema = input_schema
+        self.tool_aliases = list(tool_aliases or [])
         self.demo_commands = demo_commands or []
         self.user_metadata = user_metadata or {}
 
@@ -28,6 +30,7 @@ class BaseTool:
             "tool_version": self.tool_version,
             "input_types": self.input_types,
             "input_schema": self.input_schema,
+            "tool_aliases": list(self.tool_aliases),
             "output_type": self.output_type,
             "demo_commands": self.demo_commands,
             "user_metadata": self.user_metadata,
