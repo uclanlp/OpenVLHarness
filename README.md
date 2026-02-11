@@ -1,13 +1,5 @@
 # README
 
-## VLM Evaluation Usage
-Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
-1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
-2. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
-```
-python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
-```
-Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
 
 ## Tool Infra
 `mini_vlm_toolkit/tool_infra` contains the lightweight tool server/client stack used for tool execution. It keeps the tool server, client, tools, tests, and docs self-contained so they stay stable alongside the eval code. To get started, see `mini_vlm_toolkit/tool_infra/TUTORIAL_NEW.md`.
@@ -44,7 +36,8 @@ Note: Define your data root in `LMUDATA` in `.env` or set it in the command line
 Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
 2. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
+3. If you want to use LLM as Judge, define your judge config in `configs/judge.yaml` and specify the model and parameters you want to use. If no judge config is provided, the benchmark will use exact matching as the default judge.
 ```
-python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 
 ```
 Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.

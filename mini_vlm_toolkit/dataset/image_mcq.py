@@ -263,6 +263,8 @@ class ImageMCQDataset(ImageBaseDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -807,6 +809,8 @@ class GMAIMMBenchDataset(ImageMCQDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -1281,6 +1285,8 @@ class HRBenchDataset(ImageMCQDataset):
         model = judge_kwargs.get('model', 'extract_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -1462,6 +1468,8 @@ class WeMath(ImageBaseDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'gpt-4-0125': 'gpt4', 'gpt-4-turbo': 'gpt4-turbo', 'gpt-4o-mini': 'gpt4o-mini'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -1694,6 +1702,8 @@ class VisuLogic(ImageMCQDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'gpt-4-0125': 'gpt4', 'gpt-4-turbo': 'gpt4-turbo', 'gpt-4o-mini': 'gpt4o-mini'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -1767,6 +1777,8 @@ class TDBench(ImageMCQDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4', 'gpt-4o-mini': 'gpt4omini'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -2509,6 +2521,8 @@ class AffordanceDataset(ImageMCQDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
@@ -2883,6 +2897,8 @@ class TopViewRS(ImageMCQDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None
