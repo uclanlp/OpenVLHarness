@@ -100,7 +100,7 @@ metadata = client.list_tools()["Python_Executor_Tool"]
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: tool_name(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: Python_Executor_Tool\n"
@@ -180,7 +180,7 @@ image_path = "tests/data/vision_tools_demo.jpg"
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: tool_name(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: ZoomInImageByBBox_Tool\n"
@@ -272,7 +272,7 @@ image_path = "tests/data/sam3_demo.jpg"
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: tool_name(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: SAM3_Segment_Tool\n"
@@ -371,5 +371,5 @@ print(response["result"]["data"][0]["embedding"][:8])
 ## Notes for VLM tool-call training
 
 - The server only sees the `tool_name` and `args`. If your model needs image context, handle that on the model side and pass either `image_path` or `image_base64` through the tool call (use `base_image_base64`/`overlay_image_base64` for overlays).
-- The Python tool-call parser expects one top-level `tool_name(...)` call in code, using keyword arguments. Tool names can be canonical names or aliases (valid Python identifiers). Builtins/keywords are ignored as tool names to reduce false positives. JSON tool-call parsing (`src/client/json_tool_call_parser.py`) accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
+- The Python tool-call parser expects a `ToolName(...)` call in code. JSON tool-call parsing (`src/client/json_tool_call_parser.py`) accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - You can use `client.list_tools()` to capture tool metadata for training prompts or schema conditioning.

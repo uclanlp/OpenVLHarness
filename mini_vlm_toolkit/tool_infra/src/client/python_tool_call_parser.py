@@ -1,16 +1,13 @@
-"""Parser for Python tool-call lines such as tool_name(...).
+"""Parser for Python tool-call lines such as ToolName(...).
 
 For JSON tool-call parsing, see json_tool_call_parser.py.
 """
 
 import ast
-import builtins
-import keyword
 import re
 
 
-TOOL_CALL_PATTERN = re.compile(r"(?<![\w.])([A-Za-z_][A-Za-z0-9_]*)\s*\(")
-BUILTIN_NAMES = set(dir(builtins))
+TOOL_CALL_PATTERN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*_Tool)\s*\(")
 
 
 def _strip_think_blocks(text):
@@ -95,46 +92,23 @@ def _extract_tool_call_snippet(text):
     return snippet or None
 
 
-def _is_plausible_tool_name(name):
-    if not isinstance(name, str):
-        return False
-    if not name.isidentifier():
-        return False
-    if keyword.iskeyword(name):
-        return False
-    if name in BUILTIN_NAMES:
-        return False
-    return True
-
-
-def _iter_top_level_call_nodes(tree):
-    for node in tree.body:
-        call = None
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-            call = node.value
-        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-            call = node.value
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call):
-            call = node.value
-        if call is not None:
-            yield call
-
-
 def _parse_python_tool_call_from_code(code):
     tree = ast.parse(code)
     tool_calls = []
 
-    for node in _iter_top_level_call_nodes(tree):
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
         if not isinstance(node.func, ast.Name):
             continue
-        if not _is_plausible_tool_name(node.func.id):
+        if not node.func.id.endswith("_Tool"):
             continue
         tool_calls.append(node)
 
     if not tool_calls:
-        raise ValueError("No tool_name(...) call found")
+        raise ValueError("No ToolName(...) call found")
     if len(tool_calls) > 1:
-        raise ValueError("Multiple tool_name(...) calls found")
+        raise ValueError("Multiple ToolName(...) calls found")
 
     call = tool_calls[0]
     if call.args:
@@ -150,10 +124,7 @@ def _parse_python_tool_call_from_code(code):
 
 
 def _should_abort_on_error(exc):
-    return (
-        isinstance(exc, ValueError)
-        and str(exc) == "Multiple tool_name(...) calls found"
-    )
+    return isinstance(exc, ValueError) and str(exc) == "Multiple ToolName(...) calls found"
 
 
 def parse_python_tool_call(text):
@@ -191,7 +162,7 @@ def parse_python_tool_call(text):
 
     if last_error:
         raise last_error
-    raise ValueError("No tool_name(...) call found")
+    raise ValueError("No ToolName(...) call found")
 
 
 def parse_python_tool_call_args(text):

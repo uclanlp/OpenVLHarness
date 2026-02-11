@@ -81,7 +81,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - Explicit lists: if you prefer explicit lists, update `.env` for `LIGHT_TOOL_MODULES`/`HEAVY_TOOL_MODULES` when adding tools.
 
 ## Tool Call Formats
-- Python code tool-call parser expects `tool_name(arg=value, ...)` where `tool_name` is a valid Python identifier (tool name is required).
+- Python code tool-call parser expects `Tool_Name(arg=value, ...)` (tool name is required).
 - JSON tool-call parser accepts either `{\"tool_name\": \"...\", \"args\": {...}}` or OpenAI-style `{\"name\": \"...\", \"arguments\": {...}}`.
 - Use the JSON parser for OpenAI-style tool call payloads or when the LLM emits JSON directly.
 

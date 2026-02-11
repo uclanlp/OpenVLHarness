@@ -65,7 +65,7 @@ metadata = client.list_tools()["Python_Executor_Tool"]
 
 prompt = (
     "Generate a single Python code block that calls this tool.\n"
-    "The code must include exactly one line: tool_name(...).\n"
+    "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
     f"Tool name: Python_Executor_Tool\n"
@@ -86,7 +86,7 @@ print(llm_output)
 
 ## 2) Parse the tool call + execute via the parser + client
 
-The Python tool-call parser expects one top-level `tool_name(...)` call in the LLM output, using keyword arguments. The tool name can be a canonical name or an alias (valid Python identifier). JSON tool-call parsing accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
+The Python tool-call parser expects a `ToolName(...)` call in the LLM output. JSON tool-call parsing accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 
 ```python
 from client.client import ToolClient

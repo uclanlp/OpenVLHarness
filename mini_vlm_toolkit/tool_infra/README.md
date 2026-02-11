@@ -223,7 +223,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.
 - Tools can now optionally define `input_schema` (JSON Schema for OpenAI-style tool calling). `/jsonschema` uses `input_schema` when present and falls back to inferred schema from `input_types` otherwise.
-- Python tool-call parsing lives in `src/client/python_tool_call_parser.py` and accepts one top-level `tool_name(...)` call with keyword arguments. Tool names can be canonical names or aliases (valid Python identifiers). Builtins/keywords are ignored as tool names to reduce false positives. JSON tool-call parsing lives in `src/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
+- Python tool-call parsing lives in `src/client/python_tool_call_parser.py` and expects `ToolName(...)` calls. JSON tool-call parsing lives in `src/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - API key files are read from:
   - `src/tools/gemini_google_search/google_api_key`
   - `src/tools/serper_google_search/serper_api_key`
