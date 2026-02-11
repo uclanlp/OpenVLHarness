@@ -81,9 +81,18 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - Explicit lists: if you prefer explicit lists, update `.env` for `LIGHT_TOOL_MODULES`/`HEAVY_TOOL_MODULES` when adding tools.
 
 ## Tool Call Formats
-- Python code tool-call parser expects `Tool_Name(arg=value, ...)` (tool name is required).
+- Python code tool-call parser expects `tool_name(arg=value, ...)` where `tool_name` is a valid Python identifier (tool name is required).
 - JSON tool-call parser accepts either `{\"tool_name\": \"...\", \"args\": {...}}` or OpenAI-style `{\"name\": \"...\", \"arguments\": {...}}`.
 - Use the JSON parser for OpenAI-style tool call payloads or when the LLM emits JSON directly.
+
+## Tool Aliases
+- Define aliases in each tool module via `BaseTool(..., tool_aliases=[...])`; keep alias logic in `mini_vlm_toolkit/tool_infra`.
+- Alias names must be valid Python identifiers; matching is exact and case-sensitive.
+- Server metadata always exposes canonical names and aliases in both `/tools` and `/jsonschema`.
+- Alias collisions (alias vs canonical name or alias vs alias) are startup errors; fail fast during tool registry loading.
+- `/execute` accepts canonical names or aliases, and returns the originally requested name in response `tool_name`.
+- Alias metadata fields are `is_alias` and `canonical_tool_name`; canonical metadata keeps `tool_aliases`.
+- The registry also auto-adds snake_case aliases for canonical tool names; avoid explicit aliases that would collide.
 
 ## Image Input Conventions
 - Image tools accept either `image_path` (server-local path) or `image_base64` (base64 string or data URL); require exactly one.
