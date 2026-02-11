@@ -85,6 +85,15 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - JSON tool-call parser accepts either `{\"tool_name\": \"...\", \"args\": {...}}` or OpenAI-style `{\"name\": \"...\", \"arguments\": {...}}`.
 - Use the JSON parser for OpenAI-style tool call payloads or when the LLM emits JSON directly.
 
+## Tool Aliases
+- Define aliases in each tool module via `BaseTool(..., tool_aliases=[...])`; keep alias logic in `mini_vlm_toolkit/tool_infra`.
+- Alias names must be valid Python identifiers; matching is exact and case-sensitive.
+- Server metadata always exposes canonical names and aliases in both `/tools` and `/jsonschema`.
+- Alias collisions (alias vs canonical name or alias vs alias) are startup errors; fail fast during tool registry loading.
+- `/execute` accepts canonical names or aliases, and returns the originally requested name in response `tool_name`.
+- Alias metadata fields are `is_alias` and `canonical_tool_name`; canonical metadata keeps `tool_aliases`.
+- The registry also auto-adds snake_case aliases for canonical tool names; avoid explicit aliases that would collide.
+
 ## Image Input Conventions
 - Image tools accept either `image_path` (server-local path) or `image_base64` (base64 string or data URL); require exactly one.
 - `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` in place of paths.

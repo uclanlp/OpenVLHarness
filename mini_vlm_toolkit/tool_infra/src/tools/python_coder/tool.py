@@ -15,6 +15,25 @@ from llm.engine import LLMEngine
 from tools.base import BaseTool
 
 TOOL_NAME = "Python_Code_Generator_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "Math-focused task description with all required inputs",
+        },
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Execution timeout in seconds",
+            "minimum": 1,
+        },
+        "model": {"type": "string", "description": "Override LLM model name"},
+        "base_url": {"type": "string", "description": "Override LLM base URL"},
+        "api_key": {"type": "string", "description": "Override LLM API key"},
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
 
 LIMITATION = f"""
 The {TOOL_NAME} has several limitations:
@@ -115,16 +134,19 @@ class Python_Coder_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Generate and execute simple Python code snippets for basic arithmetic"
-                " calculations and math-related problems."
+                "Generate Python code from a math-focused query, execute it, and "
+                "return stdout plus variables. Use this tool for arithmetic and "
+                "lightweight math reasoning when the user provides all needed inputs. "
+                "Do not use it for untrusted tasks, external I/O, or broad "
+                "general-purpose programming."
             ),
             tool_version="0.1.0",
             input_types={
                 "query": (
-                    "str - A clear, specific description of the arithmetic calculation"
-                    " or math problem to be solved, including any necessary numerical inputs."
+                    "str - math-focused task description with required numeric inputs"
                 )
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {

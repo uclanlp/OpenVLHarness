@@ -9,6 +9,32 @@ from tools.image_utils import decode_base64_image_data
 
 TOOL_NAME = "Depth_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8082"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "colormap": {
+            "type": "string",
+            "description": "Output colormap",
+            "enum": ["inferno", "grayscale"],
+        },
+        "server_url": {"type": "string", "description": "Override server URL"},
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Request timeout in seconds",
+            "minimum": 1,
+        },
+    },
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class Depth_Tool(BaseTool):
@@ -16,16 +42,20 @@ class Depth_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Estimate depth from an image using a Depth-Anything server."
+                "Estimate a depth map from one image using a Depth-Anything server. "
+                "Use this tool for relative near/far reasoning or depth visualization. "
+                "Do not treat the output as calibrated metric depth without external "
+                "camera calibration."
             ),
             tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "colormap": "str - optional color map (inferno or grayscale)",
+                "colormap": "str - optional output colormap (inferno or grayscale)",
                 "server_url": "str - override Depth-Anything server URL",
                 "timeout_seconds": "int - request timeout in seconds",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - depth_map_base64, colormap, model_id, device, size",
             demo_commands=[
                 {

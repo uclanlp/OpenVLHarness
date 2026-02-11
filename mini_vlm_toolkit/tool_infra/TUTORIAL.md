@@ -43,17 +43,29 @@ vLLM) yourself and configure the `.env` mappings.
 
 ## Endpoint layout
 
-The FastAPI server exposes two main endpoints:
+The FastAPI server exposes three main endpoints:
 
-- `GET /tools` returns a JSON dict keyed by tool name.
-- `POST /execute` accepts `{"tool_name": "...", "args": {...}}` and returns `{"tool_name": ..., "result": ...}`.
+- `GET /tools` returns a JSON dict keyed by exposed tool name (canonical names and aliases).
+- `GET /jsonschema` returns OpenAI-compatible function-tool schemas.
+- `POST /execute` accepts `{"tool_name": "...", "args": {...}, "tool_call_id": "optional"}`.
+  - Success response: `{"ok": true, "tool_name": "...", "result": ..., "error": null, "tool_call_id": "...", "meta": {...}}`
+  - Failure response (non-2xx): `{"ok": false, "tool_name": "...", "result": null, "error": {...}, "tool_call_id": "...", "meta": {...}}`
+
+Alias behavior:
+- Canonical entries in `/tools` include `tool_aliases`, `is_alias: false`, and `canonical_tool_name`.
+- Alias entries include `is_alias: true` and `canonical_tool_name` pointing to the canonical tool.
+- `/jsonschema` includes schemas for both canonical names and aliases.
+- `/execute` accepts canonical names or aliases, and echoes the exact requested `tool_name`.
+- Alias matching is exact and case-sensitive.
+- `/health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Quick check:
 ```bash
 curl http://127.0.0.1:8101/tools
+curl http://127.0.0.1:8101/jsonschema
 curl -X POST http://127.0.0.1:8101/execute \
   -H "Content-Type: application/json" \
-  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"}}'
+  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"},"tool_call_id":"call_123"}'
 ```
 
 ## Example 1: Python executor (no vision)

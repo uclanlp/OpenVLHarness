@@ -4,6 +4,63 @@ from tools.base import BaseTool
 from tools.image_utils import clamp, resolve_image_input
 
 TOOL_NAME = "Point_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "target": {
+            "type": "string",
+            "description": "Optional text containing explicit x/y coordinates",
+        },
+        "points": {
+            "type": "array",
+            "description": "Point list as [[x, y], ...] or [{x, y}, ...]",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {"type": "number"},
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                        },
+                        "required": ["x", "y"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
+        },
+        "coord_type": {
+            "type": "string",
+            "description": "Coordinate mode for points: normalized or pixel",
+            "enum": ["normalized", "pixel"],
+        },
+    },
+    "allOf": [
+        {
+            "oneOf": [
+                {"required": ["image_path"]},
+                {"required": ["image_base64"]},
+            ]
+        },
+        {
+            "anyOf": [
+                {"required": ["points"]},
+                {"required": ["target"]},
+            ]
+        },
+    ],
+    "additionalProperties": False,
+}
 
 
 class Point_Tool(BaseTool):
@@ -11,17 +68,20 @@ class Point_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Extract point coordinates from text or provided points and "
-                "return normalized coordinates."
+                "Normalize point coordinates and return both normalized and pixel "
+                "outputs. Use this tool when points are already provided (or written "
+                "as x/y values in text) and you need canonical coordinates. Do not "
+                "use it for vision-based point detection from image content."
             ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "target": "str - object or region description",
-                "points": "list[list[float]] - optional point list",
+                "target": "str - optional text containing explicit x/y coordinates",
+                "points": "list[list[float]] | list[dict] - optional point list",
                 "coord_type": "str - normalized or pixel (used with points)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - points (normalized x,y)",
             demo_commands=[
                 {

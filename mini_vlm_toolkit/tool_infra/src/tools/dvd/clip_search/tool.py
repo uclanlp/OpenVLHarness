@@ -12,6 +12,34 @@ ENV_EMBED_API_KEY = "DVD_CS_EMBED_API_KEY"
 ENV_TOPK = "DVD_CS_TOPK"
 
 DEFAULT_TOP_K = 16
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "memory": {
+            "type": "object",
+            "description": "NanoVectorDB object (runtime-injected)",
+        },
+        "database": {
+            "type": "object",
+            "description": "Alias of memory for compatibility",
+        },
+        "event_description": {
+            "type": "string",
+            "description": "Event description to search for",
+        },
+        "top_k": {
+            "type": "integer",
+            "description": "Number of top results to return",
+            "minimum": 1,
+        },
+    },
+    "required": ["event_description"],
+    "anyOf": [
+        {"required": ["memory"]},
+        {"required": ["database"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class ClipSearch_Tool(BaseTool):
@@ -33,6 +61,7 @@ class ClipSearch_Tool(BaseTool):
                 "event_description": "str - description of the event to search for",
                 "top_k": "int - number of top results (default from env/DVD_CS_TOPK or 16)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="str - concatenated captions for top results",
             demo_commands=[
                 {
@@ -64,7 +93,9 @@ class ClipSearch_Tool(BaseTool):
                 missing.append(f"{name} is required")
         return missing
 
-    def execute(self, memory=None, event_description=None, top_k=None):
+    def execute(self, memory=None, event_description=None, top_k=None, database=None):
+        if memory is None:
+            memory = database
         if memory is None:
             raise ValueError("memory is required")
         database = memory

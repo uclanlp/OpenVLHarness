@@ -22,6 +22,70 @@ TOOL_NAME_ALL = "SAM3_VisualizeAllMasks_Tool"
 TOOL_NAME_SINGLE = "SAM3_VisualizeSingleMask_Tool"
 
 _DEFAULT_ALPHA = 0.15
+INPUT_SCHEMA_ALL = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "predictions": {"type": "object", "description": "Prediction payload"},
+        "mask_alpha": {"type": "number", "description": "Mask alpha value"},
+        "label_mode": {"type": "string", "description": "Label mode"},
+        "predictions_format": {
+            "type": "string",
+            "description": "auto|grounding_agent|sam3_server",
+        },
+        "font_size_multiplier": {
+            "type": "number",
+            "description": "Text size multiplier",
+        },
+        "boarder_width_multiplier": {
+            "type": "number",
+            "description": "Box width multiplier",
+        },
+    },
+    "required": ["predictions"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
+INPUT_SCHEMA_SINGLE = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "predictions": {"type": "object", "description": "Prediction payload"},
+        "mask_index": {"type": "integer", "description": "Mask index to visualize"},
+        "mask_alpha": {"type": "number", "description": "Mask alpha value"},
+        "zoom_mask_alpha": {"type": "number", "description": "Zoom mask alpha value"},
+        "label_mode": {"type": "string", "description": "Label mode"},
+        "predictions_format": {
+            "type": "string",
+            "description": "auto|grounding_agent|sam3_server",
+        },
+        "font_size_multiplier": {
+            "type": "number",
+            "description": "Text size multiplier",
+        },
+        "boarder_width_multiplier": {
+            "type": "number",
+            "description": "Box width multiplier",
+        },
+    },
+    "required": ["predictions", "mask_index"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 _DEFAULT_COLOR_HEX = [
     "#ffff00",
@@ -52,8 +116,10 @@ class SAM3_VisualizeAllMasks_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME_ALL,
             tool_description=(
-                "Visualize all SAM3 masks on an image using grounding-agent style "
-                "predictions or SAM3 server output."
+                "Overlay all provided masks on an image for inspection. Use this "
+                "tool when you already have prediction masks (from SAM3 server or "
+                "grounding-agent format) and want a visualization panel. Do not use "
+                "it to generate new masks."
             ),
             tool_version="0.1.0",
             input_types={
@@ -66,6 +132,7 @@ class SAM3_VisualizeAllMasks_Tool(BaseTool):
                 "font_size_multiplier": "float - scales label text size",
                 "boarder_width_multiplier": "float - scales box outline width",
             },
+            input_schema=INPUT_SCHEMA_ALL,
             output_type="dict - image_base64, mask_count",
             demo_commands=[
                 {
@@ -122,7 +189,10 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME_SINGLE,
             tool_description=(
-                "Overlay a single SAM3 mask on the image and return a zoomed-in view."
+                "Overlay one selected mask and return both full-image and zoomed "
+                "views. Use this tool when you already have masks and need detailed "
+                "inspection of one region. Do not use it to generate masks from "
+                "scratch."
             ),
             tool_version="0.1.0",
             input_types={
@@ -139,6 +209,7 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
                 "font_size_multiplier": "float - scales label text size",
                 "boarder_width_multiplier": "float - scales box outline width",
             },
+            input_schema=INPUT_SCHEMA_SINGLE,
             output_type=(
                 "dict - overlay_image_base64, zoomed_image_base64, color_hex, mask_index"
             ),

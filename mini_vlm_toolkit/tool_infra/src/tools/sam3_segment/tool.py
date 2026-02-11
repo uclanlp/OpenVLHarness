@@ -9,6 +9,34 @@ from tools.http_utils import raise_for_status_with_detail
 
 TOOL_NAME = "SAM3_Segment_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8083"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "prompt": {"type": "string", "description": "Text prompt to segment"},
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "return_masks_png_b64": {
+            "type": "boolean",
+            "description": "Whether to return PNG masks as base64",
+        },
+        "return_all_masks_viz": {
+            "type": "boolean",
+            "description": "Whether to return all-mask visualization",
+        },
+        "max_masks": {"type": "integer", "description": "Optional mask limit"},
+        "server_url": {"type": "string", "description": "Override SAM3 server URL"},
+        "timeout_seconds": {"type": "integer", "description": "Request timeout"},
+    },
+    "required": ["prompt"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class SAM3_Segment_Tool(BaseTool):
@@ -16,17 +44,21 @@ class SAM3_Segment_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Call an external SAM3 segmentation server with a prompt and image."
+                "Run prompt-based segmentation through an external SAM3 server and "
+                "return masks (optionally with visualization). Use this tool when "
+                "you need segmentation masks from a text prompt. Do not use it for "
+                "box-only detection; use GroundingDINO_Tool for detection-first flows."
             ),
             tool_version="0.1.0",
             input_types={
-                "prompt": "str - text prompt to segment",
+                "prompt": "str - text prompt describing what to segment",
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "return_masks_png_b64": "bool - return PNG masks as base64",
                 "return_all_masks_viz": "bool - return all masks visualization as base64",
                 "max_masks": "int - optional limit on mask count",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - SAM3 server response (with optional visualization)",
             demo_commands=[
                 {
