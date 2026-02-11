@@ -9,13 +9,39 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "DrawHorizontalLineByY_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "y": {"type": "number", "description": "y coordinate"},
+        "coord_type": {
+            "type": "string",
+            "description": "Coordinate mode: normalized or pixel",
+            "enum": ["normalized", "pixel"],
+        },
+    },
+    "required": ["y"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class DrawHorizontalLineByY_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Draw a horizontal line at the provided y coordinate.",
+            tool_description=(
+                "Draw a horizontal dashed line at a specified y coordinate. Use this "
+                "tool for visual annotation or split-line marking. Do not use it for "
+                "object detection or coordinate estimation."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
@@ -23,6 +49,7 @@ class DrawHorizontalLineByY_Tool(BaseTool):
                 "y": "float - y coordinate (normalized or pixel)",
                 "coord_type": "str - normalized or pixel",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {

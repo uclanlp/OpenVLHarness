@@ -8,6 +8,22 @@ import contextlib
 from tools.base import BaseTool
 
 TOOL_NAME = "Python_Executor_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "code": {
+            "type": "string",
+            "description": "Python code to execute (raw code or fenced code block)",
+        },
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Execution timeout in seconds",
+            "minimum": 1,
+        },
+    },
+    "required": ["code"],
+    "additionalProperties": False,
+}
 
 
 class TimeoutError(Exception):
@@ -61,7 +77,7 @@ class Python_Executor_Tool(BaseTool):
                 "Execute a provided Python code snippet and return stdout plus local variables. "
                 "Important: if you need the numeric/text result explicitly, use print(...) and/or "
                 "assign the value to a variable. Bare expressions are executed but their value is "
-                "not returned automatically."
+                "not returned automatically. Do not use with untrusted code."
             ),
             tool_version="0.2.0",
             input_types={
@@ -70,6 +86,8 @@ class Python_Executor_Tool(BaseTool):
                     "Use print(...) and/or variable assignment if you need explicit values in the result."
                 )
             },
+            input_schema=INPUT_SCHEMA,
+            tool_aliases=["python_executor", "code_interpreter"],
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {

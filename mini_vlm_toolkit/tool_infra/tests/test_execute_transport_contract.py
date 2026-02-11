@@ -90,6 +90,64 @@ def test_success_envelope_and_legacy_fields():
     assert isinstance(payload["meta"], dict)
 
 
+def test_success_envelope_with_alias():
+    tool = _EchoTool()
+    canonical_metadata = tool.get_metadata()
+    canonical_metadata["tool_aliases"] = ["echo"]
+    canonical_metadata["is_alias"] = False
+    canonical_metadata["canonical_tool_name"] = tool.tool_name
+
+    alias_metadata = dict(canonical_metadata)
+    alias_metadata["tool_name"] = "echo"
+    alias_metadata["is_alias"] = True
+    alias_metadata["canonical_tool_name"] = tool.tool_name
+
+    with _patch_registry(
+        instances={tool.tool_name: tool, "echo": tool},
+        metadata={tool.tool_name: canonical_metadata, "echo": alias_metadata},
+    ):
+        payload, status_code = server_app.execute_tool_request(
+            ExecuteRequest(
+                tool_name="echo",
+                args={"value": "hello"},
+                tool_call_id="call_alias",
+            )
+        )
+
+    assert status_code == 200
+    assert payload["ok"] is True
+    assert payload["tool_name"] == "echo"
+    assert payload["result"] == {"echo": "hello"}
+    assert payload["error"] is None
+    assert payload["tool_call_id"] == "call_alias"
+    assert isinstance(payload["meta"], dict)
+
+
+def test_list_tools_includes_alias_entries():
+    tool = _EchoTool()
+    canonical_metadata = tool.get_metadata()
+    canonical_metadata["tool_aliases"] = ["echo"]
+    canonical_metadata["is_alias"] = False
+    canonical_metadata["canonical_tool_name"] = tool.tool_name
+
+    alias_metadata = dict(canonical_metadata)
+    alias_metadata["tool_name"] = "echo"
+    alias_metadata["is_alias"] = True
+    alias_metadata["canonical_tool_name"] = tool.tool_name
+
+    with _patch_registry(
+        instances={tool.tool_name: tool, "echo": tool},
+        metadata={tool.tool_name: canonical_metadata, "echo": alias_metadata},
+    ):
+        tools = server_app.list_tools()
+
+    assert set(tools.keys()) == {"Echo_Tool", "echo"}
+    assert tools["Echo_Tool"]["is_alias"] is False
+    assert tools["Echo_Tool"]["canonical_tool_name"] == "Echo_Tool"
+    assert tools["echo"]["is_alias"] is True
+    assert tools["echo"]["canonical_tool_name"] == "Echo_Tool"
+
+
 def test_error_envelope_tool_not_found():
     with _patch_registry(instances={}, metadata={}):
         payload, status_code = server_app.execute_tool_request(
@@ -144,11 +202,39 @@ def test_success_normalizes_non_json_result():
     json.dumps(payload["result"], allow_nan=False)
 
 
+def test_health_reports_alias_and_canonical_counts():
+    tool = _EchoTool()
+    canonical_metadata = tool.get_metadata()
+    canonical_metadata["tool_aliases"] = ["echo"]
+    canonical_metadata["is_alias"] = False
+    canonical_metadata["canonical_tool_name"] = tool.tool_name
+
+    alias_metadata = dict(canonical_metadata)
+    alias_metadata["tool_name"] = "echo"
+    alias_metadata["is_alias"] = True
+    alias_metadata["canonical_tool_name"] = tool.tool_name
+
+    with _patch_registry(
+        instances={tool.tool_name: tool, "echo": tool},
+        metadata={tool.tool_name: canonical_metadata, "echo": alias_metadata},
+    ):
+        health = server_app.health_check()
+
+    assert health["status"] == "ok"
+    assert health["tool_count"] == 2
+    assert health["canonical_tool_count"] == 1
+    assert health["alias_tool_count"] == 1
+    assert health["tools"] == ["Echo_Tool", "echo"]
+
+
 def main():
     test_success_envelope_and_legacy_fields()
+    test_success_envelope_with_alias()
+    test_list_tools_includes_alias_entries()
     test_error_envelope_tool_not_found()
     test_error_envelope_execution_failure()
     test_success_normalizes_non_json_result()
+    test_health_reports_alias_and_canonical_counts()
     print("Execute transport contract tests completed.")
 
 

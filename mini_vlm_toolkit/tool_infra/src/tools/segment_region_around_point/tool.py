@@ -38,7 +38,11 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Segment a region around one or more points using SAM3.",
+            tool_description=(
+                "Placeholder tool intended to segment regions around user points. "
+                "This tool is currently not implemented and raises "
+                "NotImplementedError; do not call it in production flows."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",

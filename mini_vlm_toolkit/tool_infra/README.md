@@ -138,6 +138,16 @@ curl -X POST http://127.0.0.1:8101/execute \
   - `ok: true`, `tool_name`, `result`, `error: null`, `tool_call_id`, `meta`
 - Failure keeps HTTP non-2xx and returns:
   - `ok: false`, `tool_name`, `result: null`, `error`, `tool_call_id`, `meta`
+Tool aliases:
+- Tools can define `tool_aliases` in metadata (`tool.py`), and each tool also gets a generated snake_case alias.
+- `GET /tools` exposes both canonical and alias entries.
+  - Canonical entries include `is_alias: false`, `canonical_tool_name: <canonical>`, `tool_aliases: [...]`.
+  - Alias entries include `is_alias: true`, `canonical_tool_name: <canonical>`.
+- `GET /jsonschema` includes schemas for both canonical and alias names.
+- `POST /execute` accepts canonical names or aliases; response `tool_name` always echoes the requested name.
+- Alias matching is exact and case-sensitive.
+- Alias names must be valid Python identifiers. Alias/canonical collisions fail startup.
+- `GET /health` keeps `tool_count` and adds `canonical_tool_count` and `alias_tool_count`.
 `scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (see `.env.example`).
 If you run `uvicorn` directly, `TOOL_MODULES=auto` (or unset) triggers tool auto-discovery.
 
@@ -170,6 +180,7 @@ python tests/test_python_executor.py
 ```bash
 python tests/test_execute_transport_contract.py
 python tests/test_jsonschema_generation.py
+python tests/test_tool_alias_registry.py
 ```
 - Server-based tests need the tool server running or `TOOL_SERVER_URL`.
 - LLM-assisted tests read `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY` (defaults in code).

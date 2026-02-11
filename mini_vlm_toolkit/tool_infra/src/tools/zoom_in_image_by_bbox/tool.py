@@ -6,20 +6,56 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "ZoomInImageByBBox_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "bbox": {
+            "type": "array",
+            "description": "Normalized bbox [x, y, w, h]",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number"},
+        },
+        "padding": {
+            "type": "number",
+            "description": "Extra margin on each side",
+            "minimum": 0.05,
+        },
+    },
+    "required": ["bbox"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class ZoomInImageByBBox_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Crop an image around a normalized bbox with optional padding.",
+            tool_description=(
+                "Zoom into a region by cropping an image with a normalized bbox "
+                "[x, y, w, h] plus padding, and return the cropped image. Use this "
+                "tool for closer visual inspection after you already know the region. "
+                "Do not use it to find regions from text prompts; use "
+                "GroundingDINO_Tool or SAM tools for region discovery/segmentation first."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "bbox": "list[float] - normalized bbox [x, y, w, h]",
-                "padding": "float - padding added around the box",
+                "bbox": "list[float] - normalized bbox [x, y, w, h] in [0, 1]",
+                "padding": "float - extra margin on each side (must be >= 0.05)",
             },
+            input_schema=INPUT_SCHEMA,
+            tool_aliases=["image_zoom_in_tool"],
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {

@@ -29,7 +29,11 @@ class SegmentAndMark_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Segment the full image and annotate each mask with a numeric label.",
+            tool_description=(
+                "Placeholder tool intended to segment a full image and annotate masks "
+                "with numeric labels. This tool is currently not implemented and "
+                "raises NotImplementedError; do not call it in production flows."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
