@@ -8,6 +8,25 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "ZoomInSubfigure_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "description": {
+            "type": "string",
+            "description": "Text hint for desired subfigure/position",
+        },
+    },
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class ZoomInSubfigure_Tool(BaseTool):
@@ -26,6 +45,7 @@ class ZoomInSubfigure_Tool(BaseTool):
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "description": "str - position hint like top-left, subplot 1, center, full",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - subplot_images_base64",
             demo_commands=[
                 {

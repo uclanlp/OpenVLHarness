@@ -12,6 +12,18 @@ TOOL_NAME = "Gemini_Google_Search_Tool"
 KEY_FILENAME = "google_api_key"
 KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), KEY_FILENAME)
 DEFAULT_MODEL = "gemini-2.5-flash"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Web question or search request"},
+        "add_citations": {
+            "type": "boolean",
+            "description": "Include citation links in the returned answer",
+        },
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
 
 
 class Gemini_Google_Search_Tool(BaseTool):
@@ -30,6 +42,7 @@ class Gemini_Google_Search_Tool(BaseTool):
                 "query": "str - web question or search request",
                 "add_citations": "bool - include citation links in the returned text when available",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="str",
             demo_commands=[
                 {

@@ -4,6 +4,63 @@ from tools.base import BaseTool
 from tools.image_utils import clamp, resolve_image_input
 
 TOOL_NAME = "Point_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "target": {
+            "type": "string",
+            "description": "Optional text containing explicit x/y coordinates",
+        },
+        "points": {
+            "type": "array",
+            "description": "Point list as [[x, y], ...] or [{x, y}, ...]",
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "items": {"type": "number"},
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                        },
+                        "required": ["x", "y"],
+                        "additionalProperties": False,
+                    },
+                ]
+            },
+        },
+        "coord_type": {
+            "type": "string",
+            "description": "Coordinate mode for points: normalized or pixel",
+            "enum": ["normalized", "pixel"],
+        },
+    },
+    "allOf": [
+        {
+            "oneOf": [
+                {"required": ["image_path"]},
+                {"required": ["image_base64"]},
+            ]
+        },
+        {
+            "anyOf": [
+                {"required": ["points"]},
+                {"required": ["target"]},
+            ]
+        },
+    ],
+    "additionalProperties": False,
+}
 
 
 class Point_Tool(BaseTool):
@@ -24,6 +81,7 @@ class Point_Tool(BaseTool):
                 "points": "list[list[float]] | list[dict] - optional point list",
                 "coord_type": "str - normalized or pixel (used with points)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - points (normalized x,y)",
             demo_commands=[
                 {

@@ -15,6 +15,25 @@ from llm.engine import LLMEngine
 from tools.base import BaseTool
 
 TOOL_NAME = "Python_Code_Generator_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "Math-focused task description with all required inputs",
+        },
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Execution timeout in seconds",
+            "minimum": 1,
+        },
+        "model": {"type": "string", "description": "Override LLM model name"},
+        "base_url": {"type": "string", "description": "Override LLM base URL"},
+        "api_key": {"type": "string", "description": "Override LLM API key"},
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
 
 LIMITATION = f"""
 The {TOOL_NAME} has several limitations:
@@ -127,6 +146,7 @@ class Python_Coder_Tool(BaseTool):
                     "str - math-focused task description with required numeric inputs"
                 )
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - printed_output, variables, execution_code",
             demo_commands=[
                 {

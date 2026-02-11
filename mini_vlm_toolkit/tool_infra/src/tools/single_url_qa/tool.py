@@ -17,6 +17,21 @@ from tools.base import BaseTool
 TOOL_NAME = "Single_URL_QA_Tool"
 KEY_FILENAME = "openai_api_key"
 KEY_FILE_PATH = os.path.join(os.path.dirname(__file__), KEY_FILENAME)
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "Question to answer with content from the target URL",
+        },
+        "url": {
+            "type": "string",
+            "description": "Target URL to read",
+        },
+    },
+    "required": ["query", "url"],
+    "additionalProperties": False,
+}
 
 SUMMARIZE_PROMPT_TEMPLATE = """
 You are an expert AI assistant. Your task is to answer the user's query using
@@ -55,6 +70,7 @@ class Single_URL_QA_Tool(BaseTool):
                 "query": "str - question to answer using the page content",
                 "url": "str - target http(s) URL to read",
             },
+            input_schema=INPUT_SCHEMA,
             tool_aliases=["web_extractor"],
             output_type="str",
             demo_commands=[

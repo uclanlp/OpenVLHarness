@@ -9,6 +9,28 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "DrawHorizontalLineByY_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "y": {"type": "number", "description": "y coordinate"},
+        "coord_type": {
+            "type": "string",
+            "description": "Coordinate mode: normalized or pixel",
+            "enum": ["normalized", "pixel"],
+        },
+    },
+    "required": ["y"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class DrawHorizontalLineByY_Tool(BaseTool):
@@ -27,6 +49,7 @@ class DrawHorizontalLineByY_Tool(BaseTool):
                 "y": "float - y coordinate (normalized or pixel)",
                 "coord_type": "str - normalized or pixel",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {

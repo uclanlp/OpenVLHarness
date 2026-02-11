@@ -82,6 +82,7 @@ def test_jsonschema_uses_explicit_schema_when_available():
     explicit_schema = _find_schema(schemas, explicit.tool_name)
     explicit_params = explicit_schema["function"]["parameters"]
     assert explicit_params == explicit.input_schema
+    explicit_description = explicit_schema["function"]["description"]
 
     fallback_schema = _find_schema(schemas, fallback.tool_name)
     fallback_params = fallback_schema["function"]["parameters"]
@@ -95,6 +96,7 @@ def test_jsonschema_uses_explicit_schema_when_available():
     alias_schema = _find_schema(schemas, "explicit_schema_tool")
     alias_params = alias_schema["function"]["parameters"]
     assert alias_params == explicit.input_schema
+    assert alias_schema["function"]["description"] == explicit_description
 
 
 def test_invalid_input_schema_raises():

@@ -8,6 +8,41 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "DrawLine_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "box": {
+            "type": "array",
+            "description": "Pixel box [x1, y1, x2, y2]",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number"},
+        },
+        "corner_a": {
+            "type": "integer",
+            "description": "First corner index (1-4)",
+            "minimum": 1,
+            "maximum": 4,
+        },
+        "corner_b": {
+            "type": "integer",
+            "description": "Second corner index (1-4)",
+            "minimum": 1,
+            "maximum": 4,
+        },
+    },
+    "required": ["box", "corner_a", "corner_b"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class DrawLine_Tool(BaseTool):
@@ -27,6 +62,7 @@ class DrawLine_Tool(BaseTool):
                 "corner_a": "int - corner index (1-4)",
                 "corner_b": "int - corner index (1-4)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {

@@ -6,6 +6,34 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "ZoomInImageByBBox_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "bbox": {
+            "type": "array",
+            "description": "Normalized bbox [x, y, w, h]",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number"},
+        },
+        "padding": {
+            "type": "number",
+            "description": "Extra margin on each side",
+            "minimum": 0.05,
+        },
+    },
+    "required": ["bbox"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class ZoomInImageByBBox_Tool(BaseTool):
@@ -26,6 +54,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
                 "bbox": "list[float] - normalized bbox [x, y, w, h] in [0, 1]",
                 "padding": "float - extra margin on each side (must be >= 0.05)",
             },
+            input_schema=INPUT_SCHEMA,
             tool_aliases=["image_zoom_in_tool"],
             output_type="dict - cropped_image_base64",
             demo_commands=[

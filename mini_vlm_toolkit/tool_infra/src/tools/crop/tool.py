@@ -6,6 +6,34 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "Crop_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "coords": {
+            "type": "array",
+            "description": "Box coordinates [x1, y1, x2, y2]",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {"type": "number"},
+        },
+        "coords_type": {
+            "type": "string",
+            "description": "Coordinate mode: normalized_xyxy or pixel_xyxy",
+            "enum": ["normalized_xyxy", "pixel_xyxy"],
+        },
+    },
+    "required": ["coords"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class Crop_Tool(BaseTool):
@@ -25,6 +53,7 @@ class Crop_Tool(BaseTool):
                 "coords": "list[float] - box coordinates [x1, y1, x2, y2]",
                 "coords_type": "str - normalized_xyxy (default) or pixel_xyxy",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
