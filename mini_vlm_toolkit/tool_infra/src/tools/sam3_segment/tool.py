@@ -44,11 +44,14 @@ class SAM3_Segment_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Call an external SAM3 segmentation server with a prompt and image."
+                "Run prompt-based segmentation through an external SAM3 server and "
+                "return masks (optionally with visualization). Use this tool when "
+                "you need segmentation masks from a text prompt. Do not use it for "
+                "box-only detection; use GroundingDINO_Tool for detection-first flows."
             ),
             tool_version="0.1.0",
             input_types={
-                "prompt": "str - text prompt to segment",
+                "prompt": "str - text prompt describing what to segment",
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "return_masks_png_b64": "bool - return PNG masks as base64",

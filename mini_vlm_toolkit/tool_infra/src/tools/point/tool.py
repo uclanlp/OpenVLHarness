@@ -11,15 +11,17 @@ class Point_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Extract point coordinates from text or provided points and "
-                "return normalized coordinates."
+                "Normalize point coordinates and return both normalized and pixel "
+                "outputs. Use this tool when points are already provided (or written "
+                "as x/y values in text) and you need canonical coordinates. Do not "
+                "use it for vision-based point detection from image content."
             ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "target": "str - object or region description",
-                "points": "list[list[float]] - optional point list",
+                "target": "str - optional text containing explicit x/y coordinates",
+                "points": "list[list[float]] | list[dict] - optional point list",
                 "coord_type": "str - normalized or pixel (used with points)",
             },
             output_type="dict - points (normalized x,y)",

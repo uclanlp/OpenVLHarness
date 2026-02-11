@@ -115,14 +115,16 @@ class Python_Coder_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Generate and execute simple Python code snippets for basic arithmetic"
-                " calculations and math-related problems."
+                "Generate Python code from a math-focused query, execute it, and "
+                "return stdout plus variables. Use this tool for arithmetic and "
+                "lightweight math reasoning when the user provides all needed inputs. "
+                "Do not use it for untrusted tasks, external I/O, or broad "
+                "general-purpose programming."
             ),
             tool_version="0.1.0",
             input_types={
                 "query": (
-                    "str - A clear, specific description of the arithmetic calculation"
-                    " or math problem to be solved, including any necessary numerical inputs."
+                    "str - math-focused task description with required numeric inputs"
                 )
             },
             output_type="dict - printed_output, variables, execution_code",

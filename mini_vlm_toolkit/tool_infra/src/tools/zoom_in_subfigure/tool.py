@@ -14,12 +14,17 @@ class ZoomInSubfigure_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Select and return subplots that match a textual description.",
+            tool_description=(
+                "Return coarse subfigure crops based on simple textual position "
+                "heuristics (for example top-left, subplot 2, full image). Use this "
+                "tool for quick region probing in multi-panel figures. Do not assume "
+                "it performs learned subplot detection; selection is rule-based."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "description": "str - subplot description (title/position)",
+                "description": "str - position hint like top-left, subplot 1, center, full",
             },
             output_type="dict - subplot_images_base64",
             demo_commands=[

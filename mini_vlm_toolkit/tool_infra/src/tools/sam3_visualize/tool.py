@@ -116,8 +116,10 @@ class SAM3_VisualizeAllMasks_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME_ALL,
             tool_description=(
-                "Visualize all SAM3 masks on an image using grounding-agent style "
-                "predictions or SAM3 server output."
+                "Overlay all provided masks on an image for inspection. Use this "
+                "tool when you already have prediction masks (from SAM3 server or "
+                "grounding-agent format) and want a visualization panel. Do not use "
+                "it to generate new masks."
             ),
             tool_version="0.1.0",
             input_types={
@@ -187,7 +189,10 @@ class SAM3_VisualizeSingleMask_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME_SINGLE,
             tool_description=(
-                "Overlay a single SAM3 mask on the image and return a zoomed-in view."
+                "Overlay one selected mask and return both full-image and zoomed "
+                "views. Use this tool when you already have masks and need detailed "
+                "inspection of one region. Do not use it to generate masks from "
+                "scratch."
             ),
             tool_version="0.1.0",
             input_types={

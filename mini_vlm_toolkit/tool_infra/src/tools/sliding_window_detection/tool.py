@@ -7,7 +7,11 @@ class SlidingWindowDetection_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Run detection on overlapping crops to find small objects.",
+            tool_description=(
+                "Placeholder tool intended for sliding-window small-object detection "
+                "over overlapping crops. This tool is currently not implemented and "
+                "raises NotImplementedError; do not call it in production flows."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",

@@ -61,7 +61,7 @@ class Python_Executor_Tool(BaseTool):
                 "Execute a provided Python code snippet and return stdout plus local variables. "
                 "Important: if you need the numeric/text result explicitly, use print(...) and/or "
                 "assign the value to a variable. Bare expressions are executed but their value is "
-                "not returned automatically."
+                "not returned automatically. Do not use with untrusted code."
             ),
             tool_version="0.2.0",
             input_types={

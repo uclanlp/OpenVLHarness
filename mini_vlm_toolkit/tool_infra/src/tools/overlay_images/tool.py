@@ -15,7 +15,12 @@ class OverlayImages_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Overlay an image onto another with alpha blending.",
+            tool_description=(
+                "Overlay one image onto a base image with alpha blending inside a "
+                "target region. Use this tool for visual composition or annotation "
+                "mockups. Do not use it for segmentation, detection, or geometric "
+                "alignment beyond simple resize-to-box behavior."
+            ),
             tool_version="0.1.0",
             input_types={
                 "base_image_path": "str - local path to the base image",
@@ -23,7 +28,7 @@ class OverlayImages_Tool(BaseTool):
                 "overlay_image_path": "str - local path to the overlay image",
                 "overlay_image_base64": "str - base64-encoded overlay image (use instead of overlay_image_path)",
                 "alpha": "float - overlay transparency (default 0.6)",
-                "bounding_box": "list[float] - normalized bbox [x, y, w, h]",
+                "bounding_box": "list[float] - normalized bbox [x, y, w, h] in [0, 1]",
             },
             output_type="dict - blended_image_base64",
             demo_commands=[

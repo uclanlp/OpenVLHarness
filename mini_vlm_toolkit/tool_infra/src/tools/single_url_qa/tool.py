@@ -44,10 +44,17 @@ class Single_URL_QA_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Answer a query using content retrieved from a single URL."
+                "Answer a question using content from one specific URL. Use this "
+                "tool when you already have a target page and need a grounded "
+                "answer from that page. Do not use it for web discovery or "
+                "multi-page research: it reads a single URL and returns one answer "
+                "string."
             ),
             tool_version="1.0.0",
-            input_types={"query": "str", "url": "str"},
+            input_types={
+                "query": "str - question to answer using the page content",
+                "url": "str - target http(s) URL to read",
+            },
             tool_aliases=["web_extractor"],
             output_type="str",
             demo_commands=[

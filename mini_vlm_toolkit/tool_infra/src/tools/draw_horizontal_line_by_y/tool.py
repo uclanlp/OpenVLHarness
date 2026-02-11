@@ -15,7 +15,11 @@ class DrawHorizontalLineByY_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Draw a horizontal line at the provided y coordinate.",
+            tool_description=(
+                "Draw a horizontal dashed line at a specified y coordinate. Use this "
+                "tool for visual annotation or split-line marking. Do not use it for "
+                "object detection or coordinate estimation."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",

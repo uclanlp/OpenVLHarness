@@ -16,13 +16,16 @@ class Depth_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Estimate depth from an image using a Depth-Anything server."
+                "Estimate a depth map from one image using a Depth-Anything server. "
+                "Use this tool for relative near/far reasoning or depth visualization. "
+                "Do not treat the output as calibrated metric depth without external "
+                "camera calibration."
             ),
             tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "colormap": "str - optional color map (inferno or grayscale)",
+                "colormap": "str - optional output colormap (inferno or grayscale)",
                 "server_url": "str - override Depth-Anything server URL",
                 "timeout_seconds": "int - request timeout in seconds",
             },

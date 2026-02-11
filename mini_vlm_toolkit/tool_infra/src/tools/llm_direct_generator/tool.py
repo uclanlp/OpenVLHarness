@@ -64,8 +64,10 @@ def _is_empty_key(value):
 class LLM_Direct_Generator_Tool(BaseTool):
     def __init__(self):
         base_description = (
-            "Send OpenAI-compatible chat or embeddings requests to a configured "
-            "server and return the full JSON payload."
+            "Forward raw OpenAI-compatible chat or embeddings requests to a "
+            "configured model endpoint and return the full JSON payload. Use this "
+            "tool when you need low-level control of request fields. Do not use it "
+            "as a substitute for higher-level multi-step tool orchestration."
         )
         tool_description = f"{base_description} {_format_configured_models()}"
         super().__init__(

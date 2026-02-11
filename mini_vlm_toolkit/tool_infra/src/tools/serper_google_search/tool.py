@@ -26,14 +26,18 @@ class Serper_Google_Search_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Serper-backed Google search tool that returns URLs."
+                "Search the web with Serper Google Search and return a filtered list "
+                "of candidate URLs. Use this tool when you need to discover relevant "
+                "pages but do not have a target URL yet. Do not use this tool for "
+                "direct question answering: it returns links only (not page content), "
+                "and filters out common social/video/PDF domains."
             ),
             tool_version="1.0.0",
             input_types={
                 "query": "str - search query",
-                "num_results": "int - max number of URLs to return",
-                "gl": "str - optional geo location code",
-                "hl": "str - optional language code",
+                "num_results": "int - positive max number of URLs to return",
+                "gl": "str - optional 2-letter country code (for example 'us', 'gb')",
+                "hl": "str - optional language code (for example 'en', 'zh-cn')",
             },
             tool_aliases=["web_search"],
             output_type="list[str] - list of URLs",

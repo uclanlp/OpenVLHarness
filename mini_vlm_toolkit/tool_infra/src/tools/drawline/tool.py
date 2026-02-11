@@ -14,7 +14,11 @@ class DrawLine_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Draw a dashed line between two corners of a bounding box.",
+            tool_description=(
+                "Draw a dashed annotation line between two chosen corners of a box. "
+                "Use this tool to visualize spatial relations on an image. Do not use "
+                "it for detection or measurement; it only draws overlays."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",

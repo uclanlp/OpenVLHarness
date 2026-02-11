@@ -16,12 +16,17 @@ class OCR_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Extract text strings from an image using an OCR server.",
+            tool_description=(
+                "Extract readable text from an image using an OCR server. Use this "
+                "tool when the task is about words, numbers, or printed labels in "
+                "the image. Do not use it for general object localization or "
+                "segmentation."
+            ),
             tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "languages": "list[str] | str - optional language list, e.g. ['en']",
+                "languages": "list[str] | str - optional OCR language codes, e.g. ['en']",
                 "server_url": "str - override OCR server URL",
                 "timeout_seconds": "int - request timeout in seconds",
             },
