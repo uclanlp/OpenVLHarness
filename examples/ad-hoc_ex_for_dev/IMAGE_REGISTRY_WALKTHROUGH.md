@@ -16,7 +16,7 @@ Inside `BaseAgentWithTools._run(...)`, image flow is:
 2. Append an Environment Update user message after the initial user prompt.
 3. For each assistant tool call, rewrite image path-like args from registry IDs/aliases to base64 data URLs.
 4. Execute tool call via `/execute`.
-5. Extract image blobs from tool result, keep `role=tool` content text-only, emit a separate multimodal `role=user` update message with those images, and register new refs (`tool_<call_id>_image_<n>`).
+5. Extract image blobs from tool result, keep `role=tool` content text-only, emit a separate multimodal `role=user` update message with those images, and register new refs (`tool_{tool_call_id}_image_<n>`). Default tool call IDs are generated as `call_<turn>_<idx>` (for example `call_1_1`), so image refs commonly look like `tool_call_1_1_image_1`.
 6. After the tool-call turn, append another Environment Update user message (default emit policy is `always`).
 
 Key methods in `mini_vlm_toolkit/agent/base.py`:
@@ -163,22 +163,29 @@ Agent behavior:
 1. Builds text-only `role=tool` payload:
 
 ```json
-{"ok": true, "result": {"summary": "segmentation complete", "masks": [{}]}, "error": null, "image_refs": ["tool_call_1_image_1", "tool_call_1_image_2"]}
+{"ok": true, "result": {"summary": "segmentation complete", "masks": [{}]}, "error": null, "image_refs": ["tool_call_1_1_image_1", "tool_call_1_1_image_2"]}
 ```
 
 2. Emits a separate multimodal `role=user` update carrying the tool images:
 
 ```json
-[
-  {"type": "text", "text": "Environment Update (not a new question):\nTool response images from SAM3_Segment_Tool (...)\nStructured tool result is in the preceding role=tool message.\nImage refs: tool_call_1_image_1, tool_call_1_image_2"},
-  {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
-  {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
-]
+{
+  "role": "user",
+  "content": [
+    {
+      "type": "text",
+      "text": "Tool `SAM3_Segment_Tool` (tool_call_id=call_1_1) also returned the following image(s). Use these images for reasoning if helpful.\nSee the preceding role=tool message for structured output.\nImage refs: tool_call_1_1_image_1, tool_call_1_1_image_2"
+    },
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+  ]
+}
 ```
 
 3. Registers reusable refs:
-- `tool_call_1_image_1`
-- `tool_call_1_image_2`
+- `tool_call_1_1_image_1`
+- `tool_call_1_1_image_2`
+- Tool-name aliases are also registered (for example `SAM3_Segment_Tool_image_1`, `SAM3_Segment_Tool_image_2`)
 
 4. Appends a new runtime Environment Update message after the tool turn:
 
@@ -186,8 +193,8 @@ Agent behavior:
 Environment Update (not a new question):
 Currently available image IDs for tool calls:
 - input_image_1: user_input
-- tool_call_1_image_1: tool_output:SAM3_Segment_Tool
-- tool_call_1_image_2: tool_output:SAM3_Segment_Tool
+- tool_call_1_1_image_1: tool_output:SAM3_Segment_Tool
+- tool_call_1_1_image_2: tool_output:SAM3_Segment_Tool
 When a tool needs image input, pass one of these IDs via the *_image_path field.
 Do NOT invent image file names or paths.
 ```
@@ -195,7 +202,7 @@ Do NOT invent image file names or paths.
 5. Model can refer to them in later tool calls via `*_image_path`, for example:
 
 ```json
-{"image_path": "tool_call_1_image_1", "prompt": "count children"}
+{"image_path": "tool_call_1_1_image_1", "prompt": "count children"}
 ```
 
 Agent rewrites to `image_base64` automatically before execution.

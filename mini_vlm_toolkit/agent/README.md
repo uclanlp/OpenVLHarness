@@ -12,7 +12,7 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 ## 2. Walkthrough: BaseAgent vs BaseAgentWithTools
 ### `BaseAgent` (basic generation loop)
 - Validates model server reachability (`/v1/models`) at init.
-- Normalizes raw inputs (`text` / `image` / `video`) into chat payload format.
+- Normalizes raw multimodal inputs (for example `text` / `image`) into chat payload format.
 - Sends requests to `/v1/chat/completions`.
 - Retries on failure and returns final text answer.
 
@@ -23,7 +23,7 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - Calls model with `tools` and `tool_choice`.
 - Reads native assistant `tool_calls`, executes each call via tool server `/execute`.
 - Appends structured tool outputs back as text-only `role=tool` messages.
-- If tool outputs include images, appends a separate multimodal `role=user` Environment Update-style message (short text + `image_url` parts), then continues.
+- If tool outputs include images, appends a separate multimodal `role=user` message (short text + `image_url` parts), then continues.
 - Appends runtime Environment Update `role=user` messages and continues until final answer.
 - Stores debug traces in `last_run_messages` and `last_chat_history`.
 
@@ -43,15 +43,21 @@ python examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example.p
 cat examples/ad-hoc_ex_for_dev/IMAGE_REGISTRY_WALKTHROUGH.md
 ```
 
-4. Dataset run through benchmark entrypoint:
+4. Endpoint capability probe for multimodal tool-response handling:
 ```bash
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --data MMStar --num_proc 4
+python examples/ad-hoc_ex_for_dev/multimodal_tool_visibility_probe.py
+```
+
+5. Dataset run through benchmark entrypoint:
+```bash
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --data MMStar --num-proc 4
 ```
 
 Notes:
 - Example scripts are under `examples/ad-hoc_ex_for_dev/`.
 - Agent configs are under `configs/`.
-- Set `AGENT_DEBUG_TOOL_LOOP=1` for richer tool-loop logs.
+- For richer tool-loop logs in the example scripts, set `AGENT_DEBUG_TOOL_LOOP=1`.
+- For direct agent calls, pass `debug_tool_loop=True` to `generate(...)` / `_run(...)`.
 
 ## 4. Extending to a Dataset-Specific Agent
 - Choose a base class: `BaseAgent` (no tools) or `BaseAgentWithTools` (tool execution).
@@ -63,8 +69,11 @@ Notes:
 ### Tool-calling workflow
 - Assistant emits native `tool_calls`.
 - Agent normalizes each call and posts to tool server `/execute`.
-- Tool payloads are normalized into `{ok, result, error, tool_name, tool_call_id, meta}`.
+- Tool payloads are normalized into `{ok, result, error, tool_name, tool_call_id, meta}` for internal history/tracing.
+- The `role=tool` message content is text-only JSON (`ok/result/error` plus optional `image_refs`).
+- If tool outputs include images, agent sends a separate multimodal `role=user` update message with those image parts.
 - Tool messages are fed back to the model until a non-tool final answer is returned.
+- If the last allowed turn ends with tool calls, agent makes one final completion with `tool_choice="none"` to force a text answer.
 
 ### Image-related special handling
 - Input images are registered as runtime IDs (for example `input_image_1`) and surfaced in Environment Update user messages.
@@ -78,6 +87,10 @@ Notes:
 - `prompt_version`: `"v1"` (class default) or `"v2"` prompt templates. `configs/base_agent_with_tools.yaml` currently sets `"v2"`.
 - `reasoning_effort`: optional GPT-5 reasoning knob (`"minimal"`, `"low"`, `"medium"`, `"high"`), applied on OpenAI endpoints.
 - `runtime_environment_hooks`: runtime hook list, default `["image"]`.
+- `runtime_environment_hooks` accepted forms: `null`, single hook name string, hook object, dict config, or list of these.
+- `null` uses the default hook set (`["image"]`).
+- Disable hooks with `[]` or hook names `"none"`, `"off"`, `"disabled"`.
+- Per-hook config can override emit behavior, for example `{"name": "image", "emit_policy": "on_change"}`.
 - `runtime_environment_emit_policy`: image hook emit policy, default `"always"` (`"on_change"` is also supported).
 - `max_iterations`: cap tool loop turns.
 - `extra_body`: pass provider-specific fields to chat/completions.

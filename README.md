@@ -13,6 +13,9 @@
 | `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
 | `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
 | `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
+| `ClipSearch_Tool` | Search a video-clip vector database for events matching a textual description. |
+| `FrameInspection_Tool` | Inspect frames from specified time ranges and answer detailed video questions. |
+| `GlobalBrowse_Tool` | Retrieve relevant video clips from a vector database and synthesize a final answer. |
 | `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
 | `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
 | `OCR_Tool` | Extract text strings from an image using an OCR server. |
@@ -34,11 +37,22 @@
 
 ## VLM Evaluation Usage
 Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
-1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
-2. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (that example config currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`). For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
-3. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
-4. If you want to use LLM as Judge, define your judge config in `configs/judge.yaml` and specify the model and parameters you want to use. If no judge config is provided, the benchmark will use exact matching as the default judge.
+
+1. Install benchmark dependencies:
+```bash
+pip install -r requirements-benchmark.txt
+```
+2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`.
+3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`). For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
+4. (Optional) Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. If the judge config file is missing at the resolved path, evaluation falls back to exact matching.
+5. Run the benchmark with desired config/data. Example:
 ```
 python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 
 ```
-Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
+6. Outputs are written under:
+```text
+<work-dir>/<model_name>/<agent_class_lower>/<model_name>_<dataset>.<format>
+```
+Default `work-dir` is `./outputs`.
+
+Note: define your data root with `LMUData` in `.env` (capital D).

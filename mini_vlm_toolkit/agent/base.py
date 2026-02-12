@@ -1295,8 +1295,7 @@ class BaseAgentWithTools(BaseAgent):
         tool_name = str(payload.get("tool_name") or "tool").strip()
         tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
         lines = [
-            "Environment Update (not a new question):",
-            f"Tool `{tool_name}` (tool_call_id={tool_call_id}) also returned the following image(s).",
+            f"Tool `{tool_name}` (tool_call_id={tool_call_id}) also returned the following image(s). Use these images for reasoning if helpful.",
             "See the preceding role=tool message for structured output.",
         ]
         if refs:
