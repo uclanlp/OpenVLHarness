@@ -73,6 +73,16 @@ if __name__ == "__main__":
 
         
         if args.mode != "infer":
+            # Some writers (e.g., xlsx) may fail and dump() falls back to .pkl.
+            # Ensure evaluation reads the actual existing result file.
+            if not os.path.exists(result_file):
+                fallback_pkl = result_file.rsplit('.', 1)[0] + '.pkl'
+                if os.path.exists(fallback_pkl):
+                    logger.warning(
+                        f"Prediction file not found: {result_file}. "
+                        f"Using fallback file: {fallback_pkl}"
+                    )
+                    result_file = fallback_pkl
             logger.info(f"Start evaluation on dataset {dataset_name} with model {model_name}")
             # Perform the Evaluation
             eval_results = dataset.evaluate(result_file, **judge_kwargs)

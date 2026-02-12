@@ -12,6 +12,7 @@ import random
 import re
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from urllib.parse import urlparse
 
 import requests
 
@@ -246,6 +247,63 @@ def _normalize_embeddings_endpoint(
         return f"{trimmed}/embeddings"
     return f"{trimmed}/v1/embeddings"
 
+
+def _is_openai_chat_endpoint(endpoint: str) -> bool:
+    try:
+        parsed = urlparse(str(endpoint))
+    except Exception:
+        return False
+    return (parsed.netloc or "").lower() == "api.openai.com"
+
+
+def _is_gpt5_family_model(model: Optional[str]) -> bool:
+    if not isinstance(model, str):
+        return False
+    return model.strip().lower().startswith("gpt-5")
+
+
+def _is_default_temperature_for_gpt5(value: Any) -> bool:
+    try:
+        return float(value) == 1.0
+    except Exception:
+        return str(value).strip() in {"1", "1.0"}
+
+
+def _sanitize_tools_for_openai(tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(tools, list):
+        return tools
+    sanitized_tools = copy.deepcopy(tools)
+    blocked_top_level_keys = {"oneOf", "anyOf", "allOf", "enum", "not"}
+    for tool in sanitized_tools:
+        if not isinstance(tool, dict):
+            continue
+        fn = tool.get("function")
+        if not isinstance(fn, dict):
+            continue
+        params = fn.get("parameters")
+        if not isinstance(params, dict):
+            continue
+        for key in blocked_top_level_keys:
+            params.pop(key, None)
+        if "type" not in params:
+            params["type"] = "object"
+    return sanitized_tools
+
+
+def _sanitize_openai_extra_body(extra_body: Optional[Dict[str, Any]], *, is_gpt5: bool) -> Optional[Dict[str, Any]]:
+    if not isinstance(extra_body, dict):
+        return extra_body
+    sanitized = copy.deepcopy(extra_body)
+    # Keep backward compatibility for local/OpenAI-compatible servers while
+    # avoiding known unsupported parameters on OpenAI-hosted models.
+    sanitized.pop("repetition_penalty", None)
+    if is_gpt5:
+        if "max_tokens" in sanitized and "max_completion_tokens" not in sanitized:
+            sanitized["max_completion_tokens"] = sanitized.pop("max_tokens")
+        if "temperature" in sanitized and not _is_default_temperature_for_gpt5(sanitized.get("temperature")):
+            sanitized.pop("temperature", None)
+    return sanitized
+
 # Filter out extra kwargs that are not valid for the endpoint to avoid request failures
 def filter_kwargs_for_endpoint(kwargs: Dict[str, Any], endpoint_type: str) -> Dict[str, Any]:
     valid_keys = {
@@ -260,6 +318,7 @@ def filter_kwargs_for_endpoint(kwargs: Dict[str, Any], endpoint_type: str) -> Di
             "extra_body",
             "image_paths",
             "timeout_seconds",
+            "reasoning_effort",
         },
         "embeddings": set(),
     }
@@ -287,6 +346,7 @@ def chat_completion_request(
     api_key: Optional[str] = None,
     temperature: Optional[float] = 0.0,
     max_tokens: Optional[int] = 4096,
+    reasoning_effort: Optional[str] = None,
     top_p: Optional[float] = None,
     stop: Optional[Iterable[str]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
@@ -295,7 +355,7 @@ def chat_completion_request(
     timeout_seconds: float = 120,
     extra_body: Optional[Dict[str, Any]] = None,
     image_paths: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     """
     Send a chat/completions request to an OpenAI-compatible endpoint.
     - Set base_url to a vLLM host (e.g., http://localhost:8000) or leave None
@@ -303,25 +363,40 @@ def chat_completion_request(
     """
     resolved_base_url = base_url or "https://api.openai.com"
     resolved_api_key = api_key or get_model_api_key(model)
+    endpoint = _normalize_chat_endpoint(resolved_base_url)
+    is_openai_endpoint = _is_openai_chat_endpoint(endpoint)
+    is_gpt5_model = is_openai_endpoint and _is_gpt5_family_model(model)
+
     payload: Dict[str, Any] = {"model": model, "messages": attach_images(messages, image_paths or [])}
     if temperature is not None:
-        payload["temperature"] = temperature
+        if (not is_gpt5_model) or _is_default_temperature_for_gpt5(temperature):
+            payload["temperature"] = temperature
     if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
+        if is_gpt5_model:
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
+    if reasoning_effort is not None and is_gpt5_model:
+        payload["reasoning_effort"] = reasoning_effort
     if top_p is not None:
         payload["top_p"] = top_p
     if stop is not None:
         payload["stop"] = stop
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = _sanitize_tools_for_openai(tools) if is_openai_endpoint else tools
         if tool_choice:
             payload["tool_choice"] = tool_choice
     if response_format:
         payload["response_format"] = response_format
     if extra_body:
-        payload.update(extra_body)
+        cleaned_extra_body = (
+            _sanitize_openai_extra_body(extra_body, is_gpt5=is_gpt5_model)
+            if is_openai_endpoint
+            else extra_body
+        )
+        if cleaned_extra_body:
+            payload.update(cleaned_extra_body)
 
-    endpoint = _normalize_chat_endpoint(resolved_base_url)
     headers = {"Content-Type": "application/json"}
     if resolved_api_key:
         headers["Authorization"] = f"Bearer {resolved_api_key}"

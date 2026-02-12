@@ -15,6 +15,9 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
 | `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
 | `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
+| `ClipSearch_Tool` | Search a video-clip vector database for events matching a textual description. |
+| `FrameInspection_Tool` | Inspect frames from specified time ranges and answer detailed video questions. |
+| `GlobalBrowse_Tool` | Retrieve relevant video clips from a vector database and synthesize a final answer. |
 | `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
 | `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
 | `OCR_Tool` | Extract text strings from an image using an OCR server. |
