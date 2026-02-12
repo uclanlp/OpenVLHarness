@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 import random
+import re
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -80,6 +81,7 @@ def retry_with_exponential_backoff(
     exponential_base: float = 2,
     jitter: bool = True,
     max_retries: int = 8,
+    max_delay: float = 30,
 ):
     """Retry a function with exponential backoff for transient errors."""
 
@@ -91,27 +93,39 @@ def retry_with_exponential_backoff(
                 return func(*args, **kwargs)
             except Exception as exc:
                 message = str(exc).lower()
-                transient = any(
-                    token in message
-                    for token in (
-                        "rate limit",
-                        "timed out",
-                        "timeout",
-                        "too many requests",
-                        "internal",
-                        "503",
-                        "502",
-                        "504",
-                        "500",
-                        "connection",
+                status_code = None
+                matches = re.findall(r"\b([1-5]\d{2})\b", message)
+                if matches:
+                    try:
+                        status_code = int(matches[0])
+                    except ValueError:
+                        status_code = None
+
+                transient_statuses = {408, 429, 500, 502, 503, 504}
+                transient = False
+                if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
+                    transient = True
+                elif status_code in transient_statuses:
+                    transient = True
+                else:
+                    transient = any(
+                        token in message
+                        for token in (
+                            "rate limit",
+                            "timed out",
+                            "timeout",
+                            "too many requests",
+                            "internal",
+                            "connection",
+                        )
                     )
-                )
                 if not transient:
                     raise
                 num_retries += 1
                 if num_retries > max_retries:
                     raise
                 delay *= exponential_base * (1 + (jitter and (random.random())))
+                delay = min(delay, max_delay)
                 time.sleep(delay)
 
     return wrapper
@@ -235,7 +249,18 @@ def _normalize_embeddings_endpoint(
 # Filter out extra kwargs that are not valid for the endpoint to avoid request failures
 def filter_kwargs_for_endpoint(kwargs: Dict[str, Any], endpoint_type: str) -> Dict[str, Any]:
     valid_keys = {
-        "chat": {"temperature", "max_tokens", "top_p", "stop", "tools", "tool_choice", "response_format", "extra_body", "image_paths"},
+        "chat": {
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "stop",
+            "tools",
+            "tool_choice",
+            "response_format",
+            "extra_body",
+            "image_paths",
+            "timeout_seconds",
+        },
         "embeddings": set(),
     }
     allowed_keys = valid_keys.get(endpoint_type, set())
@@ -340,8 +365,71 @@ def tool_execute_request(
     tool_call,
     timeout = 120,
 ):
-                                                                                                                                                                                                              
     response = requests.post(f"{base_url}/execute", json=tool_call, timeout=timeout)
-    raise_for_status_with_detail(response, prefix="Tool execution request failed")
 
-    return response
+    payload = None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    # Preserve structured execute envelopes, including non-2xx error payloads.
+    if isinstance(payload, dict) and ("ok" in payload) and ("result" in payload or "error" in payload):
+        envelope = dict(payload)
+        if not envelope.get("tool_name"):
+            envelope["tool_name"] = tool_call.get("tool_name")
+        if not envelope.get("tool_call_id"):
+            envelope["tool_call_id"] = tool_call.get("tool_call_id")
+        meta = envelope.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.setdefault("http_status", response.status_code)
+        envelope["meta"] = meta
+
+        # Server/protocol mismatch guard: non-2xx should not claim success.
+        if not response.ok and bool(envelope.get("ok")):
+            envelope["ok"] = False
+            err = envelope.get("error")
+            if isinstance(err, dict):
+                err = dict(err)
+                err.setdefault("code", "execute_protocol_error")
+                err.setdefault("message", "Execute endpoint returned non-2xx with ok=true payload.")
+            else:
+                err = {
+                    "code": "execute_protocol_error",
+                    "message": "Execute endpoint returned non-2xx with ok=true payload.",
+                }
+            envelope["error"] = err
+        return envelope
+
+    raise_for_status_with_detail(response, prefix="Tool execution request failed")
+    try:
+        if payload is not None:
+            return payload
+        return response.json()
+    except ValueError:
+        text_preview = response.text
+        if isinstance(text_preview, str) and len(text_preview) > 500:
+            text_preview = text_preview[:500] + "...(truncated)"
+        content_type = ""
+        headers = getattr(response, "headers", {}) or {}
+        if isinstance(headers, dict):
+            content_type = headers.get("Content-Type", "")
+        return {
+            "ok": False,
+            "tool_name": tool_call.get("tool_name"),
+            "result": None,
+            "error": {
+                "code": "execute_non_json_response",
+                "message": "Execute endpoint returned non-JSON response.",
+                "detail": {
+                    "content_type": content_type,
+                    "response_text_preview": text_preview,
+                },
+            },
+            "tool_call_id": tool_call.get("tool_call_id"),
+            "meta": {
+                "warning": "non_json_response_from_execute",
+                "http_status": response.status_code,
+            },
+        }
