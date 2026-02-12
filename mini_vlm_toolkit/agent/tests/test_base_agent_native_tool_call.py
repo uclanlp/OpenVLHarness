@@ -1103,6 +1103,90 @@ def test_run_continues_after_v1_scaffold_only_response():
     assert chat_history[1]["final_answer"] == "42"
 
 
+def test_run_allows_finalization_after_last_iteration_tool_calls():
+    agent = _build_agent()
+    agent.max_iterations = 1
+    state = {"chat_calls": 0, "tool_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need arithmetic.</perception>\n"
+                                "<thinking>I should call Python tool first.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_last_iter_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Python_Executor_Tool",
+                                        "arguments": json.dumps({"code": "value=4"}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            assert kwargs.get("tool_choice") == "none"
+            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert tool_msgs
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Final answer: 4",
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        state["tool_calls"] += 1
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "Python_Executor_Tool"
+        assert tool_call["tool_call_id"] == "call_last_iter_1"
+        assert tool_call["args"]["code"] == "value=4"
+        return {
+            "ok": True,
+            "tool_name": "Python_Executor_Tool",
+            "result": {"value": 4},
+            "error": None,
+            "tool_call_id": "call_last_iter_1",
+            "meta": {},
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Compute 2+2."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert state["chat_calls"] == 2
+    assert state["tool_calls"] == 1
+    assert answer == "4"
+    assert len(chat_history) == 2
+    assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Python_Executor_Tool"
+    assert chat_history[1]["final_answer"] == "4"
+
+
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
@@ -1123,6 +1207,7 @@ if __name__ == "__main__":
     test_extract_final_answer_from_v1_scaffold_only_returns_empty()
     test_extract_final_answer_from_v2_scaffold_only_returns_empty()
     test_run_continues_after_v1_scaffold_only_response()
+    test_run_allows_finalization_after_last_iteration_tool_calls()
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
@@ -1142,3 +1227,4 @@ if __name__ == "__main__":
     print("PASS: test_extract_final_answer_from_v1_scaffold_only_returns_empty")
     print("PASS: test_extract_final_answer_from_v2_scaffold_only_returns_empty")
     print("PASS: test_run_continues_after_v1_scaffold_only_response")
+    print("PASS: test_run_allows_finalization_after_last_iteration_tool_calls")

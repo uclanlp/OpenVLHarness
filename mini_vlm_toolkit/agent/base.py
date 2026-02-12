@@ -1454,6 +1454,81 @@ class BaseAgentWithTools(BaseAgent):
                 chat_history.append(turn_info)
                 self.last_run_messages = cp.deepcopy(msgs)
                 self.last_chat_history = cp.deepcopy(chat_history)
+                if i == self.max_iterations - 1:
+                    if debug_tool_loop:
+                        self.logger.info(
+                            "[ToolLoop] last iteration ended with tool calls; requesting one final text-only answer."
+                        )
+                    final_response = chat_completion_request(
+                        model=self.model,
+                        messages=msgs,
+                        base_url=self.api_base,
+                        api_key=self.key,
+                        tools=model_tools,
+                        tool_choice="none",
+                        timeout_seconds=chat_timeout_seconds,
+                        **kwargs,
+                    )
+                    if not isinstance(final_response, dict):
+                        raise RuntimeError(
+                            f"Invalid chat response type: expected dict, got {type(final_response).__name__}"
+                        )
+                    final_choices = final_response.get("choices")
+                    if not isinstance(final_choices, list) or not final_choices or not isinstance(final_choices[0], dict):
+                        raise RuntimeError(
+                            f"Invalid chat response payload: missing choices. Response={self._truncate_for_debug(final_response)}"
+                        )
+                    final_message = final_choices[0].get("message")
+                    if not isinstance(final_message, dict):
+                        raise RuntimeError(
+                            "Invalid chat response payload: choices[0].message must be an object. "
+                            f"Response={self._truncate_for_debug(final_response)}"
+                        )
+
+                    final_raw_response = final_message.get("content")
+                    final_raw_response = final_raw_response if isinstance(final_raw_response, str) else ""
+                    final_tool_calls = self._normalize_tool_calls(final_message.get("tool_calls"), turn_idx=i + 1)
+                    final_parsed_response = self.parse_response(final_raw_response)
+                    final_answer = self._extract_final_answer_from_content(final_raw_response)
+
+                    if final_tool_calls:
+                        msgs.append(
+                            {
+                                "role": "assistant",
+                                "content": final_message.get("content") or "",
+                                "tool_calls": [call["assistant_tool_call"] for call in final_tool_calls],
+                            }
+                        )
+                    else:
+                        msgs.append({"role": "assistant", "content": final_raw_response})
+
+                    final_turn_info = {
+                        "turn": i + 2,
+                        "assistant": {
+                            "content": final_raw_response,
+                            "perception": final_parsed_response["perception"],
+                            "thinking": final_parsed_response["thinking"],
+                            "tool_calls": [
+                                {
+                                    "id": call["id"],
+                                    "name": call["name"],
+                                    "raw_arguments": call["raw_arguments"],
+                                    "args": call["args"],
+                                    "parse_error": call.get("parse_error"),
+                                }
+                                for call in final_tool_calls
+                            ],
+                        },
+                        "tool_responses": [],
+                        "final_answer": final_answer,
+                    }
+                    chat_history.append(final_turn_info)
+                    self.last_run_messages = cp.deepcopy(msgs)
+                    self.last_chat_history = cp.deepcopy(chat_history)
+
+                    if final_answer:
+                        return final_answer, chat_history
+                    return self.fail_msg, chat_history
                 continue
 
             final_answer = self._extract_final_answer_from_content(raw_response)
