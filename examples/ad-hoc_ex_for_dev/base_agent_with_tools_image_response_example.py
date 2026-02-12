@@ -116,13 +116,16 @@ def main():
         max_tokens=1024,
     )
 
-    # Keep this prompt exactly aligned with qwen3_vl_tool_call_demo_chat.ipynb.
+    # HACK (gpt-5-mini): keep this wording strict so the model uses an entity-style
+    # SAM3 prompt argument (for example, "children") instead of an instruction.
+    # Long-term fix: improve SAM3_Segment_Tool description/schema to enforce this.
     question = (
         "How many children are visible? Reason step by step. "
         "In your first assistant turn, do a step-by-step analysis and then emit exactly one "
-        "tool call for SAM3_Segment_Tool (prompt should be the entity to segment) and image_path "
-        "set to the same image. After receiving the tool response image, continue reasoning step "
-        "by step based on that tool image and then give the final numeric answer."
+        "tool call for SAM3_Segment_Tool with image_path set to the same image and prompt set "
+        "EXACTLY to 'children' (single noun only; do not write an instruction sentence). "
+        "After receiving the tool response image, continue reasoning step by step based on that "
+        "tool image and then give the final numeric answer."
     )
 
     use_notebook_image_input = os.getenv("USE_NOTEBOOK_IMAGE_INPUT", "1") not in {"0", "false", "False"}
