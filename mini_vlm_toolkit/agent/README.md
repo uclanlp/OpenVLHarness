@@ -36,7 +36,12 @@ python examples/ad-hoc_ex_for_dev/base_agent_with_tools_chat_example.py
 python examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example.py
 ```
 
-3. Dataset run through benchmark entrypoint:
+3. Image registry lifecycle walkthrough (IDs, rewrites, and tool-output image refs):
+```bash
+cat examples/ad-hoc_ex_for_dev/IMAGE_REGISTRY_WALKTHROUGH.md
+```
+
+4. Dataset run through benchmark entrypoint:
 ```bash
 python run_benchmark.py --config configs/base_agent_with_tools.yaml --data MMStar --num_proc 4
 ```
@@ -68,7 +73,7 @@ Notes:
 ### Key runtime controls
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.
 - `tool_list`: limit to a tool subset.
-- `prompt_version`: `"v1"` (default) or `"v2"` prompt templates.
+- `prompt_version`: `"v1"` (class default) or `"v2"` prompt templates. `configs/base_agent_with_tools.yaml` currently sets `"v2"`.
 - `max_iterations`: cap tool loop turns.
 - `extra_body`: pass provider-specific fields to chat/completions.
 - `debug_tool_loop`: print compact per-turn execution traces.
