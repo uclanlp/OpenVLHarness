@@ -74,6 +74,7 @@ Notes:
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.
 - `tool_list`: limit to a tool subset.
 - `prompt_version`: `"v1"` (class default) or `"v2"` prompt templates. `configs/base_agent_with_tools.yaml` currently sets `"v2"`.
+- `reasoning_effort`: optional GPT-5 reasoning knob (`"minimal"`, `"low"`, `"medium"`, `"high"`), applied on OpenAI endpoints.
 - `runtime_environment_hooks`: runtime hook list, default `["image"]`.
 - `runtime_environment_emit_policy`: image hook emit policy, default `"always"` (`"on_change"` is also supported).
 - `max_iterations`: cap tool loop turns.

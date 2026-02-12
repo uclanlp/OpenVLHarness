@@ -58,6 +58,7 @@ class BaseAgent:
                  temperature: float = 0.0,
                  top_p: float = 1.0,
                  repetition_penalty: float = 1.0,
+                 reasoning_effort: Optional[str] = None,
                  retry: int = 3,
                  verbose: bool = False,
                  **kwargs):
@@ -74,6 +75,7 @@ class BaseAgent:
         self.temperature = temperature
         self.top_p = top_p
         self.repetition_penalty = repetition_penalty
+        self.reasoning_effort = reasoning_effort
         self.retry = retry
         self.verbose = verbose
         self.wait = 1.0  # wait time between retries
@@ -85,11 +87,30 @@ class BaseAgent:
             "top_p": self.top_p,
             "repetition_penalty": self.repetition_penalty,
         })
+        if self.reasoning_effort is not None:
+            self.default_kwargs["reasoning_effort"] = self.reasoning_effort
 
         # check if server is reachable
-        response = requests.get(base + "/v1/models", timeout=20)
+        models_url = f"{self.base.rstrip('/')}/v1/models"
+        health_headers = {"Content-Type": "application/json"}
+        key_text = str(self.key or "").strip()
+        if key_text and key_text.lower() not in {"empty", "none", "null"}:
+            health_headers["Authorization"] = f"Bearer {key_text}"
+        try:
+            response = requests.get(models_url, headers=health_headers, timeout=20)
+        except Exception as exc:
+            raise ConnectionError(
+                f"Unable to connect to the server at {self.base}. "
+                f"Health check request failed: {exc}"
+            ) from exc
         if response.status_code != 200:
-            raise ConnectionError(f"Unable to connect to the server at {base}. Please check the server status.")
+            detail = (response.text or "").strip().replace("\n", " ")
+            if len(detail) > 240:
+                detail = f"{detail[:240]}..."
+            raise ConnectionError(
+                f"Unable to connect to the server at {self.base}. "
+                f"GET /v1/models returned {response.status_code}. {detail}"
+            )
         
         self.logger.info(f"Evaluating with model: {self.model}")
         self.logger.info(f"Sampling params: max_tokens={self.max_tokens}, temperature={self.temperature}, top_p={self.top_p}, repetition_penalty={self.repetition_penalty}")

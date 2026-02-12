@@ -4,6 +4,13 @@ Optional integration-style example for image tool responses in BaseAgentWithTool
 Prereqs:
 - Tool server at TOOL_SERVER_URL (default: http://127.0.0.1:8101) with SAM3_Segment_Tool enabled.
 - Qwen3-VL OpenAI-compatible server at MODEL_BASE_URL (default: http://127.0.0.1:8222).
+
+OpenAI quick start:
+- export MODEL_BASE_URL="https://api.openai.com"
+- export MODEL_NAME="gpt-5-mini"
+- export MODEL_API_KEY="YOUR_OPENAI_API_KEY"
+- export TOOL_SERVER_URL="http://127.0.0.1:8101"
+- python examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example.py
 """
 
 import json

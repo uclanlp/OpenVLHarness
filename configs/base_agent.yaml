@@ -19,5 +19,6 @@ agent_kwargs:
   # tool_choice: "auto"
   # tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "SAM3_Segment_Tool"]
   # prompt_version: "v1"  # optional: "v1" or "v2"
+  # reasoning_effort: "medium"  # optional OpenAI GPT-5 knob
   # runtime_environment_hooks: ["image"]  # default: ["image"], set [] to disable
   # runtime_environment_emit_policy: "always"  # "always" (default) or "on_change"
