@@ -17,5 +17,7 @@ agent_kwargs:
   tool_choice: "auto"  # default: "auto". Can be "none" or {"type":"function","function":{"name":"ToolName"}}
   tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "SAM3_Segment_Tool"]
   prompt_version: "v2"  # default in this config: "v2". Set "v1" to use the original prompt template.
+  runtime_environment_hooks: ["image"]  # default: ["image"]. Set [] to disable runtime environment updates.
+  runtime_environment_emit_policy: "always"  # "always" (default) or "on_change"
   extra_body: {}  # optional provider-specific fields forwarded to chat/completions
   max_iterations: 15

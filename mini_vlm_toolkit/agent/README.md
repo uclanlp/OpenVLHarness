@@ -22,7 +22,7 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - Loads tool metadata from tool server (`/tools`, `/jsonschema`).
 - Calls model with `tools` and `tool_choice`.
 - Reads native assistant `tool_calls`, executes each call via tool server `/execute`.
-- Appends tool outputs back as `role=tool` messages and continues until final answer.
+- Appends tool outputs back as `role=tool` messages, then appends runtime Environment Update `role=user` messages, and continues until final answer.
 - Stores debug traces in `last_run_messages` and `last_chat_history`.
 
 ## 3. Example Usage
@@ -65,7 +65,7 @@ Notes:
 - Tool messages are fed back to the model until a non-tool final answer is returned.
 
 ### Image-related special handling
-- Input images are registered as runtime IDs (for example `input_image_1`) and surfaced in system prompt.
+- Input images are registered as runtime IDs (for example `input_image_1`) and surfaced in Environment Update user messages.
 - If a tool arg uses `*_image_path`, agent tries to resolve it to runtime image data and rewrites to `*_image_base64`.
 - Unresolvable image references return structured `unresolved_image_reference` errors instead of silent failure.
 - Base64 image outputs from tools are extracted into multimodal tool messages and tracked as reusable image refs.
@@ -74,6 +74,8 @@ Notes:
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.
 - `tool_list`: limit to a tool subset.
 - `prompt_version`: `"v1"` (class default) or `"v2"` prompt templates. `configs/base_agent_with_tools.yaml` currently sets `"v2"`.
+- `runtime_environment_hooks`: runtime hook list, default `["image"]`.
+- `runtime_environment_emit_policy`: image hook emit policy, default `"always"` (`"on_change"` is also supported).
 - `max_iterations`: cap tool loop turns.
 - `extra_body`: pass provider-specific fields to chat/completions.
 - `debug_tool_loop`: print compact per-turn execution traces.
@@ -81,5 +83,5 @@ Notes:
 ### Known pitfalls and guardrails
 - Model endpoint must support native `tool_calls`; text-formatted pseudo-calls are not used.
 - Tool server must expose `/tools`, `/jsonschema`, and `/execute`.
-- Do not hardcode image filenames in prompts; use runtime image IDs.
+- Do not hardcode image filenames in prompts; use runtime image IDs from Environment Update messages.
 - Check tool response `ok/error/meta` before trusting results.

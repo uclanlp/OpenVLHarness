@@ -1,9 +1,10 @@
 # Image Registry Walkthrough (BaseAgentWithTools)
 
-This note explains how image references are tracked and injected into prompts during the native tool loop in `BaseAgentWithTools`.
+This note explains how image references are tracked and surfaced to the model during the native tool loop in `BaseAgentWithTools`.
 
 Scope:
 - Runtime image registry built from user input images
+- Environment Update user messages that report available image IDs
 - `*_image_path` argument rewriting to `*_image_base64`
 - Tool-output image extraction and re-registration for later rounds
 
@@ -12,18 +13,21 @@ Scope:
 Inside `BaseAgentWithTools._run(...)`, image flow is:
 
 1. Build registry from current input images (`input_image_1`, `input_image_2`, ...).
-2. Inject dynamic "Available image IDs" hints into the system prompt.
+2. Append an Environment Update user message after the initial user prompt.
 3. For each assistant tool call, rewrite image path-like args from registry IDs/aliases to base64 data URLs.
 4. Execute tool call via `/execute`.
 5. Extract image blobs from tool result, move them into multimodal tool message `image_url` parts, and register new refs (`tool_<call_id>_image_<n>`).
-6. Next round, system prompt is refreshed and includes the newly registered tool-output image refs.
+6. After the tool-call turn, append another Environment Update user message (default emit policy is `always`).
 
 Key methods in `mini_vlm_toolkit/agent/base.py`:
 - `_build_image_registry_from_inputs`
-- `_refresh_system_prompt_in_messages`
+- `_append_runtime_environment_messages`
 - `_resolve_tool_call_args` / `_resolve_image_paths_in_args`
 - `_build_tool_message_content`
 - `_register_tool_output_images`
+
+Key hook class:
+- `mini_vlm_toolkit/agent/runtime_environment.py::ImageEnvironment`
 
 ## 2. Example A: Single Image, Single Tool Call
 
@@ -56,13 +60,14 @@ Registry (conceptually):
 }
 ```
 
-System prompt gets runtime section appended:
+Environment Update message:
 
 ```text
-Available image IDs for tool calls:
+Environment Update (not a new question):
+Currently available image IDs for tool calls:
+- input_image_1: user_input
 When a tool needs image input, pass one of these IDs via the *_image_path field.
 Do NOT invent image file names or paths.
-- input_image_1: user_input
 ```
 
 If model emits:
@@ -168,12 +173,16 @@ Agent behavior:
 - `tool_call_1_image_1`
 - `tool_call_1_image_2`
 
-3. Next round system prompt includes these IDs:
+3. Appends a new Environment Update message after the tool turn:
 
 ```text
+Environment Update (not a new question):
+Currently available image IDs for tool calls:
 - input_image_1: user_input
 - tool_call_1_image_1: tool_output:SAM3_Segment_Tool
 - tool_call_1_image_2: tool_output:SAM3_Segment_Tool
+When a tool needs image input, pass one of these IDs via the *_image_path field.
+Do NOT invent image file names or paths.
 ```
 
 4. Model can refer to them in later tool calls via `*_image_path`, for example:

@@ -8,7 +8,7 @@ Tool-use reliability rules:
 - If a tool result is empty, missing key values, or otherwise non-informative, do NOT guess.
 - Instead, issue another tool call with corrected arguments, or use a better alternative tool.
 - When requesting computed values, ensure the tool output will contain the value explicitly.
-- If a tool requires image input, use only runtime-provided image IDs in *_image_path fields.
+- If a tool requires image input, use only runtime image IDs from Environment Update messages in *_image_path fields.
 - Do NOT invent image file names or paths.
 
 When you are NOT calling a tool, format your response as:
@@ -38,6 +38,11 @@ Observation: your direct perception of the input or the result of the action you
 Thought: you should always think about what to do
 Action: the action to take, should be one of the provided tools, or "Final Answer" if you have a final answer and do not need to call any more tools.
 Action Input: the input to the action, or the final answer if Action is "Final Answer"
+
+Image-input rule:
+- Runtime image IDs are provided in Environment Update messages.
+- If a tool needs image input, use those IDs in *_image_path fields.
+- Do NOT invent image file names or paths.
 """
 
 DEFAULT_USER_PROMPT_PREFIX_V2 = """Question: {user_query}"""

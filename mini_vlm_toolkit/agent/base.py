@@ -12,6 +12,7 @@ from .constant import (
     DEFAULT_USER_PROMPT_PREFIX_V1,
     DEFAULT_USER_PROMPT_PREFIX_V2,
 )
+from .runtime_environment import RuntimeEnvironmentHook, ImageEnvironment
 from ..utils.api_utils import (
     chat_completion_request,
     filter_kwargs_for_endpoint,
@@ -360,6 +361,7 @@ class BaseAgent:
 class BaseAgentWithTools(BaseAgent):
     _DROP_VALUE = object()
     _ALLOWED_PROMPT_VERSIONS = ("v1", "v2")
+    _ALLOWED_RUNTIME_ENV_EMIT_POLICIES = ("always", "on_change")
     _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
     _IMAGE_RESULT_KEY_HINTS = (
         "all_masks_viz_base64",
@@ -380,6 +382,8 @@ class BaseAgentWithTools(BaseAgent):
                 tool_list = None,
                 tool_choice: Any = "auto",
                 prompt_version: str = "v1",
+                runtime_environment_hooks: Optional[List[Any]] = None,
+                runtime_environment_emit_policy: str = "always",
                 max_iterations: int = 15, 
                 **kwargs):
         super().__init__(**kwargs)
@@ -389,6 +393,12 @@ class BaseAgentWithTools(BaseAgent):
             raise ValueError(
                 f"Invalid prompt_version '{prompt_version}'. "
                 f"Expected one of: {self._ALLOWED_PROMPT_VERSIONS}."
+            )
+        self.runtime_environment_emit_policy = str(runtime_environment_emit_policy).strip().lower()
+        if self.runtime_environment_emit_policy not in self._ALLOWED_RUNTIME_ENV_EMIT_POLICIES:
+            raise ValueError(
+                f"Invalid runtime_environment_emit_policy '{runtime_environment_emit_policy}'. "
+                f"Expected one of: {self._ALLOWED_RUNTIME_ENV_EMIT_POLICIES}."
             )
         self.tools = _get_json(self.tool_base, "/tools")
         if not isinstance(self.tools, dict):
@@ -415,6 +425,7 @@ class BaseAgentWithTools(BaseAgent):
         self._image_registry = {}
         self._image_alias_to_ref = {}
         self._image_url_to_ref = {}
+        self.runtime_environment_hooks = self._build_runtime_environment_hooks(runtime_environment_hooks)
         self._augment_image_path_schema_descriptions()
 
     def _get_prompt_templates(self) -> tuple[str, str]:
@@ -430,7 +441,7 @@ class BaseAgentWithTools(BaseAgent):
     def _augment_image_path_schema_descriptions(self) -> None:
         if not isinstance(self.json_schema, list):
             return
-        suffix = " You may pass a runtime image ID from 'Available image IDs' instead of a filesystem path."
+        suffix = " You may pass a runtime image ID from Environment Update messages instead of a filesystem path."
         for entry in self.json_schema:
             if not isinstance(entry, dict):
                 continue
@@ -447,6 +458,132 @@ class BaseAgentWithTools(BaseAgent):
                     desc = spec.get("description", "")
                     if suffix.strip() not in str(desc):
                         spec["description"] = f"{desc}{suffix}".strip()
+
+    def _build_runtime_environment_hooks(self, hook_specs: Optional[List[Any]]) -> List[RuntimeEnvironmentHook]:
+        specs = hook_specs
+        if specs is None:
+            specs = ["image"]
+        elif isinstance(specs, (str, RuntimeEnvironmentHook, dict)):
+            specs = [specs]
+        elif not isinstance(specs, list):
+            raise ValueError(
+                "runtime_environment_hooks must be null, a hook name, a hook object, "
+                "a hook config dict, or a list of these values."
+            )
+
+        hooks: List[RuntimeEnvironmentHook] = []
+        for spec in specs:
+            hook = self._build_single_runtime_environment_hook(spec)
+            if hook is not None:
+                hooks.append(hook)
+        return hooks
+
+    def _build_single_runtime_environment_hook(self, spec: Any) -> Optional[RuntimeEnvironmentHook]:
+        if isinstance(spec, RuntimeEnvironmentHook):
+            return spec
+
+        options: Dict[str, Any] = {}
+        if isinstance(spec, dict):
+            name = spec.get("name")
+            if "kwargs" in spec and isinstance(spec.get("kwargs"), dict):
+                options.update(spec["kwargs"])
+            for key, value in spec.items():
+                if key not in {"name", "kwargs"}:
+                    options[key] = value
+        else:
+            name = spec
+
+        if not isinstance(name, str):
+            raise ValueError(
+                f"Invalid runtime environment hook spec '{spec}'. "
+                "Expected string name, hook object, or dict with a 'name' field."
+            )
+
+        hook_name = name.strip().lower()
+        if hook_name in {"", "none", "off", "disabled"}:
+            return None
+
+        if hook_name == "image":
+            emit_policy = options.get("emit_policy", self.runtime_environment_emit_policy)
+            return ImageEnvironment(emit_policy=emit_policy)
+
+        raise ValueError(
+            f"Unknown runtime environment hook '{name}'. Supported hooks: ['image']."
+        )
+
+    def _reset_runtime_environment_hooks(self) -> None:
+        hooks = getattr(self, "runtime_environment_hooks", [])
+        if not isinstance(hooks, list):
+            return
+        for hook in hooks:
+            reset = getattr(hook, "reset", None)
+            if callable(reset):
+                reset()
+
+    def _run_runtime_environment_hook_stage(
+        self,
+        stage: str,
+        *,
+        msgs: List[Dict[str, Any]],
+        question: Any = None,
+        turn_idx: Optional[int] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        tool_payloads: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        hooks = getattr(self, "runtime_environment_hooks", [])
+        if not isinstance(hooks, list):
+            return out
+
+        for hook in hooks:
+            produced = []
+            if stage == "after_initial_user_message":
+                produced = hook.after_initial_user_message(
+                    agent=self,
+                    question=question,
+                    messages=msgs,
+                )
+            elif stage == "after_tool_turn":
+                produced = hook.after_tool_turn(
+                    agent=self,
+                    turn_idx=turn_idx if turn_idx is not None else -1,
+                    tool_calls=tool_calls or [],
+                    tool_payloads=tool_payloads or [],
+                    messages=msgs,
+                )
+            if isinstance(produced, dict):
+                produced = [produced]
+            if not isinstance(produced, list):
+                continue
+            for message in produced:
+                if (
+                    isinstance(message, dict)
+                    and message.get("role") == "user"
+                    and isinstance(message.get("content"), str)
+                ):
+                    out.append(message)
+        return out
+
+    def _append_runtime_environment_messages(
+        self,
+        stage: str,
+        *,
+        msgs: List[Dict[str, Any]],
+        question: Any = None,
+        turn_idx: Optional[int] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        tool_payloads: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        env_messages = self._run_runtime_environment_hook_stage(
+            stage,
+            msgs=msgs,
+            question=question,
+            turn_idx=turn_idx,
+            tool_calls=tool_calls,
+            tool_payloads=tool_payloads,
+        )
+        if env_messages:
+            msgs.extend(env_messages)
 
     def _normalize_image_alias(self, alias: str) -> str:
         if not isinstance(alias, str):
@@ -547,32 +684,6 @@ class BaseAgentWithTools(BaseAgent):
                     self._image_registry[registered]["aliases"].add(alias)
 
         return self._image_registry
-
-    def _build_image_registry_system_prompt(self) -> str:
-        if not self._image_registry:
-            return ""
-        lines = [
-            "Available image IDs for tool calls:",
-            "When a tool needs image input, pass one of these IDs via the *_image_path field.",
-            "Do NOT invent image file names or paths.",
-        ]
-        for ref_id, entry in self._image_registry.items():
-            source = entry.get("source", "runtime")
-            lines.append(f"- {ref_id}: {source}")
-        return "\n".join(lines)
-
-    def _refresh_system_prompt_in_messages(self, msgs) -> None:
-        """Ensure the first message is a system prompt with dynamic image-ID hints."""
-        dynamic = self._build_image_registry_system_prompt()
-        system_content = self.system_prompt
-        if dynamic:
-            system_content = f"{self.system_prompt}\n\n{dynamic}"
-
-        if msgs and isinstance(msgs[0], dict) and msgs[0].get("role") == "system":
-            msgs[0]["content"] = system_content
-            return
-
-        msgs.insert(0, {"role": "system", "content": system_content})
 
     def _resolve_registry_image_data_url(self, image_ref: str):
         """Resolve an image reference into data URL + optional matched metadata."""
@@ -1138,18 +1249,22 @@ class BaseAgentWithTools(BaseAgent):
         elif runtime_tools is not None and debug_tool_loop:
             self.logger.info("[ToolLoop] Ignoring non-list runtime tools override; using agent tool schema.")
 
+        self._reset_runtime_environment_hooks()
         self._build_image_registry_from_inputs(question)
         msgs = self.prepare_inputs(question)
         # add available tools to user prompt
         msgs = self._add_user_prompt_prefix(msgs)
-        self._refresh_system_prompt_in_messages(msgs)
+        self._append_runtime_environment_messages(
+            "after_initial_user_message",
+            msgs=msgs,
+            question=question,
+        )
 
         # Use this for debugging the input messages
         # pretty_print_msgs(msgs)
         chat_history = []
         final_answer = None
         for i in range(self.max_iterations):
-            self._refresh_system_prompt_in_messages(msgs)
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
             if i == self.max_iterations - 1:
@@ -1316,6 +1431,13 @@ class BaseAgentWithTools(BaseAgent):
                     msgs.append(tool_message)
                     turn_info["tool_responses"].append(normalized_payload)
 
+                self._append_runtime_environment_messages(
+                    "after_tool_turn",
+                    msgs=msgs,
+                    turn_idx=i,
+                    tool_calls=native_tool_calls,
+                    tool_payloads=turn_info["tool_responses"],
+                )
                 chat_history.append(turn_info)
                 self.last_run_messages = cp.deepcopy(msgs)
                 self.last_chat_history = cp.deepcopy(chat_history)

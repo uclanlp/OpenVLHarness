@@ -51,6 +51,7 @@ sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
 import mini_vlm_toolkit.agent.base as base_module
 from mini_vlm_toolkit.agent.base import BaseAgentWithTools
+from mini_vlm_toolkit.agent.runtime_environment import ImageEnvironment
 
 
 class _DummyAgent(BaseAgentWithTools):
@@ -83,10 +84,15 @@ def _build_agent():
     agent.max_iterations = 3
     agent.tool_choice = "auto"
     agent.system_prompt = agent._construct_system_message()
+    agent.runtime_environment_emit_policy = "always"
+    agent.runtime_environment_hooks = [ImageEnvironment(emit_policy="always")]
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
     agent.default_kwargs = {}
+    agent._image_registry = {}
+    agent._image_alias_to_ref = {}
+    agent._image_url_to_ref = {}
     return agent
 
 
@@ -248,6 +254,18 @@ def test_native_tool_call_image_result_recursive_extraction():
             assert tool_msg["name"] == "Image_Tool"
             assert isinstance(tool_msg["content"], list)
 
+            env_updates = [
+                m["content"]
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+                and m["content"].startswith("Environment Update")
+            ]
+            assert env_updates
+            latest_update = env_updates[-1]
+            assert "tool_call_img_1_image_1" in latest_update
+            assert "tool_output:Image_Tool" in latest_update
+
             content_parts = tool_msg["content"]
             assert content_parts[0]["type"] == "text"
             image_parts = [p for p in content_parts[1:] if p.get("type") == "image_url"]
@@ -369,9 +387,15 @@ def test_native_tool_call_resolves_hallucinated_image_path():
         messages = kwargs["messages"]
 
         if state["chat_calls"] == 1:
-            system_text = messages[0]["content"]
-            assert "Available image IDs for tool calls" in system_text
-            assert "input_image_1" in system_text
+            env_updates = [
+                m["content"]
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+                and m["content"].startswith("Environment Update")
+            ]
+            assert env_updates
+            assert "input_image_1" in env_updates[-1]
             return {
                 "choices": [
                     {
