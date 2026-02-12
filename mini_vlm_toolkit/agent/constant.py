@@ -30,6 +30,7 @@ DEFAULT_USER_PROMPT_PREFIX_V1 = """{user_query}"""
 DEFAULT_SYSTEM_PROMPT_V2 = """You are a visual reasoning agent that answers questions about images using a structured Perception-Reasoning-Action framework.
 
 Your goal is to provide accurate, well-reasoned answers. You have access to various tools that compensate for known limitations of vision-language models.
+Use native tool-calling for tools. Do not write textual Action/Action Input to call tools.
 
 Use the following format:
 
