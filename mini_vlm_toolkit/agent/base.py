@@ -1188,8 +1188,10 @@ class BaseAgentWithTools(BaseAgent):
             except Exception:
                 content = str(content)
 
+        prompt_version = str(getattr(self, "prompt_version", "v1")).strip().lower()
+
         # Support v2 "Action: Final Answer" + "Action Input:" response style.
-        if str(getattr(self, "prompt_version", "v1")).strip().lower() == "v2":
+        if prompt_version == "v2":
             action_match = re.search(
                 r"^\s*Action\s*:\s*Final\s*Answer\s*$",
                 content,
@@ -1209,13 +1211,24 @@ class BaseAgentWithTools(BaseAgent):
                     trailing = tail[action_input_match.end():].strip()
                     if trailing:
                         return trailing
+                    return ""
+
+            v2_scaffold_line = r"^\s*(Question|Observation|Thought|Action|Action\s+Input)\s*:\s*.*$"
+            if re.search(v2_scaffold_line, content, flags=re.IGNORECASE | re.MULTILINE):
+                non_scaffold = re.sub(v2_scaffold_line, "", content, flags=re.IGNORECASE | re.MULTILINE).strip()
+                if not non_scaffold:
+                    return ""
 
         cleaned = re.sub(r"<perception>.*?</perception>", "", content, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
         cleaned = cleaned.strip()
         if cleaned.lower().startswith("final answer:"):
             cleaned = cleaned.split(":", 1)[1].strip()
-        return cleaned or content.strip()
+        if cleaned:
+            return cleaned
+        if re.search(r"</?\s*(perception|thinking)\s*>", content, flags=re.IGNORECASE):
+            return ""
+        return content.strip()
 
     def _truncate_for_debug(self, value: Any, max_chars: int = 280) -> str:
         try:

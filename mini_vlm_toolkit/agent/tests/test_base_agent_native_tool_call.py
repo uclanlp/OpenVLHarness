@@ -1034,6 +1034,75 @@ def test_extract_final_answer_from_v2_action_input():
     assert answer == "There are three dogs on the beach."
 
 
+def test_extract_final_answer_from_v1_scaffold_only_returns_empty():
+    agent = _build_agent()
+    content = (
+        "<perception>I see multiple objects in the scene.</perception>\n"
+        "<thinking>I should call a tool for exact counting.</thinking>"
+    )
+    answer = agent._extract_final_answer_from_content(content)
+    assert answer == ""
+
+
+def test_extract_final_answer_from_v2_scaffold_only_returns_empty():
+    agent = _build_agent()
+    agent.prompt_version = "v2"
+    content = (
+        "Question: How many objects are there?\n"
+        "Observation: I can partially see the objects.\n"
+        "Thought: I should use a counting tool."
+    )
+    answer = agent._extract_final_answer_from_content(content)
+    assert answer == ""
+
+
+def test_run_continues_after_v1_scaffold_only_response():
+    agent = _build_agent()
+    state = {"chat_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I can see the scene, but need more evidence.</perception>\n"
+                                "<thinking>I should reason a bit more before answering.</thinking>"
+                            ),
+                        }
+                    }
+                ]
+            }
+        if state["chat_calls"] == 2:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Final answer: 42",
+                        }
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Please solve it."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert state["chat_calls"] == 2
+    assert answer == "42"
+    assert len(chat_history) == 2
+    assert chat_history[0]["final_answer"] == ""
+    assert chat_history[1]["final_answer"] == "42"
+
+
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
@@ -1051,6 +1120,9 @@ if __name__ == "__main__":
     test_normalize_execute_payload_strict_ok_parsing()
     test_prompt_version_v2_prefix_and_system_prompt()
     test_extract_final_answer_from_v2_action_input()
+    test_extract_final_answer_from_v1_scaffold_only_returns_empty()
+    test_extract_final_answer_from_v2_scaffold_only_returns_empty()
+    test_run_continues_after_v1_scaffold_only_response()
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
@@ -1067,3 +1139,6 @@ if __name__ == "__main__":
     print("PASS: test_normalize_execute_payload_strict_ok_parsing")
     print("PASS: test_prompt_version_v2_prefix_and_system_prompt")
     print("PASS: test_extract_final_answer_from_v2_action_input")
+    print("PASS: test_extract_final_answer_from_v1_scaffold_only_returns_empty")
+    print("PASS: test_extract_final_answer_from_v2_scaffold_only_returns_empty")
+    print("PASS: test_run_continues_after_v1_scaffold_only_response")
