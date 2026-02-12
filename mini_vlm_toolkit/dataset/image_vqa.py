@@ -1284,6 +1284,8 @@ class LogicVista(ImageBaseDataset):
             'gpt-4o-mini': 'gpt4o-mini'
         }
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None

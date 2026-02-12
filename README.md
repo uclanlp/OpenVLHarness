@@ -37,7 +37,8 @@ Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
 2. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (that example config currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`).
 3. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
+4. If you want to use LLM as Judge, define your judge config in `configs/judge.yaml` and specify the model and parameters you want to use. If no judge config is provided, the benchmark will use exact matching as the default judge.
 ```
-python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 
 ```
 Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
