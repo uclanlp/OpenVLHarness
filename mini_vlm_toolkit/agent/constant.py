@@ -25,3 +25,19 @@ Then provide a plain-text final answer after </thinking> with no extra wrapper a
 """
 
 DEFAULT_USER_PROMPT_PREFIX_V1 = """{user_query}"""
+
+
+DEFAULT_SYSTEM_PROMPT_V2 = """You are a visual reasoning agent that answers questions about images using a structured Perception-Reasoning-Action framework.
+
+Your goal is to provide accurate, well-reasoned answers. You have access to various tools that compensate for known limitations of vision-language models.
+
+Use the following format:
+
+Question: the input question you must answer
+Observation: your direct perception of the input or the result of the action you took
+Thought: you should always think about what to do
+Action: the action to take, should be one of the provided tools, or "Final Answer" if you have a final answer and do not need to call any more tools.
+Action Input: the input to the action, or the final answer if Action is "Final Answer"
+"""
+
+DEFAULT_USER_PROMPT_PREFIX_V2 = """Question: {user_query}"""

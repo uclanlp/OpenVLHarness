@@ -985,6 +985,31 @@ def test_normalize_execute_payload_strict_ok_parsing():
     assert payload2["tool_call_id"] == "call_124"
 
 
+def test_prompt_version_v2_prefix_and_system_prompt():
+    agent = _build_agent()
+    agent.prompt_version = "v2"
+    agent.system_prompt = agent._construct_system_message()
+
+    assert "Use the following format" in agent.system_prompt
+    msgs = [{"role": "user", "content": "Count the objects."}]
+    updated = agent._add_user_prompt_prefix(msgs)
+    assert updated[-1]["content"] == "Question: Count the objects."
+
+
+def test_extract_final_answer_from_v2_action_input():
+    agent = _build_agent()
+    agent.prompt_version = "v2"
+    content = (
+        "Question: What is shown?\n"
+        "Observation: I can see the scene clearly.\n"
+        "Thought: I have enough evidence.\n"
+        "Action: Final Answer\n"
+        "Action Input: There are three dogs on the beach."
+    )
+    answer = agent._extract_final_answer_from_content(content)
+    assert answer == "There are three dogs on the beach."
+
+
 if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
@@ -1000,6 +1025,8 @@ if __name__ == "__main__":
     test_preprocess_message_with_role_no_mutation()
     test_run_returns_fail_msg_when_iterations_exhausted()
     test_normalize_execute_payload_strict_ok_parsing()
+    test_prompt_version_v2_prefix_and_system_prompt()
+    test_extract_final_answer_from_v2_action_input()
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
@@ -1014,3 +1041,5 @@ if __name__ == "__main__":
     print("PASS: test_preprocess_message_with_role_no_mutation")
     print("PASS: test_run_returns_fail_msg_when_iterations_exhausted")
     print("PASS: test_normalize_execute_payload_strict_ok_parsing")
+    print("PASS: test_prompt_version_v2_prefix_and_system_prompt")
+    print("PASS: test_extract_final_answer_from_v2_action_input")

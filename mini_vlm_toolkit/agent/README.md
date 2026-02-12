@@ -68,6 +68,7 @@ Notes:
 ### Key runtime controls
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.
 - `tool_list`: limit to a tool subset.
+- `prompt_version`: `"v1"` (default) or `"v2"` prompt templates.
 - `max_iterations`: cap tool loop turns.
 - `extra_body`: pass provider-specific fields to chat/completions.
 - `debug_tool_loop`: print compact per-turn execution traces.

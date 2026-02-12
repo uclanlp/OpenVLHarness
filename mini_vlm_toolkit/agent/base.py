@@ -6,7 +6,12 @@ import time
 import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
-from .constant import DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
+from .constant import (
+    DEFAULT_SYSTEM_PROMPT_V1,
+    DEFAULT_SYSTEM_PROMPT_V2,
+    DEFAULT_USER_PROMPT_PREFIX_V1,
+    DEFAULT_USER_PROMPT_PREFIX_V2,
+)
 from ..utils.api_utils import (
     chat_completion_request,
     filter_kwargs_for_endpoint,
@@ -354,6 +359,7 @@ class BaseAgent:
 
 class BaseAgentWithTools(BaseAgent):
     _DROP_VALUE = object()
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2")
     _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
     _IMAGE_RESULT_KEY_HINTS = (
         "all_masks_viz_base64",
@@ -373,10 +379,17 @@ class BaseAgentWithTools(BaseAgent):
                 tool_base, 
                 tool_list = None,
                 tool_choice: Any = "auto",
+                prompt_version: str = "v1",
                 max_iterations: int = 15, 
                 **kwargs):
         super().__init__(**kwargs)
         self.tool_base = tool_base
+        self.prompt_version = str(prompt_version).strip().lower()
+        if self.prompt_version not in self._ALLOWED_PROMPT_VERSIONS:
+            raise ValueError(
+                f"Invalid prompt_version '{prompt_version}'. "
+                f"Expected one of: {self._ALLOWED_PROMPT_VERSIONS}."
+            )
         self.tools = _get_json(self.tool_base, "/tools")
         if not isinstance(self.tools, dict):
             raise ConnectionError(f"Failed to get tools from {self.tool_base}/tools")
@@ -404,8 +417,15 @@ class BaseAgentWithTools(BaseAgent):
         self._image_url_to_ref = {}
         self._augment_image_path_schema_descriptions()
 
+    def _get_prompt_templates(self) -> tuple[str, str]:
+        version = str(getattr(self, "prompt_version", "v1")).strip().lower()
+        if version == "v2":
+            return DEFAULT_SYSTEM_PROMPT_V2, DEFAULT_USER_PROMPT_PREFIX_V2
+        return DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
+
     def _construct_system_message(self) -> str:
-        return DEFAULT_SYSTEM_PROMPT_V1
+        system_prompt, _ = self._get_prompt_templates()
+        return system_prompt
 
     def _augment_image_path_schema_descriptions(self) -> None:
         if not isinstance(self.json_schema, list):
@@ -709,17 +729,18 @@ class BaseAgentWithTools(BaseAgent):
         """Apply the default user prompt scaffold to the latest user text turn."""
         if not msgs or msgs[-1].get("role") != "user":
             return msgs
+        _, user_prompt_prefix = self._get_prompt_templates()
 
         last_content = msgs[-1].get("content")
         if isinstance(last_content, list):
             for item in last_content:
                 if isinstance(item, dict) and item.get("type") == "text" and "text" in item:
-                    item["text"] = DEFAULT_USER_PROMPT_PREFIX_V1.format(user_query=item["text"])
+                    item["text"] = user_prompt_prefix.format(user_query=item["text"])
                     break
         elif isinstance(last_content, str):
-            msgs[-1]["content"] = DEFAULT_USER_PROMPT_PREFIX_V1.format(user_query=last_content)
+            msgs[-1]["content"] = user_prompt_prefix.format(user_query=last_content)
         elif isinstance(last_content, dict) and "text" in last_content:
-            last_content["text"] = DEFAULT_USER_PROMPT_PREFIX_V1.format(user_query=last_content["text"])
+            last_content["text"] = user_prompt_prefix.format(user_query=last_content["text"])
         return msgs
     
     def _extract_tagged_content(self, text: str, tag: str) -> str:
@@ -1055,6 +1076,28 @@ class BaseAgentWithTools(BaseAgent):
                 content = json.dumps(content, ensure_ascii=False)
             except Exception:
                 content = str(content)
+
+        # Support v2 "Action: Final Answer" + "Action Input:" response style.
+        if str(getattr(self, "prompt_version", "v1")).strip().lower() == "v2":
+            action_match = re.search(
+                r"^\s*Action\s*:\s*Final\s*Answer\s*$",
+                content,
+                flags=re.IGNORECASE | re.MULTILINE,
+            )
+            if action_match:
+                tail = content[action_match.end():]
+                action_input_match = re.search(
+                    r"^\s*Action\s*Input\s*:\s*(.*)$",
+                    tail,
+                    flags=re.IGNORECASE | re.MULTILINE,
+                )
+                if action_input_match:
+                    inline_answer = action_input_match.group(1).strip()
+                    if inline_answer:
+                        return inline_answer
+                    trailing = tail[action_input_match.end():].strip()
+                    if trailing:
+                        return trailing
 
         cleaned = re.sub(r"<perception>.*?</perception>", "", content, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
