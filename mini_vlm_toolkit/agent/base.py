@@ -26,8 +26,12 @@ try:
     from ..smp import get_logger, encode_image_to_base64, parse_file
 except Exception:  # pragma: no cover - optional heavy deps may be missing for lightweight usage/tests.
     import base64
+    import hashlib
     import logging
+    import mimetypes
+    import tempfile
     from io import BytesIO
+    from urllib.parse import urlparse
 
     def get_logger(name):
         logger = logging.getLogger(name)
@@ -41,7 +45,68 @@ except Exception:  # pragma: no cover - optional heavy deps may be missing for l
         img.save(buffer, format="JPEG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
+    def _fallback_decode_data_url_to_file(data_url: str):
+        if not isinstance(data_url, str) or not data_url.startswith("data:"):
+            return None, data_url
+        header, sep, payload = data_url.partition(",")
+        if not sep:
+            return None, data_url
+
+        mime = header[5:].split(";", 1)[0].strip().lower()
+        if "/" not in mime:
+            return None, data_url
+
+        try:
+            if ";base64" in header.lower():
+                binary = base64.b64decode(payload)
+            else:
+                binary = payload.encode("utf-8")
+        except Exception:
+            return None, data_url
+
+        ext = mimetypes.guess_extension(mime) or ".bin"
+        if ext == ".jpe":
+            ext = ".jpg"
+        digest = hashlib.md5(payload.encode("utf-8")).hexdigest()
+        cache_dir = os.path.join(tempfile.gettempdir(), "mini_vlm_toolkit_fallback_files")
+        os.makedirs(cache_dir, exist_ok=True)
+        local_path = os.path.join(cache_dir, f"{digest}{ext}")
+        if not os.path.isfile(local_path):
+            with open(local_path, "wb") as fout:
+                fout.write(binary)
+        return mime, local_path
+
     def parse_file(value):
+        if not isinstance(value, str):
+            return None, value
+
+        s = value.strip()
+        if not s:
+            return None, value
+
+        if os.path.exists(s) and s != ".":
+            if not os.path.isfile(s):
+                return None, value
+            suffix = os.path.splitext(s)[1].lower()
+            if suffix == ".webp":
+                return ("image/webp", s)
+            mime = mimetypes.types_map.get(suffix, "unknown")
+            return (mime, s)
+
+        if s.startswith("data:image/"):
+            mime, local_path = _fallback_decode_data_url_to_file(s)
+            return mime, local_path
+
+        parsed = urlparse(s)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            suffix = os.path.splitext(parsed.path)[1].lower()
+            if suffix == ".webp":
+                return ("image/webp", s)
+            mime = mimetypes.types_map.get(suffix)
+            if mime:
+                return (mime, s)
+            return ("url", s)
+
         return None, value
 
 class BaseAgent:
