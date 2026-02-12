@@ -1234,12 +1234,8 @@ class BaseAgentWithTools(BaseAgent):
             compact_result = None
         return image_parts, compact_result
 
-    def _build_tool_message_content(self, payload: Dict[str, Any]):
-        """Build `role=tool` message content (text-only or multimodal).
-
-        Image payloads are moved into `image_url` parts and removed from the
-        text JSON to avoid duplicating large base64 blobs.
-        """
+    def _prepare_tool_message_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare compact text payload plus extracted image parts from tool output."""
         result = payload.get("result")
         image_parts, compact_result = self._extract_image_parts(result)
         image_refs = self._register_tool_output_images(payload, image_parts) if image_parts else []
@@ -1260,10 +1256,58 @@ class BaseAgentWithTools(BaseAgent):
         except Exception:
             text_payload = str(compact_payload)
 
-        if not image_parts:
-            return text_payload
+        return {
+            "text_payload": text_payload,
+            "image_parts": image_parts,
+            "image_refs": image_refs,
+        }
 
-        return [{"type": "text", "text": text_payload}] + image_parts
+    def _build_tool_message_content(
+        self,
+        payload: Dict[str, Any],
+        *,
+        prepared_payload: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Build strict text-only `role=tool` message content."""
+        prepared = prepared_payload or self._prepare_tool_message_payload(payload)
+        text_payload = prepared.get("text_payload")
+        if isinstance(text_payload, str):
+            return text_payload
+        try:
+            return json.dumps(text_payload, ensure_ascii=False)
+        except Exception:
+            return str(text_payload)
+
+    def _build_tool_image_user_message(
+        self,
+        payload: Dict[str, Any],
+        *,
+        prepared_payload: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Build optional `role=user` multimodal update carrying tool-output images."""
+        prepared = prepared_payload or self._prepare_tool_message_payload(payload)
+        image_parts = prepared.get("image_parts")
+        if not isinstance(image_parts, list) or not image_parts:
+            return None
+
+        image_refs = prepared.get("image_refs")
+        refs = image_refs if isinstance(image_refs, list) else []
+        tool_name = str(payload.get("tool_name") or "tool").strip()
+        tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
+        lines = [
+            "Environment Update (not a new question):",
+            f"Tool response images from {tool_name} (tool_call_id={tool_call_id}).",
+            "Structured tool result is in the preceding role=tool message.",
+        ]
+        if refs:
+            lines.append(f"Image refs: {', '.join(refs)}")
+        lines.append("Use these images for reasoning if helpful.")
+        lines.append("Do NOT treat this as a new question.")
+
+        return {
+            "role": "user",
+            "content": [{"type": "text", "text": "\n".join(lines)}] + image_parts,
+        }
 
     def _extract_final_answer_from_content(self, content: str) -> str:
         if content is None:
@@ -1436,6 +1480,7 @@ class BaseAgentWithTools(BaseAgent):
                 }
                 msgs.append(assistant_message)
 
+                tool_image_user_messages: List[Dict[str, Any]] = []
                 for call in native_tool_calls:
                     image_resolution = {"rewrites": [], "errors": []}
                     parse_error = call.get("parse_error")
@@ -1506,21 +1551,15 @@ class BaseAgentWithTools(BaseAgent):
                             f"[ToolLoop] result ok={normalized_payload.get('ok')} id={call['id']} error={self._truncate_for_debug(normalized_payload.get('error'), max_chars=debug_char_limit)}"
                         )
 
-                    tool_message_content = self._build_tool_message_content(normalized_payload)
+                    prepared_tool_payload = self._prepare_tool_message_payload(normalized_payload)
+                    tool_message_content = self._build_tool_message_content(
+                        normalized_payload,
+                        prepared_payload=prepared_tool_payload,
+                    )
                     if debug_tool_loop:
-                        if isinstance(tool_message_content, list):
-                            image_count = sum(
-                                1
-                                for part in tool_message_content
-                                if isinstance(part, dict) and part.get("type") == "image_url"
-                            )
-                            self.logger.info(
-                                f"[ToolLoop] tool_message multimodal parts={len(tool_message_content)} image_parts={image_count}"
-                            )
-                        else:
-                            self.logger.info(
-                                f"[ToolLoop] tool_message text={self._truncate_for_debug(tool_message_content, max_chars=debug_char_limit)}"
-                            )
+                        self.logger.info(
+                            f"[ToolLoop] tool_message text={self._truncate_for_debug(tool_message_content, max_chars=debug_char_limit)}"
+                        )
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": call["id"],
@@ -1528,7 +1567,26 @@ class BaseAgentWithTools(BaseAgent):
                         "content": tool_message_content,
                     }
                     msgs.append(tool_message)
+                    tool_image_user_message = self._build_tool_image_user_message(
+                        normalized_payload,
+                        prepared_payload=prepared_tool_payload,
+                    )
+                    if tool_image_user_message:
+                        tool_image_user_messages.append(tool_image_user_message)
                     turn_info["tool_responses"].append(normalized_payload)
+
+                if tool_image_user_messages:
+                    msgs.extend(tool_image_user_messages)
+                    if debug_tool_loop:
+                        image_count = sum(
+                            1
+                            for msg in tool_image_user_messages
+                            for part in (msg.get("content") or [])
+                            if isinstance(part, dict) and part.get("type") == "image_url"
+                        )
+                        self.logger.info(
+                            f"[ToolLoop] appended user tool-image updates={len(tool_image_user_messages)} image_parts={image_count}"
+                        )
 
                 self._append_runtime_environment_messages(
                     "after_tool_turn",

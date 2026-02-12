@@ -252,7 +252,7 @@ def test_native_tool_call_image_result_recursive_extraction():
             tool_msg = tool_msgs[-1]
             assert tool_msg["tool_call_id"] == "call_img_1"
             assert tool_msg["name"] == "Image_Tool"
-            assert isinstance(tool_msg["content"], list)
+            assert isinstance(tool_msg["content"], str)
 
             env_updates = [
                 m["content"]
@@ -266,14 +266,25 @@ def test_native_tool_call_image_result_recursive_extraction():
             assert "tool_call_img_1_image_1" in latest_update
             assert "tool_output:Image_Tool" in latest_update
 
-            content_parts = tool_msg["content"]
+            tool_image_msgs = [
+                m
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), list)
+                and any(
+                    isinstance(part, dict) and part.get("type") == "image_url"
+                    for part in m.get("content")
+                )
+            ]
+            assert tool_image_msgs
+            content_parts = tool_image_msgs[-1]["content"]
             assert content_parts[0]["type"] == "text"
-            image_parts = [p for p in content_parts[1:] if p.get("type") == "image_url"]
+            image_parts = [p for p in content_parts if isinstance(p, dict) and p.get("type") == "image_url"]
             assert len(image_parts) == 3
             assert all(p["image_url"]["url"].startswith("data:image/") for p in image_parts)
 
-            compact_payload = json.loads(content_parts[0]["text"])
-            compact_text = content_parts[0]["text"]
+            compact_payload = json.loads(tool_msg["content"])
+            compact_text = tool_msg["content"]
             assert tiny_png_b64 not in compact_text
             assert "data:image/" not in compact_text
             assert compact_payload["ok"] is True
@@ -540,16 +551,27 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
             tool_msg = tool_msgs[-1]
             assert tool_msg["tool_call_id"] == "call_img_string_1"
             assert tool_msg["name"] == "Image_String_Tool"
-            assert isinstance(tool_msg["content"], list)
+            assert isinstance(tool_msg["content"], str)
 
-            content_parts = tool_msg["content"]
+            tool_image_msgs = [
+                m
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), list)
+                and any(
+                    isinstance(part, dict) and part.get("type") == "image_url"
+                    for part in m.get("content")
+                )
+            ]
+            assert tool_image_msgs
+            content_parts = tool_image_msgs[-1]["content"]
             assert content_parts[0]["type"] == "text"
-            image_parts = [p for p in content_parts[1:] if p.get("type") == "image_url"]
+            image_parts = [p for p in content_parts if isinstance(p, dict) and p.get("type") == "image_url"]
             assert len(image_parts) == 1
             assert image_parts[0]["image_url"]["url"] == image_data_url
 
-            compact_payload = json.loads(content_parts[0]["text"])
-            compact_text = content_parts[0]["text"]
+            compact_payload = json.loads(tool_msg["content"])
+            compact_text = tool_msg["content"]
             assert tiny_png_b64 not in compact_text
             assert image_data_url not in compact_text
             assert compact_payload["ok"] is True

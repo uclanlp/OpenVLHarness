@@ -22,7 +22,9 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - Loads tool metadata from tool server (`/tools`, `/jsonschema`).
 - Calls model with `tools` and `tool_choice`.
 - Reads native assistant `tool_calls`, executes each call via tool server `/execute`.
-- Appends tool outputs back as `role=tool` messages, then appends runtime Environment Update `role=user` messages, and continues until final answer.
+- Appends structured tool outputs back as text-only `role=tool` messages.
+- If tool outputs include images, appends a separate multimodal `role=user` Environment Update-style message (short text + `image_url` parts), then continues.
+- Appends runtime Environment Update `role=user` messages and continues until final answer.
 - Stores debug traces in `last_run_messages` and `last_chat_history`.
 
 ## 3. Example Usage
@@ -68,7 +70,7 @@ Notes:
 - Input images are registered as runtime IDs (for example `input_image_1`) and surfaced in Environment Update user messages.
 - If a tool arg uses `*_image_path`, agent tries to resolve it to runtime image data and rewrites to `*_image_base64`.
 - Unresolvable image references return structured `unresolved_image_reference` errors instead of silent failure.
-- Base64 image outputs from tools are extracted into multimodal tool messages and tracked as reusable image refs.
+- Base64 image outputs from tools are extracted, tracked as reusable image refs, and surfaced via a separate multimodal `role=user` update message.
 
 ### Key runtime controls
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.

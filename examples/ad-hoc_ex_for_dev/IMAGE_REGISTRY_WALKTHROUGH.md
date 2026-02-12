@@ -16,7 +16,7 @@ Inside `BaseAgentWithTools._run(...)`, image flow is:
 2. Append an Environment Update user message after the initial user prompt.
 3. For each assistant tool call, rewrite image path-like args from registry IDs/aliases to base64 data URLs.
 4. Execute tool call via `/execute`.
-5. Extract image blobs from tool result, move them into multimodal tool message `image_url` parts, and register new refs (`tool_<call_id>_image_<n>`).
+5. Extract image blobs from tool result, keep `role=tool` content text-only, emit a separate multimodal `role=user` update message with those images, and register new refs (`tool_<call_id>_image_<n>`).
 6. After the tool-call turn, append another Environment Update user message (default emit policy is `always`).
 
 Key methods in `mini_vlm_toolkit/agent/base.py`:
@@ -24,6 +24,7 @@ Key methods in `mini_vlm_toolkit/agent/base.py`:
 - `_append_runtime_environment_messages`
 - `_resolve_tool_call_args` / `_resolve_image_paths_in_args`
 - `_build_tool_message_content`
+- `_build_tool_image_user_message`
 - `_register_tool_output_images`
 
 Key hook class:
@@ -159,21 +160,27 @@ Suppose a tool returns:
 
 Agent behavior:
 
-1. Extracts image payloads from result into multimodal message parts:
+1. Builds text-only `role=tool` payload:
+
+```json
+{"ok": true, "result": {"summary": "segmentation complete", "masks": [{}]}, "error": null, "image_refs": ["tool_call_1_image_1", "tool_call_1_image_2"]}
+```
+
+2. Emits a separate multimodal `role=user` update carrying the tool images:
 
 ```json
 [
-  {"type": "text", "text": "{\"ok\": true, \"result\": {\"summary\": \"segmentation complete\", \"masks\": [{}]}, \"error\": null, \"image_refs\": [\"tool_call_1_image_1\", \"tool_call_1_image_2\"]}"},
+  {"type": "text", "text": "Environment Update (not a new question):\nTool response images from SAM3_Segment_Tool (...)\nStructured tool result is in the preceding role=tool message.\nImage refs: tool_call_1_image_1, tool_call_1_image_2"},
   {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
   {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
 ]
 ```
 
-2. Registers reusable refs:
+3. Registers reusable refs:
 - `tool_call_1_image_1`
 - `tool_call_1_image_2`
 
-3. Appends a new Environment Update message after the tool turn:
+4. Appends a new runtime Environment Update message after the tool turn:
 
 ```text
 Environment Update (not a new question):
@@ -185,7 +192,7 @@ When a tool needs image input, pass one of these IDs via the *_image_path field.
 Do NOT invent image file names or paths.
 ```
 
-4. Model can refer to them in later tool calls via `*_image_path`, for example:
+5. Model can refer to them in later tool calls via `*_image_path`, for example:
 
 ```json
 {"image_path": "tool_call_1_image_1", "prompt": "count children"}

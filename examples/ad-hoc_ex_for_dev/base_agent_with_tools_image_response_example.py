@@ -161,15 +161,33 @@ def main():
     if chat_history and chat_history[0].get("tool_responses"):
         payload = chat_history[0]["tool_responses"][0]
         tool_msg_content = agent._build_tool_message_content(payload)
-        if isinstance(tool_msg_content, list):
-            image_count = sum(1 for part in tool_msg_content if part.get("type") == "image_url")
-            text_preview = tool_msg_content[0].get("text", "")
-            print("Tool message content type: multimodal")
+        print("Tool message content type: text")
+        print("Text payload preview:", str(tool_msg_content)[:300])
+        tool_image_msgs = [
+            m
+            for m in (agent.last_run_messages or [])
+            if m.get("role") == "user"
+            and isinstance(m.get("content"), list)
+            and any(isinstance(part, dict) and part.get("type") == "image_url" for part in m.get("content"))
+        ]
+        if tool_image_msgs:
+            latest_msg = tool_image_msgs[-1]
+            image_count = sum(
+                1
+                for part in latest_msg.get("content", [])
+                if isinstance(part, dict) and part.get("type") == "image_url"
+            )
+            first_text = next(
+                (
+                    str(part.get("text", ""))
+                    for part in latest_msg.get("content", [])
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ),
+                "",
+            )
+            print("Tool image handoff role: user")
             print("Image parts:", image_count)
-            print("Text payload preview:", text_preview[:300])
-        else:
-            print("Tool message content type: text")
-            print("Text payload preview:", str(tool_msg_content)[:300])
+            print("User update preview:", first_text[:300])
 
     _print_chat_history(chat_history)
     _print_message_flow(agent.last_run_messages)
