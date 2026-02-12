@@ -1296,13 +1296,11 @@ class BaseAgentWithTools(BaseAgent):
         tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
         lines = [
             "Environment Update (not a new question):",
-            f"Tool response images from {tool_name} (tool_call_id={tool_call_id}).",
-            "Structured tool result is in the preceding role=tool message.",
+            f"Tool `{tool_name}` (tool_call_id={tool_call_id}) also returned the following image(s).",
+            "See the preceding role=tool message for structured output.",
         ]
         if refs:
             lines.append(f"Image refs: {', '.join(refs)}")
-        lines.append("Use these images for reasoning if helpful.")
-        lines.append("Do NOT treat this as a new question.")
 
         return {
             "role": "user",
