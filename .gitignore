@@ -217,6 +217,7 @@ __marimo__/
 
 # vscode
 .vscode/
+outputs/
 
 # Tool API keys
 mini_vlm_toolkit/tool_infra/src/tools/serpapi_image_search/serpapi_api_key
