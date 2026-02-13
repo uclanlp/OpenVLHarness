@@ -2,6 +2,8 @@
 
 import os
 import warnings
+
+import pandas as pd
 import torch
 import torch.distributed as dist
 from .utils import track_progress_rich
@@ -65,8 +67,33 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     gen_func = model.generate
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
+    # When PRED_FORMAT=json: incremental append to result JSON file (one record per line)
+    incremental_kw = {}
+    if os.environ.get('PRED_FORMAT', '').lower() == 'json':
+        result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
+        incremental_kw['incremental_json_file'] = result_file
+        index_to_row = {idx: data[data['index'] == idx].iloc[0].to_dict() for idx in indices}
+        def _record_builder(key, result):
+            pred = result if isinstance(result, str) else (result.get('prediction', result) if isinstance(result, dict) else str(result))
+            return {**index_to_row.get(key, {}), 'prediction': pred}
+        incremental_kw['incremental_record_builder'] = _record_builder
+        # Pre-populate with cached results so file reflects all completed so far
+        if res:
+            import json
+            from .smp.file import NumpyEncoder
+            # Use full dataset for lookup (res may contain indices not in current data's index_set)
+            data_full = dataset.data
+            with open(result_file, 'w', encoding='utf-8') as f:
+                for idx in sorted(res.keys(), key=str):
+                    matched = data_full[data_full['index'] == idx]
+                    if len(matched) == 0:
+                        continue
+                    row = matched.iloc[0].to_dict()
+                    row['prediction'] = res[idx] if isinstance(res[idx], str) else (res[idx].get('prediction', res[idx]) if isinstance(res[idx], dict) else str(res[idx]))
+                    f.write(json.dumps(row, ensure_ascii=False, cls=NumpyEncoder) + '\n')
+
     if len(structs):
-        track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
+        track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices, **incremental_kw)
 
     res = load(out_file)
     if index_set is not None:
@@ -92,8 +119,21 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         The model object
     """
     dataset_name = dataset.dataset_name
-    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
-    res = load(prev_file) if osp.exists(prev_file) else {}
+    prev_ext = 'json' if os.environ.get('PRED_FORMAT', '').lower() == 'json' else 'pkl'
+    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.{prev_ext}'
+    prev_file_pkl = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
+    res = {}
+    if osp.exists(prev_file):
+        res = load(prev_file)
+        if isinstance(res, list):
+            res = {x['index']: x['prediction'] for x in res}
+        elif isinstance(res, dict) and res and isinstance(next(iter(res.keys())), str):
+            try:
+                res = {int(k) if str(k).lstrip('-').isdigit() else k: v for k, v in res.items()}
+            except (ValueError, TypeError):
+                pass
+    elif osp.exists(prev_file_pkl):
+        res = load(prev_file_pkl) if osp.exists(prev_file_pkl) else {}
     if osp.exists(out_file):
         res.update(load(out_file))
 
@@ -250,15 +290,30 @@ def infer_image_job(
     dataset_name = dataset.dataset_name
     result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
 
-    # ========== Pre-processing ==========
-    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
+    # ========== Pre-processing (load partial results for resume) ==========
+    prev_ext = 'json' if os.environ.get('PRED_FORMAT', '').lower() == 'json' else 'pkl'
+    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.{prev_ext}'
     if osp.exists(result_file):
         if rank == 0:
-            data = load(result_file)
-            results = {k: v for k, v in zip(data['index'], data['prediction'])}
-            if not ignore_failed:
-                results = {k: v for k, v in results.items() if FAIL_MSG not in str(v)}
-            dump(results, prev_file)
+            try:
+                data = load(result_file)
+            except Exception:
+                # result_file may be JSONL (incremental) when JSON parse fails
+                try:
+                    data = load(result_file, fmt='jsonl')
+                except Exception:
+                    data = None
+            if data is not None:
+                if isinstance(data, list):
+                    data = pd.DataFrame(data)
+                if 'index' in data.columns and 'prediction' in data.columns:
+                    results = {k: v for k, v in zip(data['index'], data['prediction'])}
+                    if not ignore_failed:
+                        results = {k: v for k, v in results.items() if FAIL_MSG not in str(v)}
+                    if prev_ext == 'json':
+                        dump([{'index': k, 'prediction': v} for k, v in results.items()], prev_file)
+                    else:
+                        dump(results, prev_file)
         if world_size > 1:
             dist.barrier()
 
