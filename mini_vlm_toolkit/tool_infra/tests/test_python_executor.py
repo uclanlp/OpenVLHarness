@@ -88,6 +88,35 @@ def test_direct_invocation_nonstandard_outputs():
     ), "Expected fallback repr for NonStringRepr"
 
 
+def test_direct_invocation_fenced_code_variants():
+    log_step("Direct invocation with fenced code variants")
+    tool = Python_Executor_Tool()
+    test_cases = [
+        (
+            "Please execute this:\n```py\nprint(6)\nvalue = 6\n```\nThanks.",
+            "6",
+        ),
+        (
+            "```python\nprint(8)\nvalue = 8\n```",
+            "8",
+        ),
+        (
+            "``` py\nprint(10)\nvalue = 10\n```",
+            "10",
+        ),
+        (
+            "``` python\nprint(12)\nvalue = 12\n```",
+            "12",
+        ),
+    ]
+
+    for code, expected in test_cases:
+        result = tool.execute(code=code)
+        assert result["printed_output"] == expected, f"Expected printed output {expected}"
+        assert result["variables"]["value"] == expected, f"Expected value to be {expected}"
+        assert "```" not in result["execution_code"], "Expected fenced markers to be stripped"
+
+
 def test_parse_python_tool_call_args_with_explanatory_text():
     log_step("Parse tool args with extra text")
     llm_output = (
@@ -248,6 +277,7 @@ def main():
     log_step("Python executor tests")
     test_direct_invocation()
     test_direct_invocation_nonstandard_outputs()
+    test_direct_invocation_fenced_code_variants()
     test_parse_python_tool_call_args_with_explanatory_text()
     test_parse_python_tool_call_args_with_fenced_block()
     test_parse_python_tool_call_args_with_think_block()

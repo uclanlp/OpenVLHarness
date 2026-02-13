@@ -51,6 +51,37 @@ def test_direct_invocation():
     assert_contains_number(result, 16)
 
 
+def test_execute_code_snippet_fenced_code_variants():
+    log_step("Python coder execute_code_snippet fenced code variants")
+    tool = Python_Coder_Tool()
+    test_cases = [
+        (
+            "Please execute:\n```py\nprint(14)\nvalue = 14\n```\nDone.",
+            "14",
+        ),
+        (
+            "```python\nprint(18)\nvalue = 18\n```",
+            "18",
+        ),
+        (
+            "``` py\nprint(22)\nvalue = 22\n```",
+            "22",
+        ),
+        (
+            "``` python\nprint(26)\nvalue = 26\n```",
+            "26",
+        ),
+    ]
+
+    for code, expected in test_cases:
+        result = tool.execute_code_snippet(code=code)
+        if "error" in result:
+            raise AssertionError(f"Python coder error: {result['error']}")
+        assert result["printed_output"] == expected, f"Expected printed output {expected}"
+        assert result["variables"]["value"] == expected, f"Expected value {expected}"
+        assert "```" not in result["execution_code"], "Expected fenced markers to be stripped"
+
+
 def test_client_invocation():
     log_step("Python coder client invocation via server")
     client = ToolClient(SERVER_URL)
@@ -66,6 +97,7 @@ def test_client_invocation():
 
 
 def main():
+    test_execute_code_snippet_fenced_code_variants()
     if not ensure_tool_server(
         SERVER_URL, required_tools=["Python_Code_Generator_Tool"]
     ):

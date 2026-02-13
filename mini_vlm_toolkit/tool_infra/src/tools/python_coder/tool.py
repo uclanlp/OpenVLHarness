@@ -89,7 +89,11 @@ def timeout(seconds):
 
 
 def extract_python_code(text):
-    match = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+    match = re.search(
+        r"```\s*(?:python|py)\b\s*(.*?)\s*```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
     if match:
         return match.group(1).strip()
     return text.strip()
