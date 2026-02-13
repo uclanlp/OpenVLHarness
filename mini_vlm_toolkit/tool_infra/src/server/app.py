@@ -2,6 +2,7 @@ import base64
 import copy
 import datetime
 import json
+import logging
 import math
 from typing import Optional
 
@@ -14,6 +15,7 @@ from tool_registry.loader import load_tools
 app = FastAPI()
 tool_instances = {}
 tool_metadata = {}
+logger = logging.getLogger("uvicorn.error")
 
 
 def _format_input_types(input_types):
@@ -323,6 +325,13 @@ def execute_tool_request(request: ExecuteRequest):
     try:
         result = tool.execute(**request.args)
     except Exception as exc:
+        logger.exception(
+            "Tool execution failed: tool_name=%s tool_call_id=%s exception_type=%s arg_keys=%s",
+            request.tool_name,
+            request.tool_call_id,
+            type(exc).__name__,
+            sorted(request.args.keys()),
+        )
         return (
             _build_error_payload(
                 tool_name=request.tool_name,
