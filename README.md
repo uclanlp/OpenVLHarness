@@ -1,13 +1,5 @@
 # README
 
-## VLM Evaluation Usage
-Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
-1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
-2. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
-```
-python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
-```
-Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
 
 ## Tool Infra
 `mini_vlm_toolkit/tool_infra` contains the lightweight tool server/client stack used for tool execution. It keeps the tool server, client, tools, tests, and docs self-contained so they stay stable alongside the eval code. To get started, see `mini_vlm_toolkit/tool_infra/TUTORIAL_NEW.md`.
@@ -21,6 +13,9 @@ Note: Define your data root in `LMUDATA` in `.env` or set it in the command line
 | `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
 | `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
 | `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
+| `ClipSearch_Tool` | Search a video-clip vector database for events matching a textual description. |
+| `FrameInspection_Tool` | Inspect frames from specified time ranges and answer detailed video questions. |
+| `GlobalBrowse_Tool` | Retrieve relevant video clips from a vector database and synthesize a final answer. |
 | `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
 | `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
 | `OCR_Tool` | Extract text strings from an image using an OCR server. |
@@ -30,6 +25,7 @@ Note: Define your data root in `LMUDATA` in `.env` or set it in the command line
 | `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
 | `SAM3_Segment_Tool` | Call an external SAM3 segmentation server with a prompt and image. |
+| `SAM3_Segment_New_Tool` | Call the refactored SAM3 segmentation server and return RLE masks with a rendered overlay. |
 | `SAM3_VisualizeAllMasks_Tool` | Overlay all SAM3 masks on an image (grounding-agent or SAM3 server format). |
 | `SAM3_VisualizeSingleMask_Tool` | Overlay a single SAM3 mask and return a zoomed-in view. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
@@ -42,9 +38,22 @@ Note: Define your data root in `LMUDATA` in `.env` or set it in the command line
 
 ## VLM Evaluation Usage
 Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
-1. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent`. You need to write a new `generate_inner` method to call your desired LLM model.
-2. Run the benchmark with the desired config and dataset. For example, to run the `BaseAgent` on the `MMStar LongVideoBench_8frame_subs` dataset with 4 parallel processes, use the following command:
+
+1. Install benchmark dependencies:
+```bash
+pip install -r requirements-benchmark.txt
 ```
-python run_benchmark.py --config configs/base_agent.yaml --data MMStar LongVideoBench_8frame_subs --num_proc 4
+2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`.
+3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`). For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
+4. (Optional) Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. If the judge config file is missing at the resolved path, evaluation falls back to exact matching.
+5. Run the benchmark with desired config/data. Example:
 ```
-Note: Define your data root in `LMUDATA` in `.env` or set it in the command line.
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 
+```
+6. Outputs are written under:
+```text
+<work-dir>/<model_name>/<agent_class_lower>/<model_name>_<dataset>.<format>
+```
+Default `work-dir` is `./outputs`.
+
+Note: define your data root with `LMUData` in `.env` (capital D).

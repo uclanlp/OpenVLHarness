@@ -3,7 +3,7 @@
 ## Scope and Focus
 This repo hosts two efforts:
 - Tool infra (stable): `mini_vlm_toolkit/tool_infra` contains the lightweight tool server/client stack and is the primary development focus for this agent.
-- Eval/benchmark stack (incoming): a larger VLM evaluation codebase will be merged in at the repo root and under `mini_vlm_toolkit/`. Expect agents, datasets, inference utilities (image/video), configs, and a benchmark runner (for example `run_benchmark.py`). Conventions for that code are still evolving, so do not enforce strict rules there yet.
+- Eval/benchmark stack (active + evolving): VLM evaluation code lives at the repo root and under `mini_vlm_toolkit/` (agents, datasets, inference utilities, configs, and `run_benchmark.py`). Conventions for that code are still evolving, so keep changes pragmatic and avoid over-enforcing style there.
 
 Default to working inside `mini_vlm_toolkit/tool_infra` unless explicitly asked to touch eval code.
 
@@ -11,12 +11,21 @@ Default to working inside `mini_vlm_toolkit/tool_infra` unless explicitly asked 
 
 ## Eval/Benchmark Infra (repo root + mini_vlm_toolkit)
 - Entry point: `run_benchmark.py` loads `.env`, builds an agent from `configs/*.yaml`, runs inference, then calls dataset evaluation.
-- Agent layer: `mini_vlm_toolkit/agent/` includes `BaseAgent` (OpenAI-compatible `/v1/chat/completions`) plus config loading/builders.
+- Agent layer: `mini_vlm_toolkit/agent/` includes:
+  - `BaseAgent` for direct OpenAI-compatible `/v1/chat/completions` requests.
+  - `BaseAgentWithTools` for native `tool_calls` loops against tool server `/execute`.
+  - Config loading/build (`load_agent_config`, `build_agent`) via YAML `agent_name` + `agent_kwargs`.
+  - Module guide at `mini_vlm_toolkit/agent/README.md`.
 - Dataset registry: `mini_vlm_toolkit/dataset/__init__.py` aggregates dataset classes and exposes `build_dataset`; video variants (frame/fps/pack) are defined in `mini_vlm_toolkit/dataset/video_dataset_config.py` and checked first.
 - Dataset base classes: `mini_vlm_toolkit/dataset/image_base.py`, `mini_vlm_toolkit/dataset/video_base.py`, `mini_vlm_toolkit/dataset/text_base.py`.
 - Inference utilities: `mini_vlm_toolkit/inference_image.py` and `mini_vlm_toolkit/inference_video.py` handle prompt building, API calls, and result file writing/merging.
 - Shared utilities: `mini_vlm_toolkit/smp/` (IO helpers, data root, pred/eval formats) and `mini_vlm_toolkit/utils/` (progress + matching helpers).
 - Data root and formats: set `LMUData` for dataset storage; optional `PRED_FORMAT`/`EVAL_FORMAT` control outputs.
+- Agent examples/tests:
+  - Examples: `examples/ad-hoc_ex_for_dev/base_agent_with_tools_chat_example.py`, `examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example.py`.
+  - Tests: `mini_vlm_toolkit/agent/tests/test_base_agent_native_tool_call.py`, `mini_vlm_toolkit/agent/tests/test_tool_execute_request_envelope.py`.
+- Common `BaseAgentWithTools` config knobs in YAML: `tool_base`, `tool_list`, `tool_choice`, `prompt_version`, `reasoning_effort`, `runtime_environment_hooks`, `runtime_environment_emit_policy`, `max_iterations`, and optional `extra_body`.
+- Image handling in tool loops: runtime image IDs are exposed in Environment Update user messages, `*_image_path` args may be rewritten to `*_image_base64`, and unresolved references surface structured errors.
 
 ---
 
@@ -84,6 +93,15 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - Python code tool-call parser expects `Tool_Name(arg=value, ...)` (tool name is required).
 - JSON tool-call parser accepts either `{\"tool_name\": \"...\", \"args\": {...}}` or OpenAI-style `{\"name\": \"...\", \"arguments\": {...}}`.
 - Use the JSON parser for OpenAI-style tool call payloads or when the LLM emits JSON directly.
+
+## Tool Aliases
+- Define aliases in each tool module via `BaseTool(..., tool_aliases=[...])`; keep alias logic in `mini_vlm_toolkit/tool_infra`.
+- Alias names must be valid Python identifiers; matching is exact and case-sensitive.
+- Server metadata always exposes canonical names and aliases in both `/tools` and `/jsonschema`.
+- Alias collisions (alias vs canonical name or alias vs alias) are startup errors; fail fast during tool registry loading.
+- `/execute` accepts canonical names or aliases, and returns the originally requested name in response `tool_name`.
+- Alias metadata fields are `is_alias` and `canonical_tool_name`; canonical metadata keeps `tool_aliases`.
+- The registry also auto-adds snake_case aliases for canonical tool names; avoid explicit aliases that would collide.
 
 ## Image Input Conventions
 - Image tools accept either `image_path` (server-local path) or `image_base64` (base64 string or data URL); require exactly one.

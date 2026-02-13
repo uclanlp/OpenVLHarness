@@ -10,21 +10,55 @@ from tools.image_utils import decode_base64_image_data
 
 TOOL_NAME = "OCR_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8085"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "languages": {
+            "description": "OCR languages as a code string or list of codes",
+            "oneOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ],
+        },
+        "server_url": {"type": "string", "description": "Override server URL"},
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Request timeout in seconds",
+            "minimum": 1,
+        },
+    },
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class OCR_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Extract text strings from an image using an OCR server.",
+            tool_description=(
+                "Extract readable text from an image using an OCR server. Use this "
+                "tool when the task is about words, numbers, or printed labels in "
+                "the image. Do not use it for general object localization or "
+                "segmentation."
+            ),
             tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "languages": "list[str] | str - optional language list, e.g. ['en']",
+                "languages": "list[str] | str - optional OCR language codes, e.g. ['en']",
                 "server_url": "str - override OCR server URL",
                 "timeout_seconds": "int - request timeout in seconds",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - texts, results, languages, gpu",
             demo_commands=[
                 {

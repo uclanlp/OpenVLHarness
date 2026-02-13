@@ -11,6 +11,41 @@ TOOL_NAME = "GroundingDINO_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8084"
 DEFAULT_BOX_THRESHOLD = 0.4
 DEFAULT_TEXT_THRESHOLD = 0.3
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "query": {"type": "string", "description": "Text query for detection"},
+        "box_threshold": {
+            "type": "number",
+            "description": "Box confidence threshold",
+            "minimum": 0.0,
+            "maximum": 1.0,
+        },
+        "text_threshold": {
+            "type": "number",
+            "description": "Text confidence threshold",
+            "minimum": 0.0,
+            "maximum": 1.0,
+        },
+        "server_url": {"type": "string", "description": "Override server URL"},
+        "timeout_seconds": {
+            "type": "integer",
+            "description": "Request timeout in seconds",
+            "minimum": 1,
+        },
+    },
+    "required": ["query"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class GroundingDINO_Tool(BaseTool):
@@ -18,19 +53,22 @@ class GroundingDINO_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Detect objects in an image using a GroundingDINO server and return "
-                "bounding boxes."
+                "Run text-guided object detection and return bounding boxes. Use this "
+                "tool when you need to locate objects from text prompts before "
+                "zooming/cropping. Do not use it when you need precise pixel masks; "
+                "use SAM3 tools for segmentation."
             ),
             tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "query": "str - object names or short phrases to detect (separate with '.')",
+                "query": "str - object names/phrases to detect (separate multiple phrases with '.')",
                 "box_threshold": "float - confidence threshold for boxes",
                 "text_threshold": "float - confidence threshold for text",
                 "server_url": "str - override GroundingDINO server URL",
                 "timeout_seconds": "int - request timeout in seconds",
             },
+            input_schema=INPUT_SCHEMA,
             output_type=(
                 "dict - boxes (pixel xyxy), boxes_normalized, scores, labels, size [H, W]"
             ),

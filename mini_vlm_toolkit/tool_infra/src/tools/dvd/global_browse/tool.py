@@ -19,6 +19,26 @@ ENV_TOPK = "DVD_GB_TOPK"
 DEFAULT_TASK_DESCRIPTION = (
     "Given a detailed question, retrieve relevant video clip captions."
 )
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "memory": {
+            "type": "object",
+            "description": "NanoVectorDB object (runtime-injected)",
+        },
+        "database": {
+            "type": "object",
+            "description": "Alias of memory for compatibility",
+        },
+        "query": {"type": "string", "description": "Question or query to answer"},
+    },
+    "required": ["query"],
+    "anyOf": [
+        {"required": ["memory"]},
+        {"required": ["database"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class GlobalBrowse_Tool(BaseTool):
@@ -50,6 +70,7 @@ class GlobalBrowse_Tool(BaseTool):
                 "database": "NanoVectorDB - preloaded vector database object",
                 "query": "str - question or description to answer",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - subject_registry, query_related_event",
             demo_commands=[
                 {
@@ -86,7 +107,9 @@ class GlobalBrowse_Tool(BaseTool):
                 missing.append(f"{name} is required")
         return missing
 
-    def execute(self, memory=None, query=None):
+    def execute(self, memory=None, query=None, database=None):
+        if memory is None:
+            memory = database
         if memory is None:
             raise ValueError("memory is required")
         database = memory

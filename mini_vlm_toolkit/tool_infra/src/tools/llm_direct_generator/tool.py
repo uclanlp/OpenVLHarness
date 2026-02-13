@@ -12,6 +12,76 @@ DEFAULT_API_KEY_ENV = "LLM_DIRECT_API_KEY"
 DEFAULT_API_KEY_VALUE = "EMPTY"
 CHAT_REQUEST_TYPE = "chat"
 EMBEDDINGS_REQUEST_TYPE = "embeddings"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "model": {"type": "string", "description": "Configured model name"},
+        "request_type": {
+            "type": "string",
+            "description": "Request type",
+            "enum": [
+                "chat",
+                "chat.completions",
+                "chat-completions",
+                "embeddings",
+                "embedding",
+            ],
+        },
+        "messages": {
+            "description": "Chat messages (list) or a string for a single user message",
+            "oneOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "object"}},
+            ],
+        },
+        "input": {
+            "description": "Embedding input text(s)",
+            "oneOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ],
+        },
+        "temperature": {"type": "number", "description": "Sampling temperature"},
+        "top_p": {"type": "number", "description": "Nucleus sampling parameter"},
+        "max_tokens": {"type": "integer", "description": "Maximum output tokens"},
+        "stop": {
+            "description": "Stop sequence(s)",
+            "oneOf": [
+                {"type": "string"},
+                {"type": "array", "items": {"type": "string"}},
+            ],
+        },
+        "extra_body": {
+            "type": "object",
+            "description": "Additional provider-specific request fields",
+        },
+        "request_timeout_seconds": {
+            "type": "number",
+            "description": "Request timeout in seconds",
+            "minimum": 0.1,
+        },
+        "stream": {
+            "type": "boolean",
+            "description": "Streaming flag (must remain false)",
+            "enum": [False],
+        },
+    },
+    "required": ["model"],
+    "anyOf": [
+        {"required": ["messages"]},
+        {"required": ["input"]},
+        {
+            "required": ["extra_body"],
+            "properties": {
+                "extra_body": {
+                    "type": "object",
+                    "required": ["input"],
+                }
+            },
+        },
+    ],
+    "additionalProperties": True,
+}
 
 
 def _parse_mapping(raw_value, env_name):
@@ -64,8 +134,10 @@ def _is_empty_key(value):
 class LLM_Direct_Generator_Tool(BaseTool):
     def __init__(self):
         base_description = (
-            "Send OpenAI-compatible chat or embeddings requests to a configured "
-            "server and return the full JSON payload."
+            "Forward raw OpenAI-compatible chat or embeddings requests to a "
+            "configured model endpoint and return the full JSON payload. Use this "
+            "tool when you need low-level control of request fields. Do not use it "
+            "as a substitute for higher-level multi-step tool orchestration."
         )
         tool_description = f"{base_description} {_format_configured_models()}"
         super().__init__(
@@ -84,6 +156,7 @@ class LLM_Direct_Generator_Tool(BaseTool):
                 "extra_body": "dict (optional) - extra request fields",
                 "request_timeout_seconds": "float (optional, default 60)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - raw OpenAI-compatible response payload",
             demo_commands=[
                 {

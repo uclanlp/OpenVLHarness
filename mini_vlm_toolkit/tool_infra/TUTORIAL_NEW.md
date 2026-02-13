@@ -7,9 +7,9 @@ Run these steps from the tool infra root and set `PYTHONPATH="$(pwd)/src"` so im
 ## Codebase walkthrough (quick map)
 
 - `src/tools/`: tool packages; each tool lives in its own subdir with `tool.py` + `__init__.py`.
-- `src/tools/base.py`: `BaseTool` metadata contract (`tool_name`, `input_types`, `output_type`).
+- `src/tools/base.py`: `BaseTool` metadata contract (`tool_name`, optional `tool_aliases`, `input_types`, optional `input_schema`, `output_type`).
 - `src/tool_registry/loader.py`: loads tools from `TOOL_MODULES` (`auto` or comma-separated module list).
-- `src/server/app.py`: FastAPI server with `/tools` and `/execute`.
+- `src/server/app.py`: FastAPI server with `/tools`, `/jsonschema`, and `/execute`.
 - `src/client/`: `ToolClient`, `python_tool_call_parser.py` (Python tool-call parsing), `json_tool_call_parser.py` (JSON tool-call parsing).
 - `src/llm/engine.py`: LLM wrapper used to generate tool-call code.
 - `scripts/run_server.sh`: starts the tool server; requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (builds `TOOL_MODULES`, ignore direct `TOOL_MODULES`).
@@ -154,15 +154,33 @@ print(response.json())
 
 - `tool_name`: string
 - `args`: object (keyword args forwarded to `tool.execute(**args)`)
+- `tool_call_id`: optional string (for agent-side call/result correlation)
+- `tool_name` can be a canonical tool name or an alias.
+
+Alias behavior:
+
+- `GET /tools` exposes canonical and alias entries.
+- Canonical entries include `tool_aliases`, `is_alias: false`, `canonical_tool_name`.
+- Alias entries include `is_alias: true` and point to `canonical_tool_name`.
+- `GET /jsonschema` includes schemas for canonical names and aliases.
+- `POST /execute` echoes the exact requested `tool_name` (canonical or alias).
+- Alias matching is exact and case-sensitive.
+- `GET /health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Response shape:
 
 ```json
 {
+  "ok": true,
   "tool_name": "Python_Executor_Tool",
-  "result": "..."
+  "result": "...",
+  "error": null,
+  "tool_call_id": "call_123",
+  "meta": {}
 }
 ```
+On errors, the server returns a non-2xx status and an envelope with `ok: false`,
+`result: null`, and a structured `error` object.
 
 ## 3) Add a new tool (best done with a coding agent)
 
@@ -170,6 +188,8 @@ It is best to use a coding agent to scaffold the new tool files, metadata, and t
 
 1) Check relevant implementations in `reference/` and confirm expected inputs/outputs.
 2) Create `src/tools/<tool_name>/tool.py` + `__init__.py`, implement a `_Tool` class that follows `BaseTool` metadata.
+   - Optional: define `tool_aliases` (list of valid Python identifiers). The loader also generates a snake_case alias automatically.
+   - Prefer defining `input_schema` (JSON Schema) for new tools; `/jsonschema` uses it directly.
 3) Add `tests/test_<tool_name>_tool.py` with direct, client, and LLM parsing paths.
 4) Register the tool if you want explicit lists to include it:
    - Add the module to `.env.example` under `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES`.

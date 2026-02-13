@@ -58,6 +58,8 @@ class TextMCQDataset(TextBaseDataset):
         model = judge_kwargs.get('model', 'exact_matching')
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
 
         if model == 'exact_matching':
             model = None

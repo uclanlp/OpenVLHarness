@@ -9,13 +9,39 @@ from tools.image_utils import (
 )
 
 TOOL_NAME = "DrawVerticalLineByX_Tool"
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (use instead of image_path)",
+        },
+        "x": {"type": "number", "description": "x coordinate"},
+        "coord_type": {
+            "type": "string",
+            "description": "Coordinate mode: normalized or pixel",
+            "enum": ["normalized", "pixel"],
+        },
+    },
+    "required": ["x"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 class DrawVerticalLineByX_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_description="Draw a vertical line at the provided x coordinate.",
+            tool_description=(
+                "Draw a vertical dashed line at a specified x coordinate. Use this "
+                "tool for visual annotation or split-line marking. Do not use it for "
+                "object detection or coordinate estimation."
+            ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
@@ -23,6 +49,7 @@ class DrawVerticalLineByX_Tool(BaseTool):
                 "x": "float - x coordinate (normalized or pixel)",
                 "coord_type": "str - normalized or pixel",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {

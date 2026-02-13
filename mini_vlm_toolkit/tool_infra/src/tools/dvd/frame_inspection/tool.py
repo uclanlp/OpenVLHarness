@@ -23,6 +23,36 @@ DEFAULT_PROMPT = (
     "return: `Error: Cannot find corresponding result in the given time range.`. \n"
     "Question: {question}\n"
 )
+INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "memory": {
+            "type": "object",
+            "description": "NanoVectorDB object (runtime-injected)",
+        },
+        "database": {
+            "type": "object",
+            "description": "Alias of memory for compatibility",
+        },
+        "question": {"type": "string", "description": "Question to answer"},
+        "time_ranges_hhmmss": {
+            "type": "array",
+            "description": "Time ranges as [(start, end), ...] in HH:MM:SS or MM:SS",
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": {"type": "string"},
+            },
+        },
+    },
+    "required": ["question", "time_ranges_hhmmss"],
+    "anyOf": [
+        {"required": ["memory"]},
+        {"required": ["database"]},
+    ],
+    "additionalProperties": False,
+}
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -68,6 +98,7 @@ class FrameInspection_Tool(BaseTool):
                 "question": "str - question to answer",
                 "time_ranges_hhmmss": "list[tuple[str, str]] - ranges (HH:MM:SS or MM:SS)",
             },
+            input_schema=INPUT_SCHEMA,
             output_type="str - model response",
             demo_commands=[
                 {
@@ -102,7 +133,15 @@ class FrameInspection_Tool(BaseTool):
                 missing.append(f"{name} is required")
         return missing
 
-    def execute(self, memory=None, question=None, time_ranges_hhmmss=None):
+    def execute(
+        self,
+        memory=None,
+        question=None,
+        time_ranges_hhmmss=None,
+        database=None,
+    ):
+        if memory is None:
+            memory = database
         if memory is None:
             raise ValueError("memory is required")
         database = memory
