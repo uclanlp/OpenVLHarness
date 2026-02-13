@@ -32,6 +32,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `SAM3_VisualizeSingleMask_Tool` | Overlay a single SAM3 mask and return a zoomed-in view (supports separate zoom alpha). |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
+| `SerpApi_Image_Search_Tool` | SerpApi Google reverse-image search that returns top-5 similar-image matches for one image URL. |
 | `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
 | `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
 | `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
@@ -235,9 +236,10 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Python tool-call parsing lives in `src/client/python_tool_call_parser.py` and expects `ToolName(...)` calls. JSON tool-call parsing lives in `src/client/json_tool_call_parser.py` and accepts `{"tool_name": ..., "args": {...}}` or OpenAI-style `{"name": ..., "arguments": {...}}`.
 - API key files are read from:
   - `src/tools/gemini_google_search/google_api_key`
+  - `src/tools/serpapi_image_search/serpapi_api_key`
   - `src/tools/serper_google_search/serper_api_key`
   - `src/tools/single_url_qa/openai_api_key`
-- Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, and `python tests/test_single_url_qa.py`.
+- Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, `python tests/test_serpapi_image_search.py`, and `python tests/test_single_url_qa.py`.
 - SAM3 visualize tests: `python tests/test_sam3_visualize.py` (requires SAM3 + tool server) or `python tests/test_sam3_visualize_synthetic.py` (tool server only).
 
 ## TODO
