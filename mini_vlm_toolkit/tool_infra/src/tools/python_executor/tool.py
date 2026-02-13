@@ -13,7 +13,7 @@ INPUT_SCHEMA = {
     "properties": {
         "code": {
             "type": "string",
-            "description": "Python code to execute (raw code or fenced code block)",
+            "description": "Python code to execute (raw code or fenced ```python/```py code block)",
         },
         "timeout_seconds": {
             "type": "integer",
@@ -53,7 +53,11 @@ def timeout(seconds):
 
 
 def extract_code(text):
-    match = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL)
+    match = re.search(
+        r"```\s*(?:python|py)\b\s*(.*?)\s*```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
     if match:
         return match.group(1).strip()
     return text.strip()
@@ -79,10 +83,10 @@ class Python_Executor_Tool(BaseTool):
                 "assign the value to a variable. Bare expressions are executed but their value is "
                 "not returned automatically. Do not use with untrusted code."
             ),
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
                 "code": (
-                    "str - Python code to execute. Can be raw code or a fenced ```python block. "
+                    "str - Python code to execute. Can be raw code or a fenced ```python/```py block. "
                     "Use print(...) and/or variable assignment if you need explicit values in the result."
                 )
             },
