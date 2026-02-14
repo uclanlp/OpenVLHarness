@@ -68,7 +68,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - `./scripts/run_tests.sh` runs all tests sequentially with progress.
 - `./scripts/scan_server_status.py` checks model server endpoints configured in `.env`.
 - Model servers (run separately when needed):
-  - `./src/tools/sam3_segment_new/run_sam3_server.sh`
+  - `./src/tools/sam3_segment/run_sam3_server.sh`
   - `./src/tools/grounding_dino/run_grounding_dino_server.sh`
   - `./src/tools/ocr/run_ocr_server.sh`
   - `./src/tools/depth/run_depth_anything_server.sh`
@@ -132,7 +132,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - Environment variables commonly used: `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_DIRECT_MODEL_BASE_URLS`, `LLM_DIRECT_MODEL_API_KEYS`, `LLM_DIRECT_API_KEY`.
 - `LLM_DIRECT_MODEL_BASE_URLS` maps `model:base_url` pairs (comma-separated). `LLM_DIRECT_MODEL_API_KEYS` can supply per-model keys, with `LLM_DIRECT_API_KEY` as the default.
 - Model server URLs:
-  - `SAM3_NEW_SERVER_URL`
+  - `SAM3_SERVER_URL`
   - `GROUNDING_DINO_SERVER_URL`
   - `OCR_SERVER_URL` (languages configured by `OCR_LANGS` on the server; requests must match)
   - `DEPTH_ANYTHING_SERVER_URL` (colormap via `DEPTH_ANYTHING_COLORMAP`, optional `matplotlib`)

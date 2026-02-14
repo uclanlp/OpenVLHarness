@@ -29,7 +29,7 @@ By default the server listens at `http://127.0.0.1:8101`.
 
 If you don't need to start the server on your end, you can install the lighter `requirements-client.txt`.
 
-Subserver ports are configurable via env vars (SAM3 new uses `SAM3_NEW_HOST`/`SAM3_NEW_PORT`,
+Subserver ports are configurable via env vars (SAM3 uses `SAM3_HOST`/`SAM3_PORT`,
 GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
 Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
 `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
@@ -208,9 +208,9 @@ response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
 ```
 
-## Example 3: SAM3 segment new tool (vision input)
+## Example 3: SAM3 segment tool (vision input)
 
-`SAM3_Segment_New_Tool` calls the refactored SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_NEW_SERVER_URL` (default `http://127.0.0.1:8086`).
+`SAM3_Segment_Tool` calls the SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_SERVER_URL` (default `http://127.0.0.1:8086`).
 
 ### Client-only call
 ```python
@@ -220,7 +220,7 @@ client = ToolClient("http://127.0.0.1:8101")
 image_path = "tests/data/sam3_demo.jpg"
 
 response = client.execute(
-    "SAM3_Segment_New_Tool",
+    "SAM3_Segment_Tool",
     {
         "prompt": "shoe",
         "image_path": image_path,
@@ -240,7 +240,7 @@ with open(image_path, "rb") as handle:
     image_base64 = base64.b64encode(handle.read()).decode("utf-8")
 
 response = client.execute(
-    "SAM3_Segment_New_Tool",
+    "SAM3_Segment_Tool",
     {
         "prompt": "shoe",
         "image_base64": image_base64,
@@ -248,9 +248,9 @@ response = client.execute(
 )
 print(response["result"])
 ```
-`SAM3_Segment_New_Tool` returns `pred_boxes`, `pred_masks` (RLE), `pred_scores`, and
+`SAM3_Segment_Tool` returns `pred_boxes`, `pred_masks` (RLE), `pred_scores`, and
 `rendered_image_b64`.
-The legacy names `SAM3_Segment_Tool` and `sam3_segment` are supported aliases.
+The snake_case alias `sam3_segment` is also supported.
 
 ### Call from an LLM (generate tool call, parse, execute)
 ```python
@@ -266,7 +266,7 @@ from config import (
 from llm.engine import LLMEngine
 
 client = ToolClient("http://127.0.0.1:8101")
-metadata = client.list_tools()["SAM3_Segment_New_Tool"]
+metadata = client.list_tools()["SAM3_Segment_Tool"]
 image_path = "tests/data/sam3_demo.jpg"
 
 prompt = (
@@ -274,7 +274,7 @@ prompt = (
     "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
-    f"Tool name: SAM3_Segment_New_Tool\n"
+    f"Tool name: SAM3_Segment_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
     "User request: Segment the shoes in the image.\n"
