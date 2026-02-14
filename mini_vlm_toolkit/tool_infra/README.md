@@ -26,7 +26,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
 | `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
-| `SAM3_Segment_New_Tool` | Call the refactored SAM3 segmentation server and return RLE masks with a rendered overlay. `SAM3_Segment_Tool` currently points to this tool as an alias. |
+| `SAM3_Segment_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
 | `SerpApi_Image_Search_Tool` | SerpApi Google reverse-image search that returns top-5 similar-image matches for one image URL. |
@@ -70,9 +70,9 @@ cp .env.example .env
 It builds `TOOL_MODULES` from `LIGHT_TOOL_MODULES` + `HEAVY_TOOL_MODULES`.
 Do not set `TOOL_MODULES` directly when using `scripts/run_server.sh`.
 
-Start the refactored SAM3 model server (required for `SAM3_Segment_New_Tool`):
+Start the SAM3 model server (required for `SAM3_Segment_Tool`):
 ```bash
-./src/tools/sam3_segment_new/run_sam3_server.sh
+./src/tools/sam3_segment/run_sam3_server.sh
 ```
 Legacy SAM3 tool wrappers are kept under `legacy/sam3/` for reference and are not
 discovered by `LIGHT_TOOL_MODULES=auto`.
@@ -98,7 +98,7 @@ Start the Depth-Anything model server (required for the Depth tool):
 Start the server with a specific tool list:
 ```bash
 export LIGHT_TOOL_MODULES="tools.python_executor.tool"
-export HEAVY_TOOL_MODULES="tools.sam3_segment_new.tool"
+export HEAVY_TOOL_MODULES="tools.sam3_segment.tool"
 ./scripts/run_server.sh
 ```
 Exports override `.env` values for the same keys.
@@ -112,7 +112,7 @@ If set, `LIGHT_TOOL_MODULES` must be either `auto` or a list of module paths (no
 We plan to add a tool that queries each SAM3 mask with a VLM question, reusing
 existing tool infra components:
 - Name (proposed): `SAM3_QueryEachMask_VLM_Tool`
-- Reuse `rendered_image_b64` from `SAM3_Segment_New_Tool` for mask-aware context.
+- Reuse `rendered_image_b64` from `SAM3_Segment_Tool` for mask-aware context.
 - Reuse `LLM_Direct_Generator_Tool` to send OpenAI-compatible VLM requests.
 - Parse `<answer>` tags (yes/no or free-form) and aggregate counts/answers.
 
@@ -213,12 +213,12 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - The executor runs code with `exec()` and no sandboxing.
 - Run commands from the tool infra root. For tests, set `PYTHONPATH="$(pwd)/src:$(pwd)"` so `tests` imports resolve.
 - If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
-- `sam3_segment_new` also depends on `requirements-server.txt` (including `matplotlib`) and runs via `./src/tools/sam3_segment_new/run_sam3_server.sh`.
+- `sam3_segment` also depends on `requirements-server.txt` (including `matplotlib`) and runs via `./src/tools/sam3_segment/run_sam3_server.sh`.
 - Image tools accept base64 inputs for remote clients; pass exactly one of `image_path` or `image_base64` (use `base_image_base64`/`overlay_image_base64` for `OverlayImages_Tool`).
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./src/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./src/tools/ocr/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
 - Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./src/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
-- Subserver ports can be overridden via env vars: SAM3 new uses `SAM3_NEW_HOST`/`SAM3_NEW_PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
+- Subserver ports can be overridden via env vars: SAM3 uses `SAM3_HOST`/`SAM3_PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
 - Heavy tool wrappers surface subserver error messages (status + detail) and truncate large payloads.
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.

@@ -7,7 +7,7 @@ from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
 
 
-TOOL_NAME = "SAM3_Segment_New_Tool"
+TOOL_NAME = "SAM3_Segment_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8086"
 INPUT_SCHEMA = {
     "type": "object",
@@ -30,16 +30,12 @@ INPUT_SCHEMA = {
 }
 
 
-class SAM3_Segment_New_Tool(BaseTool):
+class SAM3_Segment_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
-            tool_aliases=[
-                "SAM3_Segment_Tool",
-                "sam3_segment",
-            ],
             tool_description=(
-                "Run prompt-based segmentation through the refactored SAM3 server "
+                "Run prompt-based segmentation through the SAM3 server "
                 "that returns RLE masks and a server-rendered visualization. Use this "
                 "tool when you need segmentation masks from a text prompt. The server "
                 "returns pred_boxes, pred_masks (RLE), pred_scores, and a "
@@ -58,27 +54,27 @@ class SAM3_Segment_New_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        'SAM3_Segment_New_Tool(prompt="cow", '
+                        'SAM3_Segment_Tool(prompt="cow", '
                         'image_path="/path/to/cow.jpg")'
                     ),
-                    "description": "Segment a cow image using the refactored SAM3 server.",
+                    "description": "Segment a cow image using the SAM3 server.",
                 }
             ],
             user_metadata={
-                "server_env": "SAM3_NEW_SERVER_URL",
+                "server_env": "SAM3_SERVER_URL",
                 "default_server_url": DEFAULT_SERVER_URL,
             },
         )
 
     def sanity_check(self):
-        server_url = os.getenv("SAM3_NEW_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/")
+        server_url = os.getenv("SAM3_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/")
         health_url = f"{server_url}/health"
         try:
             response = requests.get(health_url, timeout=5)
         except Exception as exc:
-            return [f"SAM3 new server unreachable at {health_url}: {exc}"]
+            return [f"SAM3 server unreachable at {health_url}: {exc}"]
         if response.status_code != 200:
-            return [f"SAM3 new server unhealthy at {health_url}: {response.status_code}"]
+            return [f"SAM3 server unhealthy at {health_url}: {response.status_code}"]
         return []
 
     def execute(
@@ -99,7 +95,7 @@ class SAM3_Segment_New_Tool(BaseTool):
             raise FileNotFoundError(f"image_path not found: {image_path}")
 
         resolved_server_url = (
-            server_url or os.getenv("SAM3_NEW_SERVER_URL", DEFAULT_SERVER_URL)
+            server_url or os.getenv("SAM3_SERVER_URL", DEFAULT_SERVER_URL)
         ).rstrip("/")
         endpoint = f"{resolved_server_url}/v1/segment"
 
@@ -116,7 +112,7 @@ class SAM3_Segment_New_Tool(BaseTool):
                 response = requests.post(
                     endpoint, files=files, data=data, timeout=timeout_seconds
                 )
-                raise_for_status_with_detail(response, prefix="SAM3 new server error")
+                raise_for_status_with_detail(response, prefix="SAM3 server error")
                 result = response.json()
         else:
             from tools.image_utils import decode_base64_image_data
@@ -132,7 +128,7 @@ class SAM3_Segment_New_Tool(BaseTool):
             response = requests.post(
                 endpoint, files=files, data=data, timeout=timeout_seconds
             )
-            raise_for_status_with_detail(response, prefix="SAM3 new server error")
+            raise_for_status_with_detail(response, prefix="SAM3 server error")
             result = response.json()
 
         return result

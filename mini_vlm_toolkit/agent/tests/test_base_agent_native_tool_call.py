@@ -359,7 +359,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
         {
             "type": "function",
             "function": {
-                "name": "SAM3_Segment_New_Tool",
+                "name": "SAM3_Segment_Tool",
                 "description": "Segment with image input",
                 "parameters": {
                     "type": "object",
@@ -421,7 +421,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
                                     "id": "call_img_resolve_1",
                                     "type": "function",
                                     "function": {
-                                        "name": "SAM3_Segment_New_Tool",
+                                        "name": "SAM3_Segment_Tool",
                                         "arguments": json.dumps(
                                             {
                                                 "prompt": "children",
@@ -463,13 +463,13 @@ def test_native_tool_call_resolves_hallucinated_image_path():
         state["tool_calls"] += 1
         assert base_url == "http://tool-server"
         assert timeout == 10
-        assert tool_call["tool_name"] == "SAM3_Segment_New_Tool"
+        assert tool_call["tool_name"] == "SAM3_Segment_Tool"
         assert tool_call["tool_call_id"] == "call_img_resolve_1"
         assert "image_path" not in tool_call["args"]
         assert tool_call["args"]["image_base64"] == expected_data_url
         return {
             "ok": True,
-            "tool_name": "SAM3_Segment_New_Tool",
+            "tool_name": "SAM3_Segment_Tool",
             "result": {"mask_count": 3},
             "error": None,
             "tool_call_id": "call_img_resolve_1",
@@ -874,7 +874,7 @@ def test_native_tool_call_single_image_fallback_metadata():
         {
             "type": "function",
             "function": {
-                "name": "SAM3_Segment_New_Tool",
+                "name": "SAM3_Segment_Tool",
                 "description": "Segment with image input",
                 "parameters": {
                     "type": "object",
@@ -922,7 +922,7 @@ def test_native_tool_call_single_image_fallback_metadata():
                                     "id": "call_single_fallback_1",
                                     "type": "function",
                                     "function": {
-                                        "name": "SAM3_Segment_New_Tool",
+                                        "name": "SAM3_Segment_Tool",
                                         "arguments": json.dumps(
                                             {"prompt": "children", "image_path": "nonexistent_image_name.jpg"}
                                         ),
@@ -954,7 +954,7 @@ def test_native_tool_call_single_image_fallback_metadata():
         assert tool_call["args"]["image_base64"] == expected_data_url
         return {
             "ok": True,
-            "tool_name": "SAM3_Segment_New_Tool",
+            "tool_name": "SAM3_Segment_Tool",
             "result": {"mask_count": 1},
             "error": None,
             "tool_call_id": "call_single_fallback_1",

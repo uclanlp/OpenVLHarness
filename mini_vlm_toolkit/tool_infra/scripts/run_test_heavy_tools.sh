@@ -21,7 +21,7 @@ TESTS=(
   "$ROOT_DIR/tests/test_grounding_dino_tool.py"
   "$ROOT_DIR/tests/test_depth_tool.py"
   "$ROOT_DIR/tests/test_ocr_tool.py"
-  "$ROOT_DIR/tests/test_sam3_segment_new.py"
+  "$ROOT_DIR/tests/test_sam3_segment_tool.py"
 )
 
 for test_path in "${TESTS[@]}"; do
