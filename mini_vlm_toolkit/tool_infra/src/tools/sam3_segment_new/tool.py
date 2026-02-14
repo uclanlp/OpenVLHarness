@@ -34,6 +34,10 @@ class SAM3_Segment_New_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
+            tool_aliases=[
+                "SAM3_Segment_Tool",
+                "sam3_segment",
+            ],
             tool_description=(
                 "Run prompt-based segmentation through the refactored SAM3 server "
                 "that returns RLE masks and a server-rendered visualization. Use this "
@@ -41,7 +45,7 @@ class SAM3_Segment_New_Tool(BaseTool):
                 "returns pred_boxes, pred_masks (RLE), pred_scores, and a "
                 "rendered_image_b64 overlay with numbered labels."
             ),
-            tool_version="0.1.0",
+            tool_version="0.2.0",
             input_types={
                 "prompt": "str - text prompt describing what to segment",
                 "image_path": "str - local path to the image file",

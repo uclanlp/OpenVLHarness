@@ -21,7 +21,6 @@ TESTS=(
   "$ROOT_DIR/tests/test_grounding_dino_tool.py"
   "$ROOT_DIR/tests/test_depth_tool.py"
   "$ROOT_DIR/tests/test_ocr_tool.py"
-  "$ROOT_DIR/tests/test_sam3_segment.py"
   "$ROOT_DIR/tests/test_sam3_segment_new.py"
 )
 
@@ -32,19 +31,34 @@ for test_path in "${TESTS[@]}"; do
   fi
 done
 
+TEST_JOBS="${TEST_JOBS:-1}"
+if ! [[ "$TEST_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "TEST_JOBS must be a positive integer, got: $TEST_JOBS" >&2
+  exit 1
+fi
+
 pass_count=0
 fail_count=0
 total_count=${#TESTS[@]}
 
-echo "Running $total_count heavy tool tests."
+if (( TEST_JOBS > total_count )); then
+  TEST_JOBS=$total_count
+fi
 
-for idx in "${!TESTS[@]}"; do
-  test_path="${TESTS[$idx]}"
-  test_name="$(basename "$test_path")"
-  progress=$((idx + 1))
-  output_file="$(mktemp)"
-  echo "RUN  [$progress/$total_count]: $test_name"
-  if python "$test_path" >"$output_file" 2>&1; then
+echo "Running $total_count heavy tool tests with $TEST_JOBS parallel job(s)."
+
+declare -a running_pids=()
+declare -A pid_to_output=()
+declare -A pid_to_name=()
+declare -A pid_to_progress=()
+
+collect_result() {
+  local pid="$1"
+  local test_name="${pid_to_name[$pid]}"
+  local progress="${pid_to_progress[$pid]}"
+  local output_file="${pid_to_output[$pid]}"
+
+  if wait "$pid"; then
     echo "PASS [$progress/$total_count]: $test_name"
     pass_count=$((pass_count + 1))
   else
@@ -52,7 +66,52 @@ for idx in "${!TESTS[@]}"; do
     cat "$output_file"
     fail_count=$((fail_count + 1))
   fi
+
   rm -f "$output_file"
+  unset 'pid_to_output[$pid]'
+  unset 'pid_to_name[$pid]'
+  unset 'pid_to_progress[$pid]'
+}
+
+reap_finished_jobs() {
+  local pid
+  local -a still_running=()
+  for pid in "${running_pids[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      still_running+=("$pid")
+      continue
+    fi
+    collect_result "$pid"
+  done
+  running_pids=("${still_running[@]}")
+}
+
+for idx in "${!TESTS[@]}"; do
+  test_path="${TESTS[$idx]}"
+  test_name="$(basename "$test_path")"
+  progress=$((idx + 1))
+  output_file="$(mktemp)"
+  echo "RUN  [$progress/$total_count]: $test_name"
+  python "$test_path" >"$output_file" 2>&1 &
+  pid=$!
+  running_pids+=("$pid")
+  pid_to_output["$pid"]="$output_file"
+  pid_to_name["$pid"]="$test_name"
+  pid_to_progress["$pid"]="$progress"
+
+  while (( ${#running_pids[@]} >= TEST_JOBS )); do
+    reap_finished_jobs
+    if (( ${#running_pids[@]} >= TEST_JOBS )); then
+      sleep 0.1
+    fi
+  done
+done
+
+while (( ${#running_pids[@]} > 0 )); do
+  reap_finished_jobs
+  if (( ${#running_pids[@]} > 0 )); then
+    sleep 0.1
+  fi
 done
 
 echo "Summary: $pass_count passed, $fail_count failed."

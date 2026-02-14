@@ -2,7 +2,7 @@
 Optional integration-style example for image tool responses in BaseAgentWithTools.
 
 Prereqs:
-- Tool server at TOOL_SERVER_URL (default: http://127.0.0.1:8101) with SAM3_Segment_Tool enabled.
+- Tool server at TOOL_SERVER_URL (default: http://127.0.0.1:8101) with SAM3_Segment_New_Tool enabled.
 - Qwen3-VL OpenAI-compatible server at MODEL_BASE_URL (default: http://127.0.0.1:8222).
 
 OpenAI quick start:
@@ -65,8 +65,8 @@ def _print_chat_history(chat_history):
                 result = payload.get("result")
                 if isinstance(result, dict):
                     print(f"      result_keys={sorted(result.keys())}")
-                    if "all_masks_viz_base64" in result and isinstance(result["all_masks_viz_base64"], str):
-                        print(f"      all_masks_viz_base64_len={len(result['all_masks_viz_base64'])}")
+                    if "rendered_image_b64" in result and isinstance(result["rendered_image_b64"], str):
+                        print(f"      rendered_image_b64_len={len(result['rendered_image_b64'])}")
                 else:
                     print(f"      result={_preview(result)}")
 
@@ -110,7 +110,7 @@ def main():
         key=os.getenv("MODEL_API_KEY", "EMPTY"),
         model=model_name,
         tool_base=tool_server_url,
-        tool_list=["SAM3_Segment_Tool"],
+        tool_list=["SAM3_Segment_New_Tool"],
         max_iterations=4,
         temperature=0.0,
         max_tokens=1024,
@@ -118,11 +118,11 @@ def main():
 
     # HACK (gpt-5-mini): keep this wording strict so the model uses an entity-style
     # SAM3 prompt argument (for example, "children") instead of an instruction.
-    # Long-term fix: improve SAM3_Segment_Tool description/schema to enforce this.
+    # Long-term fix: improve SAM3_Segment_New_Tool description/schema to enforce this.
     question = (
         "How many children are visible? Reason step by step. "
         "In your first assistant turn, do a step-by-step analysis and then emit exactly one "
-        "tool call for SAM3_Segment_Tool with image_path set to the same image and prompt set "
+        "tool call for SAM3_Segment_New_Tool with image_path set to the same image and prompt set "
         "EXACTLY to 'children' (single noun only; do not write an instruction sentence). "
         "After receiving the tool response image, continue reasoning step by step based on that "
         "tool image and then give the final numeric answer."
@@ -139,12 +139,12 @@ def main():
         except Exception as exc:
             print(f"Warning: Pillow unavailable ({exc}); falling back to text-only prompt.")
             question = (
-                f"{question}\nUse this exact image_path when calling SAM3_Segment_Tool: {image_path}"
+                f"{question}\nUse this exact image_path when calling SAM3_Segment_New_Tool: {image_path}"
             )
             inputs = [{"type": "text", "value": question}]
     else:
         question = (
-            f"{question}\nUse this exact image_path when calling SAM3_Segment_Tool: {image_path}"
+            f"{question}\nUse this exact image_path when calling SAM3_Segment_New_Tool: {image_path}"
         )
         inputs = [{"type": "text", "value": question}]
 

@@ -56,7 +56,7 @@ class GroundingDINO_Tool(BaseTool):
                 "Run text-guided object detection and return bounding boxes. Use this "
                 "tool when you need to locate objects from text prompts before "
                 "zooming/cropping. Do not use it when you need precise pixel masks; "
-                "use SAM3 tools for segmentation."
+                "use SAM3_Segment_New_Tool for segmentation."
             ),
             tool_version="0.2.0",
             input_types={

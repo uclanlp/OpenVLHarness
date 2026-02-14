@@ -71,11 +71,10 @@ Key decisions (recorded so new contributors do not need prior context):
 - Segmentation tools: keep both variants as separate tools.
   - `SegmentRegionAroundPoint`: point-guided segmentation implemented via SAM3 (replace OpenThinkIMG SAM2).
   - `SegmentAndMark`: full-image segmentation with numbered masks (VisualSketchpad Semantic-SAM).
-- Visualization tools: SAM3 mask overlays for all masks and zoomed single-mask views (grounding-agent compatible).
-  - SAM3 segment responses should optionally include a default all-masks visualization for quick review.
-  - Tests: `tests/test_sam3_visualize.py` (SAM3 server) and `tests/test_sam3_visualize_synthetic.py` (synthetic).
+- SAM3 segmentation output is standardized in `SAM3_Segment_New_Tool` with server-rendered overlays (`rendered_image_b64`) and RLE masks (`pred_masks`).
+  - Tests: `tests/test_sam3_segment_new.py`.
 - Planned: add a VLM-backed per-mask query tool (proposed name: `SAM3_QueryEachMask_VLM_Tool`).
-  - Reuse `SAM3_VisualizeSingleMask_Tool` for context + zoomed images (allow separate zoom alpha).
+  - Reuse `rendered_image_b64` + per-mask RLE from `SAM3_Segment_New_Tool`.
   - Reuse `LLM_Direct_Generator_Tool` for OpenAI-compatible VLM requests.
   - Aggregate `<answer>` responses into yes/no counts or free-form answers.
 
