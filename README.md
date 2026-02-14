@@ -36,6 +36,8 @@
 ## VLM Evaluation Usage
 Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 
+You can find the supported benchmark here: [link](https://aicarrier.feishu.cn/wiki/Qp7wwSzQ9iK1Y6kNUJVcr6zTnPe?table=tblsdEpLieDoCxtb&view=vewa8sGZrY)
+
 1. Install benchmark dependencies:
 ```bash
 pip install -r requirements-benchmark.txt
@@ -45,12 +47,20 @@ pip install -r requirements-benchmark.txt
 4. (Optional) Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. If the judge config file is missing at the resolved path, evaluation falls back to exact matching.
 5. Run the benchmark with desired config/data. Example:
 ```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 --save-html 20
 ```
 6. Outputs are written under:
 ```text
-<work-dir>/<model_name>/<agent_class_lower>/<model_name>_<dataset>.<format>
+<work-dir>/<model_name>/<agent_class>/<dataset>/
+  <model_name>_<result/acc>.<format>                # predictions
+  trajectories.jsonl                                # per-task trajectories
+  htmls/                                            # optional debug HTML reports
 ```
-Default `work-dir` is `./outputs`.
+
+#### Optional:
+`--save-html` controls HTML report generation:
+- `--save-html 0` (default): disable HTML output.
+- `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
+- `--save-html all`: generate HTML for all tasks.
 
 Note: define your data root with `LMUData` in `.env` (capital D).
