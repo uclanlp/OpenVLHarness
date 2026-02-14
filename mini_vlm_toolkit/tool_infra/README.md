@@ -145,7 +145,9 @@ Tool aliases:
   - Alias entries include `is_alias: true`, `canonical_tool_name: <canonical>`.
 - `GET /jsonschema` includes schemas for both canonical and alias names.
 - `POST /execute` accepts canonical names or aliases; response `tool_name` always echoes the requested name.
-- Alias matching is exact and case-sensitive.
+- `POST /execute` resolves exact matches first.
+- If exact match fails, a unique case-insensitive match (single canonical tool) is accepted.
+- If case-insensitive matching maps to multiple canonical tools, `/execute` returns `tool_name_ambiguous_case`.
 - Alias names must be valid Python identifiers. Alias/canonical collisions fail startup.
 - `GET /health` keeps `tool_count` and adds `canonical_tool_count` and `alias_tool_count`.
 `scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (see `.env.example`).
