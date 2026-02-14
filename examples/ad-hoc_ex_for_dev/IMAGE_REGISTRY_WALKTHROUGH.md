@@ -152,8 +152,8 @@ Suppose a tool returns:
   "ok": true,
   "result": {
     "summary": "segmentation complete",
-    "all_masks_viz_base64": "<base64...>",
-    "masks": [{"mask_png_b64": "<base64...>"}]
+    "rendered_image_b64": "<base64...>",
+    "pred_masks": ["<rle...>"]
   }
 }
 ```
@@ -163,7 +163,7 @@ Agent behavior:
 1. Builds text-only `role=tool` payload:
 
 ```json
-{"ok": true, "result": {"summary": "segmentation complete", "masks": [{}]}, "error": null, "image_refs": ["tool_call_1_1_image_1", "tool_call_1_1_image_2"]}
+{"ok": true, "result": {"summary": "segmentation complete", "pred_masks": ["<rle...>"]}, "error": null, "image_refs": ["tool_call_1_1_image_1"]}
 ```
 
 2. Emits a separate multimodal `role=user` update carrying the tool images:
@@ -174,9 +174,8 @@ Agent behavior:
   "content": [
     {
       "type": "text",
-      "text": "Tool `SAM3_Segment_Tool` (tool_call_id=call_1_1) also returned the following image(s). Use these images for reasoning if helpful.\nSee the preceding role=tool message for structured output.\nImage refs: tool_call_1_1_image_1, tool_call_1_1_image_2"
+      "text": "Tool `SAM3_Segment_New_Tool` (tool_call_id=call_1_1) also returned the following image(s). Use these images for reasoning if helpful.\nSee the preceding role=tool message for structured output.\nImage refs: tool_call_1_1_image_1"
     },
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
     {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
   ]
 }
@@ -184,8 +183,7 @@ Agent behavior:
 
 3. Registers reusable refs:
 - `tool_call_1_1_image_1`
-- `tool_call_1_1_image_2`
-- Tool-name aliases are also registered (for example `SAM3_Segment_Tool_image_1`, `SAM3_Segment_Tool_image_2`)
+- Tool-name aliases are also registered (for example `SAM3_Segment_New_Tool_image_1`)
 
 4. Appends a new runtime Environment Update message after the tool turn:
 
@@ -193,8 +191,7 @@ Agent behavior:
 Environment Update (not a new question):
 Currently available image IDs for tool calls:
 - input_image_1: user_input
-- tool_call_1_1_image_1: tool_output:SAM3_Segment_Tool
-- tool_call_1_1_image_2: tool_output:SAM3_Segment_Tool
+- tool_call_1_1_image_1: tool_output:SAM3_Segment_New_Tool
 When a tool needs image input, pass one of these IDs via the *_image_path field.
 Do NOT invent image file names or paths.
 ```

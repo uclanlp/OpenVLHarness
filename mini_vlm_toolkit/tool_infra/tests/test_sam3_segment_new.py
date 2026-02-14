@@ -17,6 +17,9 @@ from tests.utils import (
 
 SAM3_NEW_SERVER_URL = os.getenv("SAM3_NEW_SERVER_URL", "http://127.0.0.1:8086")
 TOOL_SERVER_URL = os.getenv("TOOL_SERVER_URL", "http://127.0.0.1:8103")
+CANONICAL_TOOL = "SAM3_Segment_New_Tool"
+LEGACY_TOOL_ALIAS = "SAM3_Segment_Tool"
+LEGACY_SNAKE_ALIAS = "sam3_segment"
 DEFAULT_TEST_IMAGE_URL = (
     "https://raw.githubusercontent.com/facebookresearch/sam3/main/assets/images/test_image.jpg"
 )
@@ -181,7 +184,7 @@ def test_client_invocation():
 
     client = ToolClient(TOOL_SERVER_URL)
     response = client.execute(
-        "SAM3_Segment_New_Tool",
+        CANONICAL_TOOL,
         {
             "prompt": "shoe",
             "image_path": image_path,
@@ -219,7 +222,7 @@ def test_client_invocation_base64():
     image_base64 = encode_image_base64(image_path)
     client = ToolClient(TOOL_SERVER_URL)
     response = client.execute(
-        "SAM3_Segment_New_Tool",
+        CANONICAL_TOOL,
         {
             "prompt": "shoe",
             "image_base64": image_base64,
@@ -245,6 +248,48 @@ def test_client_invocation_base64():
         )
 
 
+def test_alias_metadata_and_invocation():
+    log_step("SAM3 New alias metadata and invocation")
+    image_path = ensure_test_image()
+    if not image_path:
+        print("SAM3 test image unavailable; skipping alias test.")
+        return
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
+
+    client = ToolClient(TOOL_SERVER_URL)
+    tools = client.list_tools()
+    for name in (CANONICAL_TOOL, LEGACY_TOOL_ALIAS, LEGACY_SNAKE_ALIAS):
+        assert name in tools, f"Expected {name} to be present in /tools"
+
+    assert tools[CANONICAL_TOOL]["is_alias"] is False
+    assert tools[CANONICAL_TOOL]["canonical_tool_name"] == CANONICAL_TOOL
+    assert LEGACY_TOOL_ALIAS in tools[CANONICAL_TOOL].get("tool_aliases", [])
+    assert LEGACY_SNAKE_ALIAS in tools[CANONICAL_TOOL].get("tool_aliases", [])
+    assert tools[LEGACY_TOOL_ALIAS]["is_alias"] is True
+    assert tools[LEGACY_TOOL_ALIAS]["canonical_tool_name"] == CANONICAL_TOOL
+    assert tools[LEGACY_SNAKE_ALIAS]["is_alias"] is True
+    assert tools[LEGACY_SNAKE_ALIAS]["canonical_tool_name"] == CANONICAL_TOOL
+
+    for alias in (LEGACY_TOOL_ALIAS, LEGACY_SNAKE_ALIAS):
+        response = client.execute(
+            alias,
+            {
+                "prompt": "shoe",
+                "image_path": image_path,
+                "server_url": SAM3_NEW_SERVER_URL,
+            },
+        )
+        log_output(f"Alias response ({alias})", response)
+        assert response["tool_name"] == alias, "execute should echo requested alias name"
+        result = response["result"]
+        if "error" in result:
+            raise AssertionError(f"SAM3 new server error ({alias}): {result['error']}")
+        assert "pred_boxes" in result, "Expected pred_boxes in response"
+        assert "pred_masks" in result, "Expected pred_masks (RLE) in response"
+        assert "rendered_image_b64" in result, "Expected rendered_image_b64 in response"
+
+
 def main():
     # Error propagation test runs without any server
     test_subserver_error_propagation()
@@ -256,12 +301,14 @@ def main():
     test_direct_invocation()
     test_direct_invocation_base64()
 
-    if not ensure_tool_server(TOOL_SERVER_URL, required_tools=["SAM3_Segment_New_Tool"]):
+    required_tools = [CANONICAL_TOOL, LEGACY_TOOL_ALIAS, LEGACY_SNAKE_ALIAS]
+    if not ensure_tool_server(TOOL_SERVER_URL, required_tools=required_tools):
         print(f"Tool server not available at {TOOL_SERVER_URL}; skipping client tests.")
         return
 
     test_client_invocation()
     test_client_invocation_base64()
+    test_alias_metadata_and_invocation()
 
     print("\n== All SAM3 Segment New tests passed. ==")
 

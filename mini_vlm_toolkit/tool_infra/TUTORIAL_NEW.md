@@ -14,14 +14,15 @@ Run these steps from the tool infra root and set `PYTHONPATH="$(pwd)/src"` so im
 - `src/llm/engine.py`: LLM wrapper used to generate tool-call code.
 - `scripts/run_server.sh`: starts the tool server; requires `LIGHT_TOOL_MODULES` or `HEAVY_TOOL_MODULES` (builds `TOOL_MODULES`, ignore direct `TOOL_MODULES`).
 - Tool model servers (heavy tools) live under their tool directories, for example:
-  - `src/tools/sam3_segment/run_sam3_server.sh`
+  - `src/tools/sam3_segment_new/run_sam3_server.sh`
   - `src/tools/grounding_dino/run_grounding_dino_server.sh`
   - `src/tools/ocr/run_ocr_server.sh`
   - `src/tools/depth/run_depth_anything_server.sh`
-- Subserver ports can be overridden via env vars: SAM3 uses `HOST`/`PORT`, GroundingDINO uses
-  `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses
-  `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use `python scripts/scan_server_status.py` to confirm
-  tool/subtool servers are reachable.
+- Subserver ports can be overridden via env vars: SAM3 new uses
+  `SAM3_NEW_HOST`/`SAM3_NEW_PORT`, GroundingDINO uses
+  `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
+  Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use
+  `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) plus optional
   `LLM_DIRECT_MODEL_API_KEYS`/`LLM_DIRECT_API_KEY` (defaults to `EMPTY` for no auth). Base URLs
   may include `/v1`; if omitted, `/v1` is appended automatically.

@@ -165,7 +165,7 @@ def ensure_tool_server(server_url, required_tools=None, timeout_seconds=5):
 
 def ensure_sam3_server(server_url, timeout_seconds=5):
     if not server_url:
-        print("SAM3_SERVER_URL is not set; skipping SAM3 tests.")
+        print("SAM3 server URL is not set; skipping SAM3 tests.")
         return False
     endpoint = f"{server_url.rstrip('/')}/health"
     try:

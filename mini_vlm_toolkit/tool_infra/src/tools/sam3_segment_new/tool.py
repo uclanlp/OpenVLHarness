@@ -34,6 +34,10 @@ class SAM3_Segment_New_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
+            tool_aliases=[
+                "SAM3_Segment_Tool",
+                "sam3_segment",
+            ],
             tool_description=(
                 "Run prompt-based segmentation through the refactored SAM3 server "
                 "that returns RLE masks and a server-rendered visualization. Use this "

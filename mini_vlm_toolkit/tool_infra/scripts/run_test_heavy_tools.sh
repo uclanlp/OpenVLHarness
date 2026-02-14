@@ -21,7 +21,6 @@ TESTS=(
   "$ROOT_DIR/tests/test_grounding_dino_tool.py"
   "$ROOT_DIR/tests/test_depth_tool.py"
   "$ROOT_DIR/tests/test_ocr_tool.py"
-  "$ROOT_DIR/tests/test_sam3_segment.py"
   "$ROOT_DIR/tests/test_sam3_segment_new.py"
 )
 

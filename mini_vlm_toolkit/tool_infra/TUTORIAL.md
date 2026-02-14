@@ -29,9 +29,9 @@ By default the server listens at `http://127.0.0.1:8101`.
 
 If you don't need to start the server on your end, you can install the lighter `requirements-client.txt`.
 
-Subserver ports are configurable via env vars (SAM3 uses `HOST`/`PORT`, GroundingDINO uses
-`GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses
-`DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
+Subserver ports are configurable via env vars (SAM3 new uses `SAM3_NEW_HOST`/`SAM3_NEW_PORT`,
+GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
+Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
 `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 
 `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) and optional
@@ -208,9 +208,9 @@ response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
 ```
 
-## Example 3: SAM3 segment tool (vision input)
+## Example 3: SAM3 segment new tool (vision input)
 
-`SAM3_Segment_Tool` calls an external SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_SERVER_URL` (default `http://127.0.0.1:8083`).
+`SAM3_Segment_New_Tool` calls the refactored SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_NEW_SERVER_URL` (default `http://127.0.0.1:8086`).
 
 ### Client-only call
 ```python
@@ -220,11 +220,10 @@ client = ToolClient("http://127.0.0.1:8101")
 image_path = "tests/data/sam3_demo.jpg"
 
 response = client.execute(
-    "SAM3_Segment_Tool",
+    "SAM3_Segment_New_Tool",
     {
         "prompt": "shoe",
         "image_path": image_path,
-        "return_masks_png_b64": True,
     },
 )
 print(response["result"])
@@ -241,17 +240,17 @@ with open(image_path, "rb") as handle:
     image_base64 = base64.b64encode(handle.read()).decode("utf-8")
 
 response = client.execute(
-    "SAM3_Segment_Tool",
+    "SAM3_Segment_New_Tool",
     {
         "prompt": "shoe",
         "image_base64": image_base64,
-        "return_masks_png_b64": True,
     },
 )
 print(response["result"])
 ```
-`SAM3_Segment_Tool` returns `all_masks_viz_base64` by default (overlay of all masks).
-Set `return_all_masks_viz=False` to skip generating the visualization.
+`SAM3_Segment_New_Tool` returns `pred_boxes`, `pred_masks` (RLE), `pred_scores`, and
+`rendered_image_b64`.
+The legacy names `SAM3_Segment_Tool` and `sam3_segment` are supported aliases.
 
 ### Call from an LLM (generate tool call, parse, execute)
 ```python
@@ -267,7 +266,7 @@ from config import (
 from llm.engine import LLMEngine
 
 client = ToolClient("http://127.0.0.1:8101")
-metadata = client.list_tools()["SAM3_Segment_Tool"]
+metadata = client.list_tools()["SAM3_Segment_New_Tool"]
 image_path = "tests/data/sam3_demo.jpg"
 
 prompt = (
@@ -275,7 +274,7 @@ prompt = (
     "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
-    f"Tool name: SAM3_Segment_Tool\n"
+    f"Tool name: SAM3_Segment_New_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
     "User request: Segment the shoes in the image.\n"
@@ -294,55 +293,10 @@ args = tool_call["args"]
 # Guardrails if the LLM omitted required fields.
 args.setdefault("prompt", "shoe")
 args.setdefault("image_path", image_path)
-args.setdefault("return_masks_png_b64", True)
-args.setdefault("return_all_masks_viz", True)
 
 response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
 ```
-
-### Visualize SAM3 masks
-```python
-from client.client import ToolClient
-
-client = ToolClient("http://127.0.0.1:8101")
-image_path = "tests/data/sam3_demo.jpg"
-
-sam3_response = client.execute(
-    "SAM3_Segment_Tool",
-    {
-        "prompt": "shoe",
-        "image_path": image_path,
-        "return_masks_png_b64": True,
-    },
-)
-
-print(sam3_response["result"]["all_masks_viz_base64"])
-
-viz_all = client.execute(
-    "SAM3_VisualizeAllMasks_Tool",
-    {
-        "image_path": image_path,
-        "predictions": sam3_response["result"],
-        "predictions_format": "sam3_server",
-    },
-)
-print(viz_all["result"]["image_base64"])
-
-viz_single = client.execute(
-    "SAM3_VisualizeSingleMask_Tool",
-    {
-        "image_path": image_path,
-        "predictions": sam3_response["result"],
-        "predictions_format": "sam3_server",
-        "mask_index": 0,
-    },
-)
-print(viz_single["result"]["overlay_image_base64"])
-print(viz_single["result"]["zoomed_image_base64"])
-```
-If you used `image_base64` for segmentation, pass the same `image_base64` to the visualize tools
-instead of `image_path` (provide exactly one of the two).
 
 ## Example 4: Qwen3 embeddings via LLM_Direct_Generator_Tool
 
