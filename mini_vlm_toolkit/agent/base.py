@@ -12,11 +12,10 @@ from .constant import (
     DEFAULT_USER_PROMPT_PREFIX_V1,
     DEFAULT_USER_PROMPT_PREFIX_V2,
 )
-from .runtime_environment import RuntimeEnvironmentHook, ImageEnvironment
+from ..memory import PersistentStateMemory, ImageStateMemory
 from ..utils.api_utils import (
     chat_completion_request,
     filter_kwargs_for_endpoint,
-    local_image_to_data_url,
     tool_execute_request,
 )
 from typing import Any, Dict, List, Optional
@@ -445,33 +444,24 @@ class BaseAgent:
     
 
 class BaseAgentWithTools(BaseAgent):
-    _DROP_VALUE = object()
     _ALLOWED_PROMPT_VERSIONS = ("v1", "v2")
-    _ALLOWED_RUNTIME_ENV_EMIT_POLICIES = ("always", "on_change")
-    _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
-    _IMAGE_RESULT_KEY_HINTS = (
-        "all_masks_viz_base64",
-        "image_base64",
-        "overlay_image_base64",
-        "zoomed_image_base64",
-        "blended_image_base64",
-        "cropped_image_base64",
-        "edited_image_base64",
-        "annotated_image_base64",
-        "depth_map_base64",
-        "masks_png_b64",
-        "subplot_images_base64",
-    )
+    _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
+    _SUPPORTED_MEMORY_NAMES = ("image",)
 
     def __init__(self, 
                 tool_base, 
                 tool_list = None,
                 tool_choice: Any = "auto",
                 prompt_version: str = "v1",
-                runtime_environment_hooks: Optional[List[Any]] = None,
-                runtime_environment_emit_policy: str = "always",
+                persistent_state_memory: Optional[Dict[str, Any]] = None,
                 max_iterations: int = 15, 
                 **kwargs):
+        legacy_keys = [key for key in self._LEGACY_RUNTIME_ENV_KEYS if key in kwargs]
+        if legacy_keys:
+            raise ValueError(
+                "Legacy runtime environment keys are no longer supported: "
+                f"{legacy_keys}. Use 'persistent_state_memory' instead."
+            )
         super().__init__(**kwargs)
         self.tool_base = tool_base
         self.prompt_version = str(prompt_version).strip().lower()
@@ -479,12 +469,6 @@ class BaseAgentWithTools(BaseAgent):
             raise ValueError(
                 f"Invalid prompt_version '{prompt_version}'. "
                 f"Expected one of: {self._ALLOWED_PROMPT_VERSIONS}."
-            )
-        self.runtime_environment_emit_policy = str(runtime_environment_emit_policy).strip().lower()
-        if self.runtime_environment_emit_policy not in self._ALLOWED_RUNTIME_ENV_EMIT_POLICIES:
-            raise ValueError(
-                f"Invalid runtime_environment_emit_policy '{runtime_environment_emit_policy}'. "
-                f"Expected one of: {self._ALLOWED_RUNTIME_ENV_EMIT_POLICIES}."
             )
         self.tools = _get_json(self.tool_base, "/tools")
         if not isinstance(self.tools, dict):
@@ -508,11 +492,13 @@ class BaseAgentWithTools(BaseAgent):
         self.system_prompt = self._construct_system_message()
         self.last_run_messages = []
         self.last_chat_history = []
-        self._image_registry = {}
-        self._image_alias_to_ref = {}
-        self._image_url_to_ref = {}
-        self.runtime_environment_hooks = self._build_runtime_environment_hooks(runtime_environment_hooks)
-        self._augment_image_path_schema_descriptions()
+        self.persistent_state_memory = self._build_persistent_state_memory(persistent_state_memory)
+        self.persistent_state_memory.configure_tool_schema(self.json_schema)
+        self.logger.info(
+            "PersistentStateMemory: "
+            f"{self.persistent_state_memory.__class__.__name__} "
+            f"(name={self.persistent_state_memory.memory_name})"
+        )
 
     def _get_prompt_templates(self) -> tuple[str, str]:
         version = str(getattr(self, "prompt_version", "v1")).strip().lower()
@@ -524,404 +510,96 @@ class BaseAgentWithTools(BaseAgent):
         system_prompt, _ = self._get_prompt_templates()
         return system_prompt
 
-    def _augment_image_path_schema_descriptions(self) -> None:
-        if not isinstance(self.json_schema, list):
-            return
-        suffix = " You may pass a runtime image ID from Environment Update messages instead of a filesystem path."
-        for entry in self.json_schema:
-            if not isinstance(entry, dict):
-                continue
-            fn = entry.get("function") or {}
-            params = fn.get("parameters") or {}
-            properties = params.get("properties") or {}
-            if not isinstance(properties, dict):
-                continue
-            for key, spec in properties.items():
-                if not isinstance(spec, dict):
-                    continue
-                key_lower = str(key).lower()
-                if key_lower.endswith("_path") and "image" in key_lower:
-                    desc = spec.get("description", "")
-                    if suffix.strip() not in str(desc):
-                        spec["description"] = f"{desc}{suffix}".strip()
-
-    def _build_runtime_environment_hooks(self, hook_specs: Optional[List[Any]]) -> List[RuntimeEnvironmentHook]:
-        specs = hook_specs
-        if specs is None:
-            specs = ["image"]
-        elif isinstance(specs, (str, RuntimeEnvironmentHook, dict)):
-            specs = [specs]
-        elif not isinstance(specs, list):
+    def _build_persistent_state_memory(self, memory_spec: Optional[Dict[str, Any]]) -> PersistentStateMemory:
+        spec = memory_spec
+        if spec is None:
+            spec = {"name": "image", "emit_policy": "always"}
+        if not isinstance(spec, dict):
             raise ValueError(
-                "runtime_environment_hooks must be null, a hook name, a hook object, "
-                "a hook config dict, or a list of these values."
+                "persistent_state_memory must be null or a dict config, "
+                "for example {'name': 'image', 'emit_policy': 'always'}."
             )
+        if "name" not in spec:
+            raise ValueError("persistent_state_memory config must include a string 'name' field.")
 
-        hooks: List[RuntimeEnvironmentHook] = []
-        for spec in specs:
-            hook = self._build_single_runtime_environment_hook(spec)
-            if hook is not None:
-                hooks.append(hook)
-        return hooks
-
-    def _build_single_runtime_environment_hook(self, spec: Any) -> Optional[RuntimeEnvironmentHook]:
-        if isinstance(spec, RuntimeEnvironmentHook):
-            return spec
-
-        options: Dict[str, Any] = {}
-        if isinstance(spec, dict):
-            name = spec.get("name")
-            if "kwargs" in spec and isinstance(spec.get("kwargs"), dict):
-                options.update(spec["kwargs"])
-            for key, value in spec.items():
-                if key not in {"name", "kwargs"}:
-                    options[key] = value
-        else:
-            name = spec
-
+        name = spec.get("name")
         if not isinstance(name, str):
-            raise ValueError(
-                f"Invalid runtime environment hook spec '{spec}'. "
-                "Expected string name, hook object, or dict with a 'name' field."
-            )
+            raise ValueError("persistent_state_memory.name must be a string.")
+        memory_name = name.strip().lower()
 
-        hook_name = name.strip().lower()
-        if hook_name in {"", "none", "off", "disabled"}:
-            return None
+        if memory_name in {"", "none", "off", "disabled"}:
+            return PersistentStateMemory()
 
-        if hook_name == "image":
-            emit_policy = options.get("emit_policy", self.runtime_environment_emit_policy)
-            return ImageEnvironment(emit_policy=emit_policy)
+        options = {key: value for key, value in spec.items() if key != "name"}
+        if memory_name == "image":
+            return ImageStateMemory(**options)
 
         raise ValueError(
-            f"Unknown runtime environment hook '{name}'. Supported hooks: ['image']."
+            f"Unknown persistent_state_memory '{name}'. "
+            f"Supported memories: {list(self._SUPPORTED_MEMORY_NAMES)}."
         )
 
-    def _reset_runtime_environment_hooks(self) -> None:
-        hooks = getattr(self, "runtime_environment_hooks", [])
-        if not isinstance(hooks, list):
-            return
-        for hook in hooks:
-            reset = getattr(hook, "reset", None)
-            if callable(reset):
-                reset()
-
-    def _run_runtime_environment_hook_stage(
+    def _append_messages_with_indices(
         self,
-        stage: str,
-        *,
         msgs: List[Dict[str, Any]],
-        question: Any = None,
-        turn_idx: Optional[int] = None,
-        tool_calls: Optional[List[Dict[str, Any]]] = None,
-        tool_payloads: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
-        hooks = getattr(self, "runtime_environment_hooks", [])
-        if not isinstance(hooks, list):
-            return out
+        produced: Any,
+    ) -> List[int]:
+        if isinstance(produced, dict):
+            produced = [produced]
+        if not isinstance(produced, list):
+            return []
 
-        for hook in hooks:
-            produced = []
-            if stage == "after_initial_user_message":
-                produced = hook.after_initial_user_message(
-                    agent=self,
-                    question=question,
-                    messages=msgs,
-                )
-            elif stage == "after_tool_turn":
-                produced = hook.after_tool_turn(
-                    agent=self,
-                    turn_idx=turn_idx if turn_idx is not None else -1,
-                    tool_calls=tool_calls or [],
-                    tool_payloads=tool_payloads or [],
-                    messages=msgs,
-                )
-            if isinstance(produced, dict):
-                produced = [produced]
-            if not isinstance(produced, list):
+        indices = []
+        for message in produced:
+            if not isinstance(message, dict):
                 continue
-            for message in produced:
-                if (
-                    isinstance(message, dict)
-                    and message.get("role") == "user"
-                    and isinstance(message.get("content"), str)
-                ):
-                    out.append(message)
-        return out
-
-    def _append_runtime_environment_messages(
-        self,
-        stage: str,
-        *,
-        msgs: List[Dict[str, Any]],
-        question: Any = None,
-        turn_idx: Optional[int] = None,
-        tool_calls: Optional[List[Dict[str, Any]]] = None,
-        tool_payloads: Optional[List[Dict[str, Any]]] = None,
-    ) -> None:
-        env_messages = self._run_runtime_environment_hook_stage(
-            stage,
-            msgs=msgs,
-            question=question,
-            turn_idx=turn_idx,
-            tool_calls=tool_calls,
-            tool_payloads=tool_payloads,
-        )
-        if env_messages:
-            msgs.extend(env_messages)
-
-    def _normalize_image_alias(self, alias: str) -> str:
-        if not isinstance(alias, str):
-            return ""
-        return alias.strip().lower()
-
-    def _register_image_data_url(
-        self,
-        ref_id: str,
-        data_url: str,
-        *,
-        source: str,
-        aliases: Optional[List[str]] = None,
-    ) -> Optional[str]:
-        if not isinstance(data_url, str):
-            return None
-        data_url = data_url.strip()
-        if not data_url.startswith("data:image/"):
-            return None
-
-        existing_ref = self._image_url_to_ref.get(data_url)
-        if existing_ref and existing_ref in self._image_registry:
-            entry = self._image_registry[existing_ref]
-            for alias in aliases or []:
-                norm_alias = self._normalize_image_alias(alias)
-                if not norm_alias:
-                    continue
-                self._image_alias_to_ref[norm_alias] = existing_ref
-                entry["aliases"].add(alias)
-            return existing_ref
-
-        entry = {
-            "id": ref_id,
-            "data_url": data_url,
-            "source": source,
-            "aliases": set(),
-        }
-        self._image_registry[ref_id] = entry
-        self._image_url_to_ref[data_url] = ref_id
-
-        for alias in [ref_id] + list(aliases or []):
-            norm_alias = self._normalize_image_alias(alias)
-            if not norm_alias:
+            if not isinstance(message.get("role"), str):
                 continue
-            self._image_alias_to_ref[norm_alias] = ref_id
-            entry["aliases"].add(alias)
+            msgs.append(message)
+            indices.append(len(msgs) - 1)
+        return indices
 
-        return ref_id
-
-    def _build_image_registry_from_inputs(self, question) -> Dict[str, Dict[str, Any]]:
-        """Build runtime image IDs from the current user input payload.
-
-        Registers each incoming image as `input_image_<n>` (plus aliases) so
-        model-generated `*_image_path` arguments can be rewritten to
-        `*_image_base64` before `/execute`.
-        """
-        self._image_registry = {}
-        self._image_alias_to_ref = {}
-        self._image_url_to_ref = {}
-        if not isinstance(question, list):
-            return self._image_registry
-
-        image_items = []
-        for item in question:
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") == "image" and isinstance(item.get("value"), str):
-                image_items.append(item.get("value").strip())
-
-        for idx, image_value in enumerate(image_items, 1):
-            ref_id = f"input_image_{idx}"
-            aliases = [ref_id, f"image_{idx}"]
-            data_url = None
-            if image_value.startswith("data:image/"):
-                data_url = image_value
-            elif self._is_likely_base64(image_value):
-                raw = image_value
-                if raw.startswith("base64:"):
-                    raw = raw.split(":", 1)[1]
-                data_url = f"data:image/png;base64,{raw}"
-            else:
-                aliases.append(image_value)
-                aliases.append(os.path.basename(image_value))
-                try:
-                    data_url = local_image_to_data_url(image_value)
-                except Exception:
-                    data_url = None
-
-            registered = self._register_image_data_url(
-                ref_id,
-                data_url,
-                source="user_input",
-                aliases=aliases,
+    def _summarize_message_for_trace(self, message: Dict[str, Any], max_chars: int = 180) -> Dict[str, Any]:
+        role = message.get("role")
+        content = message.get("content")
+        summary: Dict[str, Any] = {"role": role}
+        if isinstance(content, str):
+            text = content.replace("\n", "\\n")
+            if len(text) > max_chars:
+                text = f"{text[:max_chars]}... (truncated)"
+            summary.update({"content_type": "text", "content_preview": text})
+            return summary
+        if isinstance(content, list):
+            part_types = [
+                part.get("type")
+                for part in content
+                if isinstance(part, dict) and isinstance(part.get("type"), str)
+            ]
+            text_part = next(
+                (
+                    part.get("text")
+                    for part in content
+                    if isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and isinstance(part.get("text"), str)
+                ),
+                "",
             )
-            if registered and len(image_items) == 1:
-                for alias in self._IMAGE_REGISTRY_DEFAULT_ALIASES:
-                    self._image_alias_to_ref[self._normalize_image_alias(alias)] = registered
-                    self._image_registry[registered]["aliases"].add(alias)
-
-        return self._image_registry
-
-    def _resolve_registry_image_data_url(self, image_ref: str):
-        """Resolve an image reference into data URL + optional matched metadata."""
-        if not isinstance(image_ref, str):
-            return None, None, None
-
-        raw = image_ref.strip()
-        if not raw:
-            return None, None, None
-
-        if raw.startswith("data:image/"):
-            return raw, None, None
-
-        if self._is_likely_base64(raw):
-            if raw.startswith("base64:"):
-                raw = raw.split(":", 1)[1]
-            return f"data:image/png;base64,{raw}", None, None
-
-        alias_candidates = [self._normalize_image_alias(raw)]
-        alias_candidates.append(self._normalize_image_alias(os.path.basename(raw)))
-        for alias in alias_candidates:
-            ref_id = self._image_alias_to_ref.get(alias)
-            if ref_id and ref_id in self._image_registry:
-                return self._image_registry[ref_id]["data_url"], ref_id, None
-
-        if os.path.isfile(raw):
-            return None, None, None
-
-        if len(self._image_registry) == 1:
-            only_ref = next(iter(self._image_registry.keys()))
-            return (
-                self._image_registry[only_ref]["data_url"],
-                only_ref,
-                "single_image_registry_default",
+            text_preview = text_part.replace("\n", "\\n")
+            if len(text_preview) > max_chars:
+                text_preview = f"{text_preview[:max_chars]}... (truncated)"
+            summary.update(
+                {
+                    "content_type": "multimodal",
+                    "part_types": part_types,
+                    "image_count": sum(1 for part_type in part_types if part_type == "image_url"),
+                    "text_preview": text_preview,
+                }
             )
+            return summary
+        summary["content_type"] = type(content).__name__
+        return summary
 
-        return None, None, None
-
-    def _is_image_path_key(self, key: str) -> bool:
-        key_lower = str(key).lower()
-        return key_lower.endswith("_path") and "image" in key_lower
-
-    def _resolve_image_paths_in_args(
-        self,
-        value: Any,
-        *,
-        path: str,
-        rewrites: List[Dict[str, Any]],
-        errors: List[Dict[str, Any]],
-    ) -> None:
-        """Recursively rewrite `*_image_path` fields to `*_image_base64`.
-
-        All successful rewrites and unresolved references are collected in
-        `rewrites/errors` for transparent downstream debugging.
-        """
-        if isinstance(value, dict):
-            for key, child in list(value.items()):
-                child_path = f"{path}.{key}"
-                if isinstance(child, (dict, list)):
-                    self._resolve_image_paths_in_args(
-                        child,
-                        path=child_path,
-                        rewrites=rewrites,
-                        errors=errors,
-                    )
-
-            for path_key in list(value.keys()):
-                if not self._is_image_path_key(path_key):
-                    continue
-                base64_key = f"{path_key[:-5]}_base64"
-                if value.get(base64_key):
-                    continue
-
-                raw_path = value.get(path_key)
-                if not isinstance(raw_path, str) or not raw_path.strip():
-                    continue
-
-                data_url, matched_ref, fallback_mode = self._resolve_registry_image_data_url(raw_path)
-                if data_url:
-                    value[base64_key] = data_url
-                    value.pop(path_key, None)
-                    rewrite_item = {
-                        "field": f"{path}.{path_key}",
-                        "target_field": f"{path}.{base64_key}",
-                        "original": raw_path,
-                    }
-                    if matched_ref:
-                        rewrite_item["image_ref"] = matched_ref
-                    if fallback_mode:
-                        rewrite_item["fallback_mode"] = fallback_mode
-                    rewrites.append(rewrite_item)
-                elif not os.path.isfile(raw_path):
-                    errors.append(
-                        {
-                            "field": f"{path}.{path_key}",
-                            "value": raw_path,
-                            "reason": "unresolved_image_reference",
-                            "available_image_ids": list(self._image_registry.keys()),
-                        }
-                    )
-            return
-
-        if isinstance(value, list):
-            for idx, child in enumerate(value):
-                if isinstance(child, (dict, list)):
-                    self._resolve_image_paths_in_args(
-                        child,
-                        path=f"{path}[{idx}]",
-                        rewrites=rewrites,
-                        errors=errors,
-                    )
-
-    def _resolve_tool_call_args(self, args: Dict[str, Any]):
-        """Return rewritten tool args plus image-resolution metadata."""
-        if not isinstance(args, dict):
-            return {}, {"rewrites": [], "errors": []}
-
-        resolved = cp.deepcopy(args)
-        rewrites = []
-        errors = []
-        self._resolve_image_paths_in_args(
-            resolved,
-            path="args",
-            rewrites=rewrites,
-            errors=errors,
-        )
-        return resolved, {"rewrites": rewrites, "errors": errors}
-
-    def _sanitize_ref_token(self, token: str) -> str:
-        safe = re.sub(r"[^A-Za-z0-9_]+", "_", str(token or "tool"))
-        return safe.strip("_") or "tool"
-
-    def _register_tool_output_images(self, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]) -> List[str]:
-        """Register tool-output images as reusable runtime image references."""
-        refs = []
-        call_id = self._sanitize_ref_token(payload.get("tool_call_id") or "tool")
-        tool_name = self._sanitize_ref_token(payload.get("tool_name") or "tool")
-        for idx, part in enumerate(image_parts, 1):
-            if not isinstance(part, dict):
-                continue
-            image_url = (part.get("image_url") or {}).get("url")
-            ref_id = f"tool_{call_id}_image_{idx}"
-            assigned_ref = self._register_image_data_url(
-                ref_id,
-                image_url,
-                source=f"tool_output:{tool_name}",
-                aliases=[ref_id, f"{tool_name}_image_{idx}"],
-            )
-            if assigned_ref:
-                refs.append(assigned_ref)
-        return refs
-    
     def _add_user_prompt_prefix(self, msgs) -> str:
         """Apply the default user prompt scaffold to the latest user text turn."""
         if not msgs or msgs[-1].get("role") != "user":
@@ -1119,193 +797,6 @@ class BaseAgentWithTools(BaseAgent):
             "meta": {"warning": "unstructured_tool_payload"},
         }
 
-    def _is_likely_base64(self, value: str) -> bool:
-        if not isinstance(value, str):
-            return False
-        value = value.strip()
-        if len(value) < 64:
-            return False
-        if value.startswith("data:image/"):
-            return True
-        if value.startswith("base64:"):
-            value = value.split(":", 1)[1]
-        return bool(re.fullmatch(r"[A-Za-z0-9+/=\s]+", value))
-
-    def _is_image_result_key(self, key: str) -> bool:
-        k = str(key).lower()
-        if k in self._IMAGE_RESULT_KEY_HINTS:
-            return True
-        if k.endswith("_base64") or k.endswith("_b64"):
-            return any(
-                hint in k
-                for hint in (
-                    "image",
-                    "viz",
-                    "mask",
-                    "depth",
-                    "overlay",
-                    "edited",
-                    "cropped",
-                    "subplot",
-                )
-            )
-        return False
-
-    def _guess_image_mime(self, key: str) -> str:
-        k = str(key).lower()
-        if "jpg" in k or "jpeg" in k:
-            return "image/jpeg"
-        return "image/png"
-
-    def _to_image_data_url(self, key: str, value: str) -> Optional[str]:
-        if not isinstance(value, str):
-            return None
-        raw = value.strip()
-        if raw.startswith("data:image/"):
-            return raw
-        if raw.startswith("base64:"):
-            raw = raw.split(":", 1)[1]
-        if not self._is_likely_base64(raw):
-            return None
-        mime = self._guess_image_mime(key)
-        return f"data:{mime};base64,{raw}"
-
-    def _extract_images_and_scrub_result(
-        self,
-        value: Any,
-        image_parts: List[Dict[str, Any]],
-        *,
-        key_hint: str = "",
-        image_context: bool = False,
-    ):
-        if isinstance(value, dict):
-            compact = {}
-            for key, item in value.items():
-                child_context = image_context or self._is_image_result_key(key)
-                compact_item = self._extract_images_and_scrub_result(
-                    item,
-                    image_parts,
-                    key_hint=str(key),
-                    image_context=child_context,
-                )
-                if compact_item is not self._DROP_VALUE:
-                    compact[key] = compact_item
-            if not compact and image_context:
-                return self._DROP_VALUE
-            return compact
-
-        if isinstance(value, list):
-            compact_list = []
-            for item in value:
-                compact_item = self._extract_images_and_scrub_result(
-                    item,
-                    image_parts,
-                    key_hint=key_hint,
-                    image_context=image_context,
-                )
-                if compact_item is not self._DROP_VALUE:
-                    compact_list.append(compact_item)
-            if not compact_list and image_context:
-                return self._DROP_VALUE
-            return compact_list
-
-        if isinstance(value, str):
-            raw = value.strip()
-            is_explicit_image = raw.startswith("data:image/")
-            should_try_image = is_explicit_image or image_context or self._is_image_result_key(key_hint)
-            if should_try_image:
-                url = self._to_image_data_url(key_hint or "image", raw)
-                if url:
-                    image_parts.append({"type": "image_url", "image_url": {"url": url}})
-                    return self._DROP_VALUE
-
-        return value
-
-    def _extract_image_parts(self, result):
-        """Split tool result into image parts and a scrubbed non-image payload."""
-        image_parts = []
-        compact_result = self._extract_images_and_scrub_result(
-            result,
-            image_parts,
-            key_hint="result",
-            image_context=False,
-        )
-        if compact_result is self._DROP_VALUE:
-            compact_result = None
-        return image_parts, compact_result
-
-    def _prepare_tool_message_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare compact text payload plus extracted image parts from tool output."""
-        result = payload.get("result")
-        image_parts, compact_result = self._extract_image_parts(result)
-        image_refs = self._register_tool_output_images(payload, image_parts) if image_parts else []
-        if image_parts:
-            result_for_text = compact_result
-        else:
-            result_for_text = compact_result if isinstance(result, (dict, list)) else result
-        compact_payload = {
-            "ok": payload.get("ok"),
-            "result": result_for_text,
-            "error": payload.get("error"),
-        }
-        if image_refs:
-            compact_payload["image_refs"] = image_refs
-
-        try:
-            text_payload = json.dumps(compact_payload, ensure_ascii=False)
-        except Exception:
-            text_payload = str(compact_payload)
-
-        return {
-            "text_payload": text_payload,
-            "image_parts": image_parts,
-            "image_refs": image_refs,
-        }
-
-    def _build_tool_message_content(
-        self,
-        payload: Dict[str, Any],
-        *,
-        prepared_payload: Optional[Dict[str, Any]] = None,
-    ) -> str:
-        """Build strict text-only `role=tool` message content."""
-        prepared = prepared_payload or self._prepare_tool_message_payload(payload)
-        text_payload = prepared.get("text_payload")
-        if isinstance(text_payload, str):
-            return text_payload
-        try:
-            return json.dumps(text_payload, ensure_ascii=False)
-        except Exception:
-            return str(text_payload)
-
-    def _build_tool_image_user_message(
-        self,
-        payload: Dict[str, Any],
-        *,
-        prepared_payload: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Build optional `role=user` multimodal update carrying tool-output images."""
-        prepared = prepared_payload or self._prepare_tool_message_payload(payload)
-        image_parts = prepared.get("image_parts")
-        if not isinstance(image_parts, list) or not image_parts:
-            return None
-
-        image_refs = prepared.get("image_refs")
-        refs = image_refs if isinstance(image_refs, list) else []
-        tool_name = str(payload.get("tool_name") or "tool").strip()
-        tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
-        lines = [
-            f"Tool `{tool_name}` (tool_call_id={tool_call_id}) also returned the following image(s). Use these images for reasoning if helpful.",
-            "See the preceding role=tool message for structured output.",
-        ]
-        if refs:
-            lines.append(f"Image refs: {', '.join(refs)}")
-
-        return {
-            "role": "user",
-            "content": [{"type": "text", "text": "\n".join(lines)}] + image_parts,
-        }
-
     def _extract_final_answer_from_content(self, content: str) -> str:
         if content is None:
             return ""
@@ -1389,15 +880,17 @@ class BaseAgentWithTools(BaseAgent):
         elif runtime_tools is not None and debug_tool_loop:
             self.logger.info("[ToolLoop] Ignoring non-list runtime tools override; using agent tool schema.")
 
-        self._reset_runtime_environment_hooks()
-        self._build_image_registry_from_inputs(question)
+        self.persistent_state_memory.reset()
         msgs = self.prepare_inputs(question)
         # add available tools to user prompt
         msgs = self._add_user_prompt_prefix(msgs)
-        self._append_runtime_environment_messages(
-            "after_initial_user_message",
-            msgs=msgs,
-            question=question,
+        self._append_messages_with_indices(
+            msgs,
+            self.persistent_state_memory.on_run_start(
+                agent=self,
+                question=question,
+                messages=msgs,
+            ),
         )
 
         # Use this for debugging the input messages
@@ -1467,6 +960,8 @@ class BaseAgentWithTools(BaseAgent):
                     ],
                 },
                 "tool_responses": [],
+                "memory_outputs": [],
+                "memory_turn_message_indices": [],
             }
 
             if native_tool_calls:
@@ -1477,7 +972,7 @@ class BaseAgentWithTools(BaseAgent):
                 }
                 msgs.append(assistant_message)
 
-                tool_image_user_messages: List[Dict[str, Any]] = []
+                deferred_memory_outputs: List[Dict[str, Any]] = []
                 for call in native_tool_calls:
                     image_resolution = {"rewrites": [], "errors": []}
                     parse_error = call.get("parse_error")
@@ -1491,7 +986,10 @@ class BaseAgentWithTools(BaseAgent):
                             "meta": {"source": "agent.tool_call_parser"},
                         }
                     else:
-                        resolved_args, image_resolution = self._resolve_tool_call_args(call["args"])
+                        resolved_args, image_resolution = self.persistent_state_memory.resolve_tool_call_args(
+                            agent=self,
+                            args=call["args"],
+                        )
                         if debug_tool_loop:
                             self.logger.info(
                                 f"[ToolLoop] execute {call['name']} id={call['id']} args={self._truncate_for_debug(resolved_args, max_chars=debug_char_limit)}"
@@ -1548,49 +1046,81 @@ class BaseAgentWithTools(BaseAgent):
                             f"[ToolLoop] result ok={normalized_payload.get('ok')} id={call['id']} error={self._truncate_for_debug(normalized_payload.get('error'), max_chars=debug_char_limit)}"
                         )
 
-                    prepared_tool_payload = self._prepare_tool_message_payload(normalized_payload)
-                    tool_message_content = self._build_tool_message_content(
-                        normalized_payload,
-                        prepared_payload=prepared_tool_payload,
-                    )
-                    if debug_tool_loop:
-                        self.logger.info(
-                            f"[ToolLoop] tool_message text={self._truncate_for_debug(tool_message_content, max_chars=debug_char_limit)}"
-                        )
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": call["id"],
-                        "name": call["name"],
-                        "content": tool_message_content,
-                    }
-                    msgs.append(tool_message)
-                    tool_image_user_message = self._build_tool_image_user_message(
-                        normalized_payload,
-                        prepared_payload=prepared_tool_payload,
-                    )
-                    if tool_image_user_message:
-                        tool_image_user_messages.append(tool_image_user_message)
                     turn_info["tool_responses"].append(normalized_payload)
+                    memory_result = self.persistent_state_memory.consume_tool_payload(
+                        agent=self,
+                        turn_idx=i,
+                        tool_call=call,
+                        payload=normalized_payload,
+                    )
+                    immediate_messages = memory_result.get("immediate_messages")
+                    deferred_messages = memory_result.get("deferred_messages")
+                    prepared_tool_payload = memory_result.get("prepared_payload")
 
-                if tool_image_user_messages:
-                    msgs.extend(tool_image_user_messages)
+                    if debug_tool_loop:
+                        tool_message_text = ""
+                        if isinstance(immediate_messages, list):
+                            for candidate in immediate_messages:
+                                if isinstance(candidate, dict) and candidate.get("role") == "tool":
+                                    tool_message_text = candidate.get("content", "")
+                                    break
+                        self.logger.info(
+                            f"[ToolLoop] tool_message text={self._truncate_for_debug(tool_message_text, max_chars=debug_char_limit)}"
+                        )
+
+                    immediate_indices = self._append_messages_with_indices(msgs, immediate_messages)
+                    memory_output = {
+                        "tool_call_id": call["id"],
+                        "tool_name": call["name"],
+                        "memory_name": self.persistent_state_memory.memory_name,
+                        "immediate_message_indices": immediate_indices,
+                        "deferred_message_indices": [],
+                        "message_summaries": [
+                            self._summarize_message_for_trace(msgs[idx]) for idx in immediate_indices
+                        ],
+                    }
+                    if isinstance(prepared_tool_payload, dict):
+                        image_refs = prepared_tool_payload.get("image_refs")
+                        if isinstance(image_refs, list) and image_refs:
+                            memory_output["image_refs"] = image_refs
+                    turn_info["memory_outputs"].append(memory_output)
+
+                    if isinstance(deferred_messages, list) and deferred_messages:
+                        deferred_memory_outputs.append(
+                            {
+                                "memory_output": memory_output,
+                                "messages": deferred_messages,
+                            }
+                        )
+
+                if deferred_memory_outputs:
+                    for deferred in deferred_memory_outputs:
+                        deferred_indices = self._append_messages_with_indices(msgs, deferred["messages"])
+                        deferred["memory_output"]["deferred_message_indices"] = deferred_indices
+                        deferred["memory_output"]["message_summaries"].extend(
+                            [self._summarize_message_for_trace(msgs[idx]) for idx in deferred_indices]
+                        )
                     if debug_tool_loop:
                         image_count = sum(
                             1
-                            for msg in tool_image_user_messages
-                            for part in (msg.get("content") or [])
+                            for deferred in deferred_memory_outputs
+                            for idx in deferred["memory_output"]["deferred_message_indices"]
+                            for part in (msgs[idx].get("content") if isinstance(msgs[idx].get("content"), list) else [])
                             if isinstance(part, dict) and part.get("type") == "image_url"
                         )
                         self.logger.info(
-                            f"[ToolLoop] appended user tool-image updates={len(tool_image_user_messages)} image_parts={image_count}"
+                            f"[ToolLoop] appended user tool-image updates={len(deferred_memory_outputs)} image_parts={image_count}"
                         )
 
-                self._append_runtime_environment_messages(
-                    "after_tool_turn",
-                    msgs=msgs,
-                    turn_idx=i,
-                    tool_calls=native_tool_calls,
-                    tool_payloads=turn_info["tool_responses"],
+                turn_info["memory_turn_message_indices"] = self._append_messages_with_indices(
+                    msgs,
+                    self.persistent_state_memory.emit_after_tool_turn(
+                        agent=self,
+                        turn_idx=i,
+                        tool_calls=native_tool_calls,
+                        tool_payloads=turn_info["tool_responses"],
+                        messages=msgs,
+                    ),
                 )
                 chat_history.append(turn_info)
                 self.last_run_messages = cp.deepcopy(msgs)

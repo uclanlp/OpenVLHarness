@@ -41,7 +41,7 @@ Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 pip install -r requirements-benchmark.txt
 ```
 2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`.
-3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`). For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
+3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Persistent state memory defaults to image updates (`persistent_state_memory: {name: "image", emit_policy: "always"}`) and processes tool outputs before appending model-facing messages. For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
 4. (Optional) Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. If the judge config file is missing at the resolved path, evaluation falls back to exact matching.
 5. Run the benchmark with desired config/data. Example:
 ```

@@ -51,7 +51,7 @@ sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
 import mini_vlm_toolkit.agent.base as base_module
 from mini_vlm_toolkit.agent.base import BaseAgentWithTools
-from mini_vlm_toolkit.agent.runtime_environment import ImageEnvironment
+from mini_vlm_toolkit.memory import ImageStateMemory
 
 
 class _DummyAgent(BaseAgentWithTools):
@@ -84,16 +84,25 @@ def _build_agent():
     agent.max_iterations = 3
     agent.tool_choice = "auto"
     agent.system_prompt = agent._construct_system_message()
-    agent.runtime_environment_emit_policy = "always"
-    agent.runtime_environment_hooks = [ImageEnvironment(emit_policy="always")]
+    agent.persistent_state_memory = ImageStateMemory(emit_policy="always")
+    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
     agent.default_kwargs = {}
-    agent._image_registry = {}
-    agent._image_alias_to_ref = {}
-    agent._image_url_to_ref = {}
     return agent
+
+
+def test_base_agent_with_tools_rejects_legacy_runtime_environment_keys():
+    try:
+        BaseAgentWithTools(
+            tool_base="http://tool-server",
+            runtime_environment_hooks=["image"],
+        )
+    except ValueError as exc:
+        assert "Legacy runtime environment keys are no longer supported" in str(exc)
+        return
+    raise AssertionError("Expected ValueError for legacy runtime environment keys.")
 
 
 def test_native_tool_call_single_text_tool():
@@ -193,6 +202,9 @@ def test_native_tool_call_single_text_tool():
     assert chat_history[0]["assistant"]["thinking"] == "I should call the Python tool."
     assert len(chat_history[0]["tool_responses"]) == 1
     assert chat_history[0]["tool_responses"][0]["ok"] is True
+    assert len(chat_history[0]["memory_outputs"]) == 1
+    assert chat_history[0]["memory_outputs"][0]["tool_call_id"] == "call_1"
+    assert chat_history[0]["memory_outputs"][0]["immediate_message_indices"]
     assert chat_history[1]["final_answer"] == "4"
 
 
@@ -350,6 +362,8 @@ def test_native_tool_call_image_result_recursive_extraction():
     assert answer == "done"
     assert len(chat_history) == 2
     assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_Tool"
+    assert chat_history[0]["memory_outputs"][0]["deferred_message_indices"]
+    assert chat_history[0]["memory_outputs"][0]["image_refs"]
     assert chat_history[1]["final_answer"] == "done"
 
 
@@ -378,7 +392,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
 
     def fake_build_image_registry(_question):
-        agent._image_registry = {
+        agent.persistent_state_memory._image_registry = {
             "input_image_1": {
                 "id": "input_image_1",
                 "data_url": expected_data_url,
@@ -386,12 +400,12 @@ def test_native_tool_call_resolves_hallucinated_image_path():
                 "aliases": {"input_image_1", "image.jpg"},
             }
         }
-        agent._image_alias_to_ref = {
+        agent.persistent_state_memory._image_alias_to_ref = {
             "input_image_1": "input_image_1",
             "image.jpg": "input_image_1",
         }
-        agent._image_url_to_ref = {expected_data_url: "input_image_1"}
-        return agent._image_registry
+        agent.persistent_state_memory._image_url_to_ref = {expected_data_url: "input_image_1"}
+        return agent.persistent_state_memory._image_registry
 
     def fake_chat_completion_request(**kwargs):
         state["chat_calls"] += 1
@@ -476,7 +490,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
             "meta": {},
         }
 
-    agent._build_image_registry_from_inputs = fake_build_image_registry
+    agent.persistent_state_memory._build_image_registry_from_inputs = fake_build_image_registry
     original_chat_completion_request = base_module.chat_completion_request
     original_tool_execute_request = base_module.tool_execute_request
     base_module.chat_completion_request = fake_chat_completion_request
@@ -893,7 +907,7 @@ def test_native_tool_call_single_image_fallback_metadata():
     expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
 
     def fake_build_image_registry(_question):
-        agent._image_registry = {
+        agent.persistent_state_memory._image_registry = {
             "input_image_1": {
                 "id": "input_image_1",
                 "data_url": expected_data_url,
@@ -901,9 +915,9 @@ def test_native_tool_call_single_image_fallback_metadata():
                 "aliases": {"input_image_1"},
             }
         }
-        agent._image_alias_to_ref = {"input_image_1": "input_image_1"}
-        agent._image_url_to_ref = {expected_data_url: "input_image_1"}
-        return agent._image_registry
+        agent.persistent_state_memory._image_alias_to_ref = {"input_image_1": "input_image_1"}
+        agent.persistent_state_memory._image_url_to_ref = {expected_data_url: "input_image_1"}
+        return agent.persistent_state_memory._image_registry
 
     def fake_chat_completion_request(**kwargs):
         state["chat_calls"] += 1
@@ -961,7 +975,7 @@ def test_native_tool_call_single_image_fallback_metadata():
             "meta": {},
         }
 
-    agent._build_image_registry_from_inputs = fake_build_image_registry
+    agent.persistent_state_memory._build_image_registry_from_inputs = fake_build_image_registry
     original_chat_completion_request = base_module.chat_completion_request
     original_tool_execute_request = base_module.tool_execute_request
     base_module.chat_completion_request = fake_chat_completion_request
@@ -1210,6 +1224,7 @@ def test_run_allows_finalization_after_last_iteration_tool_calls():
 
 
 if __name__ == "__main__":
+    test_base_agent_with_tools_rejects_legacy_runtime_environment_keys()
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
@@ -1230,6 +1245,7 @@ if __name__ == "__main__":
     test_extract_final_answer_from_v2_scaffold_only_returns_empty()
     test_run_continues_after_v1_scaffold_only_response()
     test_run_allows_finalization_after_last_iteration_tool_calls()
+    print("PASS: test_base_agent_with_tools_rejects_legacy_runtime_environment_keys")
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")

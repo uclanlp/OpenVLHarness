@@ -22,8 +22,9 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - Loads tool metadata from tool server (`/tools`, `/jsonschema`).
 - Calls model with `tools` and `tool_choice`.
 - Reads native assistant `tool_calls`, executes each call via tool server `/execute`.
-- Appends structured tool outputs back as text-only `role=tool` messages.
-- If tool outputs include images, appends a separate multimodal `role=user` message (short text + `image_url` parts), then continues.
+- Routes normalized tool payloads through `PersistentStateMemory` (default: `ImageStateMemory`) to produce model-facing messages.
+- Appends structured tool outputs as text-only `role=tool` messages.
+- If tool outputs include images, appends separate multimodal `role=user` messages (short text + `image_url` parts), then continues.
 - Appends runtime Environment Update `role=user` messages and continues until final answer.
 - Stores debug traces in `last_run_messages` and `last_chat_history`.
 
@@ -70,8 +71,10 @@ Notes:
 - Assistant emits native `tool_calls`.
 - Agent normalizes each call and posts to tool server `/execute`.
 - Tool payloads are normalized into `{ok, result, error, tool_name, tool_call_id, meta}` for internal history/tracing.
+- `PersistentStateMemory` transforms each normalized payload into model-facing messages while preserving native tool protocol (`role=tool` + matching `tool_call_id`).
 - The `role=tool` message content is text-only JSON (`ok/result/error` plus optional `image_refs`).
 - If tool outputs include images, agent sends a separate multimodal `role=user` update message with those image parts.
+- `chat_history` keeps raw tool payloads in `tool_responses` and compact memory emission traces in `memory_outputs` (with indices into `last_run_messages`).
 - Tool messages are fed back to the model until a non-tool final answer is returned.
 - If the last allowed turn ends with tool calls, agent makes one final completion with `tool_choice="none"` to force a text answer.
 
@@ -86,12 +89,9 @@ Notes:
 - `tool_list`: limit to a tool subset.
 - `prompt_version`: `"v1"` (class default) or `"v2"` prompt templates. `configs/base_agent_with_tools.yaml` currently sets `"v2"`.
 - `reasoning_effort`: optional GPT-5 reasoning knob (`"minimal"`, `"low"`, `"medium"`, `"high"`), applied on OpenAI endpoints.
-- `runtime_environment_hooks`: runtime hook list, default `["image"]`.
-- `runtime_environment_hooks` accepted forms: `null`, single hook name string, hook object, dict config, or list of these.
-- `null` uses the default hook set (`["image"]`).
-- Disable hooks with `[]` or hook names `"none"`, `"off"`, `"disabled"`.
-- Per-hook config can override emit behavior, for example `{"name": "image", "emit_policy": "on_change"}`.
-- `runtime_environment_emit_policy`: image hook emit policy, default `"always"` (`"on_change"` is also supported).
+- `persistent_state_memory`: single dict config, default `{"name": "image", "emit_policy": "always"}`.
+- `persistent_state_memory` currently supports `name: "image"` and can be disabled with names `"none"`, `"off"`, or `"disabled"`.
+- `emit_policy`: image memory emit behavior, `"always"` (default) or `"on_change"`.
 - `max_iterations`: cap tool loop turns.
 - `extra_body`: pass provider-specific fields to chat/completions.
 - `debug_tool_loop`: print compact per-turn execution traces.
