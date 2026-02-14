@@ -45,7 +45,7 @@ class SAM3_Segment_New_Tool(BaseTool):
                 "returns pred_boxes, pred_masks (RLE), pred_scores, and a "
                 "rendered_image_b64 overlay with numbered labels."
             ),
-            tool_version="0.1.0",
+            tool_version="0.2.0",
             input_types={
                 "prompt": "str - text prompt describing what to segment",
                 "image_path": "str - local path to the image file",
