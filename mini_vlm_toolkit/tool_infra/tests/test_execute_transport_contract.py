@@ -54,6 +54,20 @@ class _NonSerializableTool(BaseTool):
         }
 
 
+class _LowerEchoTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            tool_name="echo_tool",
+            tool_description="Lowercase echo input.",
+            tool_version="0.1.0",
+            input_types={"value": "str"},
+            output_type="dict",
+        )
+
+    def execute(self, value):
+        return {"lower_echo": value}
+
+
 @contextlib.contextmanager
 def _patch_registry(instances=None, metadata=None):
     original_instances = server_app.tool_instances
@@ -181,6 +195,102 @@ def test_error_envelope_execution_failure():
     assert payload["error"]["detail"]["exception_type"] == "ValueError"
 
 
+def test_case_insensitive_resolution_for_canonical_name():
+    tool = _EchoTool()
+    with _patch_registry(
+        instances={tool.tool_name: tool},
+        metadata={tool.tool_name: tool.get_metadata()},
+    ):
+        payload, status_code = server_app.execute_tool_request(
+            ExecuteRequest(tool_name="echo_tool", args={"value": "hello"})
+        )
+
+    assert status_code == 200
+    assert payload["ok"] is True
+    assert payload["tool_name"] == "echo_tool"
+    assert payload["result"] == {"echo": "hello"}
+    assert payload["error"] is None
+
+
+def test_case_insensitive_resolution_for_alias_name():
+    tool = _EchoTool()
+    canonical_metadata = tool.get_metadata()
+    canonical_metadata["tool_aliases"] = ["echo_alias"]
+    canonical_metadata["is_alias"] = False
+    canonical_metadata["canonical_tool_name"] = tool.tool_name
+
+    alias_metadata = dict(canonical_metadata)
+    alias_metadata["tool_name"] = "echo_alias"
+    alias_metadata["is_alias"] = True
+    alias_metadata["canonical_tool_name"] = tool.tool_name
+
+    with _patch_registry(
+        instances={tool.tool_name: tool, "echo_alias": tool},
+        metadata={tool.tool_name: canonical_metadata, "echo_alias": alias_metadata},
+    ):
+        payload, status_code = server_app.execute_tool_request(
+            ExecuteRequest(tool_name="ECHO_ALIAS", args={"value": "hello"})
+        )
+
+    assert status_code == 200
+    assert payload["ok"] is True
+    assert payload["tool_name"] == "ECHO_ALIAS"
+    assert payload["result"] == {"echo": "hello"}
+    assert payload["error"] is None
+
+
+def test_case_insensitive_resolution_ambiguous_returns_error():
+    upper_tool = _EchoTool()
+    lower_tool = _LowerEchoTool()
+    with _patch_registry(
+        instances={
+            upper_tool.tool_name: upper_tool,
+            lower_tool.tool_name: lower_tool,
+        },
+        metadata={
+            upper_tool.tool_name: upper_tool.get_metadata(),
+            lower_tool.tool_name: lower_tool.get_metadata(),
+        },
+    ):
+        payload, status_code = server_app.execute_tool_request(
+            ExecuteRequest(tool_name="ECHO_TOOL", args={"value": "hello"})
+        )
+
+    assert status_code == 404
+    assert payload["ok"] is False
+    assert payload["tool_name"] == "ECHO_TOOL"
+    assert payload["result"] is None
+    assert payload["error"]["code"] == "tool_name_ambiguous_case"
+    assert payload["error"]["detail"]["canonical_tool_names"] == [
+        "Echo_Tool",
+        "echo_tool",
+    ]
+
+
+def test_exact_match_precedence_over_case_insensitive_fallback():
+    upper_tool = _EchoTool()
+    lower_tool = _LowerEchoTool()
+    with _patch_registry(
+        instances={
+            upper_tool.tool_name: upper_tool,
+            lower_tool.tool_name: lower_tool,
+        },
+        metadata={
+            upper_tool.tool_name: upper_tool.get_metadata(),
+            lower_tool.tool_name: lower_tool.get_metadata(),
+        },
+    ):
+        payload, status_code = server_app.execute_tool_request(
+            ExecuteRequest(tool_name="echo_tool", args={"value": "hello"})
+        )
+
+    assert status_code == 200
+    assert payload["ok"] is True
+    assert payload["tool_name"] == "echo_tool"
+    assert payload["result"] == {"lower_echo": "hello"}
+    assert payload["error"] is None
+
+
 def test_success_normalizes_non_json_result():
     tool = _NonSerializableTool()
     with _patch_registry(
@@ -233,6 +343,10 @@ def main():
     test_list_tools_includes_alias_entries()
     test_error_envelope_tool_not_found()
     test_error_envelope_execution_failure()
+    test_case_insensitive_resolution_for_canonical_name()
+    test_case_insensitive_resolution_for_alias_name()
+    test_case_insensitive_resolution_ambiguous_returns_error()
+    test_exact_match_precedence_over_case_insensitive_fallback()
     test_success_normalizes_non_json_result()
     test_health_reports_alias_and_canonical_counts()
     print("Execute transport contract tests completed.")

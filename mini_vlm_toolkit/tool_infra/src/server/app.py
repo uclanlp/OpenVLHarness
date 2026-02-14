@@ -234,6 +234,53 @@ def _build_success_payload(tool_name, tool_call_id, result, meta=None):
     }
 
 
+def _resolve_execute_tool(requested_tool_name):
+    # Keep exact match semantics first for deterministic behavior.
+    tool = tool_instances.get(requested_tool_name)
+    if tool is not None:
+        return tool, None
+
+    requested_casefold = requested_tool_name.casefold()
+    casefold_matches = [
+        name for name in tool_instances if name.casefold() == requested_casefold
+    ]
+    if not casefold_matches:
+        return None, None
+
+    canonical_matches = {}
+    for matched_name in casefold_matches:
+        metadata = tool_metadata.get(matched_name) or {}
+        canonical_name = metadata.get("canonical_tool_name", matched_name)
+        canonical_matches.setdefault(canonical_name, []).append(matched_name)
+
+    if len(canonical_matches) > 1:
+        details = {
+            "requested_tool_name": requested_tool_name,
+            "case_insensitive_matches": sorted(casefold_matches),
+            "canonical_tool_names": sorted(canonical_matches),
+        }
+        return None, _build_error_payload(
+            tool_name=requested_tool_name,
+            tool_call_id=None,
+            code="tool_name_ambiguous_case",
+            message=(
+                "Tool name is ambiguous under case-insensitive matching: "
+                f"{requested_tool_name}"
+            ),
+            detail=details,
+        )
+
+    matched_names = next(iter(canonical_matches.values()))
+    resolved_name = sorted(matched_names)[0]
+    for matched_name in matched_names:
+        metadata = tool_metadata.get(matched_name) or {}
+        if metadata.get("is_alias") is False:
+            resolved_name = matched_name
+            break
+
+    return tool_instances.get(resolved_name), None
+
+
 @app.on_event("startup")
 def load_tool_registry():
     global tool_instances, tool_metadata
@@ -310,7 +357,10 @@ def list_tools_jsonschema():
 
 
 def execute_tool_request(request: ExecuteRequest):
-    tool = tool_instances.get(request.tool_name)
+    tool, resolution_error = _resolve_execute_tool(request.tool_name)
+    if resolution_error is not None:
+        resolution_error["tool_call_id"] = request.tool_call_id
+        return resolution_error, 404
     if tool is None:
         return (
             _build_error_payload(
