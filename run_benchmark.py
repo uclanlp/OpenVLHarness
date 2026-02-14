@@ -9,9 +9,7 @@ import datetime
 from mini_vlm_toolkit.smp import *
 from mini_vlm_toolkit import infer_video_job, infer_image_job
 from mini_vlm_toolkit.utils import load_judge_config
-
-def eval_job():
-    pass
+import shutil
 
 RANK = int(os.environ.get('RANK', 0))
 WORLD_SIZE = int(os.environ.get('WORLD_SIZE', 1))
@@ -26,6 +24,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='Select running mode')
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
     parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
+    parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
     args = parser.parse_args()
 
     logger = get_logger("RUN")
@@ -45,10 +44,21 @@ if __name__ == "__main__":
     logger.info(f"LLM Judge Configurations: {judge_kwargs}")
     logger.info(f"Initialized agent of class {agent_class} with model {model_name}")
     
-
     pred_root = os.path.join(args.work_dir, model_name, agent_class.lower())
     if not os.path.exists(pred_root) and RANK == 0:
         os.makedirs(pred_root, exist_ok=True)
+
+    # copy agent configs and judge configs to output dir for record
+    if RANK == 0:
+        shutil.copy(args.config, os.path.join(pred_root, os.path.basename(args.config)))
+        if args.judge_config is not None and os.path.exists(args.judge_config):
+            shutil.copy(args.judge_config, os.path.join(pred_root, os.path.basename(args.judge_config)))
+
+    html_arg = str(args.save_html).strip().lower()
+    if html_arg == 'all':
+        html_limit = -1
+    else:
+        html_limit = int(html_arg)
 
     for _, dataset_name in enumerate(args.data):
         dataset_kwargs = dict()
@@ -67,9 +77,24 @@ if __name__ == "__main__":
             logger.info(f"Start inference on dataset {dataset_name} with model {model_name}")
             # Perform the Inference
             if dataset.MODALITY == 'VIDEO':
-                infer_video_job(agent, pred_root, model_name, dataset, dataset_name, api_nproc=args.num_proc)
+                infer_video_job(
+                    agent,
+                    pred_root,
+                    model_name,
+                    dataset,
+                    dataset_name,
+                    api_nproc=args.num_proc,
+                    html_limit=html_limit,
+                )
             else:
-                infer_image_job(agent, pred_root, model_name, dataset, api_nproc=args.num_proc)
+                infer_image_job(
+                    agent,
+                    pred_root,
+                    model_name,
+                    dataset,
+                    api_nproc=args.num_proc,
+                    html_limit=html_limit,
+                )
 
         
         if args.mode != "infer":
