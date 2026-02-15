@@ -94,6 +94,13 @@ def test_direct_invocation():
         suffix="normalized",
     )
 
+    result_pixel_auto = tool.execute(
+        image_path=image_path,
+        points=[[50, 100]],
+    )
+    log_output("Auto Pixel Result", result_pixel_auto)
+    assert result_pixel_auto["points"] == [[0.25, 0.5]]
+
     result_text = tool.execute(
         image_path=image_path,
         target="x=20 y=40",

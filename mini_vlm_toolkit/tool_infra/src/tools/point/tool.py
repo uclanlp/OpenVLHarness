@@ -14,7 +14,10 @@ INPUT_SCHEMA = {
         },
         "points": {
             "type": "array",
-            "description": "Point list as [[x, y], ...] or [{x, y}, ...]",
+            "description": (
+                "Point list as [[x, y], ...] or [{x, y}, ...]. "
+                "Values in [0,1] are treated as normalized; values >1 are treated as pixel."
+            ),
             "items": {
                 "oneOf": [
                     {
@@ -61,7 +64,7 @@ class Point_Tool(BaseTool):
                 "as x/y values in text) and you need canonical coordinates. Do not "
                 "use it for vision-based point detection from image content."
             ),
-            tool_version="0.2.0",
+            tool_version="0.2.1",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
@@ -89,7 +92,7 @@ class Point_Tool(BaseTool):
         image_path=None,
         target=None,
         points=None,
-        coord_type="normalized",
+        coord_type="auto",
         image_base64=None,
     ):
         image = resolve_image_input(image_path=image_path, image_base64=image_base64)
@@ -97,6 +100,7 @@ class Point_Tool(BaseTool):
 
         normalized_points = []
         if points:
+            parsed_points = []
             for point in points:
                 if isinstance(point, dict):
                     x_value = point.get("x")
@@ -107,12 +111,14 @@ class Point_Tool(BaseTool):
                     x_value, y_value = point
                 if x_value is None or y_value is None:
                     raise ValueError("Point entries must include x and y")
-                x_value = float(x_value)
-                y_value = float(y_value)
-                if coord_type == "normalized":
+                parsed_points.append((float(x_value), float(y_value)))
+
+            resolved_coord_type = _resolve_coord_type(coord_type, parsed_points)
+            for x_value, y_value in parsed_points:
+                if resolved_coord_type == "normalized":
                     x_norm = clamp(x_value, 0.0, 1.0)
                     y_norm = clamp(y_value, 0.0, 1.0)
-                elif coord_type == "pixel":
+                elif resolved_coord_type == "pixel":
                     x_norm = clamp(x_value / float(width), 0.0, 1.0)
                     y_norm = clamp(y_value / float(height), 0.0, 1.0)
                 else:
@@ -132,6 +138,15 @@ class Point_Tool(BaseTool):
             for x, y in normalized_points
         ]
         return {"points": normalized_points, "points_pixel": points_pixel}
+
+
+def _resolve_coord_type(coord_type, parsed_points):
+    if coord_type in (None, "auto"):
+        has_values_over_one = any((x > 1.0 or y > 1.0) for x, y in parsed_points)
+        return "pixel" if has_values_over_one else "normalized"
+    if coord_type in ("normalized", "pixel"):
+        return coord_type
+    raise ValueError("coord_type must be auto, normalized, or pixel")
 
 
 def _extract_points_from_text(text):
