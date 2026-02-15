@@ -12,10 +12,6 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Base64 image data (use instead of image_path)",
         },
-        "target": {
-            "type": "string",
-            "description": "Optional text containing explicit x/y coordinates",
-        },
         "points": {
             "type": "array",
             "description": "Point list as [[x, y], ...] or [{x, y}, ...]",
@@ -39,11 +35,6 @@ INPUT_SCHEMA = {
                 ]
             },
         },
-        "coord_type": {
-            "type": "string",
-            "description": "Coordinate mode for points: normalized or pixel",
-            "enum": ["normalized", "pixel"],
-        },
     },
     "allOf": [
         {
@@ -53,10 +44,7 @@ INPUT_SCHEMA = {
             ]
         },
         {
-            "anyOf": [
-                {"required": ["points"]},
-                {"required": ["target"]},
-            ]
+            "required": ["points"]
         },
     ],
     "additionalProperties": False,
@@ -73,20 +61,21 @@ class Point_Tool(BaseTool):
                 "as x/y values in text) and you need canonical coordinates. Do not "
                 "use it for vision-based point detection from image content."
             ),
-            tool_version="0.1.0",
+            tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "target": "str - optional text containing explicit x/y coordinates",
-                "points": "list[list[float]] | list[dict] - optional point list",
-                "coord_type": "str - normalized or pixel (used with points)",
+                "points": "list[list[float]] | list[dict] - point list",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - points (normalized x,y)",
             demo_commands=[
                 {
-                    "command": "Point_Tool(image_path=\"/path/to/image.jpg\", target=\"leftmost cup\")",
-                    "description": "Predict a point for the target object.",
+                    "command": (
+                        "Point_Tool(image_path=\"/path/to/image.jpg\", "
+                        "points=[[0.25, 0.6]])"
+                    ),
+                    "description": "Normalize provided point coordinates.",
                 }
             ],
             user_metadata={
