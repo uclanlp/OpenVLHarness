@@ -55,16 +55,6 @@ INPUT_SCHEMA = {
             "type": "object",
             "description": "Additional provider-specific request fields",
         },
-        "request_timeout_seconds": {
-            "type": "number",
-            "description": "Request timeout in seconds",
-            "minimum": 0.1,
-        },
-        "stream": {
-            "type": "boolean",
-            "description": "Streaming flag (must remain false)",
-            "enum": [False],
-        },
     },
     "required": ["model"],
     "anyOf": [
@@ -143,7 +133,7 @@ class LLM_Direct_Generator_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=tool_description,
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
                 "model": "str - model name (must map to LLM_DIRECT_MODEL_BASE_URLS)",
                 "request_type": "str - chat (default) or embeddings",
@@ -154,7 +144,6 @@ class LLM_Direct_Generator_Tool(BaseTool):
                 "max_tokens": "int (optional)",
                 "stop": "str or list[str] (optional)",
                 "extra_body": "dict (optional) - extra request fields",
-                "request_timeout_seconds": "float (optional, default 60)",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - raw OpenAI-compatible response payload",
