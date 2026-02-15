@@ -12,16 +12,20 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:8086"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "prompt": {"type": "string", "description": "Text prompt to segment"},
+        "query": {
+            "type": "string",
+            "description": (
+                "Short target phrase to segment (not a full sentence), "
+                "e.g. 'blue basket' or 'cardboard sign'"
+            ),
+        },
         "image_path": {"type": "string", "description": "Local image path"},
         "image_base64": {
             "type": "string",
             "description": "Base64 image data (use instead of image_path)",
         },
-        "server_url": {"type": "string", "description": "Override SAM3 server URL"},
-        "timeout_seconds": {"type": "integer", "description": "Request timeout"},
     },
-    "required": ["prompt"],
+    "required": ["query"],
     "oneOf": [
         {"required": ["image_path"]},
         {"required": ["image_base64"]},
@@ -41,20 +45,18 @@ class SAM3_Segment_Tool(BaseTool):
                 "returns pred_boxes, pred_masks (RLE), pred_scores, and a "
                 "rendered_image_b64 overlay with numbered labels."
             ),
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
-                "prompt": "str - text prompt describing what to segment",
+                "query": "str - short target phrase to segment (for example 'blue basket')",
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "server_url": "str - override SAM3 server URL",
-                "timeout_seconds": "int - request timeout in seconds",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - SAM3 server response with RLE masks and rendered visualization",
             demo_commands=[
                 {
                     "command": (
-                        'SAM3_Segment_Tool(prompt="cow", '
+                        'SAM3_Segment_Tool(query="cow", '
                         'image_path="/path/to/cow.jpg")'
                     ),
                     "description": "Segment a cow image using the SAM3 server.",
@@ -79,14 +81,17 @@ class SAM3_Segment_Tool(BaseTool):
 
     def execute(
         self,
-        prompt,
+        query=None,
         image_path=None,
         image_base64=None,
+        prompt=None,
         server_url=None,
         timeout_seconds=300,
     ):
-        if not prompt:
-            raise ValueError("prompt is required")
+        if query is None:
+            query = prompt
+        if not query:
+            raise ValueError("query is required")
         if not image_path and not image_base64:
             raise ValueError("image_path or image_base64 is required")
         if image_path and image_base64:
@@ -99,7 +104,7 @@ class SAM3_Segment_Tool(BaseTool):
         ).rstrip("/")
         endpoint = f"{resolved_server_url}/v1/segment"
 
-        data = {"prompt": prompt}
+        data = {"prompt": query}
 
         if image_path:
             content_type = (
