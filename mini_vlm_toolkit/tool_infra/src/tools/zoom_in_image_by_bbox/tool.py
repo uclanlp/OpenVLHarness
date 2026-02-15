@@ -21,11 +21,6 @@ INPUT_SCHEMA = {
             "maxItems": 4,
             "items": {"type": "number"},
         },
-        "padding": {
-            "type": "number",
-            "description": "Extra margin on each side",
-            "minimum": 0.05,
-        },
     },
     "required": ["bbox"],
     "oneOf": [
@@ -47,12 +42,11 @@ class ZoomInImageByBBox_Tool(BaseTool):
                 "Do not use it to find regions from text prompts; use "
                 "GroundingDINO_Tool or SAM tools for region discovery/segmentation first."
             ),
-            tool_version="0.1.0",
+            tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "bbox": "list[float] - normalized bbox [x, y, w, h] in [0, 1]",
-                "padding": "float - extra margin on each side (must be >= 0.05)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["image_zoom_in_tool"],
