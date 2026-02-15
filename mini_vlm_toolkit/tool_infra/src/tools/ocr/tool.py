@@ -37,7 +37,7 @@ class OCR_Tool(BaseTool):
                 "the image. Do not use it for general object localization or "
                 "segmentation."
             ),
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
