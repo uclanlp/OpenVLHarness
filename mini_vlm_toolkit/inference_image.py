@@ -277,7 +277,7 @@ def infer_image_job(
     result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
 
     # ========== Pre-processing ==========
-    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
+    prev_file = f'{work_dir}/{model_name}_PREV.pkl'
     if osp.exists(result_file):
         if rank == 0:
             data = load(result_file)

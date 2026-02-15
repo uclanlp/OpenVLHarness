@@ -1402,7 +1402,6 @@ class BaseAgentWithTools(BaseAgent):
         final answer is produced or `max_iterations` is reached.
         """
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
-        debug_tool_loop = True
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
         chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         tool_choice = kwargs.pop("tool_choice", self.tool_choice)
