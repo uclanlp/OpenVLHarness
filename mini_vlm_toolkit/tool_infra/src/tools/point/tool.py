@@ -64,7 +64,7 @@ class Point_Tool(BaseTool):
                 "as x/y values in text) and you need canonical coordinates. Do not "
                 "use it for vision-based point detection from image content."
             ),
-            tool_version="0.2.1",
+            tool_version="0.2.2",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
@@ -113,8 +113,10 @@ class Point_Tool(BaseTool):
                     raise ValueError("Point entries must include x and y")
                 parsed_points.append((float(x_value), float(y_value)))
 
-            resolved_coord_type = _resolve_coord_type(coord_type, parsed_points)
             for x_value, y_value in parsed_points:
+                resolved_coord_type = _resolve_coord_type(
+                    coord_type, (x_value, y_value)
+                )
                 if resolved_coord_type == "normalized":
                     x_norm = clamp(x_value, 0.0, 1.0)
                     y_norm = clamp(y_value, 0.0, 1.0)
@@ -140,10 +142,12 @@ class Point_Tool(BaseTool):
         return {"points": normalized_points, "points_pixel": points_pixel}
 
 
-def _resolve_coord_type(coord_type, parsed_points):
+def _resolve_coord_type(coord_type, point=None):
     if coord_type in (None, "auto"):
-        has_values_over_one = any((x > 1.0 or y > 1.0) for x, y in parsed_points)
-        return "pixel" if has_values_over_one else "normalized"
+        if point is None:
+            raise ValueError("point is required when coord_type is auto")
+        x_value, y_value = point
+        return "pixel" if (x_value > 1.0 or y_value > 1.0) else "normalized"
     if coord_type in ("normalized", "pixel"):
         return coord_type
     raise ValueError("coord_type must be auto, normalized, or pixel")
