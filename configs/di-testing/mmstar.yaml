@@ -13,6 +13,7 @@ agent_kwargs:
   repetition_penalty: 1.1
   retry: 3
   verbose: true
+  debug_tool_loop: true
   tool_base: "http://localhost:8101"
   max_iterations: 15
   tool_list:
