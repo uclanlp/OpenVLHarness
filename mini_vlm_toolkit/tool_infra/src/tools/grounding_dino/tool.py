@@ -20,24 +20,6 @@ INPUT_SCHEMA = {
             "description": "Base64 image data (use instead of image_path)",
         },
         "query": {"type": "string", "description": "Text query for detection"},
-        "box_threshold": {
-            "type": "number",
-            "description": "Box confidence threshold",
-            "minimum": 0.0,
-            "maximum": 1.0,
-        },
-        "text_threshold": {
-            "type": "number",
-            "description": "Text confidence threshold",
-            "minimum": 0.0,
-            "maximum": 1.0,
-        },
-        "server_url": {"type": "string", "description": "Override server URL"},
-        "timeout_seconds": {
-            "type": "integer",
-            "description": "Request timeout in seconds",
-            "minimum": 1,
-        },
     },
     "required": ["query"],
     "oneOf": [
@@ -58,15 +40,11 @@ class GroundingDINO_Tool(BaseTool):
                 "zooming/cropping. Do not use it when you need precise pixel masks; "
                 "use SAM3_Segment_Tool for segmentation."
             ),
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "query": "str - object names/phrases to detect (separate multiple phrases with '.')",
-                "box_threshold": "float - confidence threshold for boxes",
-                "text_threshold": "float - confidence threshold for text",
-                "server_url": "str - override GroundingDINO server URL",
-                "timeout_seconds": "int - request timeout in seconds",
             },
             input_schema=INPUT_SCHEMA,
             output_type=(
@@ -76,7 +54,7 @@ class GroundingDINO_Tool(BaseTool):
                 {
                     "command": (
                         "GroundingDINO_Tool(image_path=\"/path/to/image.jpg\", "
-                        "query=\"bus\", box_threshold=0.4, text_threshold=0.3)"
+                        "query=\"bus\")"
                     ),
                     "description": "Detect buses in an image via the GroundingDINO server.",
                 }

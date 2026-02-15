@@ -15,11 +15,6 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Python code to execute (raw code or fenced ```python/```py code block)",
         },
-        "timeout_seconds": {
-            "type": "integer",
-            "description": "Execution timeout in seconds",
-            "minimum": 1,
-        },
     },
     "required": ["code"],
     "additionalProperties": False,
@@ -83,7 +78,7 @@ class Python_Executor_Tool(BaseTool):
                 "assign the value to a variable. Bare expressions are executed but their value is "
                 "not returned automatically. Do not use with untrusted code."
             ),
-            tool_version="0.3.0",
+            tool_version="0.3.1",
             input_types={
                 "code": (
                     "str - Python code to execute. Can be raw code or a fenced ```python/```py block. "
