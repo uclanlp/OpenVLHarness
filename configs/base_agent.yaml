@@ -1,5 +1,6 @@
 # Example agent configuration
 agent_name: BaseAgent
+agent_config_version: v1_0215
 
 agent_kwargs:
   base: "http://localhost:8222"

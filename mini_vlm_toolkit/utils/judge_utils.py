@@ -7,9 +7,10 @@ def load_judge_config(config_path: str) -> dict:
     
     Expected YAML structure:
     ```yaml
+    judge_config_version: v1_0215
+    model_name: "gpt-4"
     nproc: 4
     retry: 3
-    model: "gpt-4"
     key: "empty"
     api_base: "http://localhost:8000"
     ```
