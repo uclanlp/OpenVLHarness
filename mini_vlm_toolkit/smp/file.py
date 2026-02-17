@@ -187,17 +187,22 @@ def get_eval_file_format():
 
 
 def get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True):
+    dataset_dir = work_dir
+    if dataset_name:
+        base = osp.basename(osp.normpath(work_dir))
+        if base != dataset_name:
+            dataset_dir = osp.join(work_dir, dataset_name)
     if use_env_format:
         file_format = get_pred_file_format()
         if file_format == 'xlsx':
-            return osp.join(work_dir, f'{model_name}_{dataset_name}.xlsx')
+            return osp.join(dataset_dir, f'{model_name}.xlsx')
         elif file_format == 'tsv':
-            return osp.join(work_dir, f'{model_name}_{dataset_name}.tsv')
+            return osp.join(dataset_dir, f'{model_name}.tsv')
         elif file_format == 'json':
-            return osp.join(work_dir, f'{model_name}_{dataset_name}.json')
+            return osp.join(dataset_dir, f'{model_name}.json')
     else:
         # default
-        return osp.join(work_dir, f'{model_name}_{dataset_name}.xlsx')
+        return osp.join(dataset_dir, f'{model_name}.xlsx')
 
 
 def get_eval_file_path(eval_file, judge_model, use_env_format=True):

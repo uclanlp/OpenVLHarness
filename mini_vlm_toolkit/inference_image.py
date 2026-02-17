@@ -4,6 +4,11 @@ import os
 import warnings
 import torch
 import torch.distributed as dist
+from .utils.reporting_utils import (
+    build_trajectory_records,
+    write_trajectory_jsonl,
+    write_html_reports,
+)
 from .utils import track_progress_rich
 from .smp import *
 
@@ -38,12 +43,12 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
             struct = dataset.build_prompt(item)
         structs.append(struct)
 
-    out_file = f'{work_dir}/{model_name}_{dataset_name}_supp.pkl'
+    out_file = f'{work_dir}/{model_name}_supp.pkl'
 
     # To reuse records in MMBench_V11
     if dataset_name in ['MMBench', 'MMBench_CN']:
         pred_format = get_pred_file_format()
-        v11_pred = f'{work_dir}/{model_name}_{dataset_name}_V11.{pred_format}'
+        v11_pred = f'{work_dir}/{model_name}_V11.{pred_format}'
         if osp.exists(v11_pred):
             try:
                 reuse_inds = load('http://opencompass.openxlab.space/utils/mmb_reuse.pkl')
@@ -92,7 +97,7 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         The model object
     """
     dataset_name = dataset.dataset_name
-    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
+    prev_file = f'{work_dir}/{model_name}_PREV.pkl'
     res = load(prev_file) if osp.exists(prev_file) else {}
     if osp.exists(out_file):
         res.update(load(out_file))
@@ -147,6 +152,14 @@ def _is_structured_record(v):
     return isinstance(v, dict) and 'prediction' in v and 'extra_records' in v
 
 
+def _strip_trajectory(extra_records):
+    if isinstance(extra_records, dict) and "trajectory" in extra_records:
+        cleaned = extra_records.copy()
+        cleaned.pop("trajectory", None)
+        return cleaned
+    return extra_records
+
+
 def _build_prompts(model, dataset, dataset_name, data):
     """
     Build prompts for a dataset.
@@ -197,7 +210,7 @@ def _process_results_with_thinking(data, data_all, model):
     """
     if all(_is_structured_record(data_all[x]) for x in data['index']):
         prediction = [data_all[x]['prediction'] for x in data['index']]
-        extra_records = [data_all[x]['extra_records'] for x in data['index']]
+        extra_records = [_strip_trajectory(data_all[x]['extra_records']) for x in data['index']]
         data['extra_records'] = extra_records
     else:
         prediction = [str(data_all[x]) for x in data['index']]
@@ -218,7 +231,7 @@ def _process_results_default(data, data_all):
     """
     if all(_is_structured_record(data_all[x]) for x in data['index']):
         data['prediction'] = [data_all[x]['prediction'] for x in data['index']]
-        data['extra_records'] = [data_all[x]['extra_records'] for x in data['index']]
+        data['extra_records'] = [_strip_trajectory(data_all[x]['extra_records']) for x in data['index']]
     else:
         data['prediction'] = [str(data_all[x]) for x in data['index']]
     return data
@@ -229,7 +242,14 @@ def _process_results_default(data, data_all):
 # ============================================================================
 
 def infer_image_job(
-    model, work_dir, model_name, dataset, verbose=False, api_nproc=4, ignore_failed=False
+    model,
+    work_dir,
+    model_name,
+    dataset,
+    verbose=False,
+    api_nproc=4,
+    ignore_failed=False,
+    html_limit=0,
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -248,10 +268,16 @@ def infer_image_job(
     """
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
+    # set dataset_len = 16 for debugging
+    work_dir = osp.join(work_dir, dataset_name)
+    if rank == 0 and not osp.exists(work_dir):
+        os.makedirs(work_dir, exist_ok=True)
+    if world_size > 1:
+        dist.barrier()
     result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
 
     # ========== Pre-processing ==========
-    prev_file = f'{work_dir}/{model_name}_{dataset_name}_PREV.pkl'
+    prev_file = f'{work_dir}/{model_name}_PREV.pkl'
     if osp.exists(result_file):
         if rank == 0:
             data = load(result_file)
@@ -263,7 +289,7 @@ def infer_image_job(
             dist.barrier()
 
     # ========== Distributed Inference ==========
-    tmpl = osp.join(work_dir, '{}' + f'{world_size}_{dataset_name}.pkl')
+    tmpl = osp.join(work_dir, '{}' + f'{world_size}.pkl')
     out_file = tmpl.format(rank)
 
     model = infer_data(
@@ -293,6 +319,31 @@ def infer_image_job(
             data.pop('image')
 
         dump(data, result_file)
+
+        records = build_trajectory_records(
+            data["index"],
+            data_all,
+            dataset_name=dataset_name,
+            model_name=model_name,
+            agent_class=model.__class__.__name__,
+            scrub_images=True,
+            strip_assistant_content=True,
+        )
+        trajectories_path = osp.join(work_dir, "trajectories.jsonl")
+        write_trajectory_jsonl(records, trajectories_path)
+
+        if html_limit != 0:
+            html_dir = osp.join(work_dir, "htmls")
+            html_records = build_trajectory_records(
+                data["index"],
+                data_all,
+                dataset_name=dataset_name,
+                model_name=model_name,
+                agent_class=model.__class__.__name__,
+                scrub_images=False,
+                strip_assistant_content=False,
+            )
+            write_html_reports(html_records, html_dir, html_limit)
         for i in range(world_size):
             os.remove(tmpl.format(i))
     

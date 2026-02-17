@@ -15,6 +15,7 @@ def load_agent_config(config_path: str) -> Dict[str, Any]:
     Expected YAML structure:
     ```yaml
     agent_name: BaseAgent  # or other agent class name
+    agent_config_version: v1_0215
     agent_kwargs:
       base: "http://localhost:8000"
       model: "gpt-4"

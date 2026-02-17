@@ -36,21 +36,37 @@
 ## VLM Evaluation Usage
 Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 
+You can find the supported benchmark here: [link](https://aicarrier.feishu.cn/wiki/Qp7wwSzQ9iK1Y6kNUJVcr6zTnPe?table=tblsdEpLieDoCxtb&view=vewa8sGZrY)
+
 1. Install benchmark dependencies:
 ```bash
 pip install -r requirements-benchmark.txt
 ```
-2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`.
+2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`. Agent config must include top-level `agent_config_version`.
 3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`). For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
-4. (Optional) Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. If the judge config file is missing at the resolved path, evaluation falls back to exact matching.
+4. Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. Judge config must include top-level `judge_config_version` and `model_name`.
 5. Run the benchmark with desired config/data. Example:
 ```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 --save-html 20
 ```
 6. Outputs are written under:
 ```text
-<work-dir>/<model_name>/<agent_class_lower>/<model_name>_<dataset>.<format>
+<work-dir>/<model_name>/<agent_class>/<run_id>/<dataset>/
+  <model_name>_<result/acc>.<format>                # predictions
+  trajectories.jsonl                                # per-task trajectories
+  htmls/                                            # optional debug HTML reports
+<work-dir>/<model_name>/<agent_class>/<run_id>/
+  run_manifest.json                                 # resume identity + matching policy
+  agent_config.redacted.yaml                        # copied once per run_id
+  judge_config.redacted.yaml                        # copied once per run_id
 ```
-Default `work-dir` is `./outputs`.
+Where `run_id` is derived automatically as
+`agent_<agent_config_version>__judge_<judge_config_version>`.
+
+#### Optional:
+`--save-html` controls HTML report generation:
+- `--save-html 0` (default): disable HTML output.
+- `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
+- `--save-html all`: generate HTML for all tasks.
 
 Note: define your data root with `LMUData` in `.env` (capital D).
