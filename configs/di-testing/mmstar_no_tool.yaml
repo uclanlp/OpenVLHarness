@@ -1,0 +1,16 @@
+# MMStar configuration without tool use
+agent_config_version: notool_v1_0215
+agent_name: BaseAgent
+
+agent_kwargs:
+  base: "http://localhost:8222"
+  key: "empty"
+  model: "Qwen/Qwen3-VL-8B-Instruct"
+  timeout: 600
+  custom_prompt: true
+  max_tokens: 2048
+  temperature: 0.6
+  top_p: 0.95
+  repetition_penalty: 1.1
+  retry: 3
+  verbose: true

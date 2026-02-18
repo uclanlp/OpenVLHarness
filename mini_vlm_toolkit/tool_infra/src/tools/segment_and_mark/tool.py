@@ -9,13 +9,7 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Base64 image data (use instead of image_path)",
         },
-        "granularity": {"type": "number", "description": "Segmentation granularity"},
         "alpha": {"type": "number", "description": "Mask alpha"},
-        "anno_mode": {
-            "type": "array",
-            "description": "Annotation modes",
-            "items": {"type": "string"},
-        },
     },
     "oneOf": [
         {"required": ["image_path"]},
@@ -34,19 +28,17 @@ class SegmentAndMark_Tool(BaseTool):
                 "with numeric labels. This tool is currently not implemented and "
                 "raises NotImplementedError; do not call it in production flows."
             ),
-            tool_version="0.1.0",
+            tool_version="0.2.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "granularity": "float - segmentation granularity",
                 "alpha": "float - mask alpha",
-                "anno_mode": "list[str] - annotation modes (Mask, Mark, Box)",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - annotated_image_base64, bboxes",
             demo_commands=[
                 {
-                    "command": "SegmentAndMark_Tool(image_path=\"/path/to/image.jpg\", granularity=1.8)",
+                    "command": "SegmentAndMark_Tool(image_path=\"/path/to/image.jpg\")",
                     "description": "Segment and label the image.",
                 }
             ],

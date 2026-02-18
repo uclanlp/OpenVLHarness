@@ -9,3 +9,4 @@ timeout-decorator
 ipdb
 pylatexenc
 xlsxwriter
+jsonlines

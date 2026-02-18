@@ -57,6 +57,7 @@ python run_benchmark.py --config configs/base_agent_with_tools.yaml --data MMSta
 Notes:
 - Example scripts are under `examples/ad-hoc_ex_for_dev/`.
 - Agent configs are under `configs/`.
+- Benchmark runs require top-level `agent_config_version` in agent config and `judge_config_version` in judge config.
 - For richer tool-loop logs in the example scripts, set `AGENT_DEBUG_TOOL_LOOP=1`.
 - For direct agent calls, pass `debug_tool_loop=True` to `generate(...)` / `_run(...)`.
 

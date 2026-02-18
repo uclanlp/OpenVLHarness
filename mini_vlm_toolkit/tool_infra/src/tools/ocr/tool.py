@@ -18,19 +18,6 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Base64 image data (use instead of image_path)",
         },
-        "languages": {
-            "description": "OCR languages as a code string or list of codes",
-            "oneOf": [
-                {"type": "string"},
-                {"type": "array", "items": {"type": "string"}},
-            ],
-        },
-        "server_url": {"type": "string", "description": "Override server URL"},
-        "timeout_seconds": {
-            "type": "integer",
-            "description": "Request timeout in seconds",
-            "minimum": 1,
-        },
     },
     "oneOf": [
         {"required": ["image_path"]},
@@ -50,22 +37,16 @@ class OCR_Tool(BaseTool):
                 "the image. Do not use it for general object localization or "
                 "segmentation."
             ),
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "languages": "list[str] | str - optional OCR language codes, e.g. ['en']",
-                "server_url": "str - override OCR server URL",
-                "timeout_seconds": "int - request timeout in seconds",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - texts, results, languages, gpu",
             demo_commands=[
                 {
-                    "command": (
-                        "OCR_Tool(image_path=\"/path/to/scan.png\", "
-                        "languages=[\"en\"])"
-                    ),
+                    "command": 'OCR_Tool(image_path="/path/to/scan.png")',
                     "description": "Extract text from an image using the OCR server.",
                 }
             ],

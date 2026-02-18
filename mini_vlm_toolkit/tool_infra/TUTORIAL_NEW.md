@@ -165,7 +165,9 @@ Alias behavior:
 - Alias entries include `is_alias: true` and point to `canonical_tool_name`.
 - `GET /jsonschema` includes schemas for canonical names and aliases.
 - `POST /execute` echoes the exact requested `tool_name` (canonical or alias).
-- Alias matching is exact and case-sensitive.
+- `/execute` resolves exact matches first.
+- If exact match fails, a unique case-insensitive match (single canonical tool) is accepted.
+- If case-insensitive matching maps to multiple canonical tools, `/execute` returns `tool_name_ambiguous_case`.
 - `GET /health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Response shape:

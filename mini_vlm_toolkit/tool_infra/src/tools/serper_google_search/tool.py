@@ -13,19 +13,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "query": {"type": "string", "description": "Search query"},
-        "num_results": {
-            "type": "integer",
-            "description": "Maximum number of URLs to return",
-            "minimum": 1,
-        },
-        "gl": {
-            "type": "string",
-            "description": "Optional 2-letter country code (for example us, gb)",
-        },
-        "hl": {
-            "type": "string",
-            "description": "Optional language code (for example en, zh-cn)",
-        },
     },
     "required": ["query"],
     "additionalProperties": False,
@@ -53,21 +40,16 @@ class Serper_Google_Search_Tool(BaseTool):
                 "direct question answering: it returns links only (not page content), "
                 "and filters out common social/video/PDF domains."
             ),
-            tool_version="1.0.0",
+            tool_version="1.1.0",
             input_types={
                 "query": "str - search query",
-                "num_results": "int - positive max number of URLs to return",
-                "gl": "str - optional 2-letter country code (for example 'us', 'gb')",
-                "hl": "str - optional language code (for example 'en', 'zh-cn')",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["web_search"],
             output_type="list[str] - list of URLs",
             demo_commands=[
                 {
-                    "command": (
-                        "Serper_Google_Search_Tool(query=\"OpenAI\", num_results=5)"
-                    ),
+                    "command": "Serper_Google_Search_Tool(query=\"OpenAI\")",
                     "description": "Fetch top URLs using Serper.",
                 }
             ],

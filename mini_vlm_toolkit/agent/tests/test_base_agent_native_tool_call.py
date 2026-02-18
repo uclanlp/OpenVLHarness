@@ -782,7 +782,8 @@ def test_native_tool_call_timeout_seconds_override_passthrough():
         base_module.chat_completion_request = original_chat_completion_request
 
     assert state["chat_calls"] == 1
-    assert answer == "done"
+    assert isinstance(answer, dict)
+    assert answer.get("prediction") == "done"
 
 
 def test_native_tool_call_invalid_tool_arguments_soft_fail():
