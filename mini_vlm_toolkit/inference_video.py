@@ -1,5 +1,6 @@
 import torch
 import torch.distributed as dist
+import copy as cp
 from .utils.reporting_utils import (
     build_trajectory_records,
     write_trajectory_jsonl,
@@ -9,6 +10,15 @@ from .utils import track_progress_rich
 from .smp import *
 
 FAIL_MSG = 'Failed to obtain answer via API.'
+
+
+def _build_isolated_generate_func(model):
+    """Return a generate callable with per-call model isolation for threaded inference."""
+    def _isolated_generate(**kwargs):
+        model_copy = cp.deepcopy(model)
+        return model_copy.generate(**kwargs)
+
+    return _isolated_generate
 
 # Only API model is accepted
 def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4):
@@ -58,7 +68,10 @@ def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_np
     structs = [struct for struct in structs if struct is not None]
     indices = [i for i in indices if i not in res or res[i] == FAIL_MSG]
 
-    gen_func = model.generate
+    # Original behavior (shared agent across worker threads):
+    # gen_func = model.generate
+    # Use per-call deep-copied agent to avoid cross-task mutable-state races.
+    gen_func = _build_isolated_generate_func(model)
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
     if len(structs):

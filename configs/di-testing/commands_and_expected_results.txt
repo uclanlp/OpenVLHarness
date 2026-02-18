@@ -2,3 +2,6 @@ export LMUData=/local/<user>/LMUData/
 
 # mmstar
 python run_benchmark.py --config configs/di-testing/mmstar.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 40 
+
+# realworldqa
+python run_benchmark.py --config configs/di-testing/realworldqa.yaml --judge-config configs/judge.yaml --data RealWorldQA --num-proc 40
