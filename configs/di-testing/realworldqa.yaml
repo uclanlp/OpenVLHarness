@@ -1,5 +1,5 @@
 # RealWorldQA-focused tool-agent configuration
-agent_config_version: v1_0215
+agent_config_version: realworldqa_v1_0215
 agent_name: BaseAgentWithTools
 
 agent_kwargs:

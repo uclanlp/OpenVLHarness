@@ -2,6 +2,7 @@
 
 import os
 import warnings
+import copy as cp
 import torch
 import torch.distributed as dist
 from .utils.reporting_utils import (
@@ -14,6 +15,15 @@ from .smp import *
 
 # Constants
 FAIL_MSG = 'Failed to obtain answer via API.'
+
+
+def _build_isolated_generate_func(model, api_nproc):
+    """Return a generate callable with per-call model isolation for threaded inference."""
+    def _isolated_generate(**kwargs):
+        model_copy = cp.deepcopy(model)
+        return model_copy.generate(**kwargs)
+
+    return _isolated_generate
 
 
 # ============================================================================
@@ -67,7 +77,10 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     structs = [s for i, s in zip(indices, structs) if i not in res]
     indices = [i for i in indices if i not in res]
 
-    gen_func = model.generate
+    # Original behavior (shared agent across worker threads):
+    # gen_func = model.generate
+    # Use per-call deep-copied agent when api_nproc > 1 to avoid cross-task mutable-state races.
+    gen_func = _build_isolated_generate_func(model, api_nproc)
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
     if len(structs):
