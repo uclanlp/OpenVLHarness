@@ -14,3 +14,4 @@ git+https://github.com/facebookresearch/sam3.git
 decord
 pycocotools
 matplotlib
+PyYAML
