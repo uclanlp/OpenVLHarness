@@ -1,10 +1,12 @@
 # Example agent configuration
+agent_config_version: mmstar_v1_0215
 agent_name: BaseAgentWithTools
-agent_config_version: v1_0215
 
 agent_kwargs:
+  # base: "http://localhost:8222"
   base: "http://localhost:8222"
   key: "empty"
+  # model: "Qwen/Qwen3-VL-8B-Instruct"
   model: "Qwen/Qwen3-VL-8B-Instruct"
   timeout: 600
   custom_prompt: true
@@ -14,8 +16,9 @@ agent_kwargs:
   repetition_penalty: 1.1
   retry: 3
   verbose: true
-  debug_tool_loop: true
   tool_base: "http://localhost:8101"
+  prompt_version: "v2"
+  runtime_environment_emit_policy: "always"
   max_iterations: 15
   tool_list:
     - ocr
