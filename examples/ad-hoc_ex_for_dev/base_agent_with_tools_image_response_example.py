@@ -1,6 +1,11 @@
 """
 Optional integration-style example for image tool responses in BaseAgentWithTools.
 
+NOTE:
+- This is a legacy example that reads `agent.last_run_messages`.
+- It is kept for reference and may break under stateless-agent runtime.
+- Use `base_agent_with_tools_image_response_example_stateless.py` for the current API.
+
 Prereqs:
 - Tool server at TOOL_SERVER_URL (default: http://127.0.0.1:8101) with SAM3_Segment_Tool enabled.
 - Qwen3-VL OpenAI-compatible server at MODEL_BASE_URL (default: http://127.0.0.1:8222).

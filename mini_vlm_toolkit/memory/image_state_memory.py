@@ -9,7 +9,7 @@ from .persistent_state_memory import PersistentStateMemory
 
 
 class ImageStateMemory(PersistentStateMemory):
-    """Persistent state memory that tracks runtime images and emits updates."""
+    """Per-run image state memory that tracks runtime images and emits updates."""
 
     memory_name = "image"
     _DROP_VALUE = object()

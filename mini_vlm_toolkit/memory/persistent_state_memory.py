@@ -9,6 +9,10 @@ class PersistentStateMemory:
     Default behavior preserves native tool protocol by emitting a text-only
     `role=tool` message for each tool payload. Subclasses can override image/
     modality handling and turn-level state update emissions.
+
+    Contract:
+    - Instances are per-run only and must not be reused across runs.
+    - Any mutable fields on subclasses are run-local.
     """
 
     memory_name = "base"

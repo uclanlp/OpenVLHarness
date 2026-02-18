@@ -206,10 +206,11 @@ class BaseAgent:
             content_list = [dict(type='text', text=text)]
         return content_list
 
-    def prepare_inputs(self, inputs):
+    def prepare_inputs(self, inputs, system_prompt=None):
         input_msgs = []
-        if self.system_prompt is not None:
-            input_msgs.append(dict(role='system', content=self.system_prompt))
+        active_system_prompt = self.system_prompt if system_prompt is None else system_prompt
+        if active_system_prompt is not None:
+            input_msgs.append(dict(role='system', content=active_system_prompt))
         assert isinstance(inputs, list) and isinstance(inputs[0], dict)
         assert np.all(['type' in x for x in inputs]) or np.all(['role' in x for x in inputs]), inputs
         if 'role' in inputs[0]:
@@ -220,8 +221,8 @@ class BaseAgent:
             input_msgs.append(dict(role='user', content=self.prepare_itlist(inputs)))
         return input_msgs
 
-    def generate_inner(self, inputs, **kwargs) -> str:
-        input_msgs = self.prepare_inputs(inputs)
+    def generate_inner(self, inputs, system_prompt=None, **kwargs) -> str:
+        input_msgs = self.prepare_inputs(inputs, system_prompt=system_prompt)
         temperature = kwargs.pop('temperature', self.temperature)
         max_tokens = kwargs.pop('max_tokens', self.max_tokens)
         top_p = kwargs.pop('top_p', self.top_p)
@@ -366,7 +367,7 @@ class BaseAgent:
 
         return self.fail_msg if answer in ['', None] else answer
 
-    def preprocess_message_with_role(self, message):
+    def preprocess_message_with_role(self, message, *, base_system_prompt=None, return_system_prompt=False):
         system_prompt = ''
         new_message = []
 
@@ -380,12 +381,15 @@ class BaseAgent:
                 new_item.pop('role', None)
                 new_message.append(new_item)
 
+        resolved_system_prompt = self.system_prompt if base_system_prompt is None else base_system_prompt
         if system_prompt != '':
-            if self.system_prompt is None:
-                self.system_prompt = system_prompt
+            if resolved_system_prompt is None:
+                resolved_system_prompt = system_prompt
             else:
-                if system_prompt not in self.system_prompt:
-                    self.system_prompt += '\n' + system_prompt
+                if system_prompt not in resolved_system_prompt:
+                    resolved_system_prompt += '\n' + system_prompt
+        if return_system_prompt:
+            return new_message, resolved_system_prompt
         return new_message
 
     def _build_trajectory_record(self, input_messages, answer):
@@ -406,8 +410,13 @@ class BaseAgent:
         """
         raw_message = cp.deepcopy(message)
         message = cp.deepcopy(message)
+        active_system_prompt = self.system_prompt
         if self.check_content(message) == 'listdict':
-            message = self.preprocess_message_with_role(message)
+            message, active_system_prompt = self.preprocess_message_with_role(
+                message,
+                base_system_prompt=self.system_prompt,
+                return_system_prompt=True,
+            )
         assert self.check_content(message) in ['str', 'dict', 'liststr', 'listdict'], f'Invalid input type: {message}'
         message = self.preproc_content(message)
         assert message is not None and self.check_content(message) == 'listdict'
@@ -426,7 +435,11 @@ class BaseAgent:
 
         for i in range(self.retry):
             try:
-                ret_code, answer, log = self.generate_inner(cp.deepcopy(message), **kwargs)
+                ret_code, answer, log = self.generate_inner(
+                    cp.deepcopy(message),
+                    system_prompt=active_system_prompt,
+                    **kwargs,
+                )
                 last_log = log
                 last_ret_code = ret_code
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
@@ -442,9 +455,6 @@ class BaseAgent:
                     if isinstance(log, dict):
                         extra_records.update(log)
                     return {"prediction": answer, "extra_records": extra_records}
-                    if isinstance(log, dict):
-                        return {"prediction": answer, "extra_records": log}
-                    return answer
                 elif self.verbose:
                     if not isinstance(log, str):
                         try:
@@ -518,8 +528,7 @@ class BaseAgentWithTools(BaseAgent):
         self.logger = get_logger("BaseAgentWithTools")
         self.logger.info(f"Available Tools: {list(self.tools.keys())}")
         self.system_prompt = self._construct_system_message()
-        self.last_run_messages = []
-        self.last_chat_history = []
+        self._persistent_state_memory_spec = cp.deepcopy(persistent_state_memory)
         self.persistent_state_memory = self._build_persistent_state_memory(persistent_state_memory)
         self.persistent_state_memory.configure_tool_schema(self.json_schema)
         self.logger.info(
@@ -566,6 +575,40 @@ class BaseAgentWithTools(BaseAgent):
             f"Unknown persistent_state_memory '{name}'. "
             f"Supported memories: {list(self._SUPPORTED_MEMORY_NAMES)}."
         )
+
+    def _new_persistent_state_memory(self) -> PersistentStateMemory:
+        """Create a fresh per-run memory object.
+
+        Memory instances are never shared across runs to guarantee stateless
+        agent behavior under threaded benchmark execution.
+        """
+        # Unit tests that bypass __init__ may inject a custom factory.
+        factory = getattr(self, "_persistent_state_memory_factory", None)
+        if callable(factory):
+            memory = factory()
+            if not isinstance(memory, PersistentStateMemory):
+                raise TypeError(
+                    "persistent state memory factory must return PersistentStateMemory, "
+                    f"got {type(memory).__name__}."
+                )
+            return memory
+
+        sentinel = object()
+        spec = getattr(self, "_persistent_state_memory_spec", sentinel)
+        if spec is not sentinel:
+            if isinstance(spec, dict) or spec is None:
+                return self._build_persistent_state_memory(cp.deepcopy(spec))
+            raise TypeError(
+                "persistent state memory spec must be dict or null, "
+                f"got {type(spec).__name__}."
+            )
+
+        # Backward-compatible fallback for tests/custom setups that inject a
+        # prepared memory instance directly on the agent object.
+        injected = getattr(self, "persistent_state_memory", None)
+        if isinstance(injected, PersistentStateMemory):
+            return injected
+        raise RuntimeError("Unable to create PersistentStateMemory for this run.")
 
     def _append_messages_with_indices(
         self,
@@ -889,7 +932,7 @@ class BaseAgentWithTools(BaseAgent):
     # ------------------------------------------------------------------ #
     # Main loop
     # ------------------------------------------------------------------ #
-    def _run(self, question, **kwargs) -> list[dict]:
+    def _run(self, question, return_messages: bool = False, **kwargs) -> tuple:
         """
         Run the native tool-calling loop.
 
@@ -901,6 +944,7 @@ class BaseAgentWithTools(BaseAgent):
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
         chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         tool_choice = kwargs.pop("tool_choice", self.tool_choice)
+        active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
         runtime_tools = kwargs.pop("tools", None)
         model_tools = self.json_schema
         if isinstance(runtime_tools, list):
@@ -908,13 +952,14 @@ class BaseAgentWithTools(BaseAgent):
         elif runtime_tools is not None and debug_tool_loop:
             self.logger.info("[ToolLoop] Ignoring non-list runtime tools override; using agent tool schema.")
 
-        self.persistent_state_memory.reset()
-        msgs = self.prepare_inputs(question)
+        run_memory = self._new_persistent_state_memory()
+        run_memory.reset()
+        msgs = self.prepare_inputs(question, system_prompt=active_system_prompt)
         # add available tools to user prompt
         msgs = self._add_user_prompt_prefix(msgs)
         self._append_messages_with_indices(
             msgs,
-            self.persistent_state_memory.on_run_start(
+            run_memory.on_run_start(
                 agent=self,
                 question=question,
                 messages=msgs,
@@ -1014,7 +1059,7 @@ class BaseAgentWithTools(BaseAgent):
                             "meta": {"source": "agent.tool_call_parser"},
                         }
                     else:
-                        resolved_args, image_resolution = self.persistent_state_memory.resolve_tool_call_args(
+                        resolved_args, image_resolution = run_memory.resolve_tool_call_args(
                             agent=self,
                             args=call["args"],
                         )
@@ -1075,7 +1120,7 @@ class BaseAgentWithTools(BaseAgent):
                         )
 
                     turn_info["tool_responses"].append(normalized_payload)
-                    memory_result = self.persistent_state_memory.consume_tool_payload(
+                    memory_result = run_memory.consume_tool_payload(
                         agent=self,
                         turn_idx=i,
                         tool_call=call,
@@ -1100,7 +1145,7 @@ class BaseAgentWithTools(BaseAgent):
                     memory_output = {
                         "tool_call_id": call["id"],
                         "tool_name": call["name"],
-                        "memory_name": self.persistent_state_memory.memory_name,
+                        "memory_name": run_memory.memory_name,
                         "immediate_message_indices": immediate_indices,
                         "deferred_message_indices": [],
                         "message_summaries": [
@@ -1142,7 +1187,7 @@ class BaseAgentWithTools(BaseAgent):
 
                 turn_info["memory_turn_message_indices"] = self._append_messages_with_indices(
                     msgs,
-                    self.persistent_state_memory.emit_after_tool_turn(
+                    run_memory.emit_after_tool_turn(
                         agent=self,
                         turn_idx=i,
                         tool_calls=native_tool_calls,
@@ -1151,8 +1196,6 @@ class BaseAgentWithTools(BaseAgent):
                     ),
                 )
                 chat_history.append(turn_info)
-                self.last_run_messages = cp.deepcopy(msgs)
-                self.last_chat_history = cp.deepcopy(chat_history)
                 if i == self.max_iterations - 1:
                     if debug_tool_loop:
                         self.logger.info(
@@ -1222,32 +1265,32 @@ class BaseAgentWithTools(BaseAgent):
                         "final_answer": final_answer,
                     }
                     chat_history.append(final_turn_info)
-                    self.last_run_messages = cp.deepcopy(msgs)
-                    self.last_chat_history = cp.deepcopy(chat_history)
 
                     if final_answer:
+                        if return_messages:
+                            return final_answer, chat_history, msgs
                         return final_answer, chat_history
+                    if return_messages:
+                        return self.fail_msg, chat_history, msgs
                     return self.fail_msg, chat_history
                 continue
 
             final_answer = self._extract_final_answer_from_content(raw_response)
             turn_info["final_answer"] = final_answer
             chat_history.append(turn_info)
-            self.last_run_messages = cp.deepcopy(msgs)
-            self.last_chat_history = cp.deepcopy(chat_history)
             if debug_tool_loop:
                 self.logger.info(
                     f"[ToolLoop] final_answer={self._truncate_for_debug(final_answer, max_chars=debug_char_limit)}"
                 )
             if final_answer:
+                if return_messages:
+                    return final_answer, chat_history, msgs
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
-            self.last_run_messages = cp.deepcopy(msgs)
-            self.last_chat_history = cp.deepcopy(chat_history)
 
-        self.last_run_messages = cp.deepcopy(msgs)
-        self.last_chat_history = cp.deepcopy(chat_history)
+        if return_messages:
+            return self.fail_msg, chat_history, msgs
         return self.fail_msg, chat_history
 
     def generate(self, message, **kwargs1):
@@ -1255,8 +1298,13 @@ class BaseAgentWithTools(BaseAgent):
 
         raw_message = cp.deepcopy(message)
         message = cp.deepcopy(message)
+        active_system_prompt = self.system_prompt
         if self.check_content(message) == 'listdict':
-            message = self.preprocess_message_with_role(message)
+            message, active_system_prompt = self.preprocess_message_with_role(
+                message,
+                base_system_prompt=self.system_prompt,
+                return_system_prompt=True,
+            )
         assert self.check_content(message) in ['str', 'dict', 'liststr', 'listdict'], f'Invalid input type: {message}'
         message = self.preproc_content(message)
         assert message is not None and self.check_content(message) == 'listdict'
@@ -1269,12 +1317,18 @@ class BaseAgentWithTools(BaseAgent):
         kwargs = filter_kwargs_for_endpoint(kwargs, "chat")
 
         # Run the ReAct-style loop
-        answer, chat_history = self._run(message, **kwargs)
+        answer, chat_history, messages = self._run(
+            message,
+            return_messages=True,
+            system_prompt=active_system_prompt,
+            **kwargs,
+        )
 
         final_answer = self.fail_msg if answer in ['', None] else answer
         trajectory = {
             "input_messages": raw_message,
             "chat_history": chat_history,
+            "messages": messages,
             "final_answer": final_answer,
         }
         return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}

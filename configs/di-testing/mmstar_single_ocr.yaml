@@ -16,7 +16,9 @@ agent_kwargs:
   verbose: true
   tool_base: "http://localhost:8101"
   prompt_version: "v2"
-  runtime_environment_emit_policy: "always"
+  persistent_state_memory:
+    name: "image"
+    emit_policy: "always"
   max_iterations: 15
   tool_list:
     - ocr

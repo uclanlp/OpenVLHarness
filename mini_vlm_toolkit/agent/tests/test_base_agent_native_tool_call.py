@@ -1000,11 +1000,103 @@ def test_preprocess_message_with_role_no_mutation():
         {"role": "user", "type": "text", "value": "hello"},
     ]
     snapshot = json.loads(json.dumps(original))
-    processed = agent.preprocess_message_with_role(original)
+    processed, resolved_system_prompt = agent.preprocess_message_with_role(
+        original,
+        base_system_prompt=agent.system_prompt,
+        return_system_prompt=True,
+    )
 
     assert original == snapshot
     assert processed == [{"type": "text", "value": "hello"}]
-    assert "system-a" in (agent.system_prompt or "")
+    assert "system-a" in (resolved_system_prompt or "")
+    assert "system-a" not in (agent.system_prompt or "")
+
+
+def test_generate_system_role_content_does_not_leak_across_calls():
+    agent = _build_agent()
+    seen_system_prompts = []
+
+    def fake_chat_completion_request(**kwargs):
+        messages = kwargs["messages"]
+        system_text = ""
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_text = str(msg.get("content", ""))
+                break
+        seen_system_prompts.append(system_text)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>done.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        result_a = agent.generate(
+            [
+                {"role": "system", "value": "system-a"},
+                {"role": "user", "type": "text", "value": "question-a"},
+            ]
+        )
+        result_b = agent.generate(
+            [
+                {"role": "system", "value": "system-b"},
+                {"role": "user", "type": "text", "value": "question-b"},
+            ]
+        )
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert result_a["prediction"] == "done"
+    assert result_b["prediction"] == "done"
+    assert len(seen_system_prompts) == 2
+    assert "system-a" in seen_system_prompts[0]
+    assert "system-b" not in seen_system_prompts[0]
+    assert "system-b" in seen_system_prompts[1]
+    assert "system-a" not in seen_system_prompts[1]
+
+
+def test_generate_trajectory_includes_messages():
+    agent = _build_agent()
+
+    def fake_chat_completion_request(**kwargs):
+        _ = kwargs
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>done.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        result = agent.generate([{"type": "text", "value": "Reply directly."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    trajectory = result.get("extra_records", {}).get("trajectory", {})
+    assert result.get("prediction") == "done"
+    assert isinstance(trajectory.get("messages"), list)
+    assert trajectory["messages"]
 
 
 def test_run_returns_fail_msg_when_iterations_exhausted():
@@ -1238,6 +1330,8 @@ if __name__ == "__main__":
     test_native_tool_call_hard_fail_invalid_chat_response_shape()
     test_native_tool_call_single_image_fallback_metadata()
     test_preprocess_message_with_role_no_mutation()
+    test_generate_system_role_content_does_not_leak_across_calls()
+    test_generate_trajectory_includes_messages()
     test_run_returns_fail_msg_when_iterations_exhausted()
     test_normalize_execute_payload_strict_ok_parsing()
     test_prompt_version_v2_prefix_and_system_prompt()
@@ -1259,6 +1353,8 @@ if __name__ == "__main__":
     print("PASS: test_native_tool_call_hard_fail_invalid_chat_response_shape")
     print("PASS: test_native_tool_call_single_image_fallback_metadata")
     print("PASS: test_preprocess_message_with_role_no_mutation")
+    print("PASS: test_generate_system_role_content_does_not_leak_across_calls")
+    print("PASS: test_generate_trajectory_includes_messages")
     print("PASS: test_run_returns_fail_msg_when_iterations_exhausted")
     print("PASS: test_normalize_execute_payload_strict_ok_parsing")
     print("PASS: test_prompt_version_v2_prefix_and_system_prompt")

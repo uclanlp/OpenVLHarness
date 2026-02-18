@@ -26,17 +26,17 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - Appends structured tool outputs as text-only `role=tool` messages.
 - If tool outputs include images, appends separate multimodal `role=user` messages (short text + `image_url` parts), then continues.
 - Appends runtime Environment Update `role=user` messages and continues until final answer.
-- Stores debug traces in `last_run_messages` and `last_chat_history`.
+- Returns debug traces under `extra_records.trajectory` (`chat_history` + final model-fed `messages`).
 
 ## 3. Example Usage
 1. Single-example debug loop (tool calling):
 ```bash
-python examples/ad-hoc_ex_for_dev/base_agent_with_tools_chat_example.py
+python examples/ad-hoc_ex_for_dev/base_agent_with_tools_chat_example_stateless.py
 ```
 
 2. Single-example debug loop (image + tool response handling):
 ```bash
-python examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example.py
+python examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example_stateless.py
 ```
 
 3. Image registry lifecycle walkthrough (IDs, rewrites, and tool-output image refs):
@@ -75,7 +75,7 @@ Notes:
 - `PersistentStateMemory` transforms each normalized payload into model-facing messages while preserving native tool protocol (`role=tool` + matching `tool_call_id`).
 - The `role=tool` message content is text-only JSON (`ok/result/error` plus optional `image_refs`).
 - If tool outputs include images, agent sends a separate multimodal `role=user` update message with those image parts.
-- `chat_history` keeps raw tool payloads in `tool_responses` and compact memory emission traces in `memory_outputs` (with indices into `last_run_messages`).
+- `chat_history` keeps raw tool payloads in `tool_responses` and compact memory emission traces in `memory_outputs` (with indices into `trajectory.messages`).
 - Tool messages are fed back to the model until a non-tool final answer is returned.
 - If the last allowed turn ends with tool calls, agent makes one final completion with `tool_choice="none"` to force a text answer.
 
