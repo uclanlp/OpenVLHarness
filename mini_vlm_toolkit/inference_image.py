@@ -17,7 +17,7 @@ from .smp import *
 FAIL_MSG = 'Failed to obtain answer via API.'
 
 
-def _build_isolated_generate_func(model, api_nproc):
+def _build_isolated_generate_func(model):
     """Return a generate callable with per-call model isolation for threaded inference."""
     def _isolated_generate(**kwargs):
         model_copy = cp.deepcopy(model)
@@ -79,8 +79,8 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
 
     # Original behavior (shared agent across worker threads):
     # gen_func = model.generate
-    # Use per-call deep-copied agent when api_nproc > 1 to avoid cross-task mutable-state races.
-    gen_func = _build_isolated_generate_func(model, api_nproc)
+    # Use per-call deep-copied agent to avoid cross-task mutable-state races.
+    gen_func = _build_isolated_generate_func(model)
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
     if len(structs):
