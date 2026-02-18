@@ -17,11 +17,10 @@ Optional fields:
 
 ## Input
 The generated subagent tools accept:
-- `messages`: chat-style list of messages
-  - each message: `{"role": "system|user|assistant", "content": [{"type": "text|image", "value": "..."}]}`
+- `content`: single-turn list of content items
+  - each item: `{"type": "text|image", "value": "..."}`
 
-The last message must have role `user`.
-For image content, `value` may be a path, data URL, or raw base64.
+For image items, `value` may be a path, data URL, or raw base64.
 
 ## Output
 Returns `{"ok", "answer", "subagent_name", "error"}`.

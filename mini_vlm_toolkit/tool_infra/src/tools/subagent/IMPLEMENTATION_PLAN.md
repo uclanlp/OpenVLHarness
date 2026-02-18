@@ -11,10 +11,7 @@ Expose a configured `BaseAgentWithTools` instance as a tool (`Subagent_Tool`) so
 ## Proposed Tool Interface (MVP)
 - `tool_name`: `Subagent_Tool`
 - Inputs:
-  - `message` (str, required): user text for the child agent.
-  - `image_path` (str, optional): local image path.
-  - `image_base64` (str, optional): base64/data URL image.
-  - `max_iterations_override` (int, optional): bounded runtime override.
+  - `content` (list[dict], required): single-turn input list using `{"type": "text|image", "value": ...}`.
 - Output (dict):
   - `answer` (str)
   - `ok` (bool)

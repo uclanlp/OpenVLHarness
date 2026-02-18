@@ -19,41 +19,27 @@ SUBAGENT_CONFIG_DIR_ENV = "SUBAGENT_CONFIG_DIR"
 _INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "messages": {
+        "content": {
             "type": "array",
             "description": (
-                "Chat-style messages for the child agent. "
-                "Each message is {'role': 'system|user|assistant', 'content': [{'type': 'text|image', 'value': str}, ...]}."
+                "Single-turn child-agent input list. "
+                "Each item is {'type': 'text|image', 'value': str}."
             ),
             "items": {
                 "type": "object",
                 "properties": {
-                    "role": {
+                    "type": {
                         "type": "string",
-                        "enum": ["system", "user", "assistant"],
+                        "enum": ["text", "image"],
                     },
-                    "content": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "type": {
-                                    "type": "string",
-                                    "enum": ["text", "image"],
-                                },
-                                "value": {"type": "string"},
-                            },
-                            "required": ["type", "value"],
-                            "additionalProperties": False,
-                        },
-                    },
+                    "value": {"type": "string"},
                 },
-                "required": ["role", "content"],
+                "required": ["type", "value"],
                 "additionalProperties": False,
             },
         }
     },
-    "required": ["messages"],
+    "required": ["content"],
     "additionalProperties": False,
 }
 
@@ -305,83 +291,46 @@ def _success_payload(subagent_name: str, answer: str) -> Dict[str, Any]:
     }
 
 
-def _normalize_messages(messages: Any) -> Tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]]]:
-    if not isinstance(messages, list) or not messages:
+def _normalize_content(content: Any) -> Tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]]]:
+    if not isinstance(content, list) or not content:
         return None, {
-            "code": "invalid_messages",
-            "message": "messages must be a non-empty list",
+            "code": "invalid_content",
+            "message": "content must be a non-empty list",
         }
 
     normalized: List[Dict[str, Any]] = []
-    allowed_roles = {"system", "user", "assistant"}
-    for idx, msg in enumerate(messages):
-        if not isinstance(msg, dict):
+    for idx, item in enumerate(content):
+        if not isinstance(item, dict):
             return None, {
-                "code": "invalid_messages",
-                "message": "each message must be an object",
-                "detail": {"index": idx, "type": type(msg).__name__},
+                "code": "invalid_content",
+                "message": "each content item must be an object",
+                "detail": {"index": idx, "type": type(item).__name__},
             }
 
-        role = msg.get("role")
-        if role not in allowed_roles:
+        part_type = item.get("type")
+        part_value = item.get("value")
+        if part_type not in {"text", "image"}:
             return None, {
-                "code": "invalid_message_role",
-                "message": "message.role must be one of: system, user, assistant",
-                "detail": {"index": idx, "role": role},
+                "code": "invalid_content_item_type",
+                "message": "content.type must be 'text' or 'image'",
+                "detail": {
+                    "content_index": idx,
+                    "type": part_type,
+                },
+            }
+        if not isinstance(part_value, str) or not part_value.strip():
+            return None, {
+                "code": "invalid_content_item_value",
+                "message": "content.value must be a non-empty string",
+                "detail": {
+                    "content_index": idx,
+                },
             }
 
-        content = msg.get("content")
-        if not isinstance(content, list) or not content:
-            return None, {
-                "code": "invalid_message_content",
-                "message": "message.content must be a non-empty list",
-                "detail": {"index": idx},
-            }
-
-        normalized_content: List[Dict[str, str]] = []
-        for part_idx, part in enumerate(content):
-            if not isinstance(part, dict):
-                return None, {
-                    "code": "invalid_message_part",
-                    "message": "message.content entries must be objects",
-                    "detail": {"message_index": idx, "content_index": part_idx},
-                }
-
-            part_type = part.get("type")
-            part_value = part.get("value")
-            if part_type not in {"text", "image"}:
-                return None, {
-                    "code": "invalid_message_part_type",
-                    "message": "content.type must be 'text' or 'image'",
-                    "detail": {
-                        "message_index": idx,
-                        "content_index": part_idx,
-                        "type": part_type,
-                    },
-                }
-            if not isinstance(part_value, str) or not part_value.strip():
-                return None, {
-                    "code": "invalid_message_part_value",
-                    "message": "content.value must be a non-empty string",
-                    "detail": {
-                        "message_index": idx,
-                        "content_index": part_idx,
-                    },
-                }
-
-            value_out = part_value
-            if part_type == "image":
-                value_out = _normalize_image_value(part_value)
-
-            normalized_content.append({"type": part_type, "value": value_out})
-
-        normalized.append({"role": role, "content": normalized_content})
-
-    if normalized[-1]["role"] != "user":
-        return None, {
-            "code": "invalid_messages_last_role",
-            "message": "the last message must have role='user'",
-        }
+        value_out = part_value
+        if part_type == "image":
+            value_out = _normalize_image_value(part_value)
+        normalized.append({"type": part_type, "value": value_out})
 
     return normalized, None
 
@@ -406,7 +355,7 @@ def _error_tool_class(errors: List[str]):
                 "Server startup should fail under strict loading."
             ),
             tool_version="0.1.0",
-            input_types={"messages": "list[dict] - chat-style messages"},
+            input_types={"content": "list[dict] - single-turn content items"},
             input_schema=copy.deepcopy(_INPUT_SCHEMA),
             output_type="dict - ok, answer, subagent_name, error",
         )
@@ -415,7 +364,7 @@ def _error_tool_class(errors: List[str]):
     def sanity_check(self):
         return list(self._issues)
 
-    def execute(self, messages):
+    def execute(self, content):
         return _failure_payload(
             subagent_name="Subagent_Config_Error_Tool",
             code="subagent_configuration_error",
@@ -450,7 +399,7 @@ def _make_subagent_tool_class(spec: Dict[str, Any]):
             tool_description=tool_description,
             tool_version="0.1.0",
             input_types={
-                "messages": "list[dict] - chat-style messages with role/content[{type,value}]",
+                "content": "list[dict] - single-turn content items [{type,value}]",
             },
             input_schema=copy.deepcopy(_INPUT_SCHEMA),
             tool_aliases=list(tool_aliases),
@@ -485,19 +434,19 @@ def _make_subagent_tool_class(spec: Dict[str, Any]):
             self._agent = agent
         return self._agent
 
-    def execute(self, messages):
-        normalized_messages, normalize_error = _normalize_messages(messages)
+    def execute(self, content):
+        normalized_content, normalize_error = _normalize_content(content)
         if normalize_error is not None:
             return _failure_payload(
                 subagent_name=self._subagent_name,
-                code=normalize_error.get("code", "invalid_messages"),
-                message=normalize_error.get("message", "Invalid messages payload."),
+                code=normalize_error.get("code", "invalid_content"),
+                message=normalize_error.get("message", "Invalid content payload."),
                 detail=normalize_error.get("detail"),
             )
 
         try:
             agent = self._get_or_build_agent()
-            result = agent.generate(normalized_messages)
+            result = agent.generate(normalized_content)
             answer = _safe_answer_from_prediction((result or {}).get("prediction"))
             return _success_payload(self._subagent_name, answer)
         except Exception as exc:
@@ -546,4 +495,3 @@ else:
 
 for _cls in SUBAGENT_TOOL_CLASSES:
     globals()[_cls.__name__] = _cls
-

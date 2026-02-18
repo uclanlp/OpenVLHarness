@@ -110,18 +110,13 @@ def test_subagent_execute_uses_cached_agent_and_normalizes_base64_images():
         tiny_png_b64 = (
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2fF6UAAAAASUVORK5CYII="
         )
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "value": "inspect image"},
-                    {"type": "image", "value": tiny_png_b64},
-                ],
-            }
+        content = [
+            {"type": "text", "value": "inspect image"},
+            {"type": "image", "value": tiny_png_b64},
         ]
 
-        first = tool.execute(messages=messages)
-        second = tool.execute(messages=messages)
+        first = tool.execute(content=content)
+        second = tool.execute(content=content)
 
         assert first["ok"] is True
         assert first["answer"] == "child answer"
@@ -130,11 +125,11 @@ def test_subagent_execute_uses_cached_agent_and_normalizes_base64_images():
         assert build_calls[0] == cfg_path
         assert fake_agent.calls == 2
 
-        normalized_image_value = fake_agent.last_message[0]["content"][1]["value"]
+        normalized_image_value = fake_agent.last_message[1]["value"]
         assert normalized_image_value.startswith("data:image/png;base64,")
 
 
-def test_subagent_rejects_invalid_last_role():
+def test_subagent_rejects_invalid_content_shape():
     with tempfile.TemporaryDirectory() as tmpdir:
         _write_config(
             tmpdir,
@@ -157,16 +152,13 @@ def test_subagent_rejects_invalid_last_role():
         tool = module.SUBAGENT_TOOL_CLASSES[0]()
 
         payload = tool.execute(
-            messages=[
-                {
-                    "role": "assistant",
-                    "content": [{"type": "text", "value": "I will continue."}],
-                }
+            content=[
+                {"role": "assistant", "content": [{"type": "text", "value": "I will continue."}]}
             ]
         )
 
         assert payload["ok"] is False
-        assert payload["error"]["code"] == "invalid_messages_last_role"
+        assert payload["error"]["code"] == "invalid_content_item_type"
 
 
 def test_subagent_config_rejects_null_tool_list():
@@ -225,7 +217,7 @@ def test_subagent_config_rejects_subagent_tool_in_child_tool_list():
 def main():
     test_subagent_discovery_builds_tool_class()
     test_subagent_execute_uses_cached_agent_and_normalizes_base64_images()
-    test_subagent_rejects_invalid_last_role()
+    test_subagent_rejects_invalid_content_shape()
     test_subagent_config_rejects_null_tool_list()
     test_subagent_config_rejects_subagent_tool_in_child_tool_list()
     print("Subagent tool tests completed.")
