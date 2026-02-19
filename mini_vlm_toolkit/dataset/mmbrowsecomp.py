@@ -5,15 +5,58 @@ Compatible with BaseAgent and BaseAgentWithTools for inference.
 """
 
 import json
+import mimetypes
 import os
 import os.path as osp
 
 import pandas as pd
+import validators
 
 from .image_base import ImageBaseDataset
 from .utils.vqa_eval import process_line, hit_calculate
-from ..smp import *
+from ..smp import (
+    LMUDataRoot,
+    decode_base64_to_image_file,
+    d2df,
+    download_file,
+    dump,
+    load,
+    md5,
+    mp,
+    np,
+    toliststr,
+)
 from ..smp.file import get_intermediate_file_path
+
+
+def _resolve_to_local_path(s):
+    """Resolve data URL or HTTP URL to local cache path; only decode/download if file not exists.
+    Keeps the same semantics as smp.file.parse_file so base/general code does not need MMBrowseComp-specific logic.
+    """
+    if osp.exists(s) and s != '.' and osp.isfile(s):
+        return s
+    if s.startswith('data:image/'):
+        content = s[11:]
+        content = ';'.join(content.split(';')[1:])
+        if not content.startswith('base64,'):
+            return s
+        b64 = content[7:]
+        dname = osp.join(LMUDataRoot(), 'files')
+        os.makedirs(dname, exist_ok=True)
+        tgt = osp.join(dname, md5(b64) + '.png')
+        if not osp.exists(tgt):
+            decode_base64_to_image_file(b64, tgt)
+        return tgt
+    if validators.url(s):
+        suffix = osp.splitext(s)[1].lower()
+        if suffix == '.webp' or suffix in mimetypes.types_map:
+            dname = osp.join(LMUDataRoot(), 'files')
+            os.makedirs(dname, exist_ok=True)
+            tgt = osp.join(dname, md5(s) + suffix)
+            if not osp.exists(tgt):
+                download_file(s, tgt)
+            return tgt
+    return s
 
 
 class MMBrowseCompDataset(ImageBaseDataset):
@@ -65,11 +108,14 @@ class MMBrowseCompDataset(ImageBaseDataset):
                     continue
                 if isinstance(images, str):
                     images = [images]
+                # Resolve data URLs / HTTP URLs to local cache paths here (only decode/download if not exists),
+                # so base class and smp.file need no MMBrowseComp-specific handling.
+                image_path = [_resolve_to_local_path(im) for im in images]
                 row = {
                     'index': item_id,
                     'question': question,
                     'answer': answer,
-                    'image_path': images,
+                    'image_path': image_path,
                 }
                 if 'category' in item:
                     row['category'] = item['category']
@@ -108,6 +154,8 @@ class MMBrowseCompDataset(ImageBaseDataset):
         from functools import partial
 
         data = load(eval_file)
+        if isinstance(data, list):
+            data = pd.DataFrame(data)
         dataset = self.dataset_name
         assert 'answer' in data and 'prediction' in data
         data['prediction'] = [str(x) for x in data['prediction']]

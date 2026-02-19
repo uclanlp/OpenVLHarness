@@ -392,8 +392,7 @@ def parse_file(s):
         b64 = content[7:]
         os.makedirs(dname, exist_ok=True)
         tgt = osp.join(dname, md5(b64) + '.png')
-        if not osp.exists(tgt):
-            decode_base64_to_image_file(b64, tgt)
+        decode_base64_to_image_file(b64, tgt)
         return parse_file(tgt)
     elif validators.url(s):
         suffix = osp.splitext(s)[1].lower()
@@ -405,8 +404,7 @@ def parse_file(s):
             dname = osp.join(LMUDataRoot(), 'files')
             os.makedirs(dname, exist_ok=True)
             tgt = osp.join(dname, md5(s) + suffix)
-            if not osp.exists(tgt):
-                download_file(s, tgt)
+            download_file(s, tgt)
             return (mime, tgt)
         else:
             return ('url', s)

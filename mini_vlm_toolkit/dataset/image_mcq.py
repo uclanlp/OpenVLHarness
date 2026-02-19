@@ -256,8 +256,6 @@ class ImageMCQDataset(ImageBaseDataset):
         circular = False
         if listinstr(['mmbench', 'ccbench', 'circular', 'mmcr'], dataset.lower()):
             data = load(eval_file)
-            if isinstance(data, list):
-                data = pd.DataFrame(data)
             data['index'] = [int(x) for x in data['index']]
             dump(data, eval_file)
             circular = True
@@ -280,8 +278,6 @@ class ImageMCQDataset(ImageBaseDataset):
         result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result', 'pkl')
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
         # If not choice label, then use lower case
@@ -305,8 +301,6 @@ class ImageMCQDataset(ImageBaseDataset):
         eval_record = get_intermediate_file_path(eval_file, f'_{name_str}_result')
         dump(data, eval_record)
         data = load(eval_record)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
 
         # May have different report acc functions for different datasets
         if 'MMT' in dataset:
@@ -318,7 +312,7 @@ class ImageMCQDataset(ImageBaseDataset):
         else:
             acc = report_acc(data)
 
-        score_file = get_intermediate_file_path(eval_file, '_acc')
+        score_file = get_intermediate_file_path(eval_file, '_acc', 'csv')
         dump(acc, score_file)
 
         # The piece of code is for internal use, to check vanilla acc (circ0 & all) for circular datasets
@@ -327,8 +321,6 @@ class ImageMCQDataset(ImageBaseDataset):
             acc_map['circular'] = acc
             # Vanilla Circ0 Acc
             data = load(eval_file)
-            if isinstance(data, list):
-                data = pd.DataFrame(data)
             data['index'] = [int(x) for x in data['index']]
             if 'g_index' in data:
                 data['g_index'] = [int(x) for x in data['g_index']]
@@ -392,8 +384,6 @@ class ImageMCQDataset(ImageBaseDataset):
             raise ValueError("circular is not supported for verifier evaluation")
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
         # If not choice label, then use lower case
@@ -834,8 +824,6 @@ class GMAIMMBenchDataset(ImageMCQDataset):
         result_file = eval_file.replace(f'.{suffix}', f'_{name_str}_result.pkl')
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
         # If not choice label, then use lower case
@@ -1312,8 +1300,6 @@ class HRBenchDataset(ImageMCQDataset):
         result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result', 'pkl')
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
         # If not choice label, then use lower case
@@ -1398,8 +1384,6 @@ class NaturalBenchDataset(ImageMCQDataset):
         from .utils.naturalbench import extract_answer, get_scores
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         predictions = [str(x) for x in data['prediction']]
         answers = [str(x) for x in data['answer']]
@@ -1583,8 +1567,6 @@ class VMCBenchDataset(ImageBaseDataset):
     def evaluate(self, eval_file, **judge_kwargs):
         from .utils.vmcbench import get_mc_score, report_vmc_acc
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
         data['hit'] = data.apply(get_mc_score, axis=1)
@@ -1810,8 +1792,6 @@ class TDBench(ImageMCQDataset):
         result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result', 'pkl')
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
         # If not choice label, then use lower case
@@ -2931,8 +2911,6 @@ class TopViewRS(ImageMCQDataset):
         result_file = eval_file.replace(f'.{suffix}', f'_{name_str}_result.pkl')
 
         data = load(eval_file)
-        if isinstance(data, list):
-            data = pd.DataFrame(data)
         data = data.sort_values(by='index')
         data['prediction'] = [str(x) for x in data['prediction']]
 
