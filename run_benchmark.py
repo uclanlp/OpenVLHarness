@@ -81,7 +81,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logger = get_logger("RUN")
+
+    if WORLD_SIZE > 1:
+        import torch.distributed as dist
         dist.init_process_group(
+            backend='nccl',
             timeout=datetime.timedelta(seconds=int(os.environ.get('DIST_TIMEOUT', 3600)))
         )
 
@@ -133,41 +137,6 @@ if __name__ == "__main__":
         html_limit = int(html_arg)
 
     for _, dataset_name in enumerate(args.data):
-        if args.mode == "eval":
-            # Eval-only: use latest run dir (model_timestamp) under dataset_name
-            dataset_root = os.path.join(base_pred_root, dataset_name)
-            if os.path.isdir(dataset_root):
-                run_dirs = [d for d in os.listdir(dataset_root)
-                            if os.path.isdir(os.path.join(dataset_root, d))]
-                run_dirs.sort(reverse=True)
-                pred_root = os.path.join(dataset_root, run_dirs[0]) if run_dirs else None
-            else:
-                pred_root = None
-        elif args.mode != "eval" and args.resume:
-            # Resume: use latest run dir if exists, else create new
-            dataset_root = os.path.join(base_pred_root, dataset_name)
-            if os.path.isdir(dataset_root):
-                run_dirs = [d for d in os.listdir(dataset_root)
-                            if os.path.isdir(os.path.join(dataset_root, d))]
-                run_dirs.sort(reverse=True)
-                pred_root = os.path.join(dataset_root, run_dirs[0]) if run_dirs else None
-            else:
-                pred_root = None
-            if pred_root is not None:
-                logger.info(f"Resume mode: using existing run dir {pred_root}")
-            else:
-                run_dir = f'{model_name}_{run_timestamp}'
-                pred_root = os.path.join(base_pred_root, dataset_name, run_dir)
-        else:
-            run_dir = f'{model_name}_{run_timestamp}'
-            pred_root = os.path.join(base_pred_root, dataset_name, run_dir)
-        if pred_root is None:
-            logger.error(f'No existing run found for dataset {dataset_name}, skip eval.')
-            continue
-        if not os.path.exists(pred_root) and RANK == 0:
-            os.makedirs(pred_root, exist_ok=True)
-        if WORLD_SIZE > 1:
-            dist.barrier()
         dataset_kwargs = dict()
         if WORLD_SIZE > 1:
             if RANK == 0:
@@ -218,31 +187,3 @@ if __name__ == "__main__":
             logger.info(f"Start evaluation on dataset {dataset_name} with model {model_name}")
             # Perform the Evaluation
             eval_results = dataset.evaluate(result_file, **judge_kwargs)
-            logger.info(f"Evaluation results for {dataset_name}:\n{eval_results}")
-
-            # Write structured summary JSON (task-aware, machine-readable)
-            acc_file = get_intermediate_file_path(result_file, '_acc')
-            acc_exists = os.path.exists(acc_file)
-            if hasattr(eval_results, 'to_dict') and len(eval_results) > 0:
-                metrics = eval_results.to_dict('records')[0]
-            elif isinstance(eval_results, dict):
-                metrics = eval_results
-            else:
-                metrics = {'raw': str(eval_results)}
-            summary = {
-                'model': model_name,
-                'agent': agent_class,
-                'dataset': dataset_name,
-                'task_type': getattr(dataset, 'TYPE', DATASET_TYPE(dataset_name)),
-                'modality': getattr(dataset, 'MODALITY', 'IMAGE'),
-                'metrics': metrics,
-                'files': {
-                    'predictions': os.path.basename(result_file),
-                    'accuracy': os.path.basename(acc_file) if acc_exists else None,
-                },
-                'timestamp': dt.now().isoformat(),
-            }
-            summary_file = os.path.join(pred_root, f'{model_name}_{dataset_name}_summary.json')
-            with open(summary_file, 'w', encoding='utf-8') as f:
-                json.dump(summary, f, ensure_ascii=False, indent=2)
-            logger.info(f"Structured summary saved to {summary_file}")
