@@ -55,7 +55,6 @@ All sections below apply only to tool infra. The eval/benchmark stack above is d
 - `scripts/run_server.sh` requires `LIGHT_TOOL_MODULES` (`auto` or a comma-separated list) or `HEAVY_TOOL_MODULES`, and appends `HEAVY_TOOL_MODULES` only when `LIGHT_TOOL_MODULES` is explicit; it builds `TOOL_MODULES` and ignores a user-set `TOOL_MODULES`.
 - `src/tool_registry/loader.py` uses `TOOL_MODULES`; `auto` (or unset) triggers tool auto-discovery that skips failed imports/sanity checks.
 - Subserver scripts for heavy tools live under their tool folders and do not load `.env`.
-- Some modules define multiple tools (for example `tools.sam3_visualize.tool`).
 
 ## Build, Test, and Development Commands
 Run these from `mini_vlm_toolkit/tool_infra`.

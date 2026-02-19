@@ -16,21 +16,50 @@ INPUT_SCHEMA = {
         },
         "coords": {
             "type": "array",
-            "description": "Box coordinates [x1, y1, x2, y2]",
+            "description": (
+                "Crop box as [x1, y1, x2, y2]. Prefer normalized values in [0, 1] "
+                "with x1 < x2 and y1 < y2."
+            ),
             "minItems": 4,
             "maxItems": 4,
             "items": {"type": "number"},
         },
         "coords_type": {
             "type": "string",
-            "description": "Coordinate mode: normalized_xyxy or pixel_xyxy",
+            "description": (
+                "Coordinate mode. Use normalized_xyxy by default so coords are in [0, 1]. "
+                "Use pixel_xyxy only when you intentionally provide pixel coordinates."
+            ),
             "enum": ["normalized_xyxy", "pixel_xyxy"],
+            "default": "normalized_xyxy",
         },
     },
     "required": ["coords"],
     "oneOf": [
         {"required": ["image_path"]},
         {"required": ["image_base64"]},
+    ],
+    "allOf": [
+        {
+            "if": {
+                "properties": {"coords_type": {"const": "pixel_xyxy"}},
+                "required": ["coords_type"],
+            },
+            "then": {
+                "properties": {
+                    "coords": {
+                        "items": {"type": "number"},
+                    }
+                }
+            },
+            "else": {
+                "properties": {
+                    "coords": {
+                        "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    }
+                }
+            },
+        }
     ],
     "additionalProperties": False,
 }
@@ -44,13 +73,14 @@ class Crop_Tool(BaseTool):
                 "Crop an image using explicit box coordinates. Use this tool when "
                 "you already know the target box and need the cropped region only. "
                 "Do not use it to discover objects from text; use GroundingDINO_Tool "
-                "or SAM tools for region discovery first."
+                "or SAM tools for region discovery first. By default, provide "
+                "normalized coordinates in [0, 1]."
             ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "coords": "list[float] - box coordinates [x1, y1, x2, y2]",
+                "coords": "list[float] - [x1, y1, x2, y2]; use normalized [0, 1] by default",
                 "coords_type": "str - normalized_xyxy (default) or pixel_xyxy",
             },
             input_schema=INPUT_SCHEMA,

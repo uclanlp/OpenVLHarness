@@ -1,0 +1,29 @@
+# Example agent configuration
+agent_config_version: mmstar_v1_0215
+agent_name: BaseAgentWithTools
+
+agent_kwargs:
+  # base: "http://localhost:8222"
+  base: "http://localhost:8222"
+  key: "empty"
+  # model: "Qwen/Qwen3-VL-8B-Instruct"
+  model: "Qwen/Qwen3-VL-8B-Instruct"
+  timeout: 600
+  custom_prompt: true
+  max_tokens: 2048
+  temperature: 0.6
+  top_p: 0.95
+  repetition_penalty: 1.1
+  retry: 3
+  verbose: true
+  tool_base: "http://localhost:8101"
+  prompt_version: "v2"
+  runtime_environment_emit_policy: "always"
+  max_iterations: 15
+  tool_list:
+    - ocr
+    - image_zoom_in_tool
+    - crop
+    - grounding_dino
+    - code_interpreter
+    - depth

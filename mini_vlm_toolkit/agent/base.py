@@ -6,12 +6,7 @@ import time
 import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
-from .constant import (
-    DEFAULT_SYSTEM_PROMPT_V1,
-    DEFAULT_SYSTEM_PROMPT_V2,
-    DEFAULT_USER_PROMPT_PREFIX_V1,
-    DEFAULT_USER_PROMPT_PREFIX_V2,
-)
+from .constant import *
 from .runtime_environment import RuntimeEnvironmentHook, ImageEnvironment
 from ..utils.api_utils import (
     chat_completion_request,
@@ -389,6 +384,13 @@ class BaseAgent:
                     self.system_prompt += '\n' + system_prompt
         return new_message
 
+    def _build_trajectory_record(self, input_messages, answer):
+        record = {
+            "input_messages": input_messages,
+            "final_answer": answer,
+        }
+        return record
+
     def generate(self, message, **kwargs1):
         """The main function to generate the answer. Will call `generate_inner` with the preprocessed input messages.
 
@@ -398,6 +400,7 @@ class BaseAgent:
         Returns:
             str: The generated answer of the Failed Message if failed to obtain answer.
         """
+        raw_message = cp.deepcopy(message)
         message = cp.deepcopy(message)
         if self.check_content(message) == 'listdict':
             message = self.preprocess_message_with_role(message)
@@ -411,6 +414,8 @@ class BaseAgent:
         kwargs.update(kwargs1)
 
         answer = None
+        last_log = None
+        last_ret_code = None
         # a very small random delay [0s - 0.5s]
         T = rd.random() * 0.5
         time.sleep(T)
@@ -418,11 +423,21 @@ class BaseAgent:
         for i in range(self.retry):
             try:
                 ret_code, answer, log = self.generate_inner(cp.deepcopy(message), **kwargs)
+                last_log = log
+                last_ret_code = ret_code
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
                     if self.verbose:
                         print(answer)
                     # Return both answer and extra_records
                     # Add for agent evaluation
+                    trajectory = self._build_trajectory_record(
+                        raw_message,
+                        answer,
+                    )
+                    extra_records = {"trajectory": trajectory}
+                    if isinstance(log, dict):
+                        extra_records.update(log)
+                    return {"prediction": answer, "extra_records": extra_records}
                     if isinstance(log, dict):
                         return {"prediction": answer, "extra_records": log}
                     return answer
@@ -441,7 +456,14 @@ class BaseAgent:
             T = rd.random() * self.wait * 2
             time.sleep(T)
 
-        return self.fail_msg if answer in ['', None] else answer
+        final_answer = self.fail_msg if answer in ['', None] else answer
+        trajectory = self._build_trajectory_record(
+            raw_message,
+            final_answer,
+        )
+        if last_ret_code is not None:
+            trajectory["ret_code"] = last_ret_code
+        return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}
     
 
 class BaseAgentWithTools(BaseAgent):
@@ -503,7 +525,8 @@ class BaseAgentWithTools(BaseAgent):
                 and isinstance(x.get('function'), dict)
                 and x['function'].get('name') in tool_list
             ]
-
+            
+        self.logger = get_logger("BaseAgentWithTools")
         self.logger.info(f"Available Tools: {list(self.tools.keys())}")
         self.system_prompt = self._construct_system_message()
         self.last_run_messages = []
@@ -1695,6 +1718,7 @@ class BaseAgentWithTools(BaseAgent):
     def generate(self, message, **kwargs1):
         """Generate one final answer using the native tool-calling loop."""
 
+        raw_message = cp.deepcopy(message)
         message = cp.deepcopy(message)
         if self.check_content(message) == 'listdict':
             message = self.preprocess_message_with_role(message)
@@ -1712,4 +1736,10 @@ class BaseAgentWithTools(BaseAgent):
         # Run the ReAct-style loop
         answer, chat_history = self._run(message, **kwargs)
 
-        return self.fail_msg if answer in ['', None] else answer
+        final_answer = self.fail_msg if answer in ['', None] else answer
+        trajectory = {
+            "input_messages": raw_message,
+            "chat_history": chat_history,
+            "final_answer": final_answer,
+        }
+        return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}

@@ -65,8 +65,8 @@ def _print_chat_history(chat_history):
                 result = payload.get("result")
                 if isinstance(result, dict):
                     print(f"      result_keys={sorted(result.keys())}")
-                    if "all_masks_viz_base64" in result and isinstance(result["all_masks_viz_base64"], str):
-                        print(f"      all_masks_viz_base64_len={len(result['all_masks_viz_base64'])}")
+                    if "rendered_image_b64" in result and isinstance(result["rendered_image_b64"], str):
+                        print(f"      rendered_image_b64_len={len(result['rendered_image_b64'])}")
                 else:
                     print(f"      result={_preview(result)}")
 

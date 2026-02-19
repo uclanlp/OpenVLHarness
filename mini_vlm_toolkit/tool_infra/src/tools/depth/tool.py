@@ -22,12 +22,6 @@ INPUT_SCHEMA = {
             "description": "Output colormap",
             "enum": ["inferno", "grayscale"],
         },
-        "server_url": {"type": "string", "description": "Override server URL"},
-        "timeout_seconds": {
-            "type": "integer",
-            "description": "Request timeout in seconds",
-            "minimum": 1,
-        },
     },
     "oneOf": [
         {"required": ["image_path"]},
@@ -47,13 +41,11 @@ class Depth_Tool(BaseTool):
                 "Do not treat the output as calibrated metric depth without external "
                 "camera calibration."
             ),
-            tool_version="0.2.0",
+            tool_version="0.3.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "colormap": "str - optional output colormap (inferno or grayscale)",
-                "server_url": "str - override Depth-Anything server URL",
-                "timeout_seconds": "int - request timeout in seconds",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - depth_map_base64, colormap, model_id, device, size",

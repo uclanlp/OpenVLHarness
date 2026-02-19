@@ -22,11 +22,6 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Math-focused task description with all required inputs",
         },
-        "timeout_seconds": {
-            "type": "integer",
-            "description": "Execution timeout in seconds",
-            "minimum": 1,
-        },
         "model": {"type": "string", "description": "Override LLM model name"},
         "base_url": {"type": "string", "description": "Override LLM base URL"},
         "api_key": {"type": "string", "description": "Override LLM API key"},
@@ -89,7 +84,11 @@ def timeout(seconds):
 
 
 def extract_python_code(text):
-    match = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+    match = re.search(
+        r"```\s*(?:python|py)\b\s*(.*?)\s*```",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
     if match:
         return match.group(1).strip()
     return text.strip()
@@ -140,7 +139,7 @@ class Python_Coder_Tool(BaseTool):
                 "Do not use it for untrusted tasks, external I/O, or broad "
                 "general-purpose programming."
             ),
-            tool_version="0.1.0",
+            tool_version="0.1.1",
             input_types={
                 "query": (
                     "str - math-focused task description with required numeric inputs"

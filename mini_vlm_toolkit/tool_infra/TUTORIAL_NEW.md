@@ -18,10 +18,11 @@ Run these steps from the tool infra root and set `PYTHONPATH="$(pwd)/src"` so im
   - `src/tools/grounding_dino/run_grounding_dino_server.sh`
   - `src/tools/ocr/run_ocr_server.sh`
   - `src/tools/depth/run_depth_anything_server.sh`
-- Subserver ports can be overridden via env vars: SAM3 uses `HOST`/`PORT`, GroundingDINO uses
-  `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses
-  `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use `python scripts/scan_server_status.py` to confirm
-  tool/subtool servers are reachable.
+- Subserver ports can be overridden via env vars: SAM3 uses
+  `SAM3_HOST`/`SAM3_PORT`, GroundingDINO uses
+  `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
+  Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use
+  `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) plus optional
   `LLM_DIRECT_MODEL_API_KEYS`/`LLM_DIRECT_API_KEY` (defaults to `EMPTY` for no auth). Base URLs
   may include `/v1`; if omitted, `/v1` is appended automatically.
@@ -164,7 +165,9 @@ Alias behavior:
 - Alias entries include `is_alias: true` and point to `canonical_tool_name`.
 - `GET /jsonschema` includes schemas for canonical names and aliases.
 - `POST /execute` echoes the exact requested `tool_name` (canonical or alias).
-- Alias matching is exact and case-sensitive.
+- `/execute` resolves exact matches first.
+- If exact match fails, a unique case-insensitive match (single canonical tool) is accepted.
+- If case-insensitive matching maps to multiple canonical tools, `/execute` returns `tool_name_ambiguous_case`.
 - `GET /health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Response shape:

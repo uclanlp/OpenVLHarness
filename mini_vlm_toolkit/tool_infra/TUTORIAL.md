@@ -29,9 +29,9 @@ By default the server listens at `http://127.0.0.1:8101`.
 
 If you don't need to start the server on your end, you can install the lighter `requirements-client.txt`.
 
-Subserver ports are configurable via env vars (SAM3 uses `HOST`/`PORT`, GroundingDINO uses
-`GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses
-`DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
+Subserver ports are configurable via env vars (SAM3 uses `SAM3_HOST`/`SAM3_PORT`,
+GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
+Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
 `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 
 `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) and optional
@@ -56,7 +56,9 @@ Alias behavior:
 - Alias entries include `is_alias: true` and `canonical_tool_name` pointing to the canonical tool.
 - `/jsonschema` includes schemas for both canonical names and aliases.
 - `/execute` accepts canonical names or aliases, and echoes the exact requested `tool_name`.
-- Alias matching is exact and case-sensitive.
+- `/execute` resolves exact matches first.
+- If exact match fails, a unique case-insensitive match (single canonical tool) is accepted.
+- If case-insensitive matching maps to multiple canonical tools, `/execute` returns `tool_name_ambiguous_case`.
 - `/health` reports `tool_count`, `canonical_tool_count`, and `alias_tool_count`.
 
 Quick check:
@@ -210,7 +212,7 @@ print(response["result"])
 
 ## Example 3: SAM3 segment tool (vision input)
 
-`SAM3_Segment_Tool` calls an external SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_SERVER_URL` (default `http://127.0.0.1:8083`).
+`SAM3_Segment_Tool` calls the SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_SERVER_URL` (default `http://127.0.0.1:8086`).
 
 ### Client-only call
 ```python
@@ -224,7 +226,6 @@ response = client.execute(
     {
         "prompt": "shoe",
         "image_path": image_path,
-        "return_masks_png_b64": True,
     },
 )
 print(response["result"])
@@ -245,13 +246,13 @@ response = client.execute(
     {
         "prompt": "shoe",
         "image_base64": image_base64,
-        "return_masks_png_b64": True,
     },
 )
 print(response["result"])
 ```
-`SAM3_Segment_Tool` returns `all_masks_viz_base64` by default (overlay of all masks).
-Set `return_all_masks_viz=False` to skip generating the visualization.
+`SAM3_Segment_Tool` returns `pred_boxes`, `pred_masks` (RLE), `pred_scores`, and
+`rendered_image_b64`.
+The snake_case alias `sam3_segment` is also supported.
 
 ### Call from an LLM (generate tool call, parse, execute)
 ```python
@@ -294,55 +295,10 @@ args = tool_call["args"]
 # Guardrails if the LLM omitted required fields.
 args.setdefault("prompt", "shoe")
 args.setdefault("image_path", image_path)
-args.setdefault("return_masks_png_b64", True)
-args.setdefault("return_all_masks_viz", True)
 
 response = client.execute(tool_call["tool_name"], args)
 print(response["result"])
 ```
-
-### Visualize SAM3 masks
-```python
-from client.client import ToolClient
-
-client = ToolClient("http://127.0.0.1:8101")
-image_path = "tests/data/sam3_demo.jpg"
-
-sam3_response = client.execute(
-    "SAM3_Segment_Tool",
-    {
-        "prompt": "shoe",
-        "image_path": image_path,
-        "return_masks_png_b64": True,
-    },
-)
-
-print(sam3_response["result"]["all_masks_viz_base64"])
-
-viz_all = client.execute(
-    "SAM3_VisualizeAllMasks_Tool",
-    {
-        "image_path": image_path,
-        "predictions": sam3_response["result"],
-        "predictions_format": "sam3_server",
-    },
-)
-print(viz_all["result"]["image_base64"])
-
-viz_single = client.execute(
-    "SAM3_VisualizeSingleMask_Tool",
-    {
-        "image_path": image_path,
-        "predictions": sam3_response["result"],
-        "predictions_format": "sam3_server",
-        "mask_index": 0,
-    },
-)
-print(viz_single["result"]["overlay_image_base64"])
-print(viz_single["result"]["zoomed_image_base64"])
-```
-If you used `image_base64` for segmentation, pass the same `image_base64` to the visualize tools
-instead of `image_path` (provide exactly one of the two).
 
 ## Example 4: Qwen3 embeddings via LLM_Direct_Generator_Tool
 

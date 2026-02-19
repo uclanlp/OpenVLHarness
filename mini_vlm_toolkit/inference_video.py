@@ -1,9 +1,24 @@
 import torch
 import torch.distributed as dist
+import copy as cp
+from .utils.reporting_utils import (
+    build_trajectory_records,
+    write_trajectory_jsonl,
+    write_html_reports,
+)
 from .utils import track_progress_rich
 from .smp import *
 
 FAIL_MSG = 'Failed to obtain answer via API.'
+
+
+def _build_isolated_generate_func(model):
+    """Return a generate callable with per-call model isolation for threaded inference."""
+    def _isolated_generate(**kwargs):
+        model_copy = cp.deepcopy(model)
+        return model_copy.generate(**kwargs)
+
+    return _isolated_generate
 
 # Only API model is accepted
 def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4):
@@ -32,9 +47,9 @@ def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_np
     packstr = 'pack' if getattr(dataset, 'pack', False) else 'nopack'
     build_prompt_input = [(samples_dict[idx], getattr(model, 'VIDEO_LLM', False)) for idx in indices]
     if dataset.nframe > 0:
-        struct_tmp_file = f'{work_dir}/{model_name}_{dataset_name}_{dataset.nframe}frame_{packstr}_structs.pkl'
+        struct_tmp_file = f'{work_dir}/{model_name}_{dataset.nframe}frame_{packstr}_structs.pkl'
     else:
-        struct_tmp_file = f'{work_dir}/{model_name}_{dataset_name}_{dataset.fps}fps_{packstr}_structs.pkl'
+        struct_tmp_file = f'{work_dir}/{model_name}_{dataset.fps}fps_{packstr}_structs.pkl'
     structs = track_progress_rich(
         dataset.build_prompt,
         tasks=build_prompt_input,
@@ -44,16 +59,19 @@ def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_np
     )
 
     if dataset.nframe > 0:
-        out_file = f'{work_dir}/{model_name}_{dataset_name}_{dataset.nframe}frame_{packstr}_supp.pkl'
+        out_file = f'{work_dir}/{model_name}_{dataset.nframe}frame_{packstr}_supp.pkl'
     else:
-        out_file = f'{work_dir}/{model_name}_{dataset_name}_{dataset.fps}fps_{packstr}_supp.pkl'
+        out_file = f'{work_dir}/{model_name}_{dataset.fps}fps_{packstr}_supp.pkl'
     res = load(out_file) if osp.exists(out_file) else {}
 
     structs = [s for i, s in zip(indices, structs) if i not in res or res[i] == FAIL_MSG]
     structs = [struct for struct in structs if struct is not None]
     indices = [i for i in indices if i not in res or res[i] == FAIL_MSG]
 
-    gen_func = model.generate
+    # Original behavior (shared agent across worker threads):
+    # gen_func = model.generate
+    # Use per-call deep-copied agent to avoid cross-task mutable-state races.
+    gen_func = _build_isolated_generate_func(model)
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
     if len(structs):
@@ -109,18 +127,24 @@ def infer_video_job(
         dataset,
         dataset_name=None,
         verbose=False,
-        api_nproc=4
+        api_nproc=4,
+        html_limit=0,
     ):
 
     if dataset_name is None:
         dataset_name = dataset.dataset_name
     rank, world_size = get_rank_and_world_size()
+    work_dir = osp.join(work_dir, dataset_name)
+    if rank == 0 and not osp.exists(work_dir):
+        os.makedirs(work_dir, exist_ok=True)
+    if world_size > 1:
+        dist.barrier()
     result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
     # Dump Predictions to Prev File if result file exists
     if osp.exists(result_file):
         return model
 
-    tmpl = osp.join(work_dir, '{}' + f'{world_size}_{dataset_name}.pkl')
+    tmpl = osp.join(work_dir, '{}' + f'{world_size}.pkl')
     out_file = tmpl.format(rank)
 
     model = infer_data(
@@ -147,11 +171,46 @@ def infer_video_job(
         else:
             for x in meta['index']:
                 assert x in data_all
-            meta['prediction'] = [str(data_all[x]) for x in meta['index']]
+            if all(isinstance(data_all[x], dict) and "prediction" in data_all[x] and "extra_records" in data_all[x] for x in meta['index']):
+                meta['prediction'] = [data_all[x]['prediction'] for x in meta['index']]
+                cleaned_extra = []
+                for x in meta['index']:
+                    extra = data_all[x]['extra_records']
+                    if isinstance(extra, dict) and "trajectory" in extra:
+                        extra = extra.copy()
+                        extra.pop("trajectory", None)
+                    cleaned_extra.append(extra)
+                meta['extra_records'] = cleaned_extra
+            else:
+                meta['prediction'] = [str(data_all[x]) for x in meta['index']]
             if 'image' in meta:
                 meta.pop('image')
 
         dump(meta, result_file)
+        records = build_trajectory_records(
+            meta["index"],
+            data_all,
+            dataset_name=dataset_name,
+            model_name=model_name,
+            agent_class=model.__class__.__name__,
+            scrub_images=True,
+            strip_assistant_content=True,
+        )
+        trajectories_path = osp.join(work_dir, "trajectories.jsonl")
+        write_trajectory_jsonl(records, trajectories_path)
+
+        if html_limit != 0:
+            html_dir = osp.join(work_dir, "htmls")
+            html_records = build_trajectory_records(
+                meta["index"],
+                data_all,
+                dataset_name=dataset_name,
+                model_name=model_name,
+                agent_class=model.__class__.__name__,
+                scrub_images=False,
+                strip_assistant_content=False,
+            )
+            write_html_reports(html_records, html_dir, html_limit)
         for i in range(world_size):
             os.remove(tmpl.format(i))
     return model
