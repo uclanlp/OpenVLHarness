@@ -30,7 +30,7 @@ def _build_isolated_generate_func(model):
 # API-based Inference Functions
 # ============================================================================
 
-def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_nproc=4, ignore_failed=False):
+def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_nproc=4, ignore_failed=False, enable_incremental_json=False):
     rank, world_size = get_rank_and_world_size()
     assert rank == 0 and world_size == 1
     dataset_name = dataset.dataset_name
@@ -84,7 +84,11 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
     if len(structs):
-        track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
+        if enable_incremental_json:
+            incremental_json = osp.join(work_dir, f'{model_name}_incremental.jsonl')
+            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices, incremental_json_file=incremental_json)
+        else:
+            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
 
     res = load(out_file)
     if index_set is not None:
@@ -93,7 +97,7 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     return res
 
 
-def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4):
+def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, enable_incremental_json=False):
     """
     Run inference on dataset with batching across ranks.
     
@@ -105,6 +109,7 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         out_file: Output file for results
         verbose: Whether to print verbose output
         api_nproc: Number of processes for API calls
+        enable_incremental_json: Whether to enable incremental JSONL output
     
     Returns:
         The model object
@@ -147,7 +152,8 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         model_name=model_name,
         dataset=dataset,
         index_set=set(indices),
-        api_nproc=api_nproc)
+        api_nproc=api_nproc,
+        enable_incremental_json=enable_incremental_json)
     for idx in indices:
         assert idx in supp
     res.update(supp)
@@ -263,6 +269,7 @@ def infer_image_job(
     api_nproc=4,
     ignore_failed=False,
     html_limit=0,
+    enable_incremental_json=False,
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -275,6 +282,7 @@ def infer_image_job(
         verbose: Whether to print verbose output
         api_nproc: Number of processes for API calls
         ignore_failed: Whether to ignore failed results
+        enable_incremental_json: Whether to enable incremental JSONL output
     
     Returns:
         The model object
@@ -307,7 +315,8 @@ def infer_image_job(
 
     model = infer_data(
         model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
-        out_file=out_file, verbose=verbose, api_nproc=api_nproc)
+        out_file=out_file, verbose=verbose, api_nproc=api_nproc,
+        enable_incremental_json=enable_incremental_json)
     if world_size > 1:
         dist.barrier()
 
