@@ -69,4 +69,10 @@ Where `run_id` is derived automatically as
 - `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
 - `--save-html all`: generate HTML for all tasks.
 
+`--incremental-json` enables real-time JSONL output during inference:
+- When enabled, writes `{model_name}_incremental.jsonl` in the dataset work directory.
+- Each completed task is appended as a JSON object per line as results arrive.
+- Useful for debugging and monitoring progress without waiting for the full run to complete.
+- You can monitor results in real-time using `tail -f <work-dir>/.../<model_name>_incremental.jsonl`.
+
 Note: define your data root with `LMUData` in `.env` (capital D).
