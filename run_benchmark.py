@@ -78,6 +78,7 @@ if __name__ == "__main__":
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
     parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
+    parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     args = parser.parse_args()
 
     logger = get_logger("RUN")
@@ -161,6 +162,7 @@ if __name__ == "__main__":
                     dataset_name,
                     api_nproc=args.num_proc,
                     html_limit=html_limit,
+                    enable_incremental_json=args.incremental_json,
                 )
             else:
                 infer_image_job(
@@ -170,6 +172,7 @@ if __name__ == "__main__":
                     dataset,
                     api_nproc=args.num_proc,
                     html_limit=html_limit,
+                    enable_incremental_json=args.incremental_json,
                 )
 
         
