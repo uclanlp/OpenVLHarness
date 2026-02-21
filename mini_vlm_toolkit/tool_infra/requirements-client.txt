@@ -7,3 +7,4 @@ beautifulsoup4
 numpy
 Pillow
 python-dotenv
+PyYAML

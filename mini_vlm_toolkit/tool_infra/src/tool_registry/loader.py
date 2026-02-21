@@ -137,20 +137,24 @@ def load_tools():
         try:
             module = importlib.import_module(module_path)
         except Exception as exc:
-            if auto_mode:
+            # Some modules intentionally opt into fail-fast behavior even when
+            # TOOL_MODULES=auto, so configuration problems are never hidden.
+            strict_import = module_path == "tools.subagent.tool"
+            if auto_mode and not strict_import:
                 print(
                     f"Skipping tool module {module_path}: import failed: {exc}",
                     file=sys.stderr,
                 )
                 continue
             raise
+        strict_module = bool(getattr(module, "STRICT_TOOL_LOADING", False))
         for name, obj in inspect.getmembers(module, inspect.isclass):
             if not issubclass(obj, BaseTool) or obj is BaseTool:
                 continue
             try:
                 instance = obj()
             except Exception as exc:
-                if auto_mode:
+                if auto_mode and not strict_module:
                     print(
                         f"Skipping tool class {module_path}.{name}: init failed: {exc}",
                         file=sys.stderr,
@@ -166,7 +170,7 @@ def load_tools():
                 issues = [issues]
             if issues:
                 formatted = "\n".join(f"- {issue}" for issue in issues)
-                if auto_mode:
+                if auto_mode and not strict_module:
                     print(
                         "Skipping tool {name}: sanity check failed:\n{issues}".format(
                             name=instance.tool_name, issues=formatted
