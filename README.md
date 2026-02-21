@@ -38,9 +38,9 @@ Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 
 You can find the supported benchmark here: [link](https://aicarrier.feishu.cn/wiki/Qp7wwSzQ9iK1Y6kNUJVcr6zTnPe?table=tblsdEpLieDoCxtb&view=vewa8sGZrY)
 
-1. Install benchmark dependencies:
+1. Install dependencies:
 ```bash
-pip install -r requirements-benchmark.txt
+pip install -r requirements.txt
 ```
 2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`. Agent config must include top-level `agent_config_version`.
 3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Runtime environment hooks default to image updates (`runtime_environment_hooks: ["image"]`) with per-turn emission (`runtime_environment_emit_policy: "always"`). For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
