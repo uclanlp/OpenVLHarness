@@ -919,6 +919,21 @@ class BaseAgentWithTools(BaseAgent):
             return ""
         return content.strip()
 
+    @staticmethod
+    def _sanitize_msgs_for_template(msgs):
+        """Replace image_url content items with [image] placeholder for chat template."""
+        sanitized = cp.deepcopy(msgs)
+        for msg in sanitized:
+            content = msg.get("content")
+            if isinstance(content, list):
+                msg["content"] = [
+                    {"type": "text", "text": "[image]"}
+                    if (isinstance(item, dict) and item.get("type") == "image_url")
+                    else item
+                    for item in content
+                ]
+        return sanitized
+
     def _truncate_for_debug(self, value: Any, max_chars: int = 280) -> str:
         try:
             text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
@@ -971,6 +986,30 @@ class BaseAgentWithTools(BaseAgent):
         chat_history = []
         final_answer = None
         for i in range(self.max_iterations):
+            if i == 0:
+                self._input_snapshot = {
+                    "system_prompt": next((m["content"] for m in msgs if m["role"] == "system"), None),
+                    "user_messages": [m for m in msgs if m["role"] == "user"],
+                    "tool_definitions": cp.deepcopy(model_tools),
+                    "rendered_prompt": None,
+                }
+                try:
+                    if not hasattr(self, '_tokenizer'):
+                        from transformers import AutoTokenizer
+                        self._tokenizer = AutoTokenizer.from_pretrained(
+                            self.model, trust_remote_code=True
+                        )
+                    if self._tokenizer is not None:
+                        sanitized_msgs = self._sanitize_msgs_for_template(msgs)
+                        template_kwargs = dict(tokenize=False, add_generation_prompt=True)
+                        if model_tools:
+                            template_kwargs["tools"] = model_tools
+                        self._input_snapshot["rendered_prompt"] = self._tokenizer.apply_chat_template(
+                            sanitized_msgs, **template_kwargs
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Could not render chat template for snapshot: {e}")
+                    self._tokenizer = None
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
             if i == self.max_iterations - 1:
