@@ -25,6 +25,7 @@ numpy>=1.26,<2.1
 pandas>=2.1,<2.3
 pillow>=10,<12
 scipy>=1.11,<1.14
+# `import yaml` comes from the `pyyaml` package.
 pyyaml>=6,<7
 requests>=2.31,<3
 tqdm>=4.66,<5
@@ -49,3 +50,11 @@ pronouncing>=0.2,<1
 sacrebleu>=2.4,<3
 Unidecode>=1.3,<2
 zss>=1.2,<2
+math-verify>=0.9,<1
+nltk>=3.8,<4
+decord>=0.6,<1
+iopath>=0.1.10,<0.2
+ftfy>=6.1,<7
+triton>=2.2,<4; platform_system == "Linux" and platform_machine == "x86_64"
+# Needed by SArena FID utility (`import clip`, `clip.load(...)`)
+clip @ git+https://github.com/openai/CLIP.git
