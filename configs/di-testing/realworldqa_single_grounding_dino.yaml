@@ -20,7 +20,8 @@ agent_kwargs:
     - grounding_dino
   prompt_version: "v2"
   reasoning_effort: null
-  runtime_environment_hooks: ["image"]
-  runtime_environment_emit_policy: "always"
+  persistent_state_memory:
+    name: "image"
+    emit_policy: "always"
   extra_body: {}
   max_iterations: 15

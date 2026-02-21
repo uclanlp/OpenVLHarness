@@ -1,6 +1,11 @@
 """
 Minimal integration-style example for BaseAgentWithTools using native chat tool-calling.
 
+NOTE:
+- This is a legacy example that reads `agent.last_run_messages`.
+- It is kept for reference and may break under stateless-agent runtime.
+- Use `base_agent_with_tools_chat_example_stateless.py` for the current API.
+
 Prereqs:
 - Tool server running at TOOL_SERVER_URL (default: http://127.0.0.1:8101)
 - Qwen3-VL OpenAI-compatible server running at MODEL_BASE_URL (default: http://127.0.0.1:8222)

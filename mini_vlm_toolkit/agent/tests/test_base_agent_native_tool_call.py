@@ -51,7 +51,7 @@ sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
 import mini_vlm_toolkit.agent.base as base_module
 from mini_vlm_toolkit.agent.base import BaseAgentWithTools
-from mini_vlm_toolkit.agent.runtime_environment import ImageEnvironment
+from mini_vlm_toolkit.memory import ImageStateMemory
 
 
 class _DummyAgent(BaseAgentWithTools):
@@ -84,16 +84,25 @@ def _build_agent():
     agent.max_iterations = 3
     agent.tool_choice = "auto"
     agent.system_prompt = agent._construct_system_message()
-    agent.runtime_environment_emit_policy = "always"
-    agent.runtime_environment_hooks = [ImageEnvironment(emit_policy="always")]
+    agent.persistent_state_memory = ImageStateMemory(emit_policy="always")
+    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
     agent.default_kwargs = {}
-    agent._image_registry = {}
-    agent._image_alias_to_ref = {}
-    agent._image_url_to_ref = {}
     return agent
+
+
+def test_base_agent_with_tools_rejects_legacy_runtime_environment_keys():
+    try:
+        BaseAgentWithTools(
+            tool_base="http://tool-server",
+            runtime_environment_hooks=["image"],
+        )
+    except ValueError as exc:
+        assert "Legacy runtime environment keys are no longer supported" in str(exc)
+        return
+    raise AssertionError("Expected ValueError for legacy runtime environment keys.")
 
 
 def test_native_tool_call_single_text_tool():
@@ -193,6 +202,9 @@ def test_native_tool_call_single_text_tool():
     assert chat_history[0]["assistant"]["thinking"] == "I should call the Python tool."
     assert len(chat_history[0]["tool_responses"]) == 1
     assert chat_history[0]["tool_responses"][0]["ok"] is True
+    assert len(chat_history[0]["memory_outputs"]) == 1
+    assert chat_history[0]["memory_outputs"][0]["tool_call_id"] == "call_1"
+    assert chat_history[0]["memory_outputs"][0]["immediate_message_indices"]
     assert chat_history[1]["final_answer"] == "4"
 
 
@@ -350,6 +362,8 @@ def test_native_tool_call_image_result_recursive_extraction():
     assert answer == "done"
     assert len(chat_history) == 2
     assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_Tool"
+    assert chat_history[0]["memory_outputs"][0]["deferred_message_indices"]
+    assert chat_history[0]["memory_outputs"][0]["image_refs"]
     assert chat_history[1]["final_answer"] == "done"
 
 
@@ -378,7 +392,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
 
     def fake_build_image_registry(_question):
-        agent._image_registry = {
+        agent.persistent_state_memory._image_registry = {
             "input_image_1": {
                 "id": "input_image_1",
                 "data_url": expected_data_url,
@@ -386,12 +400,12 @@ def test_native_tool_call_resolves_hallucinated_image_path():
                 "aliases": {"input_image_1", "image.jpg"},
             }
         }
-        agent._image_alias_to_ref = {
+        agent.persistent_state_memory._image_alias_to_ref = {
             "input_image_1": "input_image_1",
             "image.jpg": "input_image_1",
         }
-        agent._image_url_to_ref = {expected_data_url: "input_image_1"}
-        return agent._image_registry
+        agent.persistent_state_memory._image_url_to_ref = {expected_data_url: "input_image_1"}
+        return agent.persistent_state_memory._image_registry
 
     def fake_chat_completion_request(**kwargs):
         state["chat_calls"] += 1
@@ -476,7 +490,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
             "meta": {},
         }
 
-    agent._build_image_registry_from_inputs = fake_build_image_registry
+    agent.persistent_state_memory._build_image_registry_from_inputs = fake_build_image_registry
     original_chat_completion_request = base_module.chat_completion_request
     original_tool_execute_request = base_module.tool_execute_request
     base_module.chat_completion_request = fake_chat_completion_request
@@ -768,7 +782,8 @@ def test_native_tool_call_timeout_seconds_override_passthrough():
         base_module.chat_completion_request = original_chat_completion_request
 
     assert state["chat_calls"] == 1
-    assert answer == "done"
+    assert isinstance(answer, dict)
+    assert answer.get("prediction") == "done"
 
 
 def test_native_tool_call_invalid_tool_arguments_soft_fail():
@@ -893,7 +908,7 @@ def test_native_tool_call_single_image_fallback_metadata():
     expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
 
     def fake_build_image_registry(_question):
-        agent._image_registry = {
+        agent.persistent_state_memory._image_registry = {
             "input_image_1": {
                 "id": "input_image_1",
                 "data_url": expected_data_url,
@@ -901,9 +916,9 @@ def test_native_tool_call_single_image_fallback_metadata():
                 "aliases": {"input_image_1"},
             }
         }
-        agent._image_alias_to_ref = {"input_image_1": "input_image_1"}
-        agent._image_url_to_ref = {expected_data_url: "input_image_1"}
-        return agent._image_registry
+        agent.persistent_state_memory._image_alias_to_ref = {"input_image_1": "input_image_1"}
+        agent.persistent_state_memory._image_url_to_ref = {expected_data_url: "input_image_1"}
+        return agent.persistent_state_memory._image_registry
 
     def fake_chat_completion_request(**kwargs):
         state["chat_calls"] += 1
@@ -961,7 +976,7 @@ def test_native_tool_call_single_image_fallback_metadata():
             "meta": {},
         }
 
-    agent._build_image_registry_from_inputs = fake_build_image_registry
+    agent.persistent_state_memory._build_image_registry_from_inputs = fake_build_image_registry
     original_chat_completion_request = base_module.chat_completion_request
     original_tool_execute_request = base_module.tool_execute_request
     base_module.chat_completion_request = fake_chat_completion_request
@@ -985,11 +1000,103 @@ def test_preprocess_message_with_role_no_mutation():
         {"role": "user", "type": "text", "value": "hello"},
     ]
     snapshot = json.loads(json.dumps(original))
-    processed = agent.preprocess_message_with_role(original)
+    processed, resolved_system_prompt = agent.preprocess_message_with_role(
+        original,
+        base_system_prompt=agent.system_prompt,
+        return_system_prompt=True,
+    )
 
     assert original == snapshot
     assert processed == [{"type": "text", "value": "hello"}]
-    assert "system-a" in (agent.system_prompt or "")
+    assert "system-a" in (resolved_system_prompt or "")
+    assert "system-a" not in (agent.system_prompt or "")
+
+
+def test_generate_system_role_content_does_not_leak_across_calls():
+    agent = _build_agent()
+    seen_system_prompts = []
+
+    def fake_chat_completion_request(**kwargs):
+        messages = kwargs["messages"]
+        system_text = ""
+        for msg in messages:
+            if msg.get("role") == "system":
+                system_text = str(msg.get("content", ""))
+                break
+        seen_system_prompts.append(system_text)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>done.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        result_a = agent.generate(
+            [
+                {"role": "system", "value": "system-a"},
+                {"role": "user", "type": "text", "value": "question-a"},
+            ]
+        )
+        result_b = agent.generate(
+            [
+                {"role": "system", "value": "system-b"},
+                {"role": "user", "type": "text", "value": "question-b"},
+            ]
+        )
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    assert result_a["prediction"] == "done"
+    assert result_b["prediction"] == "done"
+    assert len(seen_system_prompts) == 2
+    assert "system-a" in seen_system_prompts[0]
+    assert "system-b" not in seen_system_prompts[0]
+    assert "system-b" in seen_system_prompts[1]
+    assert "system-a" not in seen_system_prompts[1]
+
+
+def test_generate_trajectory_includes_messages():
+    agent = _build_agent()
+
+    def fake_chat_completion_request(**kwargs):
+        _ = kwargs
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "<perception>Ready.</perception>\n"
+                            "<thinking>done.</thinking>\n"
+                            "done"
+                        ),
+                    }
+                }
+            ]
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    try:
+        result = agent.generate([{"type": "text", "value": "Reply directly."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+
+    trajectory = result.get("extra_records", {}).get("trajectory", {})
+    assert result.get("prediction") == "done"
+    assert isinstance(trajectory.get("messages"), list)
+    assert trajectory["messages"]
 
 
 def test_run_returns_fail_msg_when_iterations_exhausted():
@@ -1210,6 +1317,7 @@ def test_run_allows_finalization_after_last_iteration_tool_calls():
 
 
 if __name__ == "__main__":
+    test_base_agent_with_tools_rejects_legacy_runtime_environment_keys()
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
@@ -1222,6 +1330,8 @@ if __name__ == "__main__":
     test_native_tool_call_hard_fail_invalid_chat_response_shape()
     test_native_tool_call_single_image_fallback_metadata()
     test_preprocess_message_with_role_no_mutation()
+    test_generate_system_role_content_does_not_leak_across_calls()
+    test_generate_trajectory_includes_messages()
     test_run_returns_fail_msg_when_iterations_exhausted()
     test_normalize_execute_payload_strict_ok_parsing()
     test_prompt_version_v2_prefix_and_system_prompt()
@@ -1230,6 +1340,7 @@ if __name__ == "__main__":
     test_extract_final_answer_from_v2_scaffold_only_returns_empty()
     test_run_continues_after_v1_scaffold_only_response()
     test_run_allows_finalization_after_last_iteration_tool_calls()
+    print("PASS: test_base_agent_with_tools_rejects_legacy_runtime_environment_keys")
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
@@ -1242,6 +1353,8 @@ if __name__ == "__main__":
     print("PASS: test_native_tool_call_hard_fail_invalid_chat_response_shape")
     print("PASS: test_native_tool_call_single_image_fallback_metadata")
     print("PASS: test_preprocess_message_with_role_no_mutation")
+    print("PASS: test_generate_system_role_content_does_not_leak_across_calls")
+    print("PASS: test_generate_trajectory_includes_messages")
     print("PASS: test_run_returns_fail_msg_when_iterations_exhausted")
     print("PASS: test_normalize_execute_payload_strict_ok_parsing")
     print("PASS: test_prompt_version_v2_prefix_and_system_prompt")

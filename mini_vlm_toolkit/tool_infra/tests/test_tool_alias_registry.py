@@ -65,10 +65,29 @@ class _InvalidAliasTool(BaseTool):
         return {}
 
 
+class _StrictFailingTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            tool_name="StrictFailing_Tool",
+            tool_description="Strict failing tool.",
+            tool_version="0.1.0",
+            input_types={},
+            output_type="dict",
+        )
+
+    def sanity_check(self):
+        return ["forced strict failure"]
+
+    def execute(self):
+        return {}
+
+
 @contextlib.contextmanager
-def _patch_loader_with_classes(class_map):
+def _patch_loader_with_classes(class_map, *, auto_mode=False, module_attrs=None):
     module_name = "tests.fake_tool_module"
     module = types.ModuleType(module_name)
+    for key, value in (module_attrs or {}).items():
+        setattr(module, key, value)
     for class_name, class_obj in class_map.items():
         setattr(module, class_name, class_obj)
 
@@ -76,7 +95,7 @@ def _patch_loader_with_classes(class_map):
     original_import_module = loader.importlib.import_module
 
     def fake_get_tool_modules():
-        return [module_name], False
+        return [module_name], auto_mode
 
     def fake_import_module(path):
         if path == module_name:
@@ -137,10 +156,25 @@ def test_invalid_alias_raises():
     raise AssertionError("Expected invalid alias to raise RuntimeError")
 
 
+def test_strict_module_sanity_failure_raises_in_auto_mode():
+    with _patch_loader_with_classes(
+        {"StrictFailing_Tool": _StrictFailingTool},
+        auto_mode=True,
+        module_attrs={"STRICT_TOOL_LOADING": True},
+    ):
+        try:
+            loader.load_tools()
+        except RuntimeError as exc:
+            assert "Sanity check failed for StrictFailing_Tool" in str(exc)
+            return
+    raise AssertionError("Expected strict module sanity failure to raise RuntimeError")
+
+
 def main():
     test_load_tools_registers_explicit_and_snake_case_aliases()
     test_alias_collision_raises()
     test_invalid_alias_raises()
+    test_strict_module_sanity_failure_raises_in_auto_mode()
     print("Tool alias registry tests completed.")
 
 

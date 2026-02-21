@@ -19,16 +19,15 @@ Inside `BaseAgentWithTools._run(...)`, image flow is:
 5. Extract image blobs from tool result, keep `role=tool` content text-only, emit a separate multimodal `role=user` update message with those images, and register new refs (`tool_{tool_call_id}_image_<n>`). Default tool call IDs are generated as `call_<turn>_<idx>` (for example `call_1_1`), so image refs commonly look like `tool_call_1_1_image_1`.
 6. After the tool-call turn, append another Environment Update user message (default emit policy is `always`).
 
-Key methods in `mini_vlm_toolkit/agent/base.py`:
+Key methods in `mini_vlm_toolkit/memory/image_state_memory.py`:
 - `_build_image_registry_from_inputs`
-- `_append_runtime_environment_messages`
-- `_resolve_tool_call_args` / `_resolve_image_paths_in_args`
-- `_build_tool_message_content`
-- `_build_tool_image_user_message`
+- `resolve_tool_call_args` / `_resolve_image_paths_in_args`
+- `prepare_tool_message_payload` / `build_deferred_user_messages`
 - `_register_tool_output_images`
+- `emit_after_tool_turn`
 
-Key hook class:
-- `mini_vlm_toolkit/agent/runtime_environment.py::ImageEnvironment`
+Key memory class:
+- `mini_vlm_toolkit/memory/image_state_memory.py::ImageStateMemory`
 
 ## 2. Example A: Single Image, Single Tool Call
 

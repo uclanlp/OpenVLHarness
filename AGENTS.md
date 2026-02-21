@@ -24,7 +24,7 @@ Default to working inside `mini_vlm_toolkit/tool_infra` unless explicitly asked 
 - Agent examples/tests:
   - Examples: `examples/ad-hoc_ex_for_dev/base_agent_with_tools_chat_example.py`, `examples/ad-hoc_ex_for_dev/base_agent_with_tools_image_response_example.py`.
   - Tests: `mini_vlm_toolkit/agent/tests/test_base_agent_native_tool_call.py`, `mini_vlm_toolkit/agent/tests/test_tool_execute_request_envelope.py`.
-- Common `BaseAgentWithTools` config knobs in YAML: `tool_base`, `tool_list`, `tool_choice`, `prompt_version`, `reasoning_effort`, `runtime_environment_hooks`, `runtime_environment_emit_policy`, `max_iterations`, and optional `extra_body`.
+- Common `BaseAgentWithTools` config knobs in YAML: `tool_base`, `tool_list`, `tool_choice`, `prompt_version`, `reasoning_effort`, `persistent_state_memory`, `max_iterations`, and optional `extra_body`.
 - Image handling in tool loops: runtime image IDs are exposed in Environment Update user messages, `*_image_path` args may be rewritten to `*_image_base64`, and unresolved references surface structured errors.
 
 ---
