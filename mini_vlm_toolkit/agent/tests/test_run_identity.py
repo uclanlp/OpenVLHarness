@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 import sys
 import types
@@ -47,7 +48,25 @@ def _judge_cfg(version="v1", model_name="Qwen/Qwen3-VL-8B-Instruct", key="secret
 
 def test_build_run_id_contains_prefixed_versions():
     run_id = build_run_id("v1_0215", "v1_0215")
-    assert run_id == "agent_v1_0215__judge_v1_0215"
+    # Format: agent_{ver}_judge_{ver}_{YYYYMMDD}_{HHMMSS}_{tag}
+    assert re.match(
+        r"^agent_v1_0215_judge_v1_0215_\d{8}_\d{6}_default$", run_id
+    ), f"Unexpected run_id format: {run_id}"
+
+
+def test_build_run_id_custom_tag():
+    run_id = build_run_id("v1", "v2", run_tag="debug")
+    assert re.match(
+        r"^agent_v1_judge_v2_\d{8}_\d{6}_debug$", run_id
+    ), f"Unexpected run_id format: {run_id}"
+
+
+def test_build_run_id_unique_timestamps():
+    import time
+    run_id_1 = build_run_id("v1", "v1")
+    time.sleep(1)
+    run_id_2 = build_run_id("v1", "v1")
+    assert run_id_1 != run_id_2, "Two run_ids created at different times should differ"
 
 
 def test_agent_hash_ignores_sensitive_fields():
