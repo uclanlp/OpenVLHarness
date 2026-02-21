@@ -40,6 +40,30 @@ def _write_yaml(path, payload):
         yaml.safe_dump(payload, f, sort_keys=True, allow_unicode=True)
 
 
+def _find_latest_run_dir(parent_dir, agent_ver, judge_ver):
+    """Find the latest run directory matching the agent/judge version prefix."""
+    from mini_vlm_toolkit.utils.run_identity import sanitize_for_path
+    agent_part = sanitize_for_path(agent_ver, field_name="agent_config_version")
+    judge_part = sanitize_for_path(judge_ver, field_name="judge_config_version")
+    prefix = f"agent_{agent_part}_judge_{judge_part}_"
+
+    if not os.path.isdir(parent_dir):
+        raise FileNotFoundError(
+            f"No run directories found under {parent_dir}. Nothing to resume."
+        )
+
+    candidates = sorted(
+        d for d in os.listdir(parent_dir)
+        if os.path.isdir(os.path.join(parent_dir, d)) and d.startswith(prefix)
+    )
+    if not candidates:
+        raise FileNotFoundError(
+            f"No run directories matching prefix '{prefix}' found in {parent_dir}. "
+            "Nothing to resume."
+        )
+    return os.path.join(parent_dir, candidates[-1])
+
+
 def _prepare_run_root(pred_root, manifest, logger):
     run_manifest_path = os.path.join(pred_root, "run_manifest.json")
     agent_cfg_path = os.path.join(pred_root, "agent_config.redacted.yaml")
@@ -78,6 +102,10 @@ if __name__ == "__main__":
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
     parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
+    parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
+    parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
+    parser.add_argument('--run-tag', type=str, default='default', help='Custom tag appended to run_id (default: "default")')
+    parser.add_argument('--resume', action='store_true', help='Resume the latest existing run instead of creating a new one')
     args = parser.parse_args()
 
     logger = get_logger("RUN")
@@ -101,8 +129,6 @@ if __name__ == "__main__":
         field_name="judge_config_version",
         label="Judge config",
     )
-    run_id = build_run_id(agent_config_version, judge_config_version)
-
     agent = build_agent(args.config)
     judge_kwargs = load_judge_config(args.judge_config)
     model_name = agent.model.split('/')[-1]
@@ -110,25 +136,47 @@ if __name__ == "__main__":
 
     logger.info(f"LLM Judge Configurations: {judge_kwargs}")
     logger.info(f"Initialized agent of class {agent_class} with model {model_name}")
+
+    parent_dir = os.path.join(args.work_dir, model_name, agent_class.lower())
+
+    if args.resume:
+        pred_root = _find_latest_run_dir(parent_dir, agent_config_version, judge_config_version)
+        run_id = os.path.basename(pred_root)
+        logger.info(f"Resuming existing run: {pred_root}")
+        run_manifest = build_run_manifest(
+            run_id=run_id,
+            agent_config_version=agent_config_version,
+            judge_config_version=judge_config_version,
+            agent_config=agent_config,
+            judge_config=judge_config,
+            config_path=args.config,
+            judge_config_path=args.judge_config,
+        )
+        existing_manifest_path = os.path.join(pred_root, "run_manifest.json")
+        if os.path.exists(existing_manifest_path):
+            existing_manifest = _load_json(existing_manifest_path)
+            validate_manifest_compatibility(existing_manifest, run_manifest)
+    else:
+        run_id = build_run_id(agent_config_version, judge_config_version, run_tag=args.run_tag)
+        pred_root = os.path.join(parent_dir, run_id)
+        run_manifest = build_run_manifest(
+            run_id=run_id,
+            agent_config_version=agent_config_version,
+            judge_config_version=judge_config_version,
+            agent_config=agent_config,
+            judge_config=judge_config,
+            config_path=args.config,
+            judge_config_path=args.judge_config,
+        )
+        if RANK == 0:
+            _prepare_run_root(pred_root, run_manifest, logger)
+        if WORLD_SIZE > 1:
+            dist.barrier()
+
     logger.info(
         f"Run identity: run_id={run_id} "
         f"(agent_config_version={agent_config_version}, judge_config_version={judge_config_version})"
     )
-    
-    pred_root = os.path.join(args.work_dir, model_name, agent_class.lower(), run_id)
-    run_manifest = build_run_manifest(
-        run_id=run_id,
-        agent_config_version=agent_config_version,
-        judge_config_version=judge_config_version,
-        agent_config=agent_config,
-        judge_config=judge_config,
-        config_path=args.config,
-        judge_config_path=args.judge_config,
-    )
-    if RANK == 0:
-        _prepare_run_root(pred_root, run_manifest, logger)
-    if WORLD_SIZE > 1:
-        dist.barrier()
 
     html_arg = str(args.save_html).strip().lower()
     if html_arg == 'all':
@@ -144,6 +192,9 @@ if __name__ == "__main__":
             dist.barrier()
 
         dataset = build_dataset(dataset_name, **dataset_kwargs)
+        if dataset is not None and args.num_examples is not None:
+            dataset.data = dataset.data.head(args.num_examples)
+            logger.info(f"Limiting dataset {dataset_name} to first {args.num_examples} examples")
         result_file = get_pred_file_path(pred_root, model_name, dataset_name, use_env_format=True)
         if dataset is None:
             logger.error(f'Dataset {dataset_name} is not valid, will be skipped. ')
@@ -161,6 +212,7 @@ if __name__ == "__main__":
                     dataset_name,
                     api_nproc=args.num_proc,
                     html_limit=html_limit,
+                    enable_incremental_json=args.incremental_json,
                 )
             else:
                 infer_image_job(
@@ -170,6 +222,7 @@ if __name__ == "__main__":
                     dataset,
                     api_nproc=args.num_proc,
                     html_limit=html_limit,
+                    enable_incremental_json=args.incremental_json,
                 )
 
         

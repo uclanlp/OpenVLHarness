@@ -97,6 +97,7 @@ from .oceanocr import OceanOCRBench
 from .matbench import MATBench
 
 from .reasonmap_plus import ReasonMap_Plus
+from .mmbrowsecomp import MMBrowseCompDataset
 from .hipho import HiPhODataset
 from .gsm8k_v import GSM8KVDataset
 from .macbench import MaCBench
@@ -233,6 +234,7 @@ IMAGE_DATASET = [
     MedqbenchPairedDescriptionDataset, MedqbenchCaptionDataset, ChartMuseum, ChartQAPro, ReasonMap_Plus,
     olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, HiPhODataset, MaCBench,
     UniSVG, SArena_MINI, MMSIVideoBench,
+    MMBrowseCompDataset,
 ]
 
 VIDEO_DATASET = [

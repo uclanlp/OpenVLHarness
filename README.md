@@ -38,9 +38,9 @@ Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
 
 You can find the supported benchmark here: [link](https://aicarrier.feishu.cn/wiki/Qp7wwSzQ9iK1Y6kNUJVcr6zTnPe?table=tblsdEpLieDoCxtb&view=vewa8sGZrY)
 
-1. Install benchmark dependencies:
+1. Install dependencies:
 ```bash
-pip install -r requirements-benchmark.txt
+pip install -r requirements.txt
 ```
 2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`. Agent config must include top-level `agent_config_version`.
 3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Persistent state memory defaults to image updates (`persistent_state_memory: {name: "image", emit_policy: "always"}`) and processes tool outputs before appending model-facing messages. For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
@@ -68,5 +68,11 @@ Where `run_id` is derived automatically as
 - `--save-html 0` (default): disable HTML output.
 - `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
 - `--save-html all`: generate HTML for all tasks.
+
+`--incremental-json` enables real-time JSONL output during inference:
+- When enabled, writes `{model_name}_incremental.jsonl` in the dataset work directory.
+- Each completed task is appended as a JSON object per line as results arrive.
+- Useful for debugging and monitoring progress without waiting for the full run to complete.
+- You can monitor results in real-time using `tail -f <work-dir>/.../<model_name>_incremental.jsonl`.
 
 Note: define your data root with `LMUData` in `.env` (capital D).

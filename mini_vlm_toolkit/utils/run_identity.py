@@ -84,11 +84,17 @@ def sanitize_for_path(value: str, *, field_name: str) -> str:
     return sanitized
 
 
-def build_run_id(agent_config_version: str, judge_config_version: str) -> str:
-    """Build a readable run id with explicit agent/judge prefixes."""
+def build_run_id(
+    agent_config_version: str,
+    judge_config_version: str,
+    run_tag: str = "default",
+) -> str:
+    """Build a readable run id with explicit agent/judge prefixes and timestamp."""
     agent_part = sanitize_for_path(agent_config_version, field_name="agent_config_version")
     judge_part = sanitize_for_path(judge_config_version, field_name="judge_config_version")
-    return f"agent_{agent_part}__judge_{judge_part}"
+    tag_part = sanitize_for_path(run_tag, field_name="run_tag")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"agent_{agent_part}_judge_{judge_part}_{timestamp}_{tag_part}"
 
 
 def _is_sensitive_key(key: str) -> bool:
