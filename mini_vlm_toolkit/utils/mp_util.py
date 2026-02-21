@@ -1,8 +1,22 @@
+import json
+import threading
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Optional
 
 import os.path as osp
 from ..smp import load, dump
+from ..smp.file import NumpyEncoder
+
+_incremental_json_lock = threading.Lock()
+
+
+def _extract_prediction(result) -> str:
+    """Extract prediction string from model output (str or dict with 'prediction' key)."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict) and 'prediction' in result:
+        return result['prediction']
+    return str(result)
 
 
 def cpu_count():
@@ -35,8 +49,15 @@ def track_progress_rich(
         save=None,
         keys=None,
         use_process: bool = False,
+        incremental_json_file: Optional[str] = None,
+        incremental_record_builder: Optional[Callable] = None,
         **kwargs) -> list:
-    
+    """
+    incremental_json_file: when set (and PRED_FORMAT=json), append one JSON object per
+        line as each result arrives, so you can tail -f and analyze results in real time.
+    incremental_record_builder: optional (key, result) -> dict; default uses
+        {"index": key, "prediction": <extracted>}.
+    """
     from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
     from tqdm import tqdm
     if save is not None:
@@ -55,6 +76,16 @@ def track_progress_rich(
     res = load(save) if save is not None else {}
     results = [None for _ in range(len(tasks))]
 
+    def _append_incremental_json(key, result):
+        if incremental_record_builder is not None:
+            record = incremental_record_builder(key, result)
+        else:
+            record = {"index": key, "prediction": _extract_prediction(result)}
+        line = json.dumps(record, ensure_ascii=False, cls=NumpyEncoder) + "\n"
+        with _incremental_json_lock:
+            with open(incremental_json_file, "a", encoding="utf-8") as f:
+                f.write(line)
+
     executor_type = ProcessPoolExecutor if use_process else ThreadPoolExecutor
     with executor_type(max_workers=nproc) as executor:
         futures = []
@@ -69,6 +100,8 @@ def track_progress_rich(
             if keys is not None:
                 res[keys[idx]] = result
                 dump(res, save)
+            if incremental_json_file is not None and keys is not None:
+                _append_incremental_json(keys[idx], result)
 
     if save is not None:
         dump(res, save)

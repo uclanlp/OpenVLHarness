@@ -12,7 +12,7 @@ FAIL_MSG = 'Failed to obtain answer via API.'
 
 
 # Only API model is accepted
-def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4):
+def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4, enable_incremental_json=False):
     rank, world_size = get_rank_and_world_size()
     assert rank == 0 and world_size == 1
     dataset_name = dataset.dataset_name
@@ -66,13 +66,17 @@ def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_np
     structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
 
     if len(structs):
-        track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
+        if enable_incremental_json:
+            incremental_json = osp.join(work_dir, f'{model_name}_incremental.jsonl')
+            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices, incremental_json_file=incremental_json)
+        else:
+            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
 
     res = load(out_file)
     return res
 
 
-def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4):
+def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, enable_incremental_json=False):
     res = load(out_file) if osp.exists(out_file) else {}
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
@@ -101,7 +105,8 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         model_name=model_name,
         dataset=dataset,
         samples_dict={k: sample_map[k] for k in sample_indices_subrem},
-        api_nproc=api_nproc)
+        api_nproc=api_nproc,
+        enable_incremental_json=enable_incremental_json)
     for k in sample_indices_subrem:
         assert k in supp
     res.update(supp)
@@ -120,6 +125,7 @@ def infer_video_job(
         verbose=False,
         api_nproc=4,
         html_limit=0,
+        enable_incremental_json=False,
     ):
 
     if dataset_name is None:
@@ -145,7 +151,8 @@ def infer_video_job(
         dataset=dataset,
         out_file=out_file,
         verbose=verbose,
-        api_nproc=api_nproc)
+        api_nproc=api_nproc,
+        enable_incremental_json=enable_incremental_json)
 
     if world_size > 1:
         dist.barrier()
