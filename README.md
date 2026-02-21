@@ -61,9 +61,25 @@ python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-conf
   judge_config.redacted.yaml                        # copied once per run_id
 ```
 Where `run_id` is derived automatically as
-`agent_<agent_config_version>__judge_<judge_config_version>`.
+`agent_<agent_config_version>_judge_<judge_config_version>_<YYYYMMDD>_<HHMMSS>_<tag>`.
+Each run creates a unique timestamped directory, preventing accidental cache collisions.
 
 #### Optional:
+`--run-tag` sets a custom tag appended to the run directory name (default: `"default"`):
+```
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --run-tag my_experiment
+```
+
+`--resume` finds and resumes the latest existing run that matches the agent/judge version prefix, instead of creating a new timestamped directory:
+```
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --resume
+```
+
+`--num-examples` limits inference to the first N examples in the dataset (useful for quick testing):
+```
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10
+```
+
 `--save-html` controls HTML report generation:
 - `--save-html 0` (default): disable HTML output.
 - `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
