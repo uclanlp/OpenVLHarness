@@ -23,6 +23,7 @@ Run these steps from the tool infra root and set `PYTHONPATH="$(pwd)/src"` so im
   `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
   Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use
   `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
+- `scripts/print_tools.py`: pretty-print tool metadata from a running tool server (useful for quick inspection).
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) plus optional
   `LLM_DIRECT_MODEL_API_KEYS`/`LLM_DIRECT_API_KEY` (defaults to `EMPTY` for no auth). Base URLs
   may include `/v1`; if omitted, `/v1` is appended automatically.
@@ -184,6 +185,18 @@ Response shape:
 ```
 On errors, the server returns a non-2xx status and an envelope with `ok: false`,
 `result: null`, and a structured `error` object.
+
+## 2c) Subagent tools (config-driven)
+
+The subagent tool system generates tool instances dynamically from YAML config files at server startup.
+
+1. Set `SUBAGENT_CONFIG_DIR` to a directory containing your YAML config files.
+2. Include `tools.subagent.tool` in your tool loading (or use `LIGHT_TOOL_MODULES=auto`).
+3. Each YAML file produces one or more tool instances that the server exposes like any other tool.
+
+See `src/tools/subagent/README.md` for the config format and detailed usage.
+
+Note: The subagent tool module sets `STRICT_TOOL_LOADING = True`, so the server will fail fast if `SUBAGENT_CONFIG_DIR` is missing or invalid when the module is explicitly loaded.
 
 ## 3) Add a new tool (best done with a coding agent)
 

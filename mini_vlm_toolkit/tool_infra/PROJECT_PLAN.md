@@ -24,7 +24,9 @@ Non-goals:
 - Implemented: optional tool-level `input_schema` support in `BaseTool`;
   `/jsonschema` prefers `input_schema` and falls back to inferred `input_types`.
 - Implemented: explicit `input_schema` for SAM3-related tools.
-- TODO: add explicit `input_schema` for remaining non-SAM3 tools.
+- Implemented: explicit `input_schema` added to most tools (non-SAM3 included).
+- Implemented: config-driven subagent tools via `SUBAGENT_CONFIG_DIR` YAML configs (`src/tools/subagent/`).
+- Implemented: `SerpApi_Image_Search_Tool` for reverse image search via SerpApi (`src/tools/serpapi_image_search/`).
 
 ## Reference Sources
 When referencing external code or behavior, only use the repos under `reference/`:
@@ -78,12 +80,10 @@ Key decisions (recorded so new contributors do not need prior context):
   - Reuse `LLM_Direct_Generator_Tool` for OpenAI-compatible VLM requests.
   - Aggregate `<answer>` responses into yes/no counts or free-form answers.
 
-Remaining OpenThinkIMG-derived tools (deferred):
-- SegmentRegionAroundPoint: image + point -> localized mask (SAM3 model server)
-
-Remaining VisualSketchpad-derived tools (deferred):
-- SegmentAndMark: image + granularity -> annotated image + list of bboxes
-- SlidingWindowDetection: image + objects -> candidate crops + boxes (uses detection internally)
+Previously deferred tools (now implemented):
+- SegmentRegionAroundPoint: image + point -> localized mask (SAM3 model server) — `src/tools/segment_region_around_point/`
+- SegmentAndMark: image + granularity -> annotated image + list of bboxes — `src/tools/segment_and_mark/`
+- SlidingWindowDetection: image + objects -> candidate crops + boxes (uses detection internally) — `src/tools/sliding_window_detection/`
 
 ## Core Design
 ### Tool Interface

@@ -27,6 +27,7 @@
 | `SAM3_Segment_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
+| `SerpApi_Image_Search_Tool` | Search similar images with SerpApi Google Reverse Image Search from a public image URL. |
 | `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
 | `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
 | `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |

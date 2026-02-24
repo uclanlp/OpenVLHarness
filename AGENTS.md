@@ -26,6 +26,10 @@ Default to working inside `mini_vlm_toolkit/tool_infra` unless explicitly asked 
   - Tests: `mini_vlm_toolkit/agent/tests/test_base_agent_native_tool_call.py`, `mini_vlm_toolkit/agent/tests/test_tool_execute_request_envelope.py`.
 - Common `BaseAgentWithTools` config knobs in YAML: `tool_base`, `tool_list`, `tool_choice`, `prompt_version`, `reasoning_effort`, `persistent_state_memory`, `max_iterations`, and optional `extra_body`.
 - Image handling in tool loops: runtime image IDs are exposed in Environment Update user messages, `*_image_path` args may be rewritten to `*_image_base64`, and unresolved references surface structured errors.
+- Memory module: `mini_vlm_toolkit/memory/` provides `PersistentStateMemory` and `ImageStateMemory` (replaces the old `RuntimeEnvironmentHook` in `runtime_environment.py`).
+- Input snapshot: on turn 0, the agent captures `_input_snapshot` containing the Layer 2 rendered prompt sent to the MLLM, stored in trajectory output.
+- Subagent tool support: config-driven subagent tools generated at startup from YAML files under `SUBAGENT_CONFIG_DIR` (see `src/tools/subagent/`).
+- Run output: each run directory writes `run_manifest.json` (resume identity + matching policy) and redacted config copies (`agent_config.redacted.yaml`, `judge_config.redacted.yaml`).
 
 ---
 
@@ -45,7 +49,10 @@ All sections below apply only to tool infra. The eval/benchmark stack above is d
 - `tests/`: Standalone Python test scripts + `tests/utils.py` (includes base64 encoding helpers for image tests).
 - `tests/data`: Sample images (downloaded if missing).
 - `tests/output`: Generated test images (gitignored).
+- `src/tools/subagent/`: Config-driven subagent tool generator; reads YAML configs from `SUBAGENT_CONFIG_DIR`.
+- `src/tools/serpapi_image_search/`: SerpApi Google Reverse Image Search tool.
 - `scripts/`: Helper scripts (tool server, tests, status checks, model servers).
+- `scripts/print_tools.py`: Pretty-print tool metadata from a running tool server.
 - `README.md`, `TUTORIAL.md`, `TUTORIAL_NEW.md`: Usage docs.
 - `PROJECT_PLAN.md`: Project roadmap and TODO tracking.
 - `reference/`: External reference materials; do not edit for project changes.
@@ -129,7 +136,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 ## Configuration & Security Notes
 - The Python executor runs `exec()` without sandboxing; avoid untrusted code.
 - Tool lists are driven by `LIGHT_TOOL_MODULES` + `HEAVY_TOOL_MODULES`; see `.env.example` for sample lists.
-- Environment variables commonly used: `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_DIRECT_MODEL_BASE_URLS`, `LLM_DIRECT_MODEL_API_KEYS`, `LLM_DIRECT_API_KEY`.
+- Environment variables commonly used: `HOST`, `PORT`, `LIGHT_TOOL_MODULES`, `HEAVY_TOOL_MODULES`, `TOOL_SERVER_URL`, `LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_DIRECT_MODEL_BASE_URLS`, `LLM_DIRECT_MODEL_API_KEYS`, `LLM_DIRECT_API_KEY`, `SUBAGENT_CONFIG_DIR`, `STRICT_TOOL_LOADING`.
 - `LLM_DIRECT_MODEL_BASE_URLS` maps `model:base_url` pairs (comma-separated). `LLM_DIRECT_MODEL_API_KEYS` can supply per-model keys, with `LLM_DIRECT_API_KEY` as the default.
 - Model server URLs:
   - `SAM3_SERVER_URL`
@@ -140,3 +147,4 @@ Run these from `mini_vlm_toolkit/tool_infra`.
   - `src/tools/gemini_google_search/google_api_key`
   - `src/tools/serper_google_search/serper_api_key`
   - `src/tools/single_url_qa/openai_api_key`
+  - `src/tools/serpapi_image_search/serpapi_api_key`
