@@ -1318,10 +1318,18 @@ class BaseAgentWithTools(BaseAgent):
 
                     if final_answer:
                         if return_messages:
+                            if return_snapshot:
+                                return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
                             return final_answer, chat_history, msgs
+                        if return_snapshot:
+                            return final_answer, chat_history, cp.deepcopy(input_snapshot)
                         return final_answer, chat_history
                     if return_messages:
+                        if return_snapshot:
+                            return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
                         return self.fail_msg, chat_history, msgs
+                    if return_snapshot:
+                        return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
                     return self.fail_msg, chat_history
                 continue
 
