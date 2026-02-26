@@ -881,6 +881,16 @@ class BaseAgentWithTools(BaseAgent):
 
         # Support v2 "Action: Final Answer" + "Action Input:" response style.
         if prompt_version == "v2":
+            action_name_match = re.search(
+                r"^\s*Action\s*:\s*(.+?)\s*$",
+                content,
+                flags=re.IGNORECASE | re.MULTILINE,
+            )
+            if action_name_match:
+                action_name = action_name_match.group(1).strip()
+                if action_name and action_name.lower() != "final answer":
+                    return ""
+
             action_match = re.search(
                 r"^\s*Action\s*:\s*Final\s*Answer\s*$",
                 content,

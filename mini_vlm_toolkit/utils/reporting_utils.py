@@ -117,6 +117,19 @@ def write_trajectory_jsonl(records, output_path):
     dump(records, output_path)
 
 
+def select_records_for_report_limit(records, limit):
+    if limit == 0:
+        return []
+    if limit < 0:
+        limit = len(records)
+    sorted_records = sorted(
+        records,
+        key=lambda r: len((r.get("trajectory") or {}).get("chat_history") or []),
+        reverse=True,
+    )
+    return sorted_records[: min(limit, len(sorted_records))]
+
+
 def write_input_snapshot_json(indices, data_all, output_path):
     """Write the first available per-sample input snapshot for run-level debugging."""
     for idx in indices:
@@ -160,6 +173,52 @@ def _strip_assistant_content(trajectory):
         trajectory = trajectory.copy()
         trajectory["chat_history"] = cleaned
     return trajectory
+
+
+def _assistant_message_matches(candidate, final_message):
+    if not isinstance(candidate, dict):
+        return False
+    if candidate.get("role") != "assistant":
+        return False
+    if candidate.get("content") != final_message.get("content"):
+        return False
+    if "tool_calls" in final_message:
+        return candidate.get("tool_calls") == final_message.get("tool_calls")
+    return True
+
+
+def build_complete_messages_from_trajectory(trajectory):
+    """Return final-round input chain plus final assistant output when available."""
+    if not isinstance(trajectory, dict):
+        return None
+    messages = trajectory.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    complete_messages = copy.deepcopy(messages)
+    chat_history = trajectory.get("chat_history")
+    if not isinstance(chat_history, list) or not chat_history:
+        return complete_messages
+
+    last_turn = chat_history[-1]
+    if not isinstance(last_turn, dict):
+        return complete_messages
+    assistant = last_turn.get("assistant")
+    if not isinstance(assistant, dict):
+        return complete_messages
+
+    final_content = assistant.get("content")
+    if final_content is None:
+        return complete_messages
+    final_message = {"role": "assistant", "content": final_content}
+    tool_calls = assistant.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls:
+        final_message["tool_calls"] = copy.deepcopy(tool_calls)
+
+    if complete_messages and _assistant_message_matches(complete_messages[-1], final_message):
+        return complete_messages
+    complete_messages.append(final_message)
+    return complete_messages
 
 
 def _escape(text):
@@ -457,18 +516,35 @@ def write_html_reports(records, out_dir, limit, max_chars=2000):
     if limit == 0:
         return
     os.makedirs(out_dir, exist_ok=True)
-    if limit < 0:
-        limit = len(records)
-    sorted_records = sorted(
-        records,
-        key=lambda r: len((r.get("trajectory") or {}).get("chat_history") or []),
-        reverse=True,
-    )
-    limit = min(limit, len(sorted_records))
-    for record in sorted_records[:limit]:
+    for record in select_records_for_report_limit(records, limit):
         task_id = record.get("task_id")
         filename = f"{task_id}.html"
         output_path = os.path.join(out_dir, filename)
         html_text = render_html_report(record, max_chars=max_chars)
         with open(output_path, "w", encoding="utf8") as f:
             f.write(html_text)
+
+
+def write_full_trajectory_jsons(records, out_dir, limit):
+    """Write per-sample full trajectory JSONs aligned to the HTML selection policy."""
+    if limit == 0:
+        return
+    os.makedirs(out_dir, exist_ok=True)
+    for record in select_records_for_report_limit(records, limit):
+        trajectory = record.get("trajectory")
+        complete_messages = build_complete_messages_from_trajectory(trajectory)
+        payload = {
+            "task_id": copy.deepcopy(record.get("task_id")),
+            "dataset": copy.deepcopy(record.get("dataset")),
+            "model_name": copy.deepcopy(record.get("model_name")),
+            "agent_class": copy.deepcopy(record.get("agent_class")),
+            "prediction": copy.deepcopy(record.get("prediction")),
+        }
+        if complete_messages is not None:
+            payload["messages"] = complete_messages
+        elif isinstance(trajectory, dict) and isinstance(trajectory.get("messages"), list):
+            payload["messages"] = copy.deepcopy(trajectory["messages"])
+
+        task_id = payload.get("task_id")
+        output_path = os.path.join(out_dir, f"{task_id}.json")
+        dump(payload, output_path)
