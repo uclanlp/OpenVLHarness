@@ -125,7 +125,10 @@ def test_load_tools_registers_explicit_and_snake_case_aliases():
     assert "example_feature_alias" in canonical_metadata["tool_aliases"]
     assert "example_feature" in canonical_metadata["tool_aliases"]
     assert canonical_metadata["tool_module_path"] == "tests.fake_tool_module"
-    assert canonical_metadata["tool_output_processor_module"].endswith(".process_tool_output")
+    assert (
+        canonical_metadata["tool_output_processor_module"]
+        == "tests.fake_tool_module.process_tool_output"
+    )
 
     alias_metadata = tool_metadata["example_feature_alias"]
     assert alias_metadata["is_alias"] is True

@@ -193,9 +193,11 @@ def load_tools():
             metadata["is_alias"] = False
             metadata["canonical_tool_name"] = tool_name
             metadata["tool_module_path"] = module_path
-            metadata["tool_output_processor_module"] = (
-                f"{module_path.rsplit('.', 1)[0]}.process_tool_output"
-            )
+            if module_path.endswith(".tool"):
+                processor_module = f"{module_path.rsplit('.', 1)[0]}.process_tool_output"
+            else:
+                processor_module = f"{module_path}.process_tool_output"
+            metadata["tool_output_processor_module"] = processor_module
 
             canonical_instances[tool_name] = instance
             canonical_metadata[tool_name] = metadata
