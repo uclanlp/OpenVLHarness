@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 class PersistentStateMemory:
     """Base persistent state memory.
 
-    Default behavior preserves native tool protocol by emitting a text-only
-    `role=tool` message for each tool payload. Subclasses can override image/
-    modality handling and turn-level state update emissions.
+    Default behavior emits a text-only `role=user` message for each tool
+    payload. Subclasses can override image/modality handling and turn-level
+    state update emissions.
 
     Contract:
     - Instances are per-run only and must not be reused across runs.
@@ -62,7 +62,7 @@ class PersistentStateMemory:
         return cp.deepcopy(args), {"rewrites": [], "errors": []}
 
     def prepare_tool_message_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare compact payload for text-only role=tool content."""
+        """Prepare compact payload for text-only tool-result content."""
         compact_payload = {
             "ok": payload.get("ok"),
             "result": payload.get("result"),
@@ -80,7 +80,7 @@ class PersistentStateMemory:
         *,
         prepared_payload: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Build strict text-only role=tool content."""
+        """Build strict text-only tool-result content."""
         prepared = prepared_payload or self.prepare_tool_message_payload(payload)
         text_payload = prepared.get("text_payload")
         if isinstance(text_payload, str):
@@ -97,11 +97,13 @@ class PersistentStateMemory:
         prepared_payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         content = self.build_tool_message_content(payload, prepared_payload=prepared_payload)
+        tool_name = str(payload.get("tool_name") or "tool")
+        tool_call_id = str(payload.get("tool_call_id") or "unknown")
         return {
-            "role": "tool",
-            "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
-            "name": str(payload.get("tool_name") or "tool"),
-            "content": content,
+            "role": "user",
+            "content": (
+                f"Tool `{tool_name}` (tool_call_id={tool_call_id}) returned:\n{content}"
+            ),
         }
 
     def build_deferred_user_messages(

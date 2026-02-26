@@ -90,7 +90,40 @@ def _build_agent():
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
     agent.default_kwargs = {}
+    agent._tokenizer = None
     return agent
+
+
+def _extract_user_text_content(message):
+    content = (message or {}).get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for part in content:
+            if (
+                isinstance(part, dict)
+                and part.get("type") == "text"
+                and isinstance(part.get("text"), str)
+            ):
+                return part["text"]
+    return ""
+
+
+def _tool_result_user_messages(messages):
+    matches = []
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        text = _extract_user_text_content(message)
+        if isinstance(text, str) and text.startswith("Tool `"):
+            matches.append(message)
+    return matches
+
+
+def _parse_compact_tool_payload_from_user_message(message):
+    text = _extract_user_text_content(message)
+    payload_line = (text.splitlines() or [""])[-1]
+    return text, json.loads(payload_line)
 
 
 def test_base_agent_with_tools_rejects_legacy_runtime_environment_keys():
@@ -141,15 +174,14 @@ def test_native_tool_call_single_text_tool():
         if state["chat_calls"] == 2:
             assistant_msgs = [m for m in messages if m.get("role") == "assistant" and m.get("tool_calls")]
             assert len(assistant_msgs) >= 1
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
-            assert len(tool_msgs) >= 1
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = _tool_result_user_messages(messages)
+            assert tool_msgs
 
             tool_msg = tool_msgs[-1]
-            assert tool_msg.get("tool_call_id") == "call_1"
-            assert tool_msg.get("name") == "Python_Executor_Tool"
-            assert isinstance(tool_msg.get("content"), str)
-
-            payload = json.loads(tool_msg["content"])
+            tool_text, payload = _parse_compact_tool_payload_from_user_message(tool_msg)
+            assert "tool_call_id=call_1" in tool_text
+            assert "Python_Executor_Tool" in tool_text
             assert payload["ok"] is True
             assert payload["result"]["value"] == 4
 
@@ -259,12 +291,13 @@ def test_native_tool_call_image_result_recursive_extraction():
             }
 
         if state["chat_calls"] == 2:
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
             tool_msg = tool_msgs[-1]
-            assert tool_msg["tool_call_id"] == "call_img_1"
-            assert tool_msg["name"] == "Image_Tool"
-            assert isinstance(tool_msg["content"], str)
+            tool_text = _extract_user_text_content(tool_msg)
+            assert "tool_call_id=call_img_1" in tool_text
+            assert "Image_Tool" in tool_text
 
             env_updates = [
                 m["content"]
@@ -295,8 +328,7 @@ def test_native_tool_call_image_result_recursive_extraction():
             assert len(image_parts) == 3
             assert all(p["image_url"]["url"].startswith("data:image/") for p in image_parts)
 
-            compact_payload = json.loads(tool_msg["content"])
-            compact_text = tool_msg["content"]
+            compact_text, compact_payload = _parse_compact_tool_payload_from_user_message(tool_msg)
             assert tiny_png_b64 not in compact_text
             assert "data:image/" not in compact_text
             assert compact_payload["ok"] is True
@@ -362,8 +394,9 @@ def test_native_tool_call_image_result_recursive_extraction():
     assert answer == "done"
     assert len(chat_history) == 2
     assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_Tool"
-    assert chat_history[0]["memory_outputs"][0]["deferred_message_indices"]
+    assert chat_history[0]["memory_outputs"][0]["deferred_message_indices"] == []
     assert chat_history[0]["memory_outputs"][0]["image_refs"]
+    assert chat_history[0]["memory_outputs"][0]["tool_output_processor"]["mode"] in {"default_placeholder", "custom"}
     assert chat_history[1]["final_answer"] == "done"
 
 
@@ -379,7 +412,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
                     "type": "object",
                     "properties": {
                         "prompt": {"type": "string"},
-                        "image_path": {"type": "string"},
+                        "image_base64": {"type": "string"},
                     },
                 },
             },
@@ -452,9 +485,10 @@ def test_native_tool_call_resolves_hallucinated_image_path():
             }
 
         if state["chat_calls"] == 2:
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
-            payload = json.loads(tool_msgs[-1]["content"])
+            _, payload = _parse_compact_tool_payload_from_user_message(tool_msgs[-1])
             assert payload["ok"] is True
             return {
                 "choices": [
@@ -509,6 +543,137 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     assert resolution_meta["errors"] == []
 
 
+def test_native_tool_call_sam3_custom_processor_summarizes_output():
+    agent = _build_agent()
+    # Simulate a stale /tools response (server not restarted) with no processor metadata.
+    # ImageStateMemory should still infer tools.sam3_segment.process_tool_output.
+    agent.tools = {"SAM3_Segment_Tool": {}}
+    agent.json_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "SAM3_Segment_Tool",
+                "description": "Segment with SAM3",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string"},
+                        "image_base64": {"type": "string"},
+                    },
+                },
+            },
+        }
+    ]
+    state = {"chat_calls": 0}
+    tiny_png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2fF6UAAAAASUVORK5CYII="
+    )
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need segmentation.</perception>\n"
+                                "<thinking>I should call SAM3.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_sam3_custom_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "SAM3_Segment_Tool",
+                                        "arguments": json.dumps(
+                                            {
+                                                "prompt": "children",
+                                                "image_base64": f"data:image/png;base64,{tiny_png_b64}",
+                                            }
+                                        ),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = [
+                m
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), list)
+                and "SAM3_Segment_Tool generated" in _extract_user_text_content(m)
+            ]
+            assert tool_msgs
+            tool_msg = tool_msgs[-1]
+            assert isinstance(tool_msg.get("content"), list)
+            text = _extract_user_text_content(tool_msg)
+            assert "SAM3_Segment_Tool generated 2 masks" in text
+            assert "tool_call_sam3_custom_1_image_1" in text
+            assert "pred_boxes" not in text
+            assert "pred_scores" not in text
+            assert "pred_masks" not in text
+            image_parts = [
+                p for p in tool_msg["content"]
+                if isinstance(p, dict) and p.get("type") == "image_url"
+            ]
+            assert len(image_parts) == 1
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "done",
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "SAM3_Segment_Tool"
+        assert tool_call["tool_call_id"] == "call_sam3_custom_1"
+        return {
+            "ok": True,
+            "tool_name": "SAM3_Segment_Tool",
+            "result": {
+                "model": "sam3",
+                "prompt": "children",
+                "pred_boxes": [[0, 0, 10, 10], [20, 20, 30, 30]],
+                "pred_scores": [0.98, 0.87],
+                "pred_masks": ["rle_a", "rle_b"],
+                "rendered_image_b64": tiny_png_b64,
+            },
+            "error": None,
+            "tool_call_id": "call_sam3_custom_1",
+            "meta": {},
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Segment the children."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "done"
+    assert chat_history[0]["memory_outputs"][0]["tool_output_processor"]["mode"] == "custom"
+    assert chat_history[0]["memory_outputs"][0]["image_refs"] == ["tool_call_sam3_custom_1_image_1"]
+
+
 def test_native_tool_call_image_result_top_level_string_scrubbed():
     agent = _build_agent()
     agent.json_schema = [
@@ -560,12 +725,13 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
             }
 
         if state["chat_calls"] == 2:
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
             tool_msg = tool_msgs[-1]
-            assert tool_msg["tool_call_id"] == "call_img_string_1"
-            assert tool_msg["name"] == "Image_String_Tool"
-            assert isinstance(tool_msg["content"], str)
+            tool_text = _extract_user_text_content(tool_msg)
+            assert "tool_call_id=call_img_string_1" in tool_text
+            assert "Image_String_Tool" in tool_text
 
             tool_image_msgs = [
                 m
@@ -584,8 +750,7 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
             assert len(image_parts) == 1
             assert image_parts[0]["image_url"]["url"] == image_data_url
 
-            compact_payload = json.loads(tool_msg["content"])
-            compact_text = tool_msg["content"]
+            compact_text, compact_payload = _parse_compact_tool_payload_from_user_message(tool_msg)
             assert tiny_png_b64 not in compact_text
             assert image_data_url not in compact_text
             assert compact_payload["ok"] is True
@@ -820,9 +985,10 @@ def test_native_tool_call_invalid_tool_arguments_soft_fail():
             }
 
         if state["chat_calls"] == 2:
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
-            payload = json.loads(tool_msgs[-1]["content"])
+            _, payload = _parse_compact_tool_payload_from_user_message(tool_msgs[-1])
             assert payload["ok"] is False
             assert payload["error"]["code"] == "invalid_tool_arguments_json"
             return {
@@ -1288,12 +1454,15 @@ def test_native_tool_call_rejects_multiple_tool_calls_in_one_message():
             }
 
         if state["chat_calls"] == 2:
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_msgs = _tool_result_user_messages(messages)
             assert len(tool_msgs) >= 2
             latest_two = tool_msgs[-2:]
-            assert [m.get("tool_call_id") for m in latest_two] == ["call_multi_1", "call_multi_2"]
+            tool_texts = [_extract_user_text_content(m) for m in latest_two]
+            assert "tool_call_id=call_multi_1" in tool_texts[0]
+            assert "tool_call_id=call_multi_2" in tool_texts[1]
             for tool_msg in latest_two:
-                payload = json.loads(tool_msg["content"])
+                _, payload = _parse_compact_tool_payload_from_user_message(tool_msg)
                 assert payload["ok"] is False
                 assert payload["error"]["code"] == "multiple_tool_calls_not_allowed"
             return {
@@ -1369,8 +1538,8 @@ def test_run_allows_finalization_after_last_iteration_tool_calls():
 
         if state["chat_calls"] == 2:
             assert kwargs.get("tool_choice") == "none"
-            tool_msgs = [m for m in messages if m.get("role") == "tool"]
-            assert tool_msgs
+            assert not [m for m in messages if m.get("role") == "tool"]
+            assert _tool_result_user_messages(messages)
             return {
                 "choices": [
                     {
@@ -1423,6 +1592,7 @@ if __name__ == "__main__":
     test_native_tool_call_single_text_tool()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
+    test_native_tool_call_sam3_custom_processor_summarizes_output()
     test_native_tool_call_image_result_top_level_string_scrubbed()
     test_native_tool_call_forwards_tool_choice_and_extra_body()
     test_native_tool_call_uses_agent_default_tool_choice()
@@ -1448,6 +1618,7 @@ if __name__ == "__main__":
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
+    print("PASS: test_native_tool_call_sam3_custom_processor_summarizes_output")
     print("PASS: test_native_tool_call_image_result_top_level_string_scrubbed")
     print("PASS: test_native_tool_call_forwards_tool_choice_and_extra_body")
     print("PASS: test_native_tool_call_uses_agent_default_tool_choice")
