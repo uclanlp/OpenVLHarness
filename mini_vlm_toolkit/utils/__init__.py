@@ -16,6 +16,7 @@ try:
         build_trajectory_records,
         write_trajectory_jsonl,
         write_html_reports,
+        write_full_trajectory_jsons,
     )
 except Exception:  # pragma: no cover - optional runtime dependency.
     track_progress_rich = None
@@ -35,5 +36,6 @@ __all__ = [
     'build_trajectory_records',
     'write_trajectory_jsonl',
     'write_html_reports',
+    'write_full_trajectory_jsons',
     
 ]

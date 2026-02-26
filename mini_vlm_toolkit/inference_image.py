@@ -9,6 +9,7 @@ from .utils.reporting_utils import (
     write_trajectory_jsonl,
     write_input_snapshot_json,
     write_html_reports,
+    write_full_trajectory_jsons,
 )
 from .utils import track_progress_rich
 from .smp import *
@@ -352,6 +353,7 @@ def infer_image_job(
 
         if html_limit != 0:
             html_dir = osp.join(work_dir, "htmls")
+            full_trajectory_dir = osp.join(work_dir, "full_trajectories")
             html_records = build_trajectory_records(
                 data["index"],
                 data_all,
@@ -362,6 +364,7 @@ def infer_image_job(
                 strip_assistant_content=False,
             )
             write_html_reports(html_records, html_dir, html_limit)
+            write_full_trajectory_jsons(html_records, full_trajectory_dir, html_limit)
         for i in range(world_size):
             os.remove(tmpl.format(i))
     

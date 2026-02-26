@@ -1185,6 +1185,21 @@ def test_extract_final_answer_from_v2_scaffold_only_returns_empty():
     assert answer == ""
 
 
+def test_extract_final_answer_from_v2_nonfinal_tool_action_multiline_input_returns_empty():
+    agent = _build_agent()
+    agent.prompt_version = "v2"
+    content = (
+        "Thought: I should inspect the bicyclist orientation more carefully.\n\n"
+        "Action: SAM3_Segment_Tool\n"
+        "Action Input: {\n"
+        "  \"query\": \"bicyclist\",\n"
+        "  \"image_path\": \"input_image_1\"\n"
+        "}"
+    )
+    answer = agent._extract_final_answer_from_content(content)
+    assert answer == ""
+
+
 def test_run_continues_after_v1_scaffold_only_response():
     agent = _build_agent()
     state = {"chat_calls": 0}
@@ -1338,6 +1353,7 @@ if __name__ == "__main__":
     test_extract_final_answer_from_v2_action_input()
     test_extract_final_answer_from_v1_scaffold_only_returns_empty()
     test_extract_final_answer_from_v2_scaffold_only_returns_empty()
+    test_extract_final_answer_from_v2_nonfinal_tool_action_multiline_input_returns_empty()
     test_run_continues_after_v1_scaffold_only_response()
     test_run_allows_finalization_after_last_iteration_tool_calls()
     print("PASS: test_base_agent_with_tools_rejects_legacy_runtime_environment_keys")
@@ -1361,5 +1377,6 @@ if __name__ == "__main__":
     print("PASS: test_extract_final_answer_from_v2_action_input")
     print("PASS: test_extract_final_answer_from_v1_scaffold_only_returns_empty")
     print("PASS: test_extract_final_answer_from_v2_scaffold_only_returns_empty")
+    print("PASS: test_extract_final_answer_from_v2_nonfinal_tool_action_multiline_input_returns_empty")
     print("PASS: test_run_continues_after_v1_scaffold_only_response")
     print("PASS: test_run_allows_finalization_after_last_iteration_tool_calls")
