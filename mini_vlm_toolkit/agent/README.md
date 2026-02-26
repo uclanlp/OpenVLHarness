@@ -21,7 +21,7 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - In normal benchmark usage, it is configured from YAML (`agent_kwargs`) via `build_agent`.
 - Loads tool metadata from tool server (`/tools`, `/jsonschema`).
 - Calls model with `tools` and `tool_choice`.
-- Reads native assistant `tool_calls`, executes each call via tool server `/execute`.
+- Reads native assistant `tool_calls`, enforces at most one call per assistant turn, and executes the single call via tool server `/execute`.
 - Routes normalized tool payloads through `PersistentStateMemory` (default: `ImageStateMemory`) to produce model-facing messages.
 - Appends structured tool outputs as text-only `role=tool` messages.
 - If tool outputs include images, appends separate multimodal `role=user` messages (short text + `image_url` parts), then continues.
@@ -70,7 +70,7 @@ Notes:
 ## 5. Notes
 ### Tool-calling workflow
 - Assistant emits native `tool_calls`.
-- Agent normalizes each call and posts to tool server `/execute`.
+- Agent normalizes native tool calls, rejects multi-call assistant messages with tool-error feedback, and posts only a single call to tool server `/execute`.
 - Tool payloads are normalized into `{ok, result, error, tool_name, tool_call_id, meta}` for internal history/tracing.
 - `PersistentStateMemory` transforms each normalized payload into model-facing messages while preserving native tool protocol (`role=tool` + matching `tool_call_id`).
 - The `role=tool` message content is text-only JSON (`ok/result/error` plus optional `image_refs`).

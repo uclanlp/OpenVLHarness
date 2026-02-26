@@ -1247,6 +1247,93 @@ def test_run_continues_after_v1_scaffold_only_response():
     assert chat_history[1]["final_answer"] == "42"
 
 
+def test_native_tool_call_rejects_multiple_tool_calls_in_one_message():
+    agent = _build_agent()
+    state = {"chat_calls": 0, "tool_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need two computations.</perception>\n"
+                                "<thinking>I will call tools.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_multi_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Python_Executor_Tool",
+                                        "arguments": json.dumps({"code": "value=1"}),
+                                    },
+                                },
+                                {
+                                    "id": "call_multi_2",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Python_Executor_Tool",
+                                        "arguments": json.dumps({"code": "value=2"}),
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert len(tool_msgs) >= 2
+            latest_two = tool_msgs[-2:]
+            assert [m.get("tool_call_id") for m in latest_two] == ["call_multi_1", "call_multi_2"]
+            for tool_msg in latest_two:
+                payload = json.loads(tool_msg["content"])
+                assert payload["ok"] is False
+                assert payload["error"]["code"] == "multiple_tool_calls_not_allowed"
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Final answer: call one tool at a time",
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        state["tool_calls"] += 1
+        raise AssertionError("tool_execute_request should not be called for rejected multi-tool message")
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Compute two values."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert state["chat_calls"] == 2
+    assert state["tool_calls"] == 0
+    assert answer == "call one tool at a time"
+    assert len(chat_history) == 2
+    assert len(chat_history[0]["assistant"]["tool_calls"]) == 2
+    assert len(chat_history[0]["tool_responses"]) == 2
+    for response in chat_history[0]["tool_responses"]:
+        assert response["ok"] is False
+        assert response["error"]["code"] == "multiple_tool_calls_not_allowed"
+
+
 def test_run_allows_finalization_after_last_iteration_tool_calls():
     agent = _build_agent()
     agent.max_iterations = 1
@@ -1355,6 +1442,7 @@ if __name__ == "__main__":
     test_extract_final_answer_from_v2_scaffold_only_returns_empty()
     test_extract_final_answer_from_v2_nonfinal_tool_action_multiline_input_returns_empty()
     test_run_continues_after_v1_scaffold_only_response()
+    test_native_tool_call_rejects_multiple_tool_calls_in_one_message()
     test_run_allows_finalization_after_last_iteration_tool_calls()
     print("PASS: test_base_agent_with_tools_rejects_legacy_runtime_environment_keys")
     print("PASS: test_native_tool_call_single_text_tool")
@@ -1379,4 +1467,5 @@ if __name__ == "__main__":
     print("PASS: test_extract_final_answer_from_v2_scaffold_only_returns_empty")
     print("PASS: test_extract_final_answer_from_v2_nonfinal_tool_action_multiline_input_returns_empty")
     print("PASS: test_run_continues_after_v1_scaffold_only_response")
+    print("PASS: test_native_tool_call_rejects_multiple_tool_calls_in_one_message")
     print("PASS: test_run_allows_finalization_after_last_iteration_tool_calls")

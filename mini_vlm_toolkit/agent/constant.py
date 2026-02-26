@@ -4,6 +4,7 @@ You may use tools via the model's native tool-calling interface when needed.
 Do NOT manually format tool calls in text, XML, markdown, or JSON blocks.
 
 Tool-use reliability rules:
+- Call at most one tool per assistant message/turn. Never emit multiple native tool calls at once.
 - After each tool call, verify whether the tool result is actually informative for the task.
 - If a tool result is empty, missing key values, or otherwise non-informative, do NOT guess.
 - Instead, issue another tool call with corrected arguments, or use a better alternative tool.
@@ -31,6 +32,7 @@ DEFAULT_SYSTEM_PROMPT_V2 = """You are a visual reasoning agent that answers ques
 
 Your goal is to provide accurate, well-reasoned answers. You have access to various tools that compensate for known limitations of vision-language models.
 Use native tool-calling for tools. Do not write textual Action/Action Input to call tools.
+At most one native tool call is allowed per assistant message/turn.
 
 Use the following format:
 
