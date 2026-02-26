@@ -791,6 +791,55 @@ class BaseAgentWithTools(BaseAgent):
             )
         return normalized
 
+    def _enforce_single_tool_call_per_message(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        *,
+        turn_idx: int,
+        phase: str,
+    ) -> List[Dict[str, Any]]:
+        """Reject multi-call assistant messages by converting them into tool errors.
+
+        We preserve all emitted `tool_call_id`s so the model receives protocol-
+        consistent `role=tool` responses, but no actual tool execution happens.
+        """
+        if not isinstance(tool_calls, list) or len(tool_calls) <= 1:
+            return tool_calls
+
+        tool_names = [str((call or {}).get("name") or "unknown") for call in tool_calls]
+        self.logger.warning(
+            "Policy violation: multiple tool calls in one assistant message are not allowed. "
+            "turn=%s phase=%s tool_call_count=%s tool_names=%s",
+            turn_idx + 1,
+            phase,
+            len(tool_calls),
+            tool_names,
+        )
+
+        total_calls = len(tool_calls)
+        for idx, call in enumerate(tool_calls, 1):
+            if not isinstance(call, dict):
+                continue
+            original_error = call.get("parse_error")
+            details = {
+                "phase": phase,
+                "turn": turn_idx + 1,
+                "tool_call_count": total_calls,
+                "tool_call_index": idx,
+                "tool_names": tool_names,
+            }
+            if isinstance(original_error, dict):
+                details["suppressed_error"] = cp.deepcopy(original_error)
+            call["parse_error"] = {
+                "code": "multiple_tool_calls_not_allowed",
+                "message": (
+                    "Multiple tool calls in one assistant message are not allowed. "
+                    "Call at most one tool per turn."
+                ),
+                "details": details,
+            }
+        return tool_calls
+
     def _coerce_ok_flag(self, value: Any) -> bool:
         if isinstance(value, bool):
             return value
@@ -1071,6 +1120,11 @@ class BaseAgentWithTools(BaseAgent):
                 )
 
             native_tool_calls = self._normalize_tool_calls(message.get("tool_calls"), turn_idx=i)
+            native_tool_calls = self._enforce_single_tool_call_per_message(
+                native_tool_calls,
+                turn_idx=i,
+                phase="main",
+            )
             parsed_response = self.parse_response(raw_response)
             if debug_tool_loop and native_tool_calls:
                 self.logger.info(f"[ToolLoop] tool_calls={len(native_tool_calls)}")
@@ -1290,6 +1344,11 @@ class BaseAgentWithTools(BaseAgent):
                     final_raw_response = final_message.get("content")
                     final_raw_response = final_raw_response if isinstance(final_raw_response, str) else ""
                     final_tool_calls = self._normalize_tool_calls(final_message.get("tool_calls"), turn_idx=i + 1)
+                    final_tool_calls = self._enforce_single_tool_call_per_message(
+                        final_tool_calls,
+                        turn_idx=i + 1,
+                        phase="final_text_only",
+                    )
                     final_parsed_response = self.parse_response(final_raw_response)
                     final_answer = self._extract_final_answer_from_content(final_raw_response)
 

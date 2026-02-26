@@ -128,7 +128,7 @@ Here are tools you can use to reveal your reasoning process whenever the provide
 • After locating an answer in the script, always make a **CONFIRM** with `frame_inspect_tool` query.
 
 
-You can first use `global_browse_tool` to a global information about this video, then invoke multiple times of these tools to prgressively find the answer.
+You can first use `global_browse_tool` to get global information about this video, then continue progressively across multiple steps, calling at most one tool per assistant turn.
 
 Based on your observations and tool outputs, provide a concise answer that directly addresses the question.
 
@@ -136,14 +136,43 @@ Total video length: {video_length} seconds.
 
 Question: {question}"""
 
-    def _append_tool_msg(self, tool_call_id: str, name: str, content: str, msgs: list) -> None:
+    def _append_tool_msg(self, tool_call_id: str, name: str, content: str, msgs: list) -> dict:
         """Append a tool response message to the message list."""
-        msgs.append({
+        message = {
             "tool_call_id": tool_call_id,
             "role": "tool",
             "name": name,
             "content": content,
-        })
+        }
+        msgs.append(message)
+        return message
+
+    def _apply_single_tool_call_policy(self, response: dict, msgs: list) -> tuple[list, list]:
+        """Reject assistant messages that contain multiple tool calls."""
+        tool_calls = response.get("tool_calls", [])
+        if not isinstance(tool_calls, list):
+            return [], []
+        if len(tool_calls) <= 1:
+            return tool_calls, []
+
+        tool_names = [
+            str(((tool_call or {}).get("function") or {}).get("name") or "unknown")
+            for tool_call in tool_calls
+        ]
+        self.logger.warning(
+            "Policy violation: multiple tool calls in one assistant message are not allowed. "
+            f"tool_call_count={len(tool_calls)} tool_names={tool_names}"
+        )
+        error_text = (
+            "Error: multiple_tool_calls_not_allowed. Multiple tool calls in one assistant "
+            "message are not allowed. Call exactly one function per turn."
+        )
+        rejected_messages = []
+        for idx, tool_call in enumerate(tool_calls, 1):
+            call_id = str((tool_call or {}).get("id") or f"policy_reject_{idx}")
+            tool_name = str(((tool_call or {}).get("function") or {}).get("name") or "unknown")
+            rejected_messages.append(self._append_tool_msg(call_id, tool_name, error_text, msgs))
+        return [], rejected_messages
 
     def _exec_tool(self, tool_call: dict, msgs: list) -> None:
         """Execute a single tool call and append the result to messages."""
@@ -250,7 +279,8 @@ Question: {question}"""
 
                 # Execute any requested tool calls
                 try:
-                    for tool_call in response.get("tool_calls", []):
+                    tool_calls, _ = self._apply_single_tool_call_policy(response, msgs)
+                    for tool_call in tool_calls:
                         self._exec_tool(tool_call, msgs)
                 except StopException as exc:
                     # Task finished successfully
@@ -327,7 +357,10 @@ Question: {question}"""
 
                 # Execute any requested tool calls
                 try:
-                    for tool_call in response.get("tool_calls", []):
+                    tool_calls, rejected_messages = self._apply_single_tool_call_policy(response, msgs)
+                    for rejected_message in rejected_messages:
+                        yield rejected_message
+                    for tool_call in tool_calls:
                         # Yield tool call information
                         tool_name = tool_call.get("function", {}).get("name", "unknown")
                         tool_args = tool_call.get("function", {}).get("arguments", "{}")
