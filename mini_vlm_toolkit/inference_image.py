@@ -7,6 +7,7 @@ import torch.distributed as dist
 from .utils.reporting_utils import (
     build_trajectory_records,
     write_trajectory_jsonl,
+    write_input_snapshot_json,
     write_html_reports,
 )
 from .utils import track_progress_rich
@@ -331,6 +332,11 @@ def infer_image_job(
             data.pop('image')
 
         dump(data, result_file)
+        write_input_snapshot_json(
+            data["index"],
+            data_all,
+            osp.join(work_dir, "input_snapshot.json"),
+        )
 
         records = build_trajectory_records(
             data["index"],

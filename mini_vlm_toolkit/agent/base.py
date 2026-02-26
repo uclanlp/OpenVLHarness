@@ -947,7 +947,13 @@ class BaseAgentWithTools(BaseAgent):
     # ------------------------------------------------------------------ #
     # Main loop
     # ------------------------------------------------------------------ #
-    def _run(self, question, return_messages: bool = False, **kwargs) -> tuple:
+    def _run(
+        self,
+        question,
+        return_messages: bool = False,
+        return_snapshot: bool = False,
+        **kwargs,
+    ) -> tuple:
         """
         Run the native tool-calling loop.
 
@@ -984,15 +990,20 @@ class BaseAgentWithTools(BaseAgent):
         # Use this for debugging the input messages
         # pretty_print_msgs(msgs)
         chat_history = []
+        input_snapshot = None
         final_answer = None
         for i in range(self.max_iterations):
             if i == 0:
-                self._input_snapshot = {
+                input_snapshot = {
                     "system_prompt": next((m["content"] for m in msgs if m["role"] == "system"), None),
                     "user_messages": [m for m in msgs if m["role"] == "user"],
                     "tool_definitions": cp.deepcopy(model_tools),
                     "rendered_prompt": None,
                 }
+                # Kept for backward compatibility/debug inspection, but the
+                # per-call local snapshot is what gets serialized to avoid
+                # cross-thread overwrite on shared-agent inference.
+                self._input_snapshot = input_snapshot
                 try:
                     if not hasattr(self, '_tokenizer'):
                         from transformers import AutoTokenizer
@@ -1004,7 +1015,7 @@ class BaseAgentWithTools(BaseAgent):
                         template_kwargs = dict(tokenize=False, add_generation_prompt=True)
                         if model_tools:
                             template_kwargs["tools"] = model_tools
-                        self._input_snapshot["rendered_prompt"] = self._tokenizer.apply_chat_template(
+                        input_snapshot["rendered_prompt"] = self._tokenizer.apply_chat_template(
                             sanitized_msgs, **template_kwargs
                         )
                 except Exception as e:
@@ -1323,13 +1334,21 @@ class BaseAgentWithTools(BaseAgent):
                 )
             if final_answer:
                 if return_messages:
+                    if return_snapshot:
+                        return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
                     return final_answer, chat_history, msgs
+                if return_snapshot:
+                    return final_answer, chat_history, cp.deepcopy(input_snapshot)
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
 
         if return_messages:
+            if return_snapshot:
+                return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
             return self.fail_msg, chat_history, msgs
+        if return_snapshot:
+            return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
         return self.fail_msg, chat_history
 
     def generate(self, message, **kwargs1):
@@ -1356,9 +1375,10 @@ class BaseAgentWithTools(BaseAgent):
         kwargs = filter_kwargs_for_endpoint(kwargs, "chat")
 
         # Run the ReAct-style loop
-        answer, chat_history, messages = self._run(
+        answer, chat_history, messages, input_snapshot = self._run(
             message,
             return_messages=True,
+            return_snapshot=True,
             system_prompt=active_system_prompt,
             **kwargs,
         )
@@ -1370,4 +1390,6 @@ class BaseAgentWithTools(BaseAgent):
             "messages": messages,
             "final_answer": final_answer,
         }
+        if input_snapshot is not None:
+            trajectory["input_snapshot"] = input_snapshot
         return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}
