@@ -117,6 +117,29 @@ def write_trajectory_jsonl(records, output_path):
     dump(records, output_path)
 
 
+def write_input_snapshot_json(indices, data_all, output_path):
+    """Write the first available per-sample input snapshot for run-level debugging."""
+    for idx in indices:
+        entry = data_all.get(idx)
+        if not _is_structured_record(entry):
+            continue
+        extra = entry.get("extra_records")
+        if not isinstance(extra, dict):
+            continue
+        trajectory = extra.get("trajectory")
+        if not isinstance(trajectory, dict):
+            continue
+        snapshot = trajectory.get("input_snapshot")
+        if snapshot is None:
+            snapshot = trajectory.get("_input_snapshot")
+        if snapshot is None:
+            continue
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        dump(copy.deepcopy(snapshot), output_path)
+        return True
+    return False
+
+
 def _strip_assistant_content(trajectory):
     if not isinstance(trajectory, dict):
         return trajectory
