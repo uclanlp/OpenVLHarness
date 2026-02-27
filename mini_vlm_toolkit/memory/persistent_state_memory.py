@@ -6,9 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple
 class PersistentStateMemory:
     """Base persistent state memory.
 
-    Default behavior emits a protocol `role=tool` acknowledgement plus a
-    text-only `role=user` summary message for each tool payload. Subclasses can
-    override image/modality handling and turn-level state update emissions.
+    Default behavior emits a protocol `role=tool` acknowledgement immediately
+    and queues a text-only `role=user` summary message to be appended after all
+    tool acknowledgements in the turn. Subclasses can override image/modality
+    handling and turn-level state update emissions.
 
     Contract:
     - Instances are per-run only and must not be reused across runs.
@@ -139,6 +140,7 @@ class PersistentStateMemory:
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Consume one normalized payload and return emitted messages."""
+        del agent, turn_idx, tool_call  # reserved for subclasses
         prepared_payload = self.prepare_tool_message_payload(payload)
         tool_message = self.build_tool_message(payload, prepared_payload=prepared_payload)
         deferred_messages = self.build_deferred_user_messages(payload, prepared_payload=prepared_payload)
@@ -154,7 +156,7 @@ class PersistentStateMemory:
                 self.build_protocol_tool_ack(payload, prepared_payload=prepared_payload)
             )
             if isinstance(tool_message, dict):
-                immediate_messages.append(tool_message)
+                deferred_messages = [tool_message] + deferred_messages
 
         return {
             "prepared_payload": prepared_payload,

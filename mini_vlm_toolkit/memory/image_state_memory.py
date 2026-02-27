@@ -809,8 +809,8 @@ class ImageStateMemory(PersistentStateMemory):
             )
             # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
             # message with matching `tool_call_id` after assistant `tool_calls`.
-            # Keep this terse ack and continue to send rich text+image context in
-            # the existing user message emitted below.
+            # Keep this terse ack immediate; queue rich user context so tool
+            # replies remain contiguous when multiple tool calls are present.
             protocol_tool_ack = {
                 "role": "tool",
                 "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
@@ -819,8 +819,8 @@ class ImageStateMemory(PersistentStateMemory):
             }
             return {
                 "prepared_payload": normalized["prepared_payload"],
-                "immediate_messages": [protocol_tool_ack, normalized["user_message"]],
-                "deferred_messages": [],
+                "immediate_messages": [protocol_tool_ack],
+                "deferred_messages": [normalized["user_message"]],
                 "processor_info": normalized["processor_info"],
             }
 
@@ -854,8 +854,8 @@ class ImageStateMemory(PersistentStateMemory):
 
         # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
         # message with matching `tool_call_id` after assistant `tool_calls`.
-        # Keep this terse ack and continue to send rich text+image context in
-        # the existing user message emitted below.
+        # Keep this terse ack immediate; queue rich user context so tool
+        # replies remain contiguous when multiple tool calls are present.
         protocol_tool_ack = {
             "role": "tool",
             "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
@@ -864,7 +864,7 @@ class ImageStateMemory(PersistentStateMemory):
         }
         return {
             "prepared_payload": normalized["prepared_payload"],
-            "immediate_messages": [protocol_tool_ack, normalized["user_message"]],
-            "deferred_messages": [],
+            "immediate_messages": [protocol_tool_ack],
+            "deferred_messages": [normalized["user_message"]],
             "processor_info": normalized["processor_info"],
         }

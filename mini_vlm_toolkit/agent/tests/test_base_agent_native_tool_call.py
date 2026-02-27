@@ -345,7 +345,8 @@ def test_native_tool_call_single_text_tool_base_memory_ack_and_summary():
     assert len(chat_history) == 2
     assert len(chat_history[0]["memory_outputs"]) == 1
     assert chat_history[0]["memory_outputs"][0]["tool_call_id"] == "call_base_1"
-    assert len(chat_history[0]["memory_outputs"][0]["immediate_message_indices"]) == 2
+    assert len(chat_history[0]["memory_outputs"][0]["immediate_message_indices"]) == 1
+    assert len(chat_history[0]["memory_outputs"][0]["deferred_message_indices"]) == 1
     assert chat_history[1]["final_answer"] == "4"
 
 
@@ -508,7 +509,8 @@ def test_native_tool_call_image_result_recursive_extraction():
     assert answer == "done"
     assert len(chat_history) == 2
     assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_Tool"
-    assert chat_history[0]["memory_outputs"][0]["deferred_message_indices"] == []
+    assert len(chat_history[0]["memory_outputs"][0]["immediate_message_indices"]) == 1
+    assert len(chat_history[0]["memory_outputs"][0]["deferred_message_indices"]) == 1
     assert chat_history[0]["memory_outputs"][0]["image_refs"]
     assert chat_history[0]["memory_outputs"][0]["tool_output_processor"]["mode"] in {"default_placeholder", "custom"}
     assert chat_history[1]["final_answer"] == "done"
@@ -1593,6 +1595,26 @@ def test_native_tool_call_rejects_multiple_tool_calls_in_one_message():
             assert "call_multi_1" in call_ids
             assert "call_multi_2" in call_ids
             assert tool_names.count("Python_Executor_Tool") >= 2
+
+            indexed_tool_acks = [
+                (idx, m)
+                for idx, m in enumerate(messages)
+                if m.get("role") == "tool"
+                and m.get("tool_call_id") in {"call_multi_1", "call_multi_2"}
+            ]
+            assert len(indexed_tool_acks) == 2
+            assert indexed_tool_acks[0][1].get("tool_call_id") == "call_multi_1"
+            assert indexed_tool_acks[1][1].get("tool_call_id") == "call_multi_2"
+
+            indexed_tool_users = [
+                idx
+                for idx, m in enumerate(messages)
+                if m.get("role") == "user"
+                and "tool_call_id=call_multi_" in _extract_user_text_content(m)
+            ]
+            assert len(indexed_tool_users) >= 2
+            assert max(idx for idx, _ in indexed_tool_acks) < min(indexed_tool_users)
+
             tool_msgs = _tool_result_user_messages(messages)
             assert len(tool_msgs) >= 2
             latest_two = tool_msgs[-2:]
