@@ -51,7 +51,7 @@ sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
 import mini_vlm_toolkit.agent.base as base_module
 from mini_vlm_toolkit.agent.base import BaseAgentWithTools
-from mini_vlm_toolkit.memory import ImageStateMemory
+from mini_vlm_toolkit.memory import ImageStateMemory, PersistentStateMemory
 
 
 class _DummyAgent(BaseAgentWithTools):
@@ -242,6 +242,110 @@ def test_native_tool_call_single_text_tool():
     assert len(chat_history[0]["memory_outputs"]) == 1
     assert chat_history[0]["memory_outputs"][0]["tool_call_id"] == "call_1"
     assert chat_history[0]["memory_outputs"][0]["immediate_message_indices"]
+    assert chat_history[1]["final_answer"] == "4"
+
+
+def test_native_tool_call_single_text_tool_base_memory_ack_and_summary():
+    agent = _build_agent()
+    agent.persistent_state_memory = PersistentStateMemory()
+    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
+    state = {"chat_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need arithmetic help.</perception>\n"
+                                "<thinking>I should call the Python tool.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_base_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Python_Executor_Tool",
+                                        "arguments": json.dumps({"code": "print(2+2)\nvalue=4"}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            matching_ack = [
+                m
+                for m in tool_role_msgs
+                if m.get("tool_call_id") == "call_base_1"
+                and m.get("name") == "Python_Executor_Tool"
+            ]
+            assert matching_ack
+            assert matching_ack[-1].get("content") == "ok"
+
+            tool_msgs = _tool_result_user_messages(messages)
+            assert tool_msgs
+            tool_text, payload = _parse_compact_tool_payload_from_user_message(tool_msgs[-1])
+            assert "tool_call_id=call_base_1" in tool_text
+            assert "Python_Executor_Tool" in tool_text
+            assert payload["ok"] is True
+            assert payload["result"]["value"] == 4
+
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>The tool returned value=4.</perception>\n"
+                                "<thinking>Now I can answer.</thinking>\n"
+                                "4"
+                            ),
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "Python_Executor_Tool"
+        assert tool_call["tool_call_id"] == "call_base_1"
+        assert tool_call["args"]["code"] == "print(2+2)\nvalue=4"
+        return {
+            "ok": True,
+            "tool_name": "Python_Executor_Tool",
+            "result": {"stdout": "4\n", "value": 4},
+            "error": None,
+            "tool_call_id": "call_base_1",
+            "meta": {},
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Compute 2+2 with a tool."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "4"
+    assert len(chat_history) == 2
+    assert len(chat_history[0]["memory_outputs"]) == 1
+    assert chat_history[0]["memory_outputs"][0]["tool_call_id"] == "call_base_1"
+    assert len(chat_history[0]["memory_outputs"][0]["immediate_message_indices"]) == 2
     assert chat_history[1]["final_answer"] == "4"
 
 
@@ -1629,6 +1733,7 @@ def test_run_allows_finalization_after_last_iteration_tool_calls():
 if __name__ == "__main__":
     test_base_agent_with_tools_rejects_legacy_runtime_environment_keys()
     test_native_tool_call_single_text_tool()
+    test_native_tool_call_single_text_tool_base_memory_ack_and_summary()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
     test_native_tool_call_sam3_custom_processor_summarizes_output()
@@ -1655,6 +1760,7 @@ if __name__ == "__main__":
     test_run_allows_finalization_after_last_iteration_tool_calls()
     print("PASS: test_base_agent_with_tools_rejects_legacy_runtime_environment_keys")
     print("PASS: test_native_tool_call_single_text_tool")
+    print("PASS: test_native_tool_call_single_text_tool_base_memory_ack_and_summary")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
     print("PASS: test_native_tool_call_sam3_custom_processor_summarizes_output")

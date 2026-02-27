@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 class PersistentStateMemory:
     """Base persistent state memory.
 
-    Default behavior emits a text-only `role=user` message for each tool
-    payload. Subclasses can override image/modality handling and turn-level
-    state update emissions.
+    Default behavior emits a protocol `role=tool` acknowledgement plus a
+    text-only `role=user` summary message for each tool payload. Subclasses can
+    override image/modality handling and turn-level state update emissions.
 
     Contract:
     - Instances are per-run only and must not be reused across runs.
@@ -106,6 +106,21 @@ class PersistentStateMemory:
             ),
         }
 
+    def build_protocol_tool_ack(
+        self,
+        payload: Dict[str, Any],
+        *,
+        prepared_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build strict OpenAI-style tool ack for transcript validity."""
+        _ = prepared_payload  # reserved for subclasses that may need it
+        return {
+            "role": "tool",
+            "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
+            "name": str(payload.get("tool_name") or "tool"),
+            "content": "ok",
+        }
+
     def build_deferred_user_messages(
         self,
         payload: Dict[str, Any],
@@ -129,9 +144,20 @@ class PersistentStateMemory:
         deferred_messages = self.build_deferred_user_messages(payload, prepared_payload=prepared_payload)
         if not isinstance(deferred_messages, list):
             deferred_messages = []
+        immediate_messages: List[Dict[str, Any]] = []
+        if isinstance(tool_message, dict) and tool_message.get("role") == "tool":
+            immediate_messages.append(tool_message)
+        else:
+            # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
+            # message with matching `tool_call_id` after assistant `tool_calls`.
+            immediate_messages.append(
+                self.build_protocol_tool_ack(payload, prepared_payload=prepared_payload)
+            )
+            if isinstance(tool_message, dict):
+                immediate_messages.append(tool_message)
 
         return {
             "prepared_payload": prepared_payload,
-            "immediate_messages": [tool_message],
+            "immediate_messages": immediate_messages,
             "deferred_messages": deferred_messages,
         }
