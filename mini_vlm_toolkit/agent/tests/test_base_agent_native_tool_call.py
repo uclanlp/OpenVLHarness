@@ -174,7 +174,12 @@ def test_native_tool_call_single_text_tool():
         if state["chat_calls"] == 2:
             assistant_msgs = [m for m in messages if m.get("role") == "assistant" and m.get("tool_calls")]
             assert len(assistant_msgs) >= 1
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert any(
+                m.get("tool_call_id") == "call_1"
+                and m.get("name") == "Python_Executor_Tool"
+                for m in tool_role_msgs
+            )
             tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
 
@@ -291,7 +296,12 @@ def test_native_tool_call_image_result_recursive_extraction():
             }
 
         if state["chat_calls"] == 2:
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert any(
+                m.get("tool_call_id") == "call_img_1"
+                and m.get("name") == "Image_Tool"
+                for m in tool_role_msgs
+            )
             tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
             tool_msg = tool_msgs[-1]
@@ -485,11 +495,15 @@ def test_native_tool_call_resolves_hallucinated_image_path():
             }
 
         if state["chat_calls"] == 2:
-            assert not [m for m in messages if m.get("role") == "tool"]
-            tool_msgs = _tool_result_user_messages(messages)
-            assert tool_msgs
-            _, payload = _parse_compact_tool_payload_from_user_message(tool_msgs[-1])
-            assert payload["ok"] is True
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            matching_ack = [
+                m
+                for m in tool_role_msgs
+                if m.get("tool_call_id") == "call_img_resolve_1"
+                and m.get("name") == "SAM3_Segment_Tool"
+            ]
+            assert matching_ack
+            assert matching_ack[-1].get("content") == "ok"
             return {
                 "choices": [
                     {
@@ -603,7 +617,12 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
             }
 
         if state["chat_calls"] == 2:
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert any(
+                m.get("tool_call_id") == "call_sam3_custom_1"
+                and m.get("name") == "SAM3_Segment_Tool"
+                for m in tool_role_msgs
+            )
             tool_msgs = [
                 m
                 for m in messages
@@ -725,7 +744,12 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
             }
 
         if state["chat_calls"] == 2:
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert any(
+                m.get("tool_call_id") == "call_img_string_1"
+                and m.get("name") == "Image_String_Tool"
+                for m in tool_role_msgs
+            )
             tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
             tool_msg = tool_msgs[-1]
@@ -985,7 +1009,12 @@ def test_native_tool_call_invalid_tool_arguments_soft_fail():
             }
 
         if state["chat_calls"] == 2:
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert any(
+                m.get("tool_call_id") == "call_bad_json_1"
+                and m.get("name") == "Python_Executor_Tool"
+                for m in tool_role_msgs
+            )
             tool_msgs = _tool_result_user_messages(messages)
             assert tool_msgs
             _, payload = _parse_compact_tool_payload_from_user_message(tool_msgs[-1])
@@ -1454,7 +1483,12 @@ def test_native_tool_call_rejects_multiple_tool_calls_in_one_message():
             }
 
         if state["chat_calls"] == 2:
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            call_ids = [m.get("tool_call_id") for m in tool_role_msgs]
+            tool_names = [m.get("name") for m in tool_role_msgs]
+            assert "call_multi_1" in call_ids
+            assert "call_multi_2" in call_ids
+            assert tool_names.count("Python_Executor_Tool") >= 2
             tool_msgs = _tool_result_user_messages(messages)
             assert len(tool_msgs) >= 2
             latest_two = tool_msgs[-2:]
@@ -1538,7 +1572,12 @@ def test_run_allows_finalization_after_last_iteration_tool_calls():
 
         if state["chat_calls"] == 2:
             assert kwargs.get("tool_choice") == "none"
-            assert not [m for m in messages if m.get("role") == "tool"]
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            assert any(
+                m.get("tool_call_id") == "call_last_iter_1"
+                and m.get("name") == "Python_Executor_Tool"
+                for m in tool_role_msgs
+            )
             assert _tool_result_user_messages(messages)
             return {
                 "choices": [

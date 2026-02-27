@@ -807,9 +807,19 @@ class ImageStateMemory(PersistentStateMemory):
                 processed=processed,
                 default_processor_info=default_info,
             )
+            # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
+            # message with matching `tool_call_id` after assistant `tool_calls`.
+            # Keep this terse ack and continue to send rich text+image context in
+            # the existing user message emitted below.
+            protocol_tool_ack = {
+                "role": "tool",
+                "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
+                "name": str(payload.get("tool_name") or "tool"),
+                "content": "ok",
+            }
             return {
                 "prepared_payload": normalized["prepared_payload"],
-                "immediate_messages": [normalized["user_message"]],
+                "immediate_messages": [protocol_tool_ack, normalized["user_message"]],
                 "deferred_messages": [],
                 "processor_info": normalized["processor_info"],
             }
@@ -842,9 +852,19 @@ class ImageStateMemory(PersistentStateMemory):
                 default_processor_info=default_info,
             )
 
+        # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
+        # message with matching `tool_call_id` after assistant `tool_calls`.
+        # Keep this terse ack and continue to send rich text+image context in
+        # the existing user message emitted below.
+        protocol_tool_ack = {
+            "role": "tool",
+            "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
+            "name": str(payload.get("tool_name") or "tool"),
+            "content": "ok",
+        }
         return {
             "prepared_payload": normalized["prepared_payload"],
-            "immediate_messages": [normalized["user_message"]],
+            "immediate_messages": [protocol_tool_ack, normalized["user_message"]],
             "deferred_messages": [],
             "processor_info": normalized["processor_info"],
         }
