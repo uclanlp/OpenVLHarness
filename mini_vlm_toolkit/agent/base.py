@@ -227,6 +227,11 @@ class BaseAgent:
         max_tokens = kwargs.pop('max_tokens', self.max_tokens)
         top_p = kwargs.pop('top_p', self.top_p)
         repetition_penalty = kwargs.pop('repetition_penalty', self.repetition_penalty)
+        endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
+        is_openai_official = "api.openai.com" in endpoint_hint
+        # For OpenAI official endpoint, strip internal orchestration-only field.
+        if is_openai_official:
+            _ = kwargs.pop('dataset', None)
 
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {self.key}'}
         payload = dict(
@@ -235,9 +240,11 @@ class BaseAgent:
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
-            repetition_penalty=repetition_penalty,
             n=1,
             **kwargs)
+        # OpenAI official chat/completions endpoint rejects repetition_penalty.
+        if not is_openai_official:
+            payload["repetition_penalty"] = repetition_penalty
         response = requests.post(
             self.api_base,
             headers=headers, data=json.dumps(payload), timeout=self.timeout * 1.1)
@@ -1026,6 +1033,14 @@ class BaseAgentWithTools(BaseAgent):
         chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         tool_choice = kwargs.pop("tool_choice", self.tool_choice)
         active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
+        endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
+        is_openai_official = "api.openai.com" in endpoint_hint
+        # For OpenAI official endpoint, strip internal orchestration-only field.
+        if is_openai_official:
+            _ = kwargs.pop("dataset", None)
+        repetition_penalty = kwargs.pop("repetition_penalty", self.repetition_penalty)
+        if not is_openai_official:
+            kwargs["repetition_penalty"] = repetition_penalty
         runtime_tools = kwargs.pop("tools", None)
         model_tools = self.json_schema
         if isinstance(runtime_tools, list):

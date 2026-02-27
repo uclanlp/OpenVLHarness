@@ -297,6 +297,8 @@ def _sanitize_openai_extra_body(extra_body: Optional[Dict[str, Any]], *, is_gpt5
     # Keep backward compatibility for local/OpenAI-compatible servers while
     # avoiding known unsupported parameters on OpenAI-hosted models.
     sanitized.pop("repetition_penalty", None)
+    # Internal orchestration field; OpenAI chat/completions rejects unknown args.
+    sanitized.pop("dataset", None)
     if is_gpt5:
         if "max_tokens" in sanitized and "max_completion_tokens" not in sanitized:
             sanitized["max_completion_tokens"] = sanitized.pop("max_tokens")
@@ -346,6 +348,7 @@ def chat_completion_request(
     api_key: Optional[str] = None,
     temperature: Optional[float] = 0.0,
     max_tokens: Optional[int] = 4096,
+    repetition_penalty: Optional[float] = None,
     reasoning_effort: Optional[str] = None,
     top_p: Optional[float] = None,
     stop: Optional[Iterable[str]] = None,
@@ -376,6 +379,8 @@ def chat_completion_request(
             payload["max_completion_tokens"] = max_tokens
         else:
             payload["max_tokens"] = max_tokens
+    if repetition_penalty is not None and not is_openai_endpoint:
+        payload["repetition_penalty"] = repetition_penalty
     if reasoning_effort is not None and is_gpt5_model:
         payload["reasoning_effort"] = reasoning_effort
     if top_p is not None:
