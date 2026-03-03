@@ -23,8 +23,9 @@ This module is used by `run_benchmark.py` to run dataset inference and evaluatio
 - Calls model with `tools` and `tool_choice`.
 - Reads native assistant `tool_calls`, enforces at most one call per assistant turn, and executes the single call via tool server `/execute`.
 - Routes normalized tool payloads through `PersistentStateMemory` (default: `ImageStateMemory`) to produce model-facing messages.
-- Appends structured tool outputs as text-only `role=tool` messages.
-- If tool outputs include images, appends separate multimodal `role=user` messages (short text + `image_url` parts), then continues.
+- Appends a strict protocol `role=tool` reply after each tool call (`ok` on success, short error text on failure).
+- On success, appends a separate `role=user` tool-summary message; image-producing tools may include multimodal `image_url` parts.
+- On failure, no `role=user` tool-summary message is appended.
 - Appends runtime Environment Update `role=user` messages and continues until final answer.
 - Returns debug traces under `extra_records.trajectory` (`chat_history` + final model-fed `messages`).
 
@@ -73,8 +74,9 @@ Notes:
 - Agent normalizes native tool calls, rejects multi-call assistant messages with tool-error feedback, and posts only a single call to tool server `/execute`.
 - Tool payloads are normalized into `{ok, result, error, tool_name, tool_call_id, meta}` for internal history/tracing.
 - `PersistentStateMemory` transforms each normalized payload into model-facing messages while preserving native tool protocol (`role=tool` + matching `tool_call_id`).
-- The `role=tool` message content is text-only JSON (`ok/result/error` plus optional `image_refs`).
-- If tool outputs include images, agent sends a separate multimodal `role=user` update message with those image parts.
+- Success path: `role=tool` content is `ok`, followed by a `role=user` summary carrying structured tool feedback.
+- Failure path: only one `role=tool` message is emitted (short error text), with no `role=user` tool-summary message.
+- If successful tool outputs include images, agent sends a separate multimodal `role=user` update message with those image parts.
 - `chat_history` keeps raw tool payloads in `tool_responses` and compact memory emission traces in `memory_outputs` (with indices into `trajectory.messages`).
 - Tool messages are fed back to the model until a non-tool final answer is returned.
 - If the last allowed turn ends with tool calls, agent makes one final completion with `tool_choice="none"` to force a text answer.
@@ -84,6 +86,7 @@ Notes:
 - If a tool arg uses `*_image_path`, agent tries to resolve it to runtime image data and rewrites to `*_image_base64`.
 - Unresolvable image references return structured `unresolved_image_reference` errors instead of silent failure.
 - Base64 image outputs from tools are extracted, tracked as reusable image refs, and surfaced via a separate multimodal `role=user` update message.
+- Environment update emission still follows image-memory `emit_policy`; failed tool turns do not emit an environment update.
 
 ### Key runtime controls
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.

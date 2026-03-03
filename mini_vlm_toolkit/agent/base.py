@@ -801,7 +801,8 @@ class BaseAgentWithTools(BaseAgent):
         """Reject multi-call assistant messages by converting them into tool errors.
 
         We preserve all emitted `tool_call_id`s so the model receives protocol-
-        consistent `role=tool` responses, but no actual tool execution happens.
+        consistent tool-result feedback messages, but no actual tool execution
+        happens.
         """
         if not isinstance(tool_calls, list) or len(tool_calls) <= 1:
             return tool_calls
@@ -1017,8 +1018,8 @@ class BaseAgentWithTools(BaseAgent):
         Run the native tool-calling loop.
 
         Flow: `chat/completions` -> `message.tool_calls` -> `/execute` ->
-        append `role=tool` results (with `tool_call_id`) -> continue until a
-        final answer is produced or `max_iterations` is reached.
+        append user-role tool-result messages -> continue until a final answer
+        is produced or `max_iterations` is reached.
         """
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
@@ -1243,17 +1244,28 @@ class BaseAgentWithTools(BaseAgent):
                     immediate_messages = memory_result.get("immediate_messages")
                     deferred_messages = memory_result.get("deferred_messages")
                     prepared_tool_payload = memory_result.get("prepared_payload")
+                    processor_info = memory_result.get("processor_info")
 
                     if debug_tool_loop:
-                        tool_message_text = ""
-                        if isinstance(immediate_messages, list):
-                            for candidate in immediate_messages:
-                                if isinstance(candidate, dict) and candidate.get("role") == "tool":
-                                    tool_message_text = candidate.get("content", "")
-                                    break
+                        emitted_preview = ""
+                        if isinstance(immediate_messages, list) and immediate_messages:
+                            first_msg = next(
+                                (m for m in immediate_messages if isinstance(m, dict)),
+                                None,
+                            )
+                            if isinstance(first_msg, dict):
+                                summary = self._summarize_message_for_trace(first_msg)
+                                emitted_preview = self._truncate_for_debug(
+                                    summary, max_chars=debug_char_limit
+                                )
                         self.logger.info(
-                            f"[ToolLoop] tool_message text={self._truncate_for_debug(tool_message_text, max_chars=debug_char_limit)}"
+                            f"[ToolLoop] emitted_tool_result_message={emitted_preview}"
                         )
+                        if isinstance(processor_info, dict):
+                            self.logger.info(
+                                "[ToolLoop] tool_output_processor=%s",
+                                self._truncate_for_debug(processor_info, max_chars=debug_char_limit),
+                            )
 
                     immediate_indices = self._append_messages_with_indices(msgs, immediate_messages)
                     memory_output = {
@@ -1270,6 +1282,8 @@ class BaseAgentWithTools(BaseAgent):
                         image_refs = prepared_tool_payload.get("image_refs")
                         if isinstance(image_refs, list) and image_refs:
                             memory_output["image_refs"] = image_refs
+                    if isinstance(processor_info, dict) and processor_info:
+                        memory_output["tool_output_processor"] = cp.deepcopy(processor_info)
                     turn_info["memory_outputs"].append(memory_output)
 
                     if isinstance(deferred_messages, list) and deferred_messages:

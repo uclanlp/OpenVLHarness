@@ -1,7 +1,10 @@
 import copy as cp
+import importlib
 import json
 import os
 import re
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..utils.api_utils import local_image_to_data_url
@@ -14,6 +17,8 @@ class ImageStateMemory(PersistentStateMemory):
     memory_name = "image"
     _DROP_VALUE = object()
     _ALLOWED_EMIT_POLICIES = ("always", "on_change")
+    _INPUT_IMAGE_REF_PATTERN = re.compile(r"^input_image_(\d+)$")
+    _TOOL_GENERATED_IMAGE_REF_PATTERN = re.compile(r"^tool_generated_image_(\d+)$")
     _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
     _IMAGE_RESULT_KEY_HINTS = (
         "all_masks_viz_base64",
@@ -42,12 +47,18 @@ class ImageStateMemory(PersistentStateMemory):
         self._image_registry: Dict[str, Dict[str, Any]] = {}
         self._image_alias_to_ref: Dict[str, str] = {}
         self._image_url_to_ref: Dict[str, str] = {}
+        self._tool_output_processor_cache: Dict[str, Dict[str, Any]] = {}
+        self._tool_infra_src_path_bootstrapped = False
+        self._tool_generated_image_counter = 0
 
     def reset(self) -> None:
         self._last_snapshot = None
         self._image_registry = {}
         self._image_alias_to_ref = {}
         self._image_url_to_ref = {}
+        self._tool_output_processor_cache = {}
+        self._tool_infra_src_path_bootstrapped = False
+        self._tool_generated_image_counter = 0
 
     def configure_tool_schema(self, json_schema: Any) -> None:
         if not isinstance(json_schema, list):
@@ -89,14 +100,247 @@ class ImageStateMemory(PersistentStateMemory):
         tool_payloads: List[Dict[str, Any]],
         messages: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        del agent, turn_idx, tool_calls, messages  # reserved for future use
+        if isinstance(tool_payloads, list):
+            if not any(self._is_success_payload(payload) for payload in tool_payloads):
+                return []
         return self._emit_environment_update()
+
+    def _ensure_tool_infra_src_import_path(self) -> Optional[str]:
+        if self._tool_infra_src_path_bootstrapped:
+            return None
+        self._tool_infra_src_path_bootstrapped = True
+        tool_infra_src = Path(__file__).resolve().parents[1] / "tool_infra" / "src"
+        if not tool_infra_src.is_dir():
+            return None
+        tool_infra_src_str = str(tool_infra_src)
+        if tool_infra_src_str not in sys.path:
+            sys.path.insert(0, tool_infra_src_str)
+        return tool_infra_src_str
+
+    def _lookup_tool_metadata(self, agent: Any, tool_name: str) -> Dict[str, Any]:
+        tools = getattr(agent, "tools", None)
+        if not isinstance(tools, dict):
+            return {}
+        meta = tools.get(tool_name)
+        if isinstance(meta, dict):
+            return meta
+        target = str(tool_name or "").casefold()
+        if not target:
+            return {}
+        for name, candidate in tools.items():
+            if str(name).casefold() == target and isinstance(candidate, dict):
+                return candidate
+        return {}
+
+    def _infer_tool_output_processor_module(
+        self,
+        *,
+        tool_name: str,
+        tool_metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        if isinstance(tool_metadata, dict):
+            tool_module_path = str(tool_metadata.get("tool_module_path") or "").strip()
+            if tool_module_path:
+                if tool_module_path.endswith(".tool"):
+                    return f"{tool_module_path.rsplit('.', 1)[0]}.process_tool_output"
+                return f"{tool_module_path}.process_tool_output"
+
+        name = str(tool_name or "").strip()
+        if not name:
+            return ""
+        if name.endswith("_Tool"):
+            name = name[: -len("_Tool")]
+        name = name.replace("-", "_")
+        name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
+        name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+        name = re.sub(r"_+", "_", name)
+        tool_dir = name.lower().strip("_")
+        if not tool_dir:
+            return ""
+        return f"tools.{tool_dir}.process_tool_output"
+
+    def _load_tool_output_processor(
+        self,
+        *,
+        agent: Any,
+        payload: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        tool_name = str(payload.get("tool_name") or "tool")
+        tool_metadata = self._lookup_tool_metadata(agent, tool_name)
+        module_path = ""
+        if isinstance(tool_metadata, dict):
+            module_path = str(tool_metadata.get("tool_output_processor_module") or "").strip()
+        if not module_path:
+            module_path = self._infer_tool_output_processor_module(
+                tool_name=tool_name,
+                tool_metadata=tool_metadata if isinstance(tool_metadata, dict) else None,
+            )
+        cache_key = module_path or f"__missing__:{tool_name}"
+        cached = self._tool_output_processor_cache.get(cache_key)
+        if isinstance(cached, dict):
+            return cached, tool_metadata
+
+        record: Dict[str, Any] = {
+            "module_path": module_path or "",
+            "process_fn": None,
+            "mode": "default_placeholder",
+            "error": None,
+        }
+        if module_path:
+            self._ensure_tool_infra_src_import_path()
+            try:
+                module = importlib.import_module(module_path)
+                process_fn = getattr(module, "process_tool_output", None)
+                if callable(process_fn):
+                    record["process_fn"] = process_fn
+                    mode = getattr(module, "PROCESSOR_MODE", None)
+                    if isinstance(mode, str) and mode.strip():
+                        record["mode"] = mode.strip()
+                else:
+                    record["error"] = (
+                        f"module '{module_path}' missing callable process_tool_output"
+                    )
+            except Exception as exc:
+                record["error"] = f"{type(exc).__name__}: {exc}"
+        else:
+            record["error"] = "tool metadata missing tool_output_processor_module"
+
+        self._tool_output_processor_cache[cache_key] = record
+        return record, tool_metadata
+
+    def build_tool_result_user_message(
+        self,
+        *,
+        text: str,
+        image_parts: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        safe_text = text if isinstance(text, str) else str(text)
+        parts = image_parts if isinstance(image_parts, list) else []
+        if parts:
+            return {
+                "role": "user",
+                "content": [{"type": "text", "text": safe_text}] + parts,
+            }
+        return {"role": "user", "content": safe_text}
+
+    def build_processed_tool_output(
+        self,
+        *,
+        payload: Dict[str, Any],
+        prepared_payload: Optional[Dict[str, Any]] = None,
+        text: str,
+        processor_info: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        prepared = prepared_payload or self.prepare_tool_message_payload(payload)
+        image_parts = prepared.get("image_parts")
+        refs = prepared.get("image_refs")
+        normalized_prepared = prepared if isinstance(prepared, dict) else {}
+        normalized_info = dict(processor_info or {})
+        if isinstance(refs, list) and refs:
+            normalized_prepared.setdefault("image_refs", refs)
+        return {
+            "user_message": self.build_tool_result_user_message(
+                text=text,
+                image_parts=image_parts if isinstance(image_parts, list) else [],
+            ),
+            "prepared_payload": normalized_prepared,
+            "processor_info": normalized_info,
+        }
+
+    def process_tool_output_default(
+        self,
+        *,
+        payload: Dict[str, Any],
+        tool_metadata: Optional[Dict[str, Any]] = None,
+        processor_info: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        prepared = self.prepare_tool_message_payload(payload)
+        tool_name = str(payload.get("tool_name") or "tool").strip()
+        tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
+        refs = prepared.get("image_refs")
+        text_payload = prepared.get("text_payload")
+        if not isinstance(text_payload, str):
+            try:
+                text_payload = json.dumps(text_payload, ensure_ascii=False)
+            except Exception:
+                text_payload = str(text_payload)
+
+        lines = [
+            f"Tool `{tool_name}` (tool_call_id={tool_call_id}) returned:",
+        ]
+        if isinstance(refs, list) and refs:
+            lines.append(f"Image refs: {', '.join(str(ref) for ref in refs)}")
+        lines.append(text_payload)
+        info = {
+            "mode": "default_placeholder",
+            "status": "ok",
+            "module": "",
+        }
+        if isinstance(tool_metadata, dict):
+            module_path = tool_metadata.get("tool_output_processor_module")
+            if isinstance(module_path, str):
+                info["module"] = module_path
+        if isinstance(processor_info, dict):
+            info.update(processor_info)
+
+        return self.build_processed_tool_output(
+            payload=payload,
+            prepared_payload=prepared,
+            text="\n".join(lines),
+            processor_info=info,
+        )
+
+    def _normalize_processed_tool_output(
+        self,
+        *,
+        payload: Dict[str, Any],
+        processed: Any,
+        default_processor_info: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if not isinstance(processed, dict):
+            raise TypeError(
+                f"process_tool_output must return dict, got {type(processed).__name__}"
+            )
+
+        user_message = processed.get("user_message")
+        if not isinstance(user_message, dict):
+            raise TypeError("process_tool_output return dict missing 'user_message' dict")
+        user_message = cp.deepcopy(user_message)
+        user_message["role"] = "user"
+
+        prepared_payload = processed.get("prepared_payload")
+        if not isinstance(prepared_payload, dict):
+            prepared_payload = self.prepare_tool_message_payload(payload)
+
+        processor_info = processed.get("processor_info")
+        normalized_info = dict(default_processor_info)
+        if isinstance(processor_info, dict):
+            normalized_info.update(processor_info)
+
+        return {
+            "user_message": user_message,
+            "prepared_payload": prepared_payload,
+            "processor_info": normalized_info,
+        }
 
     def _snapshot(self) -> Tuple[Tuple[str, str], ...]:
         rows = []
-        for ref_id in sorted(self._image_registry.keys()):
+        for ref_id in sorted(self._image_registry.keys(), key=self._snapshot_sort_key):
             entry = self._image_registry.get(ref_id) or {}
             rows.append((ref_id, str(entry.get("source", "runtime"))))
         return tuple(rows)
+
+    def _snapshot_sort_key(self, ref_id: str) -> Tuple[int, int, str]:
+        match = self._INPUT_IMAGE_REF_PATTERN.match(ref_id)
+        if match:
+            return (0, int(match.group(1)), ref_id)
+
+        match = self._TOOL_GENERATED_IMAGE_REF_PATTERN.match(ref_id)
+        if match:
+            return (1, int(match.group(1)), ref_id)
+
+        return (2, 0, ref_id)
 
     def _should_emit(self, snapshot: Tuple[Tuple[str, str], ...]) -> bool:
         if self.emit_policy == "always":
@@ -360,24 +604,36 @@ class ImageStateMemory(PersistentStateMemory):
         )
         return resolved, {"rewrites": rewrites, "errors": errors}
 
-    def _sanitize_ref_token(self, token: str) -> str:
-        safe = re.sub(r"[^A-Za-z0-9_]+", "_", str(token or "tool"))
-        return safe.strip("_") or "tool"
+    def _next_tool_generated_image_ref_id(self) -> str:
+        self._tool_generated_image_counter += 1
+        return f"tool_generated_image_{self._tool_generated_image_counter}"
 
     def _register_tool_output_images(self, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]) -> List[str]:
         refs = []
-        call_id = self._sanitize_ref_token(payload.get("tool_call_id") or "tool")
-        tool_name = self._sanitize_ref_token(payload.get("tool_name") or "tool")
-        for idx, part in enumerate(image_parts, 1):
+        tool_name = str(payload.get("tool_name") or "tool").strip() or "tool"
+        for part in image_parts:
             if not isinstance(part, dict):
                 continue
             image_url = (part.get("image_url") or {}).get("url")
-            ref_id = f"tool_{call_id}_image_{idx}"
+            if not isinstance(image_url, str):
+                continue
+            image_url = image_url.strip()
+            if not image_url:
+                continue
+            if not image_url.startswith("data:image/"):
+                continue
+
+            existing_ref = self._image_url_to_ref.get(image_url)
+            if existing_ref and existing_ref in self._image_registry:
+                refs.append(existing_ref)
+                continue
+
+            ref_id = self._next_tool_generated_image_ref_id()
             assigned_ref = self._register_image_data_url(
                 ref_id,
                 image_url,
                 source=f"tool_output:{tool_name}",
-                aliases=[ref_id, f"{tool_name}_image_{idx}"],
+                aliases=[],
             )
             if assigned_ref:
                 refs.append(assigned_ref)
@@ -508,6 +764,8 @@ class ImageStateMemory(PersistentStateMemory):
 
         return {
             "text_payload": text_payload,
+            "compact_payload": compact_payload,
+            "compact_result": compact_result,
             "image_parts": image_parts,
             "image_refs": image_refs,
         }
@@ -529,7 +787,7 @@ class ImageStateMemory(PersistentStateMemory):
         tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
         lines = [
             f"Tool `{tool_name}` (tool_call_id={tool_call_id}) also returned the following image(s). Use these images for reasoning if helpful.",
-            "See the preceding role=tool message for structured output.",
+            "See the accompanying tool-result summary for structured output.",
         ]
         if refs:
             lines.append(f"Image refs: {', '.join(refs)}")
@@ -540,3 +798,125 @@ class ImageStateMemory(PersistentStateMemory):
                 "content": [{"type": "text", "text": "\n".join(lines)}] + image_parts,
             }
         ]
+
+    def consume_tool_payload(
+        self,
+        *,
+        agent: Any,
+        turn_idx: int,
+        tool_call: Dict[str, Any],
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        del turn_idx, tool_call  # reserved for future processors
+
+        if not self._is_success_payload(payload):
+            # Failure payloads should be side-effect free: don't register any image
+            # artifacts (they won't be surfaced via environment updates on all-failure turns).
+            prepared_payload = super().prepare_tool_message_payload(payload)
+            return {
+                "prepared_payload": prepared_payload,
+                "immediate_messages": [
+                    self.build_failure_tool_message(
+                        payload,
+                        prepared_payload=prepared_payload,
+                    )
+                ],
+                "deferred_messages": [],
+                "processor_info": {
+                    "mode": "failure_short_circuit",
+                    "status": "failure",
+                    "module": "",
+                },
+            }
+
+        prepared_payload = self.prepare_tool_message_payload(payload)
+        loader_record, tool_metadata = self._load_tool_output_processor(
+            agent=agent,
+            payload=payload,
+        )
+        module_path = str(loader_record.get("module_path") or "")
+        default_info = {
+            "mode": str(loader_record.get("mode") or "default_placeholder"),
+            "status": "ok",
+            "module": module_path,
+        }
+
+        process_fn = loader_record.get("process_fn")
+        loader_error = loader_record.get("error")
+        if not callable(process_fn):
+            processed = self.process_tool_output_default(
+                payload=payload,
+                tool_metadata=tool_metadata,
+                processor_info={
+                    "mode": "default_placeholder",
+                    "status": "fallback" if loader_error else "ok",
+                    "module": module_path,
+                    **({"fallback_reason": str(loader_error)} if loader_error else {}),
+                },
+            )
+            normalized = self._normalize_processed_tool_output(
+                payload=payload,
+                processed=processed,
+                default_processor_info=default_info,
+            )
+            # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
+            # message with matching `tool_call_id` after assistant `tool_calls`.
+            # Keep this terse ack immediate; queue rich user context so tool
+            # replies remain contiguous when multiple tool calls are present.
+            protocol_tool_ack = {
+                "role": "tool",
+                "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
+                "name": str(payload.get("tool_name") or "tool"),
+                "content": "ok",
+            }
+            return {
+                "prepared_payload": normalized["prepared_payload"],
+                "immediate_messages": [protocol_tool_ack],
+                "deferred_messages": [normalized["user_message"]],
+                "processor_info": normalized["processor_info"],
+            }
+
+        try:
+            processed = process_fn(
+                payload=payload,
+                memory=self,
+                tool_metadata=tool_metadata if isinstance(tool_metadata, dict) else None,
+            )
+            normalized = self._normalize_processed_tool_output(
+                payload=payload,
+                processed=processed,
+                default_processor_info=default_info,
+            )
+        except Exception as exc:
+            processed = self.process_tool_output_default(
+                payload=payload,
+                tool_metadata=tool_metadata,
+                processor_info={
+                    "mode": "default_placeholder",
+                    "status": "fallback",
+                    "module": module_path,
+                    "fallback_reason": f"processor_exception:{type(exc).__name__}: {exc}",
+                },
+            )
+            normalized = self._normalize_processed_tool_output(
+                payload=payload,
+                processed=processed,
+                default_processor_info=default_info,
+            )
+
+        # NOTE: Strict OpenAI-native tool protocol requires a `role=tool`
+        # message with matching `tool_call_id` after assistant `tool_calls`.
+        # Keep this terse ack immediate; queue rich user context so tool
+        # replies remain contiguous when multiple tool calls are present.
+        protocol_tool_ack = {
+            "role": "tool",
+            "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
+            "name": str(payload.get("tool_name") or "tool"),
+            "content": "ok",
+        }
+        return {
+            "prepared_payload": normalized["prepared_payload"],
+            "immediate_messages": [protocol_tool_ack],
+            "deferred_messages": [normalized["user_message"]],
+            "processor_info": normalized["processor_info"],
+        }
