@@ -350,6 +350,106 @@ def test_native_tool_call_single_text_tool_base_memory_ack_and_summary():
     assert chat_history[1]["final_answer"] == "4"
 
 
+def test_native_tool_call_single_text_tool_base_memory_failure_only_tool_message():
+    agent = _build_agent()
+    agent.persistent_state_memory = PersistentStateMemory()
+    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
+    state = {"chat_calls": 0}
+
+    def fake_chat_completion_request(**kwargs):
+        state["chat_calls"] += 1
+        messages = kwargs["messages"]
+
+        if state["chat_calls"] == 1:
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>I need arithmetic help.</perception>\n"
+                                "<thinking>I should call the Python tool.</thinking>"
+                            ),
+                            "tool_calls": [
+                                {
+                                    "id": "call_base_fail_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "Python_Executor_Tool",
+                                        "arguments": json.dumps({"code": "raise ValueError('boom')"}),
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+
+        if state["chat_calls"] == 2:
+            tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            matching = [
+                m
+                for m in tool_role_msgs
+                if m.get("tool_call_id") == "call_base_fail_1"
+                and m.get("name") == "Python_Executor_Tool"
+            ]
+            assert matching
+            assert "tool_execution_error" in str(matching[-1].get("content", ""))
+            assert "boom" in str(matching[-1].get("content", ""))
+
+            tool_msgs = _tool_result_user_messages(messages)
+            assert not any("tool_call_id=call_base_fail_1" in _extract_user_text_content(m) for m in tool_msgs)
+
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": (
+                                "<perception>The tool call failed.</perception>\n"
+                                "<thinking>I can still finalize this test path.</thinking>\n"
+                                "handled"
+                            ),
+                        }
+                    }
+                ]
+            }
+
+        raise AssertionError(f"Unexpected number of chat calls: {state['chat_calls']}")
+
+    def fake_tool_execute_request(*, base_url, tool_call, timeout):
+        assert base_url == "http://tool-server"
+        assert timeout == 10
+        assert tool_call["tool_name"] == "Python_Executor_Tool"
+        assert tool_call["tool_call_id"] == "call_base_fail_1"
+        return {
+            "ok": False,
+            "tool_name": "Python_Executor_Tool",
+            "result": None,
+            "error": {"code": "tool_execution_error", "message": "boom"},
+            "tool_call_id": "call_base_fail_1",
+            "meta": {},
+        }
+
+    original_chat_completion_request = base_module.chat_completion_request
+    original_tool_execute_request = base_module.tool_execute_request
+    base_module.chat_completion_request = fake_chat_completion_request
+    base_module.tool_execute_request = fake_tool_execute_request
+    try:
+        answer, chat_history = agent._run([{"type": "text", "value": "Trigger a tool failure."}])
+    finally:
+        base_module.chat_completion_request = original_chat_completion_request
+        base_module.tool_execute_request = original_tool_execute_request
+
+    assert answer == "handled"
+    assert len(chat_history) == 2
+    assert len(chat_history[0]["memory_outputs"]) == 1
+    assert len(chat_history[0]["memory_outputs"][0]["immediate_message_indices"]) == 1
+    assert len(chat_history[0]["memory_outputs"][0]["deferred_message_indices"]) == 0
+    assert chat_history[0]["tool_responses"][0]["ok"] is False
+    assert chat_history[0]["tool_responses"][0]["error"]["code"] == "tool_execution_error"
+
+
 def test_native_tool_call_image_result_recursive_extraction():
     agent = _build_agent()
     agent.json_schema = [
@@ -1116,16 +1216,30 @@ def test_native_tool_call_invalid_tool_arguments_soft_fail():
 
         if state["chat_calls"] == 2:
             tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
+            matching = [
+                m
+                for m in tool_role_msgs
+                if m.get("tool_call_id") == "call_bad_json_1"
+                and m.get("name") == "Python_Executor_Tool"
+            ]
+            assert matching
+            assert "invalid_tool_arguments_json" in str(matching[-1].get("content", ""))
             assert any(
                 m.get("tool_call_id") == "call_bad_json_1"
                 and m.get("name") == "Python_Executor_Tool"
                 for m in tool_role_msgs
             )
             tool_msgs = _tool_result_user_messages(messages)
-            assert tool_msgs
-            _, payload = _parse_compact_tool_payload_from_user_message(tool_msgs[-1])
-            assert payload["ok"] is False
-            assert payload["error"]["code"] == "invalid_tool_arguments_json"
+            assert not any("tool_call_id=call_bad_json_1" in _extract_user_text_content(m) for m in tool_msgs)
+
+            env_updates = [
+                m["content"]
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+                and m["content"].startswith("Environment Update")
+            ]
+            assert len(env_updates) == 1
             return {
                 "choices": [
                     {
@@ -1605,26 +1719,20 @@ def test_native_tool_call_rejects_multiple_tool_calls_in_one_message():
             assert len(indexed_tool_acks) == 2
             assert indexed_tool_acks[0][1].get("tool_call_id") == "call_multi_1"
             assert indexed_tool_acks[1][1].get("tool_call_id") == "call_multi_2"
-
-            indexed_tool_users = [
-                idx
-                for idx, m in enumerate(messages)
-                if m.get("role") == "user"
-                and "tool_call_id=call_multi_" in _extract_user_text_content(m)
-            ]
-            assert len(indexed_tool_users) >= 2
-            assert max(idx for idx, _ in indexed_tool_acks) < min(indexed_tool_users)
+            assert "multiple_tool_calls_not_allowed" in str(indexed_tool_acks[0][1].get("content", ""))
+            assert "multiple_tool_calls_not_allowed" in str(indexed_tool_acks[1][1].get("content", ""))
 
             tool_msgs = _tool_result_user_messages(messages)
-            assert len(tool_msgs) >= 2
-            latest_two = tool_msgs[-2:]
-            tool_texts = [_extract_user_text_content(m) for m in latest_two]
-            assert "tool_call_id=call_multi_1" in tool_texts[0]
-            assert "tool_call_id=call_multi_2" in tool_texts[1]
-            for tool_msg in latest_two:
-                _, payload = _parse_compact_tool_payload_from_user_message(tool_msg)
-                assert payload["ok"] is False
-                assert payload["error"]["code"] == "multiple_tool_calls_not_allowed"
+            assert not any("tool_call_id=call_multi_" in _extract_user_text_content(m) for m in tool_msgs)
+
+            env_updates = [
+                m["content"]
+                for m in messages
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+                and m["content"].startswith("Environment Update")
+            ]
+            assert len(env_updates) == 1
             return {
                 "choices": [
                     {
@@ -1756,6 +1864,7 @@ if __name__ == "__main__":
     test_base_agent_with_tools_rejects_legacy_runtime_environment_keys()
     test_native_tool_call_single_text_tool()
     test_native_tool_call_single_text_tool_base_memory_ack_and_summary()
+    test_native_tool_call_single_text_tool_base_memory_failure_only_tool_message()
     test_native_tool_call_image_result_recursive_extraction()
     test_native_tool_call_resolves_hallucinated_image_path()
     test_native_tool_call_sam3_custom_processor_summarizes_output()
@@ -1783,6 +1892,7 @@ if __name__ == "__main__":
     print("PASS: test_base_agent_with_tools_rejects_legacy_runtime_environment_keys")
     print("PASS: test_native_tool_call_single_text_tool")
     print("PASS: test_native_tool_call_single_text_tool_base_memory_ack_and_summary")
+    print("PASS: test_native_tool_call_single_text_tool_base_memory_failure_only_tool_message")
     print("PASS: test_native_tool_call_image_result_recursive_extraction")
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
     print("PASS: test_native_tool_call_sam3_custom_processor_summarizes_output")

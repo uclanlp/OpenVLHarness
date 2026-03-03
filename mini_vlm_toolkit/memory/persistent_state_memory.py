@@ -6,10 +6,11 @@ from typing import Any, Dict, List, Optional, Tuple
 class PersistentStateMemory:
     """Base persistent state memory.
 
-    Default behavior emits a protocol `role=tool` acknowledgement immediately
-    and queues a text-only `role=user` summary message to be appended after all
-    tool acknowledgements in the turn. Subclasses can override image/modality
-    handling and turn-level state update emissions.
+    Default behavior emits one protocol `role=tool` message per tool payload.
+    On success, it also queues a text-only `role=user` summary message to be
+    appended after all tool messages in the turn. On failure, no user summary is
+    emitted. Subclasses can override image/modality handling and turn-level
+    state update emissions.
 
     Contract:
     - Instances are per-run only and must not be reused across runs.
@@ -122,6 +123,49 @@ class PersistentStateMemory:
             "content": "ok",
         }
 
+    def _is_success_payload(self, payload: Dict[str, Any]) -> bool:
+        return isinstance(payload, dict) and payload.get("ok") is True
+
+    def _build_failure_tool_content(self, payload: Dict[str, Any]) -> str:
+        error = payload.get("error") if isinstance(payload, dict) else None
+        code = ""
+        message = ""
+        if isinstance(error, dict):
+            raw_code = error.get("code")
+            raw_message = error.get("message")
+            if isinstance(raw_code, str):
+                code = raw_code.strip()
+            elif raw_code is not None:
+                code = str(raw_code).strip()
+            if isinstance(raw_message, str):
+                message = raw_message.strip()
+            elif raw_message is not None:
+                message = str(raw_message).strip()
+        elif isinstance(error, str):
+            message = error.strip()
+        elif error not in (None, "", {}):
+            message = str(error).strip()
+
+        if not message:
+            message = "Tool call failed."
+        if code:
+            return f"{code}: {message}"
+        return message
+
+    def build_failure_tool_message(
+        self,
+        payload: Dict[str, Any],
+        *,
+        prepared_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        _ = prepared_payload
+        return {
+            "role": "tool",
+            "tool_call_id": str(payload.get("tool_call_id") or "unknown"),
+            "name": str(payload.get("tool_name") or "tool"),
+            "content": self._build_failure_tool_content(payload),
+        }
+
     def build_deferred_user_messages(
         self,
         payload: Dict[str, Any],
@@ -142,6 +186,19 @@ class PersistentStateMemory:
         """Consume one normalized payload and return emitted messages."""
         del agent, turn_idx, tool_call  # reserved for subclasses
         prepared_payload = self.prepare_tool_message_payload(payload)
+
+        if not self._is_success_payload(payload):
+            return {
+                "prepared_payload": prepared_payload,
+                "immediate_messages": [
+                    self.build_failure_tool_message(
+                        payload,
+                        prepared_payload=prepared_payload,
+                    )
+                ],
+                "deferred_messages": [],
+            }
+
         tool_message = self.build_tool_message(payload, prepared_payload=prepared_payload)
         deferred_messages = self.build_deferred_user_messages(payload, prepared_payload=prepared_payload)
         if not isinstance(deferred_messages, list):

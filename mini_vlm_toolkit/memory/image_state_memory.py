@@ -96,6 +96,10 @@ class ImageStateMemory(PersistentStateMemory):
         tool_payloads: List[Dict[str, Any]],
         messages: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        del agent, turn_idx, tool_calls, messages  # reserved for future use
+        if isinstance(tool_payloads, list):
+            if not any(self._is_success_payload(payload) for payload in tool_payloads):
+                return []
         return self._emit_environment_update()
 
     def _ensure_tool_infra_src_import_path(self) -> Optional[str]:
@@ -777,6 +781,24 @@ class ImageStateMemory(PersistentStateMemory):
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         del turn_idx, tool_call  # reserved for future processors
+
+        prepared_payload = self.prepare_tool_message_payload(payload)
+        if not self._is_success_payload(payload):
+            return {
+                "prepared_payload": prepared_payload,
+                "immediate_messages": [
+                    self.build_failure_tool_message(
+                        payload,
+                        prepared_payload=prepared_payload,
+                    )
+                ],
+                "deferred_messages": [],
+                "processor_info": {
+                    "mode": "failure_short_circuit",
+                    "status": "failure",
+                    "module": "",
+                },
+            }
 
         loader_record, tool_metadata = self._load_tool_output_processor(
             agent=agent,
