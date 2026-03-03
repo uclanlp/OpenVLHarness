@@ -809,8 +809,10 @@ class ImageStateMemory(PersistentStateMemory):
     ) -> Dict[str, Any]:
         del turn_idx, tool_call  # reserved for future processors
 
-        prepared_payload = self.prepare_tool_message_payload(payload)
         if not self._is_success_payload(payload):
+            # Failure payloads should be side-effect free: don't register any image
+            # artifacts (they won't be surfaced via environment updates on all-failure turns).
+            prepared_payload = super().prepare_tool_message_payload(payload)
             return {
                 "prepared_payload": prepared_payload,
                 "immediate_messages": [
@@ -827,6 +829,7 @@ class ImageStateMemory(PersistentStateMemory):
                 },
             }
 
+        prepared_payload = self.prepare_tool_message_payload(payload)
         loader_record, tool_metadata = self._load_tool_output_processor(
             agent=agent,
             payload=payload,
