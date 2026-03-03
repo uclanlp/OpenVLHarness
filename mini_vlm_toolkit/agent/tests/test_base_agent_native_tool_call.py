@@ -523,7 +523,7 @@ def test_native_tool_call_image_result_recursive_extraction():
             ]
             assert env_updates
             latest_update = env_updates[-1]
-            assert "tool_call_img_1_image_1" in latest_update
+            assert "tool_generated_image_1" in latest_update
             assert "tool_output:Image_Tool" in latest_update
 
             tool_image_msgs = [
@@ -611,7 +611,11 @@ def test_native_tool_call_image_result_recursive_extraction():
     assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_Tool"
     assert len(chat_history[0]["memory_outputs"][0]["immediate_message_indices"]) == 1
     assert len(chat_history[0]["memory_outputs"][0]["deferred_message_indices"]) == 1
-    assert chat_history[0]["memory_outputs"][0]["image_refs"]
+    assert chat_history[0]["memory_outputs"][0]["image_refs"] == [
+        "tool_generated_image_1",
+        "tool_generated_image_1",
+        "tool_generated_image_1",
+    ]
     assert chat_history[0]["memory_outputs"][0]["tool_output_processor"]["mode"] in {"default_placeholder", "custom"}
     assert chat_history[1]["final_answer"] == "done"
 
@@ -841,7 +845,7 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
             assert isinstance(tool_msg.get("content"), list)
             text = _extract_user_text_content(tool_msg)
             assert "SAM3_Segment_Tool generated 2 masks" in text
-            assert "tool_call_sam3_custom_1_image_1" in text
+            assert "tool_generated_image_1" in text
             assert "pred_boxes" not in text
             assert "pred_scores" not in text
             assert "pred_masks" not in text
@@ -896,7 +900,7 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
 
     assert answer == "done"
     assert chat_history[0]["memory_outputs"][0]["tool_output_processor"]["mode"] == "custom"
-    assert chat_history[0]["memory_outputs"][0]["image_refs"] == ["tool_call_sam3_custom_1_image_1"]
+    assert chat_history[0]["memory_outputs"][0]["image_refs"] == ["tool_generated_image_1"]
 
 
 def test_native_tool_call_image_result_top_level_string_scrubbed():
@@ -1032,6 +1036,72 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
     assert len(chat_history) == 2
     assert chat_history[0]["assistant"]["tool_calls"][0]["name"] == "Image_String_Tool"
     assert chat_history[1]["final_answer"] == "done"
+
+
+def test_image_state_memory_tool_generated_refs_monotonic_and_no_legacy_aliases():
+    memory = ImageStateMemory(emit_policy="always")
+
+    payload_1 = {
+        "ok": True,
+        "tool_name": "Image_Tool",
+        "tool_call_id": "call_img_ref_1",
+        "result": {"image_base64": "data:image/png;base64,AAAA"},
+        "error": None,
+    }
+    prepared_1 = memory.prepare_tool_message_payload(payload_1)
+    assert prepared_1["image_refs"] == ["tool_generated_image_1"]
+
+    payload_2 = {
+        "ok": True,
+        "tool_name": "Image_Tool",
+        "tool_call_id": "call_img_ref_2",
+        "result": {"image_base64": "data:image/png;base64,BBBB"},
+        "error": None,
+    }
+    prepared_2 = memory.prepare_tool_message_payload(payload_2)
+    assert prepared_2["image_refs"] == ["tool_generated_image_2"]
+
+    payload_3 = {
+        "ok": True,
+        "tool_name": "Image_Tool",
+        "tool_call_id": "call_img_ref_3",
+        "result": {"image_base64": "data:image/png;base64,BBBB"},
+        "error": None,
+    }
+    prepared_3 = memory.prepare_tool_message_payload(payload_3)
+    assert prepared_3["image_refs"] == ["tool_generated_image_2"]
+
+    payload_4 = {
+        "ok": True,
+        "tool_name": "Image_Tool",
+        "tool_call_id": "call_img_ref_4",
+        "result": {"image_base64": "data:image/png;base64,CCCC"},
+        "error": None,
+    }
+    prepared_4 = memory.prepare_tool_message_payload(payload_4)
+    assert prepared_4["image_refs"] == ["tool_generated_image_3"]
+
+    resolved_args, resolution = memory.resolve_tool_call_args(
+        agent=None,
+        args={"image_path": "tool_generated_image_2"},
+    )
+    assert resolution["errors"] == []
+    assert "image_path" not in resolved_args
+    assert resolved_args["image_base64"] == "data:image/png;base64,BBBB"
+
+    _, legacy_resolution = memory.resolve_tool_call_args(
+        agent=None,
+        args={"image_path": "tool_call_img_ref_2_image_1"},
+    )
+    assert legacy_resolution["rewrites"] == []
+    assert len(legacy_resolution["errors"]) == 1
+    assert legacy_resolution["errors"][0]["reason"] == "unresolved_image_reference"
+    available_ids = set(legacy_resolution["errors"][0]["available_image_ids"])
+    assert available_ids == {
+        "tool_generated_image_1",
+        "tool_generated_image_2",
+        "tool_generated_image_3",
+    }
 
 
 def test_native_tool_call_forwards_tool_choice_and_extra_body():
@@ -1869,6 +1939,7 @@ if __name__ == "__main__":
     test_native_tool_call_resolves_hallucinated_image_path()
     test_native_tool_call_sam3_custom_processor_summarizes_output()
     test_native_tool_call_image_result_top_level_string_scrubbed()
+    test_image_state_memory_tool_generated_refs_monotonic_and_no_legacy_aliases()
     test_native_tool_call_forwards_tool_choice_and_extra_body()
     test_native_tool_call_uses_agent_default_tool_choice()
     test_native_tool_call_uses_agent_default_timeout_seconds()
@@ -1897,6 +1968,7 @@ if __name__ == "__main__":
     print("PASS: test_native_tool_call_resolves_hallucinated_image_path")
     print("PASS: test_native_tool_call_sam3_custom_processor_summarizes_output")
     print("PASS: test_native_tool_call_image_result_top_level_string_scrubbed")
+    print("PASS: test_image_state_memory_tool_generated_refs_monotonic_and_no_legacy_aliases")
     print("PASS: test_native_tool_call_forwards_tool_choice_and_extra_body")
     print("PASS: test_native_tool_call_uses_agent_default_tool_choice")
     print("PASS: test_native_tool_call_uses_agent_default_timeout_seconds")

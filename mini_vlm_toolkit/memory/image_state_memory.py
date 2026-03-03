@@ -17,6 +17,8 @@ class ImageStateMemory(PersistentStateMemory):
     memory_name = "image"
     _DROP_VALUE = object()
     _ALLOWED_EMIT_POLICIES = ("always", "on_change")
+    _INPUT_IMAGE_REF_PATTERN = re.compile(r"^input_image_(\d+)$")
+    _TOOL_GENERATED_IMAGE_REF_PATTERN = re.compile(r"^tool_generated_image_(\d+)$")
     _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
     _IMAGE_RESULT_KEY_HINTS = (
         "all_masks_viz_base64",
@@ -47,6 +49,7 @@ class ImageStateMemory(PersistentStateMemory):
         self._image_url_to_ref: Dict[str, str] = {}
         self._tool_output_processor_cache: Dict[str, Dict[str, Any]] = {}
         self._tool_infra_src_path_bootstrapped = False
+        self._tool_generated_image_counter = 0
 
     def reset(self) -> None:
         self._last_snapshot = None
@@ -55,6 +58,7 @@ class ImageStateMemory(PersistentStateMemory):
         self._image_url_to_ref = {}
         self._tool_output_processor_cache = {}
         self._tool_infra_src_path_bootstrapped = False
+        self._tool_generated_image_counter = 0
 
     def configure_tool_schema(self, json_schema: Any) -> None:
         if not isinstance(json_schema, list):
@@ -322,10 +326,21 @@ class ImageStateMemory(PersistentStateMemory):
 
     def _snapshot(self) -> Tuple[Tuple[str, str], ...]:
         rows = []
-        for ref_id in sorted(self._image_registry.keys()):
+        for ref_id in sorted(self._image_registry.keys(), key=self._snapshot_sort_key):
             entry = self._image_registry.get(ref_id) or {}
             rows.append((ref_id, str(entry.get("source", "runtime"))))
         return tuple(rows)
+
+    def _snapshot_sort_key(self, ref_id: str) -> Tuple[int, int, str]:
+        match = self._INPUT_IMAGE_REF_PATTERN.match(ref_id)
+        if match:
+            return (0, int(match.group(1)), ref_id)
+
+        match = self._TOOL_GENERATED_IMAGE_REF_PATTERN.match(ref_id)
+        if match:
+            return (1, int(match.group(1)), ref_id)
+
+        return (2, 0, ref_id)
 
     def _should_emit(self, snapshot: Tuple[Tuple[str, str], ...]) -> bool:
         if self.emit_policy == "always":
@@ -589,24 +604,36 @@ class ImageStateMemory(PersistentStateMemory):
         )
         return resolved, {"rewrites": rewrites, "errors": errors}
 
-    def _sanitize_ref_token(self, token: str) -> str:
-        safe = re.sub(r"[^A-Za-z0-9_]+", "_", str(token or "tool"))
-        return safe.strip("_") or "tool"
+    def _next_tool_generated_image_ref_id(self) -> str:
+        self._tool_generated_image_counter += 1
+        return f"tool_generated_image_{self._tool_generated_image_counter}"
 
     def _register_tool_output_images(self, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]) -> List[str]:
         refs = []
-        call_id = self._sanitize_ref_token(payload.get("tool_call_id") or "tool")
-        tool_name = self._sanitize_ref_token(payload.get("tool_name") or "tool")
-        for idx, part in enumerate(image_parts, 1):
+        tool_name = str(payload.get("tool_name") or "tool").strip() or "tool"
+        for part in image_parts:
             if not isinstance(part, dict):
                 continue
             image_url = (part.get("image_url") or {}).get("url")
-            ref_id = f"tool_{call_id}_image_{idx}"
+            if not isinstance(image_url, str):
+                continue
+            image_url = image_url.strip()
+            if not image_url:
+                continue
+            if not image_url.startswith("data:image/"):
+                continue
+
+            existing_ref = self._image_url_to_ref.get(image_url)
+            if existing_ref and existing_ref in self._image_registry:
+                refs.append(existing_ref)
+                continue
+
+            ref_id = self._next_tool_generated_image_ref_id()
             assigned_ref = self._register_image_data_url(
                 ref_id,
                 image_url,
                 source=f"tool_output:{tool_name}",
-                aliases=[ref_id, f"{tool_name}_image_{idx}"],
+                aliases=[],
             )
             if assigned_ref:
                 refs.append(assigned_ref)
