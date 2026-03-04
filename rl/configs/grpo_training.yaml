@@ -1,0 +1,64 @@
+hydra:
+  # Import base PPO config set from upstream verl.
+  # Path is relative to this YAML location in integrate-verl/rl/configs.
+  searchpath:
+    - file://../../../verl/verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  max_prompt_length: 4096
+  max_response_length: 2048
+  train_batch_size: 128
+  return_raw_chat: True
+  filter_overlong_prompts: True
+  truncation: error
+  prompt_key: prompt
+  image_key: images
+
+algorithm:
+  adv_estimator: grpo
+
+reward:
+  custom_reward_function:
+    path: rl/rewards/compute_score.py
+    name: compute_score
+
+actor_rollout_ref:
+  hybrid_engine: True
+  model:
+    use_remove_padding: True
+    enable_gradient_checkpointing: True
+  actor:
+    use_kl_loss: True
+    kl_loss_coef: 0.001
+    kl_loss_type: low_var_kl
+  rollout:
+    name: sglang
+    mode: async
+    multi_stage_wake_up: True
+    over_sample_rate: 0.1
+    multi_turn:
+      enable: True
+      format: hermes
+      max_assistant_turns: 10
+      max_user_turns: 10
+      max_parallel_calls: 1
+      max_tool_response_length: 256
+      tokenization_sanity_check_mode: strict
+      tool_config_path: rl/configs/tool_config.yaml
+    agent:
+      num_workers: 8
+
+trainer:
+  project_name: visual-tooluse-grpo
+  experiment_name: qwen3vl_grpo
+  logger: ["console", "wandb"]
+  total_epochs: 3
+  save_freq: 50
+  test_freq: 50
+  val_before_train: False
+  nnodes: 1
+  n_gpus_per_node: 1

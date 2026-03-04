@@ -1,0 +1,3 @@
+# Optional interaction config for verl multi-turn interaction loop.
+# Not used in v1 visual tool-use training.
+interactions: []
