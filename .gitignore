@@ -221,3 +221,7 @@ outputs/
 
 # Tool API keys
 mini_vlm_toolkit/tool_infra/src/tools/serpapi_image_search/serpapi_api_key
+
+# RL integration runtime artifacts
+rl/data/*.parquet
+rl/configs/tool_config.smoke.yaml
