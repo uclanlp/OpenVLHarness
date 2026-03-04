@@ -30,29 +30,60 @@ from ..smp.file import get_intermediate_file_path
 
 
 def _resolve_to_local_path(s):
-    """Resolve data URL or HTTP URL to local cache path; only decode/download if file not exists.
-    Keeps the same semantics as smp.file.parse_file so base/general code does not need MMBrowseComp-specific logic.
+    """Resolve image reference to a local cache path.
+
+    Supports:
+    - Existing absolute/relative local paths (returned as-is or rooted under LMUData).
+    - data:image/... base64 URLs (decoded once into LMUData/files).
+    - HTTP/HTTPS URLs (downloaded once into LMUData/files).
+
+    This keeps the same semantics as smp.file.parse_file so base/general code
+    does not need MMBrowseComp-specific logic.
     """
+    # 1) Existing path as-is (absolute or relative to CWD).
     if osp.exists(s) and s != '.' and osp.isfile(s):
         return s
+
+    # 2) Try resolving relative paths under LMUData/images/MMBrowseComp.
+    root = LMUDataRoot()
+    img_root = osp.join(root, 'images', 'MMBrowseComp')
+
+    # Support a few common relative patterns:
+    # - "images/MMBrowseComp/xxx.png"
+    # - "MMBrowseComp/xxx.png"
+    # - "xxx.png" (assumed under images/MMBrowseComp)
+    rel_candidates = [s]
+    if not s.startswith('images/'):
+        rel_candidates.append(osp.join('images', s))
+    if not s.startswith('MMBrowseComp/'):
+        rel_candidates.append(osp.join('MMBrowseComp', s))
+    if not s.startswith('images/MMBrowseComp/'):
+        rel_candidates.append(osp.join('images', 'MMBrowseComp', s))
+
+    for rel in rel_candidates:
+        cand = osp.join(root, rel)
+        if osp.exists(cand) and osp.isfile(cand):
+            return cand
+
+    # 3) data:image/... base64 → decode to LMUData/files cache.
     if s.startswith('data:image/'):
         content = s[11:]
         content = ';'.join(content.split(';')[1:])
         if not content.startswith('base64,'):
             return s
         b64 = content[7:]
-        dname = osp.join(LMUDataRoot(), 'files')
-        os.makedirs(dname, exist_ok=True)
-        tgt = osp.join(dname, md5(b64) + '.png')
+        os.makedirs(img_root, exist_ok=True)
+        tgt = osp.join(img_root, md5(b64) + '.png')
         if not osp.exists(tgt):
             decode_base64_to_image_file(b64, tgt)
         return tgt
+
+    # 4) HTTP/HTTPS URL → download to LMUData/files cache.
     if validators.url(s):
         suffix = osp.splitext(s)[1].lower()
         if suffix == '.webp' or suffix in mimetypes.types_map:
-            dname = osp.join(LMUDataRoot(), 'files')
-            os.makedirs(dname, exist_ok=True)
-            tgt = osp.join(dname, md5(s) + suffix)
+            os.makedirs(img_root, exist_ok=True)
+            tgt = osp.join(img_root, md5(s) + suffix)
             if not osp.exists(tgt):
                 download_file(s, tgt)
             return tgt
@@ -79,18 +110,21 @@ class MMBrowseCompDataset(ImageBaseDataset):
         candidates = [
             os.environ.get('MMBROWSECOMP_JSONL'),
             self._jsonl_path,
-            osp.join(mmbc_dir, 'MMBrowseComp_decrypted.jsonl'),
-            osp.join(mmbc_dir, 'MMBrowseComp.jsonl'),
-            osp.join(root, 'MMBrowseComp_decrypted.jsonl'),
-            osp.join(root, 'MMBrowseComp.jsonl'),
+            # Prefer the 400-sample decrypted file; fall back to non-decrypted variant if present.
+            osp.join(mmbc_dir, 'MMBrowseComp_400_decrypted.jsonl'),
+            osp.join(mmbc_dir, 'MMBrowseComp_400.jsonl'),
+            osp.join(root, 'MMBrowseComp_400_decrypted.jsonl'),
+            osp.join(root, 'MMBrowseComp_400.jsonl'),
         ]
         candidates = [osp.abspath(p) for p in candidates if p and osp.isfile(p)]
 
         jsonl_path = candidates[0] if candidates else None
         if jsonl_path is None:
             raise FileNotFoundError(
-                f'MMBrowseComp JSONL not found. Please place MMBrowseComp_decrypted.jsonl '
-                f'or MMBrowseComp.jsonl under {root}/MMBrowseComp/, or pass jsonl_path to build_dataset.'
+                f"MMBrowseComp JSONL not found. Expected one of: "
+                f"MMBrowseComp_400_decrypted.jsonl or MMBrowseComp_400.jsonl "
+                f"under {root}/MMBrowseComp/ or {root}/. "
+                f"You can also set MMBROWSECOMP_JSONL or pass jsonl_path to build_dataset."
             )
 
         rows = []
@@ -126,7 +160,36 @@ class MMBrowseCompDataset(ImageBaseDataset):
                 else:
                     row['checklist'] = []
                 rows.append(row)
-        return pd.DataFrame(rows)
+        df = pd.DataFrame(rows)
+
+        # Optional: limit number of samples via environment variable.
+        # Set MMBROWSECOMP_MAX_SAMPLES to a positive integer to only keep N
+        # samples; by default (unset or invalid) all samples are used.
+        # Sampling strategy:
+        # - default: keep the first N rows
+        # - if MMBROWSECOMP_SAMPLE_MODE in {"random", "rand"}: randomly sample N rows
+        max_samples = os.environ.get('MMBROWSECOMP_MAX_SAMPLES')
+        if max_samples is not None:
+            try:
+                n = int(max_samples)
+                if n > 0:
+                    sample_mode = os.environ.get('MMBROWSECOMP_SAMPLE_MODE', '').strip().lower()
+                    if sample_mode in {'random', 'rand'} and len(df) > n:
+                        # Optional seed for reproducibility; default 42 if set but invalid.
+                        seed_env = os.environ.get('MMBROWSECOMP_SAMPLE_SEED')
+                        random_state = None
+                        if seed_env is not None:
+                            try:
+                                random_state = int(seed_env)
+                            except ValueError:
+                                random_state = 42
+                        df = df.sample(n=n, random_state=random_state)
+                    else:
+                        df = df.iloc[:n].copy()
+            except ValueError:
+                pass
+
+        return df
 
     def build_prompt(self, line):
         """Build prompt with image URLs. Order matches gen_answer.py: question first, then images."""
