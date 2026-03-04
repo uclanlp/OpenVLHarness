@@ -121,8 +121,10 @@ class MMBrowseCompDataset(ImageBaseDataset):
         jsonl_path = candidates[0] if candidates else None
         if jsonl_path is None:
             raise FileNotFoundError(
-                f'MMBrowseComp JSONL not found. Please place MMBrowseComp_decrypted.jsonl '
-                f'or MMBrowseComp.jsonl under {root}/MMBrowseComp/, or pass jsonl_path to build_dataset.'
+                f"MMBrowseComp JSONL not found. Expected one of: "
+                f"MMBrowseComp_400_decrypted.jsonl or MMBrowseComp_400.jsonl "
+                f"under {root}/MMBrowseComp/ or {root}/. "
+                f"You can also set MMBROWSECOMP_JSONL or pass jsonl_path to build_dataset."
             )
 
         rows = []

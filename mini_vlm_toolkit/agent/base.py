@@ -1038,7 +1038,7 @@ class BaseAgentWithTools(BaseAgent):
         # For OpenAI official endpoint, strip internal orchestration-only field.
         if is_openai_official:
             _ = kwargs.pop("dataset", None)
-        repetition_penalty = kwargs.pop("repetition_penalty", self.repetition_penalty)
+        repetition_penalty = kwargs.pop("repetition_penalty", getattr(self, "repetition_penalty", 1.0))
         if not is_openai_official:
             kwargs["repetition_penalty"] = repetition_penalty
         runtime_tools = kwargs.pop("tools", None)
