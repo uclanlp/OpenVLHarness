@@ -1,21 +1,95 @@
 # RL Integration (integrate-verl + verl)
 
-This folder contains the RL training bridge for visual tool use:
+RL training pipeline for visual tool use.
 
-1. `scripts/run_sft.sh` collects trajectory-based SFT data and runs `verl` SFT trainer.
-2. `scripts/run_grpo.sh` generates tool config, preprocesses dataset rows, and runs GRPO with multi-turn Hermes format.
-3. `scripts/run_eval.sh` runs benchmark evaluation against a served checkpoint.
+## Setup
 
-## Key modules
+Create environment and install dependencies:
 
-- `tools/tool_server_adapter.py`: `BaseTool` adapter that forwards calls to `tool_infra` `/execute`.
-- `tools/generate_tool_config.py`: builds `configs/tool_config.yaml` from tool server `/tools` + `/jsonschema`.
-- `rewards/compute_score.py`: lightweight online reward.
-- `data/preprocess.py`: benchmark dataset -> RL parquet conversion.
-- `data/collect_sft_data.py`: trajectory JSONL -> SFT parquet conversion.
+```bash
+conda create -n tool python=3.12 -y
+conda activate tool
 
-## Notes
+# In your locally cloned verl repo:
+git checkout 2815eea5d6a5153594dcd71637c423984a268791
+pip install -e ".[vllm]"
+pip install flash-attn --no-build-isolation
 
-- Train-time tool calling uses Hermes `<tool_call>...</tool_call>` format.
-- Inference-time native OpenAI `tool_calls` remains unchanged when serving with a Hermes tool parser.
-- For `main_ppo`, prefer `scripts/run_grpo.sh` (it passes an absolute `--config-path` to avoid Hydra relative-path resolution issues).
+`sglang` and `vllm` currently have incompatible transitive pins in this stack, so install only one backend extra per env (`.[vllm]` or `.[sglang]`, not both).
+
+# Back in this repo (integrate-verl):
+pip install -r rl/requirements.txt
+```
+
+Optional (only if you need to generate parquet data locally):
+
+```bash
+pip install -e .
+```
+
+
+## Running Training
+
+Start the tool server in a separate terminal/env:
+
+```bash
+bash mini_vlm_toolkit/tool_infra/scripts/run_server.sh
+```
+
+Launch training:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+DATASET_NAME=MMStar \
+TRAIN_MAX_SAMPLES=16 \
+VAL_MAX_SAMPLES=4 \
+MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct \
+N_GPUS=4 TP_SIZE=2 ROLLOUT_N=4 \
+TRAIN_BATCH_SIZE=4 TOTAL_EPOCHS=1 \
+EXPERIMENT_NAME=smoke_test \
+SKIP_PREPROCESS=1 \
+SKIP_TOOL_CONFIG_GENERATION=1 \
+bash rl/scripts/run_grpo.sh
+```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATASET_NAME` | `MMStar` | Dataset for `build_dataset()` |
+| `TRAIN_MAX_SAMPLES` | `-1` (all) | Cap training samples |
+| `VAL_MAX_SAMPLES` | `256` | Cap validation samples |
+| `SPLIT_SEED` | `42` | Seed for train/val split |
+| `MODEL_PATH` | `Qwen/Qwen3-VL-8B-Instruct` | HF model path |
+| `ALGORITHM` | `grpo` | `grpo`, `reinforce_plus_plus`, `rloo`, etc. |
+| `ROLLOUT_N` | `8` | Rollouts per prompt (GRPO needs >1) |
+| `N_GPUS` | `1` | GPUs per node |
+| `NNODES` | `1` | Number of nodes |
+| `TP_SIZE` | `1` | Tensor parallel size |
+| `TRAIN_BATCH_SIZE` | `128` | Training batch size |
+| `TOTAL_EPOCHS` | 3 | Training epochs |
+| `MAX_PROMPT_LENGTH` | unset | Optional override for `data.max_prompt_length`; by default use value from `rl/configs/grpo_training.yaml` |
+| `USE_REMOVE_PADDING` | unset | Optional override for `actor_rollout_ref.model.use_remove_padding`; by default use value from `rl/configs/grpo_training.yaml` |
+| `TOOL_CONFIG_PATH` | `rl/configs/tool_config.yaml` | Tool schema file for multi-turn rollout; can point to `rl/configs/tool_config.smoke.yaml` |
+| `WANDB_PROJECT` | `visual-tooluse-grpo` | WandB project name |
+| `EXPERIMENT_NAME` | `qwen3vl_grpo` | WandB run name |
+| `SKIP_PREPROCESS` | `0` | `1` to reuse existing parquets |
+| `SKIP_TOOL_CONFIG_GENERATION` | `0` | `1` to reuse existing tool config |
+
+
+
+## Configuring Tools
+
+Active tools are defined in `rl/configs/tool_config.yaml` (auto-generated from tool server).
+The current curated default is `SAM3_Segment_Tool` only.
+To change the set, either edit `CURATED_V1_TOOLS` in `rl/tools/generate_tool_config.py`,
+pass `--tools "OCR_Tool,Crop_Tool"` manually, or edit the YAML directly.
+
+## Pinned Versions
+
+| Component | Version |
+|---|---|
+| verl | `2815eea5` (from source, NOT pip) |
+| torch | `2.6.0` (cu124) |
+| sglang | `0.5.6` (pinned by verl) |
+| vllm | `0.8.5–0.12.0` (pinned by verl) |
