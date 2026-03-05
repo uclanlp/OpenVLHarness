@@ -32,15 +32,26 @@ actor_rollout_ref:
   model:
     use_remove_padding: True
     enable_gradient_checkpointing: True
+    override_config:
+      attn_implementation: sdpa
   actor:
+    use_dynamic_bsz: True
     use_kl_loss: True
     kl_loss_coef: 0.001
     kl_loss_type: low_var_kl
   rollout:
-    name: sglang
+    name: vllm
     mode: async
-    multi_stage_wake_up: True
     over_sample_rate: 0.1
+    gpu_memory_utilization: 0.25
+    enforce_eager: True
+    max_num_batched_tokens: 2048
+    max_num_seqs: 64
+    checkpoint_engine:
+      update_weights_bucket_megabytes: 2560
+    # Qwen3-VL defaults to 262144 context which OOMs vLLM KV cache.
+    # prompt(4096) + response(2048) × multi-turn(10) ≈ 24K; 32K gives headroom.
+    max_model_len: 8192
     # GRPO requires multiple rollouts per prompt to compute group-relative advantages.
     n: 8
     # Must match the number of GPUs available; default upstream is 2 which breaks 1-GPU runs.
@@ -55,12 +66,13 @@ actor_rollout_ref:
       tokenization_sanity_check_mode: strict
       tool_config_path: rl/configs/tool_config.yaml
     agent:
-      num_workers: 8
+      num_workers: 1
 
 trainer:
   project_name: visual-tooluse-grpo
   experiment_name: qwen3vl_grpo
   logger: ["console", "wandb"]
+  balance_batch: False
   total_epochs: 3
   save_freq: 50
   test_freq: 50

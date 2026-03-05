@@ -14,6 +14,7 @@ VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-256}"
 SPLIT_SEED="${SPLIT_SEED:-42}"
 SKIP_TOOL_CONFIG_GENERATION="${SKIP_TOOL_CONFIG_GENERATION:-0}"
 SKIP_PREPROCESS="${SKIP_PREPROCESS:-0}"
+TOOL_CONFIG_PATH="${TOOL_CONFIG_PATH:-$PROJECT_DIR/rl/configs/tool_config.yaml}"
 
 # ---------- Model ----------
 MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-VL-8B-Instruct}"
@@ -24,6 +25,8 @@ ROLLOUT_N="${ROLLOUT_N:-8}"
 TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-128}"
 TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-}"
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-}"
+MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-}"
+USE_REMOVE_PADDING="${USE_REMOVE_PADDING:-}"
 
 # ---------- GPU / parallelism ----------
 N_GPUS="${N_GPUS:-1}"
@@ -39,7 +42,7 @@ PPO_DRY_CFG="${PPO_DRY_CFG:-0}"
 if [[ "$SKIP_TOOL_CONFIG_GENERATION" != "1" ]]; then
   python -m rl.tools.generate_tool_config \
     --tool-base "$TOOL_BASE" \
-    --output "$PROJECT_DIR/rl/configs/tool_config.yaml"
+    --output "$TOOL_CONFIG_PATH"
 fi
 
 # ========== Stage 2: Preprocess dataset ==========
@@ -79,12 +82,19 @@ ppo_args=(
   "trainer.project_name=$WANDB_PROJECT"
   "trainer.experiment_name=$EXPERIMENT_NAME"
   "algorithm.adv_estimator=$ALGORITHM"
+  "actor_rollout_ref.rollout.multi_turn.tool_config_path=$TOOL_CONFIG_PATH"
   "actor_rollout_ref.rollout.n=$ROLLOUT_N"
   "actor_rollout_ref.rollout.tensor_model_parallel_size=$TP_SIZE"
   "data.train_batch_size=$TRAIN_BATCH_SIZE"
   "trainer.n_gpus_per_node=$N_GPUS"
   "trainer.nnodes=$NNODES"
 )
+if [[ -n "$USE_REMOVE_PADDING" ]]; then
+  ppo_args+=("actor_rollout_ref.model.use_remove_padding=$USE_REMOVE_PADDING")
+fi
+if [[ -n "$MAX_PROMPT_LENGTH" ]]; then
+  ppo_args+=("data.max_prompt_length=$MAX_PROMPT_LENGTH")
+fi
 if [[ -n "$TOTAL_TRAINING_STEPS" ]]; then
   ppo_args+=("trainer.total_training_steps=$TOTAL_TRAINING_STEPS")
 fi
