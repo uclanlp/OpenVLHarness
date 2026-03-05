@@ -12,12 +12,7 @@ import requests
 import yaml
 
 CURATED_V1_TOOLS = [
-    "GroundingDINO_Tool",
     "SAM3_Segment_Tool",
-    "OCR_Tool",
-    "Crop_Tool",
-    "ZoomInImageByBBox_Tool",
-    "Point_Tool",
 ]
 
 
