@@ -54,6 +54,17 @@ def _extract_options(row: pd.Series) -> dict[str, str]:
     return options
 
 
+def _load_image_as_bytes(path_or_value: Any) -> dict[str, bytes] | None:
+    """Convert a file path to a ``{"bytes": ...}`` dict that verl can deserialize."""
+    if path_or_value is None:
+        return None
+    path = str(path_or_value)
+    if not os.path.isfile(path):
+        return None
+    with open(path, "rb") as f:
+        return {"bytes": f.read()}
+
+
 def _struct_to_user_content_and_images(struct: Any) -> tuple[str, list[Any]]:
     if not isinstance(struct, list):
         return str(struct), []
@@ -69,7 +80,9 @@ def _struct_to_user_content_and_images(struct: Any) -> tuple[str, list[Any]]:
         if item_type == "image":
             chunks.append("<image>")
             if value is not None:
-                images.append(value)
+                img = _load_image_as_bytes(value)
+                if img is not None:
+                    images.append(img)
         elif item_type == "text":
             if value is not None:
                 chunks.append(str(value))
