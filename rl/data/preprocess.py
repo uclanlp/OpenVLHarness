@@ -117,11 +117,27 @@ def build_row(dataset_name: str, row: pd.Series, system_prompt: str, idx: int) -
     }
 
 
+_DEFAULT_VAL_FRAC = 0.1
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert benchmark dataset to verl RL parquet format.")
     parser.add_argument("--dataset", required=True, help="Dataset name accepted by build_dataset()")
     parser.add_argument("--output", required=True, help="Output parquet path")
     parser.add_argument("--max-samples", type=int, default=-1, help="Limit number of samples")
+    parser.add_argument(
+        "--split",
+        choices=["train", "val", "all"],
+        default="all",
+        help="Which split to emit. 'all' uses the full dataset (legacy behaviour).",
+    )
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for train/val split")
+    parser.add_argument(
+        "--val-frac",
+        type=float,
+        default=_DEFAULT_VAL_FRAC,
+        help=f"Fraction of data reserved for val (default {_DEFAULT_VAL_FRAC})",
+    )
     return parser.parse_args()
 
 
@@ -155,6 +171,16 @@ def main() -> None:
         raise RuntimeError(f"Failed to build dataset: {args.dataset}")
 
     df = dataset.data.copy()
+
+    # Deterministic train/val split when requested.
+    if args.split in ("train", "val"):
+        shuffled = df.sample(frac=1.0, random_state=args.seed).reset_index(drop=True)
+        n_val = max(1, int(len(shuffled) * args.val_frac))
+        if args.split == "val":
+            df = shuffled.iloc[:n_val].copy()
+        else:
+            df = shuffled.iloc[n_val:].copy()
+
     if args.max_samples > 0:
         df = df.head(args.max_samples).copy()
 
@@ -177,6 +203,7 @@ def main() -> None:
         json.dumps(
             {
                 "dataset": args.dataset,
+                "split": args.split,
                 "samples": len(out_df),
                 "output": args.output,
             },

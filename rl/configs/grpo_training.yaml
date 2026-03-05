@@ -1,8 +1,9 @@
 hydra:
   # Import base PPO config set from upstream verl.
-  # Path is relative to this YAML location in integrate-verl/rl/configs.
+  # Use an absolute searchpath so Hydra resolves correctly regardless of CWD.
+  # The run script may also override this via hydra.searchpath on the CLI.
   searchpath:
-    - file://../../../verl/verl/trainer/config
+    - file:///data/<user>/mini-vlm-toolkit/verl/verl/trainer/config
 
 defaults:
   - ppo_trainer
@@ -40,6 +41,10 @@ actor_rollout_ref:
     mode: async
     multi_stage_wake_up: True
     over_sample_rate: 0.1
+    # GRPO requires multiple rollouts per prompt to compute group-relative advantages.
+    n: 8
+    # Must match the number of GPUs available; default upstream is 2 which breaks 1-GPU runs.
+    tensor_model_parallel_size: 1
     multi_turn:
       enable: True
       format: hermes

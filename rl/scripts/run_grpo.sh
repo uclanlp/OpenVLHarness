@@ -4,31 +4,51 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_DIR"
 
+# ---------- Data & preprocessing ----------
 TOOL_BASE="${TOOL_BASE:-http://127.0.0.1:8101}"
 DATASET_NAME="${DATASET_NAME:-MMStar}"
 TRAIN_PARQUET="${TRAIN_PARQUET:-$PROJECT_DIR/rl/data/train.parquet}"
 VAL_PARQUET="${VAL_PARQUET:-$PROJECT_DIR/rl/data/val.parquet}"
-MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-VL-8B-Instruct}"
-WANDB_PROJECT="${WANDB_PROJECT:-visual-tooluse-grpo}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-qwen3vl_grpo}"
 TRAIN_MAX_SAMPLES="${TRAIN_MAX_SAMPLES:--1}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-256}"
+SPLIT_SEED="${SPLIT_SEED:-42}"
 SKIP_TOOL_CONFIG_GENERATION="${SKIP_TOOL_CONFIG_GENERATION:-0}"
 SKIP_PREPROCESS="${SKIP_PREPROCESS:-0}"
-PPO_DRY_CFG="${PPO_DRY_CFG:-0}"
+
+# ---------- Model ----------
+MODEL_PATH="${MODEL_PATH:-Qwen/Qwen3-VL-8B-Instruct}"
+
+# ---------- Algorithm & training ----------
+ALGORITHM="${ALGORITHM:-grpo}"
+ROLLOUT_N="${ROLLOUT_N:-8}"
+TRAIN_BATCH_SIZE="${TRAIN_BATCH_SIZE:-128}"
 TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-}"
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-}"
 
+# ---------- GPU / parallelism ----------
+N_GPUS="${N_GPUS:-1}"
+NNODES="${NNODES:-1}"
+TP_SIZE="${TP_SIZE:-1}"
+
+# ---------- Logging ----------
+WANDB_PROJECT="${WANDB_PROJECT:-visual-tooluse-grpo}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-qwen3vl_grpo}"
+PPO_DRY_CFG="${PPO_DRY_CFG:-0}"
+
+# ========== Stage 1: Generate tool config ==========
 if [[ "$SKIP_TOOL_CONFIG_GENERATION" != "1" ]]; then
   python -m rl.tools.generate_tool_config \
     --tool-base "$TOOL_BASE" \
     --output "$PROJECT_DIR/rl/configs/tool_config.yaml"
 fi
 
+# ========== Stage 2: Preprocess dataset ==========
 if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   preprocess_train_args=(
     --dataset "$DATASET_NAME"
     --output "$TRAIN_PARQUET"
+    --split train
+    --seed "$SPLIT_SEED"
   )
   if [[ "$TRAIN_MAX_SAMPLES" != "-1" ]]; then
     preprocess_train_args+=(--max-samples "$TRAIN_MAX_SAMPLES")
@@ -38,6 +58,8 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   preprocess_val_args=(
     --dataset "$DATASET_NAME"
     --output "$VAL_PARQUET"
+    --split val
+    --seed "$SPLIT_SEED"
   )
   if [[ "$VAL_MAX_SAMPLES" != "-1" ]]; then
     preprocess_val_args+=(--max-samples "$VAL_MAX_SAMPLES")
@@ -45,6 +67,7 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   python -m rl.data.preprocess "${preprocess_val_args[@]}"
 fi
 
+# ========== Stage 3: Launch training ==========
 ppo_args=(
   # Use an absolute config path. Hydra resolves relative config paths from the
   # module package (`verl/trainer`), not from the shell CWD.
@@ -55,8 +78,12 @@ ppo_args=(
   "data.val_files=$VAL_PARQUET"
   "trainer.project_name=$WANDB_PROJECT"
   "trainer.experiment_name=$EXPERIMENT_NAME"
-  trainer.n_gpus_per_node=1
-  trainer.nnodes=1
+  "algorithm.adv_estimator=$ALGORITHM"
+  "actor_rollout_ref.rollout.n=$ROLLOUT_N"
+  "actor_rollout_ref.rollout.tensor_model_parallel_size=$TP_SIZE"
+  "data.train_batch_size=$TRAIN_BATCH_SIZE"
+  "trainer.n_gpus_per_node=$N_GPUS"
+  "trainer.nnodes=$NNODES"
 )
 if [[ -n "$TOTAL_TRAINING_STEPS" ]]; then
   ppo_args+=("trainer.total_training_steps=$TOTAL_TRAINING_STEPS")
