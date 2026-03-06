@@ -1,0 +1,36 @@
+tools:
+- class_name: rl.tools.tool_server_adapter.MiniVLMHTTPTool
+  config:
+    type: native
+    tool_name: SAM3_Segment_Tool
+    tool_base: http://127.0.0.1:8101
+    request_timeout_sec: 120
+  tool_schema:
+    type: function
+    function:
+      name: SAM3_Segment_Tool
+      description: Run prompt-based segmentation through the SAM3 server that returns
+        RLE masks and a server-rendered visualization. Use this tool when you need
+        segmentation masks from a text prompt. The server returns pred_boxes, pred_masks
+        (RLE), pred_scores, and a rendered_image_b64 overlay with numbered labels.
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: Short target phrase to segment (not a full sentence), e.g.
+              'blue basket' or 'cardboard sign'
+          image_path:
+            type: string
+            description: Local image path
+          image_base64:
+            type: string
+            description: Base64 image data (use instead of image_path)
+        required:
+        - query
+        oneOf:
+        - required:
+          - image_path
+        - required:
+          - image_base64
+        additionalProperties: false
