@@ -39,18 +39,22 @@ bash mini_vlm_toolkit/tool_infra/scripts/run_server.sh
 Launch training:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
-DATASET_NAME=MMStar \
-TRAIN_MAX_SAMPLES=16 \
-VAL_MAX_SAMPLES=4 \
+
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 \
 MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct \
-N_GPUS=4 TP_SIZE=2 ROLLOUT_N=4 \
-TRAIN_BATCH_SIZE=4 TOTAL_EPOCHS=1 \
-EXPERIMENT_NAME=smoke_test \
-SKIP_PREPROCESS=1 \
+N_GPUS=6 TP_SIZE=2 ROLLOUT_N=4 \
+TRAIN_BATCH_SIZE=3 TOTAL_EPOCHS=1 \
+EXPERIMENT_NAME=geo3k_full_run \
 SKIP_TOOL_CONFIG_GENERATION=1 \
-bash rl/scripts/run_grpo.sh
+bash rl/scripts/run_grpo_geo3k.sh
+
 ```
+
+Notes:
+- `run_grpo_geo3k.sh` preprocesses `hiyouga/geometry3k` into
+  `rl/data/geo3k_train.parquet` and `rl/data/geo3k_test.parquet` unless `SKIP_PREPROCESS=1`.
+- If your environment is offline, pass `LOCAL_DATASET_PATH=/path/to/geometry3k` so
+  preprocessing loads from local files.
 
 ## Environment Variables
 
@@ -75,6 +79,8 @@ bash rl/scripts/run_grpo.sh
 | `EXPERIMENT_NAME` | `qwen3vl_grpo` | WandB run name |
 | `SKIP_PREPROCESS` | `0` | `1` to reuse existing parquets |
 | `SKIP_TOOL_CONFIG_GENERATION` | `0` | `1` to reuse existing tool config |
+| `LOCAL_DATASET_PATH` | unset | Optional local dataset path for `run_grpo_geo3k.sh` |
+| `TEST_MAX_SAMPLES` | `-1` (all) | Cap Geometry3K test samples in `run_grpo_geo3k.sh` |
 
 
 
