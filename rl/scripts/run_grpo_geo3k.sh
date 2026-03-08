@@ -37,6 +37,8 @@ TP_SIZE="${TP_SIZE:-1}"
 WANDB_PROJECT="${WANDB_PROJECT:-visual-tooluse-grpo}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-qwen3vl2b_geo3k_grpo}"
 PPO_DRY_CFG="${PPO_DRY_CFG:-0}"
+RESUME_MODE="${RESUME_MODE:-auto}"
+RESUME_FROM_PATH="${RESUME_FROM_PATH:-}"
 
 if [[ "$SKIP_TOOL_CONFIG_GENERATION" != "1" ]]; then
   TOOL_BASE="${TOOL_BASE:-http://127.0.0.1:8101}"
@@ -66,6 +68,7 @@ ppo_args=(
   "data.val_files=$VAL_PARQUET"
   "trainer.project_name=$WANDB_PROJECT"
   "trainer.experiment_name=$EXPERIMENT_NAME"
+  "trainer.resume_mode=$RESUME_MODE"
   "algorithm.adv_estimator=$ALGORITHM"
   "actor_rollout_ref.rollout.multi_turn.tool_config_path=$TOOL_CONFIG_PATH"
   "actor_rollout_ref.rollout.n=$ROLLOUT_N"
@@ -85,6 +88,9 @@ if [[ -n "$TOTAL_TRAINING_STEPS" ]]; then
 fi
 if [[ -n "$TOTAL_EPOCHS" ]]; then
   ppo_args+=("trainer.total_epochs=$TOTAL_EPOCHS")
+fi
+if [[ -n "$RESUME_FROM_PATH" ]]; then
+  ppo_args+=("trainer.resume_from_path=$RESUME_FROM_PATH")
 fi
 if [[ "$PPO_DRY_CFG" == "1" ]]; then
   ppo_args+=(--cfg job)

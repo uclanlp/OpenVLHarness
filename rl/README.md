@@ -11,40 +11,31 @@ conda create -n tool python=3.12 -y
 conda activate tool
 
 # In your locally cloned verl repo:
-git checkout 2815eea5d6a5153594dcd71637c423984a268791
+git clone https://github.com/tool-vision/verl.git && cd verl
 pip install -e ".[vllm]"
 pip install flash-attn --no-build-isolation
 
-`sglang` and `vllm` currently have incompatible transitive pins in this stack, so install only one backend extra per env (`.[vllm]` or `.[sglang]`, not both).
-
-# Back in this repo (integrate-verl):
-pip install -r rl/requirements.txt
 ```
 
 Optional (only if you need to generate parquet data locally):
 
 ```bash
+# Back in this repo:
 pip install -e .
 ```
 
 
 ## Running Training
 
-Start the tool server in a separate terminal/env:
-
-```bash
-bash mini_vlm_toolkit/tool_infra/scripts/run_server.sh
-```
-
-Launch training:
+Start the tool server in a separate terminal/env, then launch training (example with geo3k dataset):
 
 ```bash
 
-CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 \
+CUDA_VISIBLE_DEVICES=2,3,4,5 \
 MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct \
-N_GPUS=6 TP_SIZE=2 ROLLOUT_N=4 \
-TRAIN_BATCH_SIZE=3 TOTAL_EPOCHS=1 \
-EXPERIMENT_NAME=geo3k_full_run \
+N_GPUS=4 TP_SIZE=2 ROLLOUT_N=4 \
+TRAIN_BATCH_SIZE=4 TOTAL_EPOCHS=1 \
+EXPERIMENT_NAME=geo3k_full_run_4gpu \
 SKIP_TOOL_CONFIG_GENERATION=1 \
 bash rl/scripts/run_grpo_geo3k.sh
 
@@ -95,7 +86,7 @@ pass `--tools "OCR_Tool,Crop_Tool"` manually, or edit the YAML directly.
 
 | Component | Version |
 |---|---|
-| verl | `2815eea5` (from source, NOT pip) |
+| verl | `6dc2d23` (from source, NOT pip) |
 | torch | `2.6.0` (cu124) |
 | sglang | `0.5.6` (pinned by verl) |
 | vllm | `0.8.5–0.12.0` (pinned by verl) |
