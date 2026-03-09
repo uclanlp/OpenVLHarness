@@ -27,15 +27,15 @@ pip install -e .
 
 ## Running Training
 
-Start the tool server in a separate terminal/env, then launch training (example with geo3k dataset):
+Start the tool server in a separate terminal/env, then launch training (example with geo3k dataset on 6 a6000 GPUs):
 
 ```bash
 
-CUDA_VISIBLE_DEVICES=2,3,4,5 \
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 \
 MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct \
-N_GPUS=4 TP_SIZE=2 ROLLOUT_N=4 \
-TRAIN_BATCH_SIZE=4 TOTAL_EPOCHS=1 \
-EXPERIMENT_NAME=geo3k_full_run_4gpu \
+N_GPUS=6 TP_SIZE=2 ROLLOUT_N=4 \
+TRAIN_BATCH_SIZE=3 TOTAL_EPOCHS=1 \
+EXPERIMENT_NAME=geo3k_full_run \
 SKIP_TOOL_CONFIG_GENERATION=1 \
 bash rl/scripts/run_grpo_geo3k.sh
 
