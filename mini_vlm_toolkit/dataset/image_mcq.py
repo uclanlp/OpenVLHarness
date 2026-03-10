@@ -1192,6 +1192,8 @@ class CVBench(ImageMCQDataset):
         nproc = judge_kwargs.pop("nproc", 4)
 
         model_name = judge_kwargs.get("model", "extract_matching")
+        if "/" in model_name:
+            model_name = model_name.split("/")[-1]
 
         if model_name == "exact_matching":
             model = None
