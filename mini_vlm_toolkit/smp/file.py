@@ -56,9 +56,12 @@ def localize_df(data, dname, nproc=32):
 
     tups = [(root, im, p) for p, im in zip(img_paths, images)]
 
-    pool = mp.Pool(32)
-    ret = pool.map(decode_img_omni, tups)
-    pool.close()
+    try:
+        with mp.Pool(nproc) as pool:
+            ret = pool.map(decode_img_omni, tups)
+    except (PermissionError, OSError):
+        warnings.warn('Falling back to serial localization because multiprocessing is unavailable.')
+        ret = [decode_img_omni(tup) for tup in tups]
     data.pop('image')
     if 'image_path' not in data:
         data['image_path'] = [x[0] if len(x) == 1 else x for x in ret]
