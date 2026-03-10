@@ -2882,6 +2882,40 @@ class CountBenchQA(ImageVQADataset):
         return result
 
 
+class FSC147Dataset(ImageBaseDataset):
+    TYPE = 'VQA'
+    DATASET_URL = {'FSC147_test': '', 'FSC147_val': '', 'FSC147_train': ''}
+    DATASET_MD5 = {}
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+        tgt_path = self.dump_image(line)
+        msgs = []
+        msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        msgs.append(dict(type='text', value=line['question']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        import numpy as np
+        from .utils.fsc147 import extract_integer_from_prediction
+
+        data = load(eval_file)
+        predictions = data['prediction'].apply(
+            lambda x: extract_integer_from_prediction(x) if extract_integer_from_prediction(x) is not None else 0
+        )
+        answers = data['answer'].astype(int)
+
+        mae = (predictions - answers).abs().mean()
+        rmse = np.sqrt(((predictions - answers) ** 2).mean())
+        acc = (predictions == answers).mean() * 100
+
+        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(d2df(result), result_file)
+        return result
+
+
 class OCR_Reasoning(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {
