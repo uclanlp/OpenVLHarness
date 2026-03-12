@@ -6,10 +6,42 @@ import json
 import re
 from typing import Any, Optional
 
-from mini_vlm_toolkit.dataset.utils.fsc147 import extract_integer_from_prediction
-
 _TOOL_CALL_PATTERN = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 _BOXED_PATTERN = re.compile(r"\\boxed\{(\d+)\}")
+_NUMBER_WORDS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+    "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+    "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
+
+def _extract_integer_from_prediction(pred: Any) -> Optional[int]:
+    """Best-effort integer extraction (inlined from mini_vlm_toolkit to avoid heavy imports)."""
+    if pred is None:
+        return None
+    if isinstance(pred, (int, float)):
+        if isinstance(pred, float) and pred != pred:  # NaN
+            return None
+        return int(pred)
+    pred = str(pred).strip()
+    try:
+        return int(pred)
+    except ValueError:
+        pass
+    try:
+        return int(float(pred))
+    except ValueError:
+        pass
+    matches = re.findall(r"\b(\d+)\b", pred)
+    if matches:
+        return int(matches[0])
+    pred_lower = pred.lower()
+    for word, val in _NUMBER_WORDS.items():
+        if re.search(r"\b" + word + r"\b", pred_lower):
+            return val
+    return None
 
 
 def _extract_boxed_int(text: str) -> Optional[int]:
@@ -25,7 +57,7 @@ def _extract_boxed_int(text: str) -> Optional[int]:
 
 def _extract_int_fallback(text: str) -> Optional[int]:
     """Best-effort integer extraction for accuracy when \\boxed{} is absent."""
-    return extract_integer_from_prediction(text)
+    return _extract_integer_from_prediction(text)
 
 
 def _extract_tool_call_stats(solution_str: str) -> tuple[int, int]:
