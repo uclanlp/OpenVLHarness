@@ -106,4 +106,4 @@ if [[ "$PPO_DRY_CFG" == "1" ]]; then
   ppo_args+=(--cfg job)
 fi
 
-python -m verl.trainer.main_ppo "${ppo_args[@]}"
+python -m verl.trainer.main_ppo "${ppo_args[@]}" "$@"

@@ -8,11 +8,11 @@ defaults:
 
 data:
   max_prompt_length: 4096
-  max_response_length: 16384
+  max_response_length: 8192
   train_batch_size: 32
   return_raw_chat: True
   filter_overlong_prompts: True
-  truncation: error
+  truncation: right
   prompt_key: prompt
   image_key: images
 
@@ -80,7 +80,7 @@ trainer:
   project_name: visual-tooluse-grpo
   experiment_name: qwen3vl2b_fsc147_grpo
   logger: ["console", "wandb"]
-  balance_batch: False
+  balance_batch: True
   total_epochs: 3
   save_freq: 50
   test_freq: 10
