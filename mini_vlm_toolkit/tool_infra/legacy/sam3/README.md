@@ -6,4 +6,4 @@ These files are intentionally outside `src/tools/` so `LIGHT_TOOL_MODULES=auto`
 will not discover or load them.
 
 Supported SAM3 runtime path is now:
-- `src/tools/sam3_segment_new/tool.py` (`SAM3_Segment_New_Tool`)
+- `src/tools/sam3_segment_new/tool.py` (`SAM3_Segment_Tool`)

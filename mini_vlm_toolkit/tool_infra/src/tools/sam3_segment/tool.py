@@ -7,7 +7,7 @@ from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
 
 
-TOOL_NAME = "SAM3_Segment_Tool"
+TOOL_NAME = "Visual_Grounding_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8086"
 INPUT_SCHEMA = {
     "type": "object",
@@ -15,14 +15,17 @@ INPUT_SCHEMA = {
         "query": {
             "type": "string",
             "description": (
-                "Short target phrase to segment (not a full sentence), "
-                "e.g. 'blue basket' or 'cardboard sign'"
+                "Short noun phrase describing what to find, "
+                "e.g. 'red car' or 'person on the left'"
             ),
         },
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_path": {
+            "type": "string",
+            "description": "Path to the input image file",
+        },
         "image_base64": {
             "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
+            "description": "Base64-encoded image (alternative to image_path)",
         },
     },
     "required": ["query"],
@@ -34,32 +37,30 @@ INPUT_SCHEMA = {
 }
 
 
-class SAM3_Segment_Tool(BaseTool):
+class Visual_Grounding_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Run prompt-based segmentation through the SAM3 server "
-                "that returns RLE masks and a server-rendered visualization. Use this "
-                "tool when you need segmentation masks from a text prompt. The server "
-                "returns pred_boxes, pred_masks (RLE), pred_scores, and a "
-                "rendered_image_b64 overlay with numbered labels."
+                "Locate and highlight objects in an image that match a text query. "
+                "Returns an annotated image with the matched regions highlighted "
+                "and numbered, along with bounding boxes and confidence scores."
             ),
             tool_version="0.3.0",
             input_types={
-                "query": "str - short target phrase to segment (for example 'blue basket')",
-                "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
+                "query": "str - short noun phrase describing what to find (for example 'red car')",
+                "image_path": "str - path to the input image file",
+                "image_base64": "str - base64-encoded image (alternative to image_path)",
             },
             input_schema=INPUT_SCHEMA,
-            output_type="dict - SAM3 server response with RLE masks and rendered visualization",
+            output_type="dict - contains rendered_image_b64 (annotated image), pred_boxes, pred_scores, and num_masks",
             demo_commands=[
                 {
                     "command": (
-                        'SAM3_Segment_Tool(query="cow", '
+                        'Visual_Grounding_Tool(query="cow", '
                         'image_path="/path/to/cow.jpg")'
                     ),
-                    "description": "Segment a cow image using the SAM3 server.",
+                    "description": "Find and highlight cows in an image.",
                 }
             ],
             user_metadata={

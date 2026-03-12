@@ -355,6 +355,21 @@ def list_tools_jsonschema():
         )
     return json_schemas
 
+def resolve_tool(tool_name):
+    """Resolve a tool by name with case-insensitive fallback.
+    
+    Args:
+        tool_name: The name of the tool to resolve
+        
+    Returns:
+        The tool instance if found, None otherwise
+    """
+    tool = tool_instances.get(tool_name, None)
+    if tool is None:
+        for k, v in tool_instances.items():
+            if k.lower() == tool_name.lower():
+                return v
+    return tool
 
 def execute_tool_request(request: ExecuteRequest):
     tool, resolution_error = _resolve_execute_tool(request.tool_name)
