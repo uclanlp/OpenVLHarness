@@ -406,7 +406,6 @@ def chat_completion_request(
     headers = {"Content-Type": "application/json"}
     if resolved_api_key:
         headers["Authorization"] = f"Bearer {resolved_api_key}"
-
     response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout_seconds)
     raise_for_status_with_detail(response, prefix=f"Chat request failed at endpoint {endpoint}")
     return response.json()
