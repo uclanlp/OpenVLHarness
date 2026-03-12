@@ -17,7 +17,7 @@ agent_kwargs:
   debug_tool_loop: true
   tool_base: "http://localhost:8101"
   tool_choice: "auto"  # default: "auto". Can be "none" or {"type":"function","function":{"name":"ToolName"}}
-  tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "SAM3_Segment_Tool"]
+  tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "OCR_Tool", "Python_Executor_Tool", "ZoomInImageByBBox_Tool"]
   prompt_version: "v2"  # default in this config: "v2". Set "v1" to use the original prompt template.
   reasoning_effort: null  # optional OpenAI GPT-5 knob: "minimal" | "low" | "medium" | "high"
   persistent_state_memory:  # default: {"name": "image", "emit_policy": "always"}

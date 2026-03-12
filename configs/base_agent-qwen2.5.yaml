@@ -18,7 +18,7 @@ agent_kwargs:
   # extra_body: {}
   # BaseAgentWithTools only:
   # tool_choice: "auto"
-  # tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "SAM3_Segment_Tool"]
+  # tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "Visual_Grounding_Tool"]
   # prompt_version: "v1"  # optional: "v1" or "v2"
   # reasoning_effort: "medium"  # optional OpenAI GPT-5 knob
   # persistent_state_memory:
