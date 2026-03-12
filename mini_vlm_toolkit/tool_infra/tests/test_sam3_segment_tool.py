@@ -4,7 +4,7 @@ import os
 import urllib.request
 
 from client.client import ToolClient
-from tools.sam3_segment.tool import SAM3_Segment_Tool
+from tools.sam3_segment.tool import Visual_Grounding_Tool  # noqa: module kept as sam3_segment
 from tests.utils import (
     build_test_id,
     decode_base64_image,
@@ -17,8 +17,8 @@ from tests.utils import (
 
 SAM3_SERVER_URL = os.getenv("SAM3_SERVER_URL", "http://127.0.0.1:8086")
 TOOL_SERVER_URL = os.getenv("TOOL_SERVER_URL", "http://127.0.0.1:8103")
-CANONICAL_TOOL = "SAM3_Segment_Tool"
-SNAKE_ALIAS = "sam3_segment"
+CANONICAL_TOOL = "Visual_Grounding_Tool"
+SNAKE_ALIAS = "visual_grounding"
 DEFAULT_TEST_IMAGE_URL = (
     "https://raw.githubusercontent.com/facebookresearch/sam3/main/assets/images/test_image.jpg"
 )
@@ -79,7 +79,7 @@ def test_direct_invocation():
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     result = tool.execute(
         prompt="shoe",
         image_path=image_path,
@@ -120,7 +120,7 @@ def test_direct_invocation_base64():
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
     image_base64 = encode_image_base64(image_path)
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     result = tool.execute(
         prompt="shoe",
         image_base64=image_base64,
@@ -154,7 +154,7 @@ def test_subserver_error_propagation():
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     payload = {"detail": "sam3 dummy error"}
     with run_json_error_server(payload=payload) as server_url:
         try:
