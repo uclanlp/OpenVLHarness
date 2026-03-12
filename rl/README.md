@@ -27,51 +27,73 @@ pip install -e .
 
 ## Running Training
 
-Start the tool server in a separate terminal/env, then launch training (example with geo3k dataset on 6 a6000 GPUs):
+Start the tool server in a separate terminal/env, then launch training (example with FSC147 dataset on 8 A100 GPUs):
 
 ```bash
-
-CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 \
-MODEL_PATH=Qwen/Qwen3-VL-2B-Instruct \
-N_GPUS=6 TP_SIZE=2 ROLLOUT_N=4 \
-TRAIN_BATCH_SIZE=3 TOTAL_EPOCHS=1 \
-EXPERIMENT_NAME=geo3k_full_run \
+MODEL_SIZE=2b \
 SKIP_TOOL_CONFIG_GENERATION=1 \
-bash rl/scripts/run_grpo_geo3k.sh
+SKIP_PREPROCESS=1 \
+TRAIN_PARQUET=rl/data/fsc147_train.parquet \
+VAL_PARQUET=rl/data/fsc147_val.parquet \
+bash rl/scripts/run_grpo_fsc147.sh
+```
 
+Use `MODEL_SIZE=4b` or `MODEL_SIZE=8b` to switch model variants (configs exist for all three).
+
+### Data
+
+FSC147 is a visual object-counting dataset (3,659 train / 1,286 val images). On any <cluster> server the data is already available at:
+
+```
+/data/<user>/lmu_data/FSC147_train.tsv
+/data/<user>/lmu_data/FSC147_val.tsv
+/data/<user>/lmu_data/images/FSC147/
+```
+
+To preprocess the TSVs into parquet (only needed once, or if the parquets don't exist):
+
+```bash
+LMUData=/data/<user>/lmu_data \
+/data/<shared>/conda_envs/sam3/bin/python -m rl.data.preprocess_fsc147 \
+  --lmu-data-dir /data/<user>/lmu_data \
+  --output-train rl/data/fsc147_train.parquet \
+  --output-val   rl/data/fsc147_val.parquet \
+  --val-max-samples 50
 ```
 
 Notes:
-- `run_grpo_geo3k.sh` preprocesses `hiyouga/geometry3k` into
-  `rl/data/geo3k_train.parquet` and `rl/data/geo3k_test.parquet` unless `SKIP_PREPROCESS=1`.
-- If your environment is offline, pass `LOCAL_DATASET_PATH=/path/to/geometry3k` so
-  preprocessing loads from local files.
+- `run_grpo_fsc147.sh` will run preprocessing automatically unless `SKIP_PREPROCESS=1`.
+- Set `LMU_DATA_DIR` to override the default data path if running on a different server.
+- GPU memory is tight on A100s if other processes are running; pass
+  `actor_rollout_ref.rollout.gpu_memory_utilization=0.40` if you see OOM on startup.
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATASET_NAME` | `MMStar` | Dataset for `build_dataset()` |
+| `MODEL_SIZE` | `8b` | Model variant: `2b`, `4b`, or `8b` |
+| `MODEL_PATH` | `Qwen/Qwen3-VL-{SIZE}-Instruct` | HF model path (auto-derived from `MODEL_SIZE`) |
+| `LMU_DATA_DIR` | `/data/<user>/lmu_data` | Root directory containing FSC147 TSVs and images |
+| `TRAIN_PARQUET` | `rl/data/fsc147_train.parquet` | Preprocessed train parquet path |
+| `VAL_PARQUET` | `rl/data/fsc147_val.parquet` | Preprocessed val parquet path |
 | `TRAIN_MAX_SAMPLES` | `-1` (all) | Cap training samples |
-| `VAL_MAX_SAMPLES` | `256` | Cap validation samples |
-| `SPLIT_SEED` | `42` | Seed for train/val split |
-| `MODEL_PATH` | `Qwen/Qwen3-VL-8B-Instruct` | HF model path |
+| `VAL_MAX_SAMPLES` | `50` | Number of val samples used during training |
 | `ALGORITHM` | `grpo` | `grpo`, `reinforce_plus_plus`, `rloo`, etc. |
-| `ROLLOUT_N` | `8` | Rollouts per prompt (GRPO needs >1) |
-| `N_GPUS` | `1` | GPUs per node |
+| `ROLLOUT_N` | `4` | Rollouts per prompt |
+| `N_GPUS` | `8` | GPUs per node |
 | `NNODES` | `1` | Number of nodes |
-| `TP_SIZE` | `1` | Tensor parallel size |
-| `TRAIN_BATCH_SIZE` | `128` | Training batch size |
-| `TOTAL_EPOCHS` | 3 | Training epochs |
-| `MAX_PROMPT_LENGTH` | unset | Optional override for `data.max_prompt_length`; by default use value from `rl/configs/grpo_training.yaml` |
-| `USE_REMOVE_PADDING` | unset | Optional override for `actor_rollout_ref.model.use_remove_padding`; by default use value from `rl/configs/grpo_training.yaml` |
-| `TOOL_CONFIG_PATH` | `rl/configs/tool_config.yaml` | Tool schema file for multi-turn rollout; can point to `rl/configs/tool_config.smoke.yaml` |
+| `TP_SIZE` | unset | Tensor parallel size (defaults to value in config) |
+| `TRAIN_BATCH_SIZE` | `32` | Training batch size |
+| `TOTAL_EPOCHS` | `3` | Training epochs |
+| `MAX_PROMPT_LENGTH` | unset | Optional override for `data.max_prompt_length` |
+| `USE_REMOVE_PADDING` | unset | Optional override for `actor_rollout_ref.model.use_remove_padding` |
+| `TOOL_CONFIG_PATH` | `rl/configs/tool_config.yaml` | Tool schema file for multi-turn rollout |
 | `WANDB_PROJECT` | `visual-tooluse-grpo` | WandB project name |
-| `EXPERIMENT_NAME` | `qwen3vl_grpo` | WandB run name |
+| `EXPERIMENT_NAME` | `qwen3vl{SIZE}_fsc147_grpo` | WandB run name (auto-derived from `MODEL_SIZE`) |
 | `SKIP_PREPROCESS` | `0` | `1` to reuse existing parquets |
-| `SKIP_TOOL_CONFIG_GENERATION` | `0` | `1` to reuse existing tool config |
-| `LOCAL_DATASET_PATH` | unset | Optional local dataset path for `run_grpo_geo3k.sh` |
-| `TEST_MAX_SAMPLES` | `-1` (all) | Cap Geometry3K test samples in `run_grpo_geo3k.sh` |
+| `SKIP_TOOL_CONFIG_GENERATION` | `1` | `1` to reuse existing tool config |
+| `RESUME_MODE` | `auto` | verl resume mode |
+| `RESUME_FROM_PATH` | unset | Path to checkpoint to resume from |
 
 
 
