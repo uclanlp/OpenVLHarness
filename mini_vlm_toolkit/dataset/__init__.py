@@ -34,6 +34,7 @@ from .charxiv import CharXiv
 from .chartmuseum import ChartMuseum
 from .chartqapro import ChartQAPro
 from .refcoco import RefCOCODataset
+from .refspatial import RefSpatialDataset
 from .simplevqa import SimpleVQA
 
 from .mmbench_video import MMBenchVideo
@@ -97,6 +98,8 @@ from .medqbench_paired_description import MedqbenchPairedDescriptionDataset
 from .olmOCRBench.olmocrbench import olmOCRBench
 from .oceanocr import OceanOCRBench
 from .matbench import MATBench
+
+from .refspatialbench import RefSpatialBench
 
 from .reasonmap_plus import ReasonMap_Plus
 from .mmbrowsecomp import MMBrowseCompDataset
@@ -237,8 +240,13 @@ IMAGE_DATASET = [
     olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, HiPhODataset, MaCBench,
     UniSVG, SArena_MINI, MMSIVideoBench,
     MMBrowseCompDataset, OSWorldG,
-    FSC147Dataset,
+    FSC147Dataset, RefSpatialDataset,
 ]
+
+
+# add by EASI team
+IMAGE_DATASET += [RefSpatialBench]
+
 
 VIDEO_DATASET = [
     MMBenchVideo, VideoMME, MVBench, MVBench_MP4, MVTamperBench,
