@@ -389,15 +389,20 @@ def render_html_report(record, max_chars=2000):
     if input_messages:
         body.append("<h2>Input Messages</h2>")
         body.append(_render_messages(input_messages, max_chars))
+    ground_truth = record.get("ground_truth")
+    if ground_truth is not None:
+        body.append("<h2>Ground Truth</h2>")
+        body.append(_render_text_block("ground_truth", ground_truth, max_chars))
     if chat_history:
         body.append("<h2>Tool Loop</h2>")
         body.append(_render_turns(chat_history, max_chars))
     if final_answer is not None:
         body.append("<h2>Final Answer</h2>")
         body.append(_render_text_block("final_answer", str(final_answer), max_chars))
-    if messages:
-        body.append("<h2>Final Messages</h2>")
-        body.append(_render_messages(messages, max_chars))
+    ground_truth = record.get("ground_truth")
+    if ground_truth is not None:
+        body.append("<h2>Ground Truth</h2>")
+        body.append(_render_text_block("ground_truth", ground_truth, max_chars))
 
     return f"""
 <!doctype html>

@@ -73,7 +73,7 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     gen_func = model.generate
     # Legacy fallback kept for reference only:
     # gen_func = _build_isolated_generate_func(model)
-    structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
+    structs = [dict(message=struct, dataset=dataset_name, task_id=idx) for struct, idx in zip(structs, indices)]
 
     if len(structs):
         if enable_incremental_json:
@@ -262,6 +262,7 @@ def infer_image_job(
     ignore_failed=False,
     html_limit=0,
     enable_incremental_json=False,
+    use_dataset_subdir=True,
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -282,12 +283,14 @@ def infer_image_job(
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
     # set dataset_len = 16 for debugging
-    work_dir = osp.join(work_dir, dataset_name)
+    if use_dataset_subdir:
+        work_dir = osp.join(work_dir, dataset_name)
     if rank == 0 and not osp.exists(work_dir):
         os.makedirs(work_dir, exist_ok=True)
     if world_size > 1:
         dist.barrier()
-    result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
+    pred_dataset = dataset_name if use_dataset_subdir else None
+    result_file = get_pred_file_path(work_dir, model_name, pred_dataset, use_env_format=True)
 
     # ========== Pre-processing ==========
     prev_file = f'{work_dir}/{model_name}_PREV.pkl'
@@ -351,20 +354,37 @@ def infer_image_job(
         trajectories_path = osp.join(work_dir, "trajectories.jsonl")
         write_trajectory_jsonl(records, trajectories_path)
 
+        # Always save full trajectories for all instances (needed by experience learning).
+        # Pruning happens at reflection time, not save time.
+        full_trajectory_dir = osp.join(work_dir, "full_trajectories")
+        full_records = build_trajectory_records(
+            data["index"],
+            data_all,
+            dataset_name=dataset_name,
+            model_name=model_name,
+            agent_class=model.__class__.__name__,
+            scrub_images=False,
+            strip_assistant_content=False,
+        )
+        # Inject ground truth answers into full_records for HTML reports
+        gt_key = None
+        for key in ('answer', 'GT', 'answers', 'ground_truth'):
+            if key in data:
+                gt_key = key
+                break
+        if gt_key is not None:
+            answer_map = dict(zip(data['index'], data[gt_key]))
+            for rec in full_records:
+                gt = answer_map.get(rec['task_id'])
+                if gt is not None:
+                    rec['ground_truth'] = str(gt)
+
+        write_full_trajectory_jsons(full_records, full_trajectory_dir, limit=-1)
+
+        # HTML reports are still gated by html_limit
         if html_limit != 0:
             html_dir = osp.join(work_dir, "htmls")
-            full_trajectory_dir = osp.join(work_dir, "full_trajectories")
-            html_records = build_trajectory_records(
-                data["index"],
-                data_all,
-                dataset_name=dataset_name,
-                model_name=model_name,
-                agent_class=model.__class__.__name__,
-                scrub_images=False,
-                strip_assistant_content=False,
-            )
-            write_html_reports(html_records, html_dir, html_limit)
-            write_full_trajectory_jsons(html_records, full_trajectory_dir, html_limit)
+            write_html_reports(full_records, html_dir, html_limit)
         for i in range(world_size):
             os.remove(tmpl.format(i))
     
