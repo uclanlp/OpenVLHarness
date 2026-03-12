@@ -1035,11 +1035,13 @@ class BaseAgentWithTools(BaseAgent):
         active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
         endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
         is_openai_official = "api.openai.com" in endpoint_hint
-        # For OpenAI official endpoint, strip internal orchestration-only field.
-        if is_openai_official:
+        model_name = getattr(self, "model", "") or ""
+        is_openai_native = is_openai_official or model_name.strip().lower().startswith("gpt-5")
+        # For OpenAI / GPT-5 endpoint, strip internal orchestration-only field.
+        if is_openai_native:
             _ = kwargs.pop("dataset", None)
         repetition_penalty = kwargs.pop("repetition_penalty", getattr(self, "repetition_penalty", 1.0))
-        if not is_openai_official:
+        if not is_openai_native:
             kwargs["repetition_penalty"] = repetition_penalty
         runtime_tools = kwargs.pop("tools", None)
         model_tools = self.json_schema

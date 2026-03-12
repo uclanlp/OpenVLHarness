@@ -368,7 +368,8 @@ def chat_completion_request(
     resolved_api_key = api_key or get_model_api_key(model)
     endpoint = _normalize_chat_endpoint(resolved_base_url)
     is_openai_endpoint = _is_openai_chat_endpoint(endpoint)
-    is_gpt5_model = is_openai_endpoint and _is_gpt5_family_model(model)
+    is_gpt5_model = _is_gpt5_family_model(model)
+    is_openai_native = is_openai_endpoint or is_gpt5_model
 
     payload: Dict[str, Any] = {"model": model, "messages": attach_images(messages, image_paths or [])}
     if temperature is not None:
@@ -379,16 +380,16 @@ def chat_completion_request(
             payload["max_completion_tokens"] = max_tokens
         else:
             payload["max_tokens"] = max_tokens
-    if repetition_penalty is not None and not is_openai_endpoint:
+    if repetition_penalty is not None and not is_openai_native:
         payload["repetition_penalty"] = repetition_penalty
     if reasoning_effort is not None and is_gpt5_model:
         payload["reasoning_effort"] = reasoning_effort
-    if top_p is not None:
+    if top_p is not None and not is_openai_native:
         payload["top_p"] = top_p
     if stop is not None:
         payload["stop"] = stop
     if tools:
-        payload["tools"] = _sanitize_tools_for_openai(tools) if is_openai_endpoint else tools
+        payload["tools"] = _sanitize_tools_for_openai(tools) if is_openai_native else tools
         if tool_choice:
             payload["tool_choice"] = tool_choice
     if response_format:
@@ -396,7 +397,7 @@ def chat_completion_request(
     if extra_body:
         cleaned_extra_body = (
             _sanitize_openai_extra_body(extra_body, is_gpt5=is_gpt5_model)
-            if is_openai_endpoint
+            if is_openai_native
             else extra_body
         )
         if cleaned_extra_body:
