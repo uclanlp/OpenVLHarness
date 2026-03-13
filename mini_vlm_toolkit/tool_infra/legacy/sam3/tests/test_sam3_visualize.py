@@ -14,7 +14,7 @@ from config import (
     DEFAULT_LLM_MODEL,
 )
 from llm.engine import LLMEngine
-from tools.sam3_segment.tool import SAM3_Segment_Tool
+from tools.sam3_segment.tool import Visual_Grounding_Tool
 from tools.sam3_visualize.tool import (
     SAM3_VisualizeAllMasks_Tool,
     SAM3_VisualizeSingleMask_Tool,
@@ -134,7 +134,7 @@ def test_direct_invocation():
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
-    segment_tool = SAM3_Segment_Tool()
+    segment_tool = Visual_Grounding_Tool()
 
     def run_segment(prompt):
         return segment_tool.execute(
@@ -180,7 +180,7 @@ def test_direct_invocation_base64():
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
     image_base64 = encode_image_base64(image_path)
-    segment_tool = SAM3_Segment_Tool()
+    segment_tool = Visual_Grounding_Tool()
 
     def run_segment(prompt):
         return segment_tool.execute(
@@ -235,7 +235,7 @@ def test_client_invocation():
 
     def run_segment(prompt):
         response = client.execute(
-            "SAM3_Segment_Tool",
+            "Visual_Grounding_Tool",
             {
                 "prompt": prompt,
                 "image_path": image_path,
@@ -289,7 +289,7 @@ def test_client_invocation_base64():
 
     def run_segment(prompt):
         response = client.execute(
-            "SAM3_Segment_Tool",
+            "Visual_Grounding_Tool",
             {
                 "prompt": prompt,
                 "image_base64": image_base64,
@@ -361,7 +361,7 @@ def test_llm_invocation_python():
 
     def run_segment(prompt):
         response = client.execute(
-            "SAM3_Segment_Tool",
+            "Visual_Grounding_Tool",
             {
                 "prompt": prompt,
                 "image_path": image_path,
@@ -428,7 +428,7 @@ def test_llm_invocation_json():
 
     def run_segment(prompt):
         response = client.execute(
-            "SAM3_Segment_Tool",
+            "Visual_Grounding_Tool",
             {
                 "prompt": prompt,
                 "image_path": image_path,
@@ -471,7 +471,7 @@ def test_llm_invocation_json():
 
 def main():
     required_tools = [
-        "SAM3_Segment_Tool",
+        "Visual_Grounding_Tool",
         "SAM3_VisualizeAllMasks_Tool",
         "SAM3_VisualizeSingleMask_Tool",
     ]

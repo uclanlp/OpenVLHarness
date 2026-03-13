@@ -12,7 +12,7 @@ import pandas as pd
 SYSTEM_PROMPT = (
     "You are a visual counting expert. You are given an image and a question asking you to count "
     "objects. Think carefully and reason step by step. "
-    "You have access to SAM3_Segment_Tool, which can help segment and identify objects — "
+    "You have access to Visual_Grounding_Tool, which can help segment and identify objects — "
     "use it when it would help you count more accurately."
 )
 

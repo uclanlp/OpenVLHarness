@@ -173,7 +173,7 @@ Agent behavior:
   "content": [
     {
       "type": "text",
-      "text": "Tool `SAM3_Segment_Tool` (tool_call_id=call_1_1) also returned the following image(s). Use these images for reasoning if helpful.\nSee the preceding role=tool message for structured output.\nImage refs: tool_call_1_1_image_1"
+      "text": "Tool `Visual_Grounding_Tool` (tool_call_id=call_1_1) also returned the following image(s). Use these images for reasoning if helpful.\nSee the preceding role=tool message for structured output.\nImage refs: tool_call_1_1_image_1"
     },
     {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
   ]
@@ -182,7 +182,7 @@ Agent behavior:
 
 3. Registers reusable refs:
 - `tool_call_1_1_image_1`
-- Tool-name aliases are also registered (for example `SAM3_Segment_Tool_image_1`)
+- Tool-name aliases are also registered (for example `Visual_Grounding_Tool_image_1`)
 
 4. Appends a new runtime Environment Update message after the tool turn:
 
@@ -190,7 +190,7 @@ Agent behavior:
 Environment Update (not a new question):
 Currently available image IDs for tool calls:
 - input_image_1: user_input
-- tool_call_1_1_image_1: tool_output:SAM3_Segment_Tool
+- tool_call_1_1_image_1: tool_output:Visual_Grounding_Tool
 When a tool needs image input, pass one of these IDs via the *_image_path field.
 Do NOT invent image file names or paths.
 ```

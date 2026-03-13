@@ -12,7 +12,7 @@ import requests
 import yaml
 
 CURATED_V1_TOOLS = [
-    "SAM3_Segment_Tool",
+    "Visual_Grounding_Tool",
 ]
 
 

@@ -100,7 +100,7 @@ Notes:
 ## Configuring Tools
 
 Active tools are defined in `rl/configs/tool_config.yaml` (auto-generated from tool server).
-The current curated default is `SAM3_Segment_Tool` only.
+The current curated default is `Visual_Grounding_Tool` only.
 To change the set, either edit `CURATED_V1_TOOLS` in `rl/tools/generate_tool_config.py`,
 pass `--tools "OCR_Tool,Crop_Tool"` manually, or edit the YAML directly.
 

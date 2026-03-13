@@ -24,7 +24,7 @@
 | `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
 | `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
-| `SAM3_Segment_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
+| `Visual_Grounding_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
 | `SerpApi_Image_Search_Tool` | Search similar images with SerpApi Google Reverse Image Search from a public image URL. |

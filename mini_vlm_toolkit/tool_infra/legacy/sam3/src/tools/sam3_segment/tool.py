@@ -7,7 +7,7 @@ from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
 
 
-TOOL_NAME = "SAM3_Segment_Tool"
+TOOL_NAME = "Visual_Grounding_Tool"
 DEFAULT_SERVER_URL = "http://127.0.0.1:8083"
 INPUT_SCHEMA = {
     "type": "object",
@@ -39,7 +39,7 @@ INPUT_SCHEMA = {
 }
 
 
-class SAM3_Segment_Tool(BaseTool):
+class Visual_Grounding_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
@@ -63,7 +63,7 @@ class SAM3_Segment_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "SAM3_Segment_Tool(prompt=\"cow\", "
+                        "Visual_Grounding_Tool(prompt=\"cow\", "
                         "image_path=\"/path/to/cow.jpg\")"
                     ),
                     "description": "Segment a cow image using the external SAM3 server.",
