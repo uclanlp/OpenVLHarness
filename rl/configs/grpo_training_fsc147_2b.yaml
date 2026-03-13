@@ -70,6 +70,7 @@ actor_rollout_ref:
       tool_config_path: rl/configs/tool_config.yaml
     agent:
       num_workers: 1
+      default_agent_loop: tool_agent
   ref:
     log_prob_micro_batch_size_per_gpu: 2
     log_prob_max_token_len_per_gpu: 32768
@@ -87,3 +88,5 @@ trainer:
   val_before_train: True
   nnodes: 1
   n_gpus_per_node: 8
+  rollout_data_dir: outputs/rollouts/qwen3vl2b_fsc147_grpo
+  log_val_generations: 30

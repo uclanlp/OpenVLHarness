@@ -9,17 +9,17 @@ from typing import Any
 
 import pandas as pd
 
-SYSTEM_PROMPT = (
-    "You are a visual counting expert. You are given an image and a question asking you to count "
-    "objects. Think carefully and reason step by step. "
-    "You have access to Visual_Grounding_Tool, which can help segment and identify objects — "
-    "use it when it would help you count more accurately."
-)
+SYSTEM_PROMPT = """You are a multi-turn visual reasoning agent that answers questions about images using a structured Perception-Thinking-Action framework. Your goal is to provide an accurate, well-reasoned answer to the user question. You have access to a tool that compensate for your grounding limitations.
 
-INSTRUCTION_SUFFIX = (
-    " Think step by step. "
-    "The final answer MUST BE a single integer enclosed in \\boxed{}."
-)
+Use the following response format for every turn:
+
+Perception: Detailed observations from the input image, the tool output image, and previous round tool feedbacks.
+Thinking: Based on what you saw, think about what your next action should be.
+Action: Can be either a tool call within <tools></tools> XML tags or a final answer containing an integer inside \\boxed{}. """
+
+INSTRUCTION_SUFFIX = """
+    You must enclose your final answer integer inside \\boxed{}. 
+"""
 
 
 def _load_image_bytes(image_dir: str, image_path: str) -> bytes:
