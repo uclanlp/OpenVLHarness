@@ -17,7 +17,8 @@ LMU_DATA_DIR="${LMU_DATA_DIR:-/data/<user>/lmu_data}"
 TRAIN_PARQUET="${TRAIN_PARQUET:-$PROJECT_DIR/rl/data/fsc147_train.parquet}"
 VAL_PARQUET="${VAL_PARQUET:-$PROJECT_DIR/rl/data/fsc147_val.parquet}"
 TRAIN_MAX_SAMPLES="${TRAIN_MAX_SAMPLES:--1}"
-VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-50}"
+VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-100}"
+VAL_SEED="${VAL_SEED:-42}"
 SKIP_PREPROCESS="${SKIP_PREPROCESS:-0}"
 
 # ---------- Tools ----------
@@ -60,6 +61,7 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
     --output-train "$TRAIN_PARQUET"
     --output-val "$VAL_PARQUET"
     --val-max-samples "$VAL_MAX_SAMPLES"
+    --val-seed "$VAL_SEED"
   )
   if [[ "$TRAIN_MAX_SAMPLES" != "-1" ]]; then
     preprocess_args+=(--train-max-samples "$TRAIN_MAX_SAMPLES")
