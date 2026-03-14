@@ -1,1 +1,1 @@
-"""Data preparation utilities for RL/SFT pipelines."""
+"""Parquet datasets for RL/SFT training."""
