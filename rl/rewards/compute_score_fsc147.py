@@ -34,7 +34,7 @@ def _extract_integer_from_prediction(pred: Any) -> Optional[int]:
         return int(float(pred))
     except ValueError:
         pass
-    matches = re.findall(r"\b(\d+)\b", pred)
+    matches = re.findall(r"\b(\d{1,9})\b", pred)
     if matches:
         return int(matches[0])
     pred_lower = pred.lower()

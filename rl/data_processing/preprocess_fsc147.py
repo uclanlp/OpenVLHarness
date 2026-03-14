@@ -15,10 +15,13 @@ Use the following response format for every turn:
 
 Perception: Detailed observations from the input image, the tool output image, and previous round tool feedbacks.
 Thinking: Based on what you saw, think about what your next action should be.
-Action: Can be either a tool call within <tools></tools> XML tags or a final answer containing an integer inside \\boxed{}. """
+Action: You can choose to either generate a tool call within <tools></tools> XML tags or generate the final answer.
+
+When calling tools, please only use the "query" argument, you do not need to use "image_path" or "image_base64".
+"""
 
 INSTRUCTION_SUFFIX = """
-    You must enclose your final answer integer inside \\boxed{}. 
+    You must enclose your final answer as an integer inside \\boxed{}. You must not put any text inside \\boxed{}.
 """
 
 

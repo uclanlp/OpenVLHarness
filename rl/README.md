@@ -27,6 +27,12 @@ pip install -e .
 
 ## Running Training
 
+First build the FSC-147 training and validation dataset:
+
+```bash
+python -m rl.data_processing.preprocess_fsc147 --lmu-data-dir /data/<user>/lmu_data --output-train rl/data/fsc147_train.parquet --output-val rl/data/fsc147_val.parquet --val-max-samples 400 --val-seed 42
+```
+
 Start the tool server in a separate terminal/env, then launch training (example with FSC147 dataset on 8 A100 GPUs):
 
 ```bash
@@ -40,32 +46,7 @@ bash rl/scripts/run_grpo_fsc147.sh
 
 Use `MODEL_SIZE=4b` or `MODEL_SIZE=8b` to switch model variants (configs exist for all three).
 
-### Data
 
-FSC147 is a visual object-counting dataset (3,659 train / 1,286 val images). On any <cluster> server the data is already available at:
-
-```
-/data/<user>/lmu_data/FSC147_train.tsv
-/data/<user>/lmu_data/FSC147_val.tsv
-/data/<user>/lmu_data/images/FSC147/
-```
-
-To preprocess the TSVs into parquet (only needed once, or if the parquets don't exist):
-
-```bash
-LMUData=/data/<user>/lmu_data \
-/data/<shared>/conda_envs/sam3/bin/python -m rl.data.preprocess_fsc147 \
-  --lmu-data-dir /data/<user>/lmu_data \
-  --output-train rl/data/fsc147_train.parquet \
-  --output-val   rl/data/fsc147_val.parquet \
-  --val-max-samples 50
-```
-
-Notes:
-- `run_grpo_fsc147.sh` will run preprocessing automatically unless `SKIP_PREPROCESS=1`.
-- Set `LMU_DATA_DIR` to override the default data path if running on a different server.
-- GPU memory is tight on A100s if other processes are running; pass
-  `actor_rollout_ref.rollout.gpu_memory_utilization=0.40` if you see OOM on startup.
 
 ## Environment Variables
 

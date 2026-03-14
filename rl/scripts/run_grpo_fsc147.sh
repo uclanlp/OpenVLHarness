@@ -66,7 +66,7 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   if [[ "$TRAIN_MAX_SAMPLES" != "-1" ]]; then
     preprocess_args+=(--train-max-samples "$TRAIN_MAX_SAMPLES")
   fi
-  python -m rl.data.preprocess_fsc147 "${preprocess_args[@]}"
+  python -m rl.data_processing.preprocess_fsc147 "${preprocess_args[@]}"
 fi
 
 # ---------- Stage 3: verl GRPO training ----------

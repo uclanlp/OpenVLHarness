@@ -56,7 +56,7 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   if [[ "$TRAIN_MAX_SAMPLES" != "-1" ]]; then
     preprocess_train_args+=(--max-samples "$TRAIN_MAX_SAMPLES")
   fi
-  python -m rl.data.preprocess "${preprocess_train_args[@]}"
+  python -m rl.data_processing.preprocess "${preprocess_train_args[@]}"
 
   preprocess_val_args=(
     --dataset "$DATASET_NAME"
@@ -67,7 +67,7 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   if [[ "$VAL_MAX_SAMPLES" != "-1" ]]; then
     preprocess_val_args+=(--max-samples "$VAL_MAX_SAMPLES")
   fi
-  python -m rl.data.preprocess "${preprocess_val_args[@]}"
+  python -m rl.data_processing.preprocess "${preprocess_val_args[@]}"
 fi
 
 # ========== Stage 3: Launch training ==========
