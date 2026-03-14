@@ -1,4 +1,4 @@
-# RL Integration (integrate-verl + verl)
+# RL Integration (verl)
 
 RL training pipeline for visual tool use.
 
