@@ -8,7 +8,7 @@ defaults:
 
 data:
   max_prompt_length: 4096
-  max_response_length: 8192
+  max_response_length: 4096
   train_batch_size: 32
   return_raw_chat: True
   filter_overlong_prompts: True
@@ -88,5 +88,5 @@ trainer:
   val_before_train: True
   nnodes: 1
   n_gpus_per_node: 8
-  rollout_data_dir: outputs/rollouts/qwen3vl2b_fsc147_grpo
+  rollout_data_dir: outputs/rollouts/qwen3vl8b_fsc147_grpo
   log_val_generations: 10
