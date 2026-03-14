@@ -249,13 +249,13 @@ class MiniVLMHTTPTool(BaseTool):
             if mask_count == 0:
                 text = (
                     f"{tool_name} generated 0 masks for prompt {prompt!r}. "
-                    f"A rendered result image is still provided below; refer to it as {image_ref}."
+                    f"A rendered result image is still provided below."
                 )
             else:
                 text = (
                     f"{tool_name} generated {mask_count} masks"
                     + (f" for prompt {prompt!r}" if prompt else "")
-                    + f". They are rendered on the above image, which shall be referred to as {image_ref}."
+                    + f". They are rendered on the above image."
                 )
         else:
             text = (
