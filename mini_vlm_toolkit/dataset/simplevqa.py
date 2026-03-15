@@ -142,13 +142,19 @@ class SimpleVQA(ImageBaseDataset):
         model_keys = ['model_response']
         fout = open(str(Path(result_file).parent) + '/gpt_eval.json', 'w', encoding='utf-8')
 
-        gpt4_key = os.environ.get('OPENAI_API_KEY', None)
-        base_url = os.environ.get('OPENAI_API_BASE', None)
+        # gpt4_key = os.environ.get('OPENAI_API_KEY', None)
+        # base_url = os.environ.get('OPENAI_API_BASE', None)
+        api_key = judge_kwargs.get('key', None)
+        api_base = judge_kwargs.get('api_base', None)
+        if "/chat/completions" in api_base:
+            # prune 
+            api_base = api_base.replace("/chat/completions", "")
+        model_name = judge_kwargs.get('model', 'gpt-4o')
         nproc = judge_kwargs.get('nproc', 16)
 
         client = OpenAI(
-            api_key=gpt4_key,
-            base_url=base_url
+            api_key=api_key,
+            base_url=api_base
         )
 
         def process_one(idx):
@@ -161,7 +167,7 @@ class SimpleVQA(ImageBaseDataset):
             prompt = COMPARE_ANSWER_PROMPT.format(question=question, answer=answer, candidates=candidates)
             try:
                 response = client.chat.completions.create(
-                    model="gpt-4o",
+                    model=model_name,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=1
                 )
