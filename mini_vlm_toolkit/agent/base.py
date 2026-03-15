@@ -492,13 +492,15 @@ class BaseAgentWithTools(BaseAgent):
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
     _SUPPORTED_MEMORY_NAMES = ("image",)
 
-    def __init__(self, 
-                tool_base, 
+    def __init__(self,
+                tool_base,
                 tool_list = None,
                 tool_choice: Any = "auto",
                 prompt_version: str = "v1",
                 persistent_state_memory: Optional[Dict[str, Any]] = None,
-                max_iterations: int = 15, 
+                max_iterations: int = 15,
+                experience_file: Optional[str] = None,
+                instance_critique_dir: Optional[str] = None,
                 **kwargs):
         legacy_keys = [key for key in self._LEGACY_RUNTIME_ENV_KEYS if key in kwargs]
         if legacy_keys:
@@ -532,6 +534,8 @@ class BaseAgentWithTools(BaseAgent):
                 and x['function'].get('name') in tool_list
             ]
             
+        self.experience_file = experience_file
+        self.instance_critique_dir = instance_critique_dir
         self.logger = get_logger("BaseAgentWithTools")
         self.logger.info(f"Available Tools: {list(self.tools.keys())}")
         self.system_prompt = self._construct_system_message()
@@ -544,6 +548,16 @@ class BaseAgentWithTools(BaseAgent):
             f"(name={self.persistent_state_memory.memory_name})"
         )
 
+    def _load_instance_critique(self, task_id: str) -> Optional[str]:
+        """Load a per-instance critique file if it exists."""
+        if not self.instance_critique_dir:
+            return None
+        fpath = os.path.join(self.instance_critique_dir, f"{task_id}.txt")
+        if not os.path.isfile(fpath):
+            return None
+        with open(fpath, "r", encoding="utf-8") as f:
+            return f.read().strip() or None
+
     def _get_prompt_templates(self) -> tuple[str, str]:
         version = str(getattr(self, "prompt_version", "v1")).strip().lower()
         if version == "v2":
@@ -552,6 +566,19 @@ class BaseAgentWithTools(BaseAgent):
 
     def _construct_system_message(self) -> str:
         system_prompt, _ = self._get_prompt_templates()
+        if getattr(self, "experience_file", None) and os.path.exists(self.experience_file):
+            from ..experience.reflector import load_experience
+            experience_text = load_experience(self.experience_file)
+            if experience_text.strip():
+                system_prompt += (
+                    "\n\nAdditional learned tool-usage principles from prior runs:\n"
+                    "- Treat these as reusable heuristics when choosing tools, arguments, and retries.\n"
+                    "- Follow them when relevant, but do not violate tool protocols above.\n"
+                    "<learned_principles>\n"
+                    f"{experience_text}\n"
+                    "</learned_principles>"
+                )
+                self.logger.info(f"Loaded experience from {self.experience_file}")
         return system_prompt
 
     def _build_persistent_state_memory(self, memory_spec: Optional[Dict[str, Any]]) -> PersistentStateMemory:
@@ -1462,6 +1489,8 @@ class BaseAgentWithTools(BaseAgent):
     def generate(self, message, **kwargs1):
         """Generate one final answer using the native tool-calling loop."""
 
+        task_id = kwargs1.pop("task_id", None)
+
         raw_message = cp.deepcopy(message)
         message = cp.deepcopy(message)
         active_system_prompt = self.system_prompt
@@ -1471,12 +1500,26 @@ class BaseAgentWithTools(BaseAgent):
                 base_system_prompt=self.system_prompt,
                 return_system_prompt=True,
             )
+        # Prepend instance critique if available (before content normalization)
+        if task_id is not None and self.instance_critique_dir:
+            critique = self._load_instance_critique(str(task_id))
+            if critique:
+                critique_text = f"Here are the feedback for your previous failed attempt:\n{critique}\n\n"
+                content_type = self.check_content(message)
+                if content_type == 'str':
+                    message = message + "\n\n" + critique_text
+                elif content_type == 'listdict':
+                    message.append({"type": "text", "value": critique_text})
+                elif content_type == 'dict':
+                    message = [message, {"type": "text", "value": critique_text}]
+                elif content_type == 'liststr':
+                    message.append(critique_text)
+
         assert self.check_content(message) in ['str', 'dict', 'liststr', 'listdict'], f'Invalid input type: {message}'
         message = self.preproc_content(message)
         assert message is not None and self.check_content(message) == 'listdict'
         for item in message:
             assert item['type'] in self.allowed_types, f'Invalid input type: {item["type"]}'
-
         # merge kwargs
         kwargs = cp.deepcopy(self.default_kwargs)
         kwargs.update(kwargs1)

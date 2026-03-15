@@ -1,0 +1,29 @@
+# Example agent configuration
+agent_name: BaseAgentWithTools
+agent_config_version: v1_0215
+
+agent_kwargs:
+  base: "http://localhost:8999"
+  key: "empty"
+  model: "Qwen/Qwen3.5-9B"
+  timeout: 600
+  custom_prompt: false
+  max_tokens: 2048
+  temperature: 0.7
+  top_p: 0.95
+  repetition_penalty: 1.1
+  retry: 3
+  verbose: true
+  debug_tool_loop: true
+  tool_base: "http://localhost:8101"
+  tool_choice: "auto"  # default: "auto". Can be "none" or {"type":"function","function":{"name":"ToolName"}}
+  tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "ZoomInImageByBBox_Tool", "OCR_Tool"]
+  prompt_version: "v2"  # default in this config: "v2". Set "v1" to use the original prompt template.
+  reasoning_effort: null  # optional OpenAI GPT-5 knob: "minimal" | "low" | "medium" | "high"
+  persistent_state_memory:  # default: {"name": "image", "emit_policy": "always"}
+    name: "image"
+    emit_policy: "always"  # "always" (default) or "on_change"
+  extra_body: {} # optional provider-specific fields forwarded to chat/completions
+  max_iterations: 15
+  chat_template_kwargs: 
+    enable_thinking: false
