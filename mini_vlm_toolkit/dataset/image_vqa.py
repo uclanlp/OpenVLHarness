@@ -57,7 +57,7 @@ class ImageVQADataset(ImageBaseDataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
-        if judge_kwargs.get('api_base', False):
+        if judge_kwargs.get('use_verifier', False):
             return self.evaluate_verifier(eval_file, **judge_kwargs)
         else:
             return self.evaluate_heuristic(eval_file, **judge_kwargs)
