@@ -212,7 +212,7 @@ print(response["result"])
 
 ## Example 3: SAM3 segment tool (vision input)
 
-`SAM3_Segment_Tool` calls the SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_SERVER_URL` (default `http://127.0.0.1:8086`).
+`Visual_Grounding_Tool` calls the SAM3 server. Make sure the SAM3 server is running and reachable via `SAM3_SERVER_URL` (default `http://127.0.0.1:8086`).
 
 ### Client-only call
 ```python
@@ -222,7 +222,7 @@ client = ToolClient("http://127.0.0.1:8101")
 image_path = "tests/data/sam3_demo.jpg"
 
 response = client.execute(
-    "SAM3_Segment_Tool",
+    "Visual_Grounding_Tool",
     {
         "prompt": "shoe",
         "image_path": image_path,
@@ -242,7 +242,7 @@ with open(image_path, "rb") as handle:
     image_base64 = base64.b64encode(handle.read()).decode("utf-8")
 
 response = client.execute(
-    "SAM3_Segment_Tool",
+    "Visual_Grounding_Tool",
     {
         "prompt": "shoe",
         "image_base64": image_base64,
@@ -250,7 +250,7 @@ response = client.execute(
 )
 print(response["result"])
 ```
-`SAM3_Segment_Tool` returns `pred_boxes`, `pred_masks` (RLE), `pred_scores`, and
+`Visual_Grounding_Tool` returns `pred_boxes`, `pred_masks` (RLE), `pred_scores`, and
 `rendered_image_b64`.
 The snake_case alias `sam3_segment` is also supported.
 
@@ -268,7 +268,7 @@ from config import (
 from llm.engine import LLMEngine
 
 client = ToolClient("http://127.0.0.1:8101")
-metadata = client.list_tools()["SAM3_Segment_Tool"]
+metadata = client.list_tools()["Visual_Grounding_Tool"]
 image_path = "tests/data/sam3_demo.jpg"
 
 prompt = (
@@ -276,7 +276,7 @@ prompt = (
     "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
-    f"Tool name: SAM3_Segment_Tool\n"
+    f"Tool name: Visual_Grounding_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
     "User request: Segment the shoes in the image.\n"

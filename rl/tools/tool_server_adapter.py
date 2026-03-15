@@ -107,7 +107,7 @@ class MiniVLMHTTPTool(BaseTool):
             meta["image_resolution"] = rewrite_info
             normalized["meta"] = meta
 
-        tool_response = self._convert_payload_to_tool_response(normalized)
+        tool_response = self._convert_payload_to_tool_response(normalized, agent_data=agent_data)
 
         latency_ms = (time.perf_counter() - start) * 1000.0
         exec_ok = bool(normalized.get("ok"))
@@ -185,7 +185,9 @@ class MiniVLMHTTPTool(BaseTool):
             "meta": {},
         }
 
-    def _convert_payload_to_tool_response(self, payload: dict[str, Any]) -> ToolResponse:
+    def _convert_payload_to_tool_response(
+        self, payload: dict[str, Any], agent_data: Any = None
+    ) -> ToolResponse:
         if not payload.get("ok"):
             error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
             code = str(error.get("code") or "tool_execution_error")
@@ -196,23 +198,73 @@ class MiniVLMHTTPTool(BaseTool):
         result = payload.get("result")
         images, compact_result = self._extract_images_and_scrub(result)
 
-        text_payload = {
-            "ok": True,
-            "result": compact_result,
-            "tool_name": payload.get("tool_name"),
-            "tool_call_id": payload.get("tool_call_id"),
-        }
-        if payload.get("meta"):
-            text_payload["meta"] = payload["meta"]
-
-        try:
-            text = json.dumps(text_payload, ensure_ascii=False)
-        except Exception:
-            text = str(text_payload)
+        tool_name = payload.get("tool_name") or self.tool_name
+        if tool_name == "Visual_Grounding_Tool":
+            text = self._format_visual_grounding_text(result, images, agent_data)
+        else:
+            text_payload = {
+                "ok": True,
+                "result": compact_result,
+                "tool_name": tool_name,
+                "tool_call_id": payload.get("tool_call_id"),
+            }
+            if payload.get("meta"):
+                text_payload["meta"] = payload["meta"]
+            try:
+                text = json.dumps(text_payload, ensure_ascii=False)
+            except Exception:
+                text = str(text_payload)
 
         if images:
             return ToolResponse(text=text, image=images)
         return ToolResponse(text=text)
+
+    def _format_visual_grounding_text(
+        self, result: Any, images: list, agent_data: Any
+    ) -> str:
+        tool_name = "Visual_Grounding_Tool"
+        if not isinstance(result, dict):
+            return f"{tool_name} returned an unexpected result format."
+
+        # Compute image reference (1-indexed position in agent_data.image_data)
+        image_ref = None
+        if images:
+            current_images = getattr(agent_data, "image_data", None) or []
+            next_idx = len(current_images) + 1
+            image_ref = f"image_{next_idx}"
+
+        # Extract fields
+        pred_scores = result.get("pred_scores")
+        if isinstance(pred_scores, list):
+            mask_count = len(pred_scores)
+        else:
+            try:
+                mask_count = int(result.get("num_masks") or 0)
+            except (TypeError, ValueError):
+                mask_count = 0
+
+        prompt = str(result.get("prompt") or "").strip()
+
+        if image_ref:
+            if mask_count == 0:
+                text = (
+                    f"{tool_name} generated 0 masks for prompt {prompt!r}. "
+                    f"A rendered result image is still provided below."
+                )
+            else:
+                text = (
+                    f"{tool_name} generated {mask_count} masks"
+                    + (f" for prompt {prompt!r}" if prompt else "")
+                    + f". They are rendered on the above image."
+                )
+        else:
+            text = (
+                f"{tool_name} generated {mask_count} masks"
+                + (f" for prompt {prompt!r}" if prompt else "")
+                + ". No rendered image was returned."
+            )
+
+        return text
 
     def _rewrite_image_path_refs(self, args: Any, agent_data: Any) -> dict[str, Any]:
         rewrites = []

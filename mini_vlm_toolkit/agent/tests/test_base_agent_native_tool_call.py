@@ -710,7 +710,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
                 m
                 for m in tool_role_msgs
                 if m.get("tool_call_id") == "call_img_resolve_1"
-                and m.get("name") == "SAM3_Segment_Tool"
+                and m.get("name") == "Visual_Grounding_Tool"
             ]
             assert matching_ack
             assert matching_ack[-1].get("content") == "ok"
@@ -771,12 +771,12 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
     agent = _build_agent()
     # Simulate a stale /tools response (server not restarted) with no processor metadata.
     # ImageStateMemory should still infer tools.sam3_segment.process_tool_output.
-    agent.tools = {"SAM3_Segment_Tool": {}}
+    agent.tools = {"Visual_Grounding_Tool": {}}
     agent.json_schema = [
         {
             "type": "function",
             "function": {
-                "name": "SAM3_Segment_Tool",
+                "name": "Visual_Grounding_Tool",
                 "description": "Segment with SAM3",
                 "parameters": {
                     "type": "object",
@@ -811,7 +811,7 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
                                     "id": "call_sam3_custom_1",
                                     "type": "function",
                                     "function": {
-                                        "name": "SAM3_Segment_Tool",
+                                        "name": "Visual_Grounding_Tool",
                                         "arguments": json.dumps(
                                             {
                                                 "prompt": "children",
@@ -830,7 +830,7 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
             tool_role_msgs = [m for m in messages if m.get("role") == "tool"]
             assert any(
                 m.get("tool_call_id") == "call_sam3_custom_1"
-                and m.get("name") == "SAM3_Segment_Tool"
+                and m.get("name") == "Visual_Grounding_Tool"
                 for m in tool_role_msgs
             )
             tool_msgs = [
@@ -838,13 +838,13 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
                 for m in messages
                 if m.get("role") == "user"
                 and isinstance(m.get("content"), list)
-                and "SAM3_Segment_Tool generated" in _extract_user_text_content(m)
+                and "Visual_Grounding_Tool generated" in _extract_user_text_content(m)
             ]
             assert tool_msgs
             tool_msg = tool_msgs[-1]
             assert isinstance(tool_msg.get("content"), list)
             text = _extract_user_text_content(tool_msg)
-            assert "SAM3_Segment_Tool generated 2 masks" in text
+            assert "Visual_Grounding_Tool generated 2 masks" in text
             assert "tool_generated_image_1" in text
             assert "pred_boxes" not in text
             assert "pred_scores" not in text
@@ -870,11 +870,11 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
     def fake_tool_execute_request(*, base_url, tool_call, timeout):
         assert base_url == "http://tool-server"
         assert timeout == 10
-        assert tool_call["tool_name"] == "SAM3_Segment_Tool"
+        assert tool_call["tool_name"] == "Visual_Grounding_Tool"
         assert tool_call["tool_call_id"] == "call_sam3_custom_1"
         return {
             "ok": True,
-            "tool_name": "SAM3_Segment_Tool",
+            "tool_name": "Visual_Grounding_Tool",
             "result": {
                 "model": "sam3",
                 "prompt": "children",

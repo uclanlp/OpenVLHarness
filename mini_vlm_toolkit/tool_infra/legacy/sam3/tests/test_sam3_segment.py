@@ -12,7 +12,7 @@ from config import (
     DEFAULT_LLM_MODEL,
 )
 from llm.engine import LLMEngine
-from tools.sam3_segment.tool import SAM3_Segment_Tool
+from tools.sam3_segment.tool import Visual_Grounding_Tool
 from tests.utils import (
     build_test_id,
     decode_base64_image,
@@ -102,7 +102,7 @@ def test_direct_invocation():
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     result = tool.execute(
         prompt="shoe",
         image_path=image_path,
@@ -149,7 +149,7 @@ def test_direct_invocation_base64():
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
     image_base64 = encode_image_base64(image_path)
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     result = tool.execute(
         prompt="shoe",
         image_base64=image_base64,
@@ -191,7 +191,7 @@ def test_subserver_error_propagation():
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     payload = {"detail": "sam3 dummy error"}
     with run_json_error_server(payload=payload) as server_url:
         try:
@@ -219,7 +219,7 @@ def test_direct_invocation_viz_flags():
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"SAM3_TEST_IMAGE not found: {image_path}")
 
-    tool = SAM3_Segment_Tool()
+    tool = Visual_Grounding_Tool()
     result_keep_viz = tool.execute(
         prompt="shoe",
         image_path=image_path,
@@ -267,7 +267,7 @@ def test_client_invocation():
 
     client = ToolClient(TOOL_SERVER_URL)
     response = client.execute(
-        "SAM3_Segment_Tool",
+        "Visual_Grounding_Tool",
         {
             "prompt": "shoe",
             "image_path": image_path,
@@ -313,7 +313,7 @@ def test_client_invocation_base64():
     image_base64 = encode_image_base64(image_path)
     client = ToolClient(TOOL_SERVER_URL)
     response = client.execute(
-        "SAM3_Segment_Tool",
+        "Visual_Grounding_Tool",
         {
             "prompt": "shoe",
             "image_base64": image_base64,
@@ -371,12 +371,12 @@ def test_llm_invocation_python():
 
     client = ToolClient(TOOL_SERVER_URL)
     tools = client.list_tools()
-    metadata = tools["SAM3_Segment_Tool"]
+    metadata = tools["Visual_Grounding_Tool"]
     log_output("Tools", {"tool_names": sorted(tools.keys())})
-    log_output("SAM3_Segment_Tool metadata", metadata)
+    log_output("Visual_Grounding_Tool metadata", metadata)
 
     prompt = build_tool_call_prompt(
-        "SAM3_Segment_Tool",
+        "Visual_Grounding_Tool",
         metadata,
         "Segment the shoe in the image.",
         image_path,
@@ -396,7 +396,7 @@ def test_llm_invocation_python():
     args.setdefault("return_all_masks_viz", True)
     if "server_url" not in args:
         args["server_url"] = SAM3_SERVER_URL
-    response = client.execute("SAM3_Segment_Tool", args)
+    response = client.execute("Visual_Grounding_Tool", args)
     log_output("Response", response)
 
     result = response["result"]
@@ -447,12 +447,12 @@ def test_llm_invocation_json():
 
     client = ToolClient(TOOL_SERVER_URL)
     tools = client.list_tools()
-    metadata = tools["SAM3_Segment_Tool"]
+    metadata = tools["Visual_Grounding_Tool"]
     log_output("Tools", {"tool_names": sorted(tools.keys())})
-    log_output("SAM3_Segment_Tool metadata", metadata)
+    log_output("Visual_Grounding_Tool metadata", metadata)
 
     prompt = build_tool_call_prompt(
-        "SAM3_Segment_Tool",
+        "Visual_Grounding_Tool",
         metadata,
         "Segment the shoe in the image.",
         image_path,
@@ -472,7 +472,7 @@ def test_llm_invocation_json():
     args.setdefault("return_all_masks_viz", True)
     if "server_url" not in args:
         args["server_url"] = SAM3_SERVER_URL
-    response = client.execute("SAM3_Segment_Tool", args)
+    response = client.execute("Visual_Grounding_Tool", args)
     log_output("Response", response)
 
     result = response["result"]
@@ -501,7 +501,7 @@ def test_llm_invocation_json():
 
 def main():
     test_subserver_error_propagation()
-    if not ensure_tool_server(TOOL_SERVER_URL, required_tools=["SAM3_Segment_Tool"]):
+    if not ensure_tool_server(TOOL_SERVER_URL, required_tools=["Visual_Grounding_Tool"]):
         return
     if not ensure_sam3_server(SAM3_SERVER_URL):
         return

@@ -70,6 +70,7 @@ actor_rollout_ref:
       tool_config_path: rl/configs/tool_config_geo3k.yaml
     agent:
       num_workers: 1
+      default_agent_loop: tool_agent
   ref:
     log_prob_micro_batch_size_per_gpu: 32
     log_prob_max_token_len_per_gpu: 8192

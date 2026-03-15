@@ -17,7 +17,8 @@ LMU_DATA_DIR="${LMU_DATA_DIR:-/data/<user>/lmu_data}"
 TRAIN_PARQUET="${TRAIN_PARQUET:-$PROJECT_DIR/rl/data/fsc147_train.parquet}"
 VAL_PARQUET="${VAL_PARQUET:-$PROJECT_DIR/rl/data/fsc147_val.parquet}"
 TRAIN_MAX_SAMPLES="${TRAIN_MAX_SAMPLES:--1}"
-VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-50}"
+VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-100}"
+VAL_SEED="${VAL_SEED:-42}"
 SKIP_PREPROCESS="${SKIP_PREPROCESS:-0}"
 
 # ---------- Tools ----------
@@ -60,11 +61,12 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
     --output-train "$TRAIN_PARQUET"
     --output-val "$VAL_PARQUET"
     --val-max-samples "$VAL_MAX_SAMPLES"
+    --val-seed "$VAL_SEED"
   )
   if [[ "$TRAIN_MAX_SAMPLES" != "-1" ]]; then
     preprocess_args+=(--train-max-samples "$TRAIN_MAX_SAMPLES")
   fi
-  python -m rl.data.preprocess_fsc147 "${preprocess_args[@]}"
+  python -m rl.data_processing.preprocess_fsc147 "${preprocess_args[@]}"
 fi
 
 # ---------- Stage 3: verl GRPO training ----------
@@ -106,4 +108,4 @@ if [[ "$PPO_DRY_CFG" == "1" ]]; then
   ppo_args+=(--cfg job)
 fi
 
-python -m verl.trainer.main_ppo "${ppo_args[@]}"
+python -m verl.trainer.main_ppo "${ppo_args[@]}" "$@"

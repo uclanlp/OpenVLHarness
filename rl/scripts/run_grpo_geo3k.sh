@@ -57,7 +57,7 @@ if [[ "$SKIP_PREPROCESS" != "1" ]]; then
   if [[ -n "$LOCAL_DATASET_PATH" ]]; then
     preprocess_args+=(--local-dataset-path "$LOCAL_DATASET_PATH")
   fi
-  python -m rl.data.preprocess_geo3k "${preprocess_args[@]}"
+  python -m rl.data_processing.preprocess_geo3k "${preprocess_args[@]}"
 fi
 
 ppo_args=(

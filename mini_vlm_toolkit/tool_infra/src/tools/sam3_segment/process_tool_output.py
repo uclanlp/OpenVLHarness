@@ -44,7 +44,7 @@ def process_tool_output(payload, memory, tool_metadata=None):
     else:
         mask_count = _safe_int(result.get("num_masks"), default=0)
 
-    tool_name = str(payload.get("tool_name") or "SAM3_Segment_Tool").strip()
+    tool_name = str(payload.get("tool_name") or "Visual_Grounding_Tool").strip()
     prompt = str(result.get("prompt") or "").strip()
 
     if image_ref:

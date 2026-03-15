@@ -26,7 +26,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
 | `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
-| `SAM3_Segment_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
+| `Visual_Grounding_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
 | `SerpApi_Image_Search_Tool` | SerpApi Google reverse-image search that returns top-5 similar-image matches for one image URL. |
@@ -70,7 +70,7 @@ cp .env.example .env
 It builds `TOOL_MODULES` from `LIGHT_TOOL_MODULES` + `HEAVY_TOOL_MODULES`.
 Do not set `TOOL_MODULES` directly when using `scripts/run_server.sh`.
 
-Start the SAM3 model server (required for `SAM3_Segment_Tool`):
+Start the SAM3 model server (required for `Visual_Grounding_Tool`):
 ```bash
 ./src/tools/sam3_segment/run_sam3_server.sh
 ```
@@ -112,7 +112,7 @@ If set, `LIGHT_TOOL_MODULES` must be either `auto` or a list of module paths (no
 We plan to add a tool that queries each SAM3 mask with a VLM question, reusing
 existing tool infra components:
 - Name (proposed): `SAM3_QueryEachMask_VLM_Tool`
-- Reuse `rendered_image_b64` from `SAM3_Segment_Tool` for mask-aware context.
+- Reuse `rendered_image_b64` from `Visual_Grounding_Tool` for mask-aware context.
 - Reuse `LLM_Direct_Generator_Tool` to send OpenAI-compatible VLM requests.
 - Parse `<answer>` tags (yes/no or free-form) and aggregate counts/answers.
 

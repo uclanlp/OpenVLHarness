@@ -25,7 +25,7 @@ collect_args=(
 if [[ -n "$PRED_FILE" ]]; then
   collect_args+=(--pred-file "$PRED_FILE")
 fi
-python -m rl.data.collect_sft_data "${collect_args[@]}"
+python -m rl.data_processing.collect_sft_data "${collect_args[@]}"
 
 python -m verl.trainer.sft_trainer \
   model.path="$MODEL_PATH" \

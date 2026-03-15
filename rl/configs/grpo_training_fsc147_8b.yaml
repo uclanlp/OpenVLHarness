@@ -8,11 +8,11 @@ defaults:
 
 data:
   max_prompt_length: 4096
-  max_response_length: 16384
+  max_response_length: 4096
   train_batch_size: 32
   return_raw_chat: True
   filter_overlong_prompts: True
-  truncation: error
+  truncation: right
   prompt_key: prompt
   image_key: images
 
@@ -70,6 +70,7 @@ actor_rollout_ref:
       tool_config_path: rl/configs/tool_config.yaml
     agent:
       num_workers: 1
+      default_agent_loop: tool_agent
   ref:
     log_prob_micro_batch_size_per_gpu: 2
     log_prob_max_token_len_per_gpu: 32768
@@ -80,10 +81,12 @@ trainer:
   project_name: visual-tooluse-grpo
   experiment_name: qwen3vl8b_fsc147_grpo
   logger: ["console", "wandb"]
-  balance_batch: False
+  balance_batch: True
   total_epochs: 3
   save_freq: 50
   test_freq: 10
   val_before_train: True
   nnodes: 1
   n_gpus_per_node: 8
+  rollout_data_dir: outputs/rollouts/qwen3vl8b_fsc147_grpo
+  log_val_generations: 10

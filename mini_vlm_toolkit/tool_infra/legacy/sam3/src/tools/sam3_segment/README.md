@@ -28,7 +28,7 @@ The toolkit itself only needs `requests` to call the server.
 
 ## Image inputs
 
-`SAM3_Segment_Tool` accepts either `image_path` (server-local path) or
+`Visual_Grounding_Tool` accepts either `image_path` (server-local path) or
 `image_base64` (base64-encoded image data, optionally a data URL). Provide
 exactly one of the two.
 
@@ -43,7 +43,7 @@ tool.execute(prompt="shoe", image_base64=image_base64)
 
 ## Output visualization
 
-`SAM3_Segment_Tool` returns `all_masks_viz_base64` by default. Set
+`Visual_Grounding_Tool` returns `all_masks_viz_base64` by default. Set
 `return_all_masks_viz=False` to skip generating the visualization.
 If you set `return_masks_png_b64=False` while keeping the visualization enabled,
 the tool still requests masks from the server and removes them from the final response.
