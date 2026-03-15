@@ -62,6 +62,20 @@ class ImageVQADataset(ImageBaseDataset):
         else:
             return self.evaluate_heuristic(eval_file, **judge_kwargs)
 
+    def _get_eval_method(self):
+        """Return the dataset-specific VQA evaluation method name."""
+        dataset = self.dataset_name
+        if listinstr(['TextVQA'], dataset):
+            return 'vqa_score'
+        elif listinstr(['ChartQA'], dataset):
+            return 'relaxed_accuracy'
+        elif listinstr(['OCRVQA', 'GQA'], dataset):
+            return 'accuracy'
+        elif listinstr(['DocVQA', 'InfoVQA'], dataset):
+            return 'anls'
+        else:
+            return 'vqa_score'
+
     # It returns a DataFrame
     def evaluate_heuristic(self, eval_file, **judge_kwargs):
         from .utils.vqa_eval import hit_calculate, process_line
@@ -71,28 +85,27 @@ class ImageVQADataset(ImageBaseDataset):
         assert 'answer' in data and 'prediction' in data
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
-        lt = len(data)
-        pool = mp.Pool(16)
-        lines = [data.iloc[i] for i in range(lt)]
-        if listinstr(['TextVQA'], dataset):
-            res = pool.map(partial(process_line, method='vqa_score'), lines)
-        elif listinstr(['ChartQA'], dataset):
-            res = pool.map(partial(process_line, method='relaxed_accuracy'), lines)
-        elif listinstr(['OCRVQA', 'GQA'], dataset):
-            res = pool.map(partial(process_line, method='accuracy'), lines)
-        elif listinstr(['DocVQA', 'InfoVQA'], dataset):
-            res = pool.map(partial(process_line, method='anls'), lines)
-        else:  # default using vqa_score to calculate score
-            res = pool.map(process_line, lines)
+        method = self._get_eval_method()
 
-        data['eval_gt'] = [r['gt'] for r in res]
-        data['eval_pred'] = [r['pred'] for r in res]
-        data['eval_match'] = [r['match'] for r in res]
-        data['eval_score'] = [np.mean(r['match']) for r in res]
+        model_name = judge_kwargs.get('model', None)
+        if model_name:
+            data, res = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
+        else:
+            lt = len(data)
+            pool = mp.Pool(16)
+            lines = [data.iloc[i] for i in range(lt)]
+            res = pool.map(partial(process_line, method=method), lines)
+
+            data['eval_gt'] = [r['gt'] for r in res]
+            data['eval_pred'] = [r['pred'] for r in res]
+            data['eval_match'] = [r['match'] for r in res]
+            data['eval_score'] = [np.mean(r['match']) for r in res]
 
         detailed_result_file = get_intermediate_file_path(eval_file, '_results')
         dump(data, detailed_result_file)
 
+        lt = len(data)
+        lines = [data.iloc[i] for i in range(lt)]
         hit = hit_calculate(res, dataset)
         ret = dict()
         if 'split' in data:
@@ -121,6 +134,31 @@ class ImageVQADataset(ImageBaseDataset):
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(ret, result_file)
         return ret
+
+    def _extract_with_judge(self, eval_file, data, method, **judge_kwargs):
+        """Use LLM judge to extract answers, then apply metric. Returns (data, res)."""
+        from .utils.vqa_judge import vqa_vanilla_eval
+
+        model = build_judge(**judge_kwargs)
+        nproc = judge_kwargs.get('nproc', 4)
+        dataset = self.dataset_name
+
+        name_str = judge_kwargs.get('model', 'judge')
+        if '/' in name_str:
+            name_str = name_str.split('/')[-1]
+
+        # Use pkl for track_progress_rich cache (dict results with list values)
+        result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result', 'pkl')
+        data = vqa_vanilla_eval(model, data, nproc, result_file, dataset, method=method)
+
+        # Dump as xlsx for visualization, then reload
+        eval_record = get_intermediate_file_path(eval_file, f'_{name_str}_result')
+        dump(data, eval_record)
+        data = load(eval_record)
+
+        # Build res list in the same format as process_line output
+        res = [dict(match=data.iloc[i]['eval_match']) for i in range(len(data))]
+        return data, res
 
     def evaluate_verifier(self, eval_file, **judge_kwargs):
         data = load(eval_file)
@@ -2882,10 +2920,13 @@ class CountBenchQA(ImageVQADataset):
         return result
 
 
-class FSC147Dataset(ImageBaseDataset):
+class FSC147Dataset(ImageVQADataset):
     TYPE = 'VQA'
     DATASET_URL = {'FSC147_test': '', 'FSC147_val': '', 'FSC147_train': ''}
     DATASET_MD5 = {}
+
+    def _get_eval_method(self):
+        return 'accuracy'
 
     def build_prompt(self, line):
         if isinstance(line, int):
@@ -2901,9 +2942,23 @@ class FSC147Dataset(ImageBaseDataset):
         from .utils.fsc147 import extract_integer_from_prediction
 
         data = load(eval_file)
-        predictions = data['prediction'].apply(
-            lambda x: extract_integer_from_prediction(x) if extract_integer_from_prediction(x) is not None else 0
-        )
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        model_name = judge_kwargs.get('model', None)
+        if model_name:
+            method = self._get_eval_method()
+            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
+            predictions = data['extracted_answer'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+        else:
+            predictions = data['prediction'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+
         answers = data['answer'].astype(int)
 
         mae = (predictions - answers).abs().mean()
@@ -2911,6 +2966,7 @@ class FSC147Dataset(ImageBaseDataset):
         acc = (predictions == answers).mean() * 100
 
         result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
         return result
