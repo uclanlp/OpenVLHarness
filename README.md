@@ -93,3 +93,10 @@ python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-conf
 - You can monitor results in real-time using `tail -f <work-dir>/.../<model_name>_incremental.jsonl`.
 
 Note: define your data root with `LMUData` in `.env` (capital D).
+
+## Local Visualization Server
+To visualize trajectories, download the full_trajectories directory and run this command to start a local visualization server:
+```
+streamlit run configs/cf-testing/visualize_server.py --trajectory-dir <path-to-trajectories>
+```
+Then open the provided localhost URL in your browser to explore the trajectories with an interactive interface.
