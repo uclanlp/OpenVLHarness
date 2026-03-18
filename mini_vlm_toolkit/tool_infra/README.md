@@ -32,6 +32,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `SerpApi_Image_Search_Tool` | SerpApi Google reverse-image search that returns top-5 similar-image matches for one image URL. |
 | `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
 | `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
+| `Webpage_Visit_Tool` | Visit URLs via Reader APIs (Zhipu/Jina), convert to markdown, and extract content relevant to a goal. |
 | `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
 | `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
 | `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
@@ -231,7 +232,9 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
   - `src/tools/serpapi_image_search/serpapi_api_key`
   - `src/tools/serper_google_search/serper_api_key`
   - `src/tools/single_url_qa/openai_api_key`
-- Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, `python tests/test_serpapi_image_search.py`, and `python tests/test_single_url_qa.py`.
+  - `src/tools/webpage_visit/zhipu_api_key` (Zhipu Reader API, primary)
+  - `src/tools/webpage_visit/jina_api_key` (Jina Reader API, fallback)
+- Reminder: run `python tests/test_gemini_google_search.py`, `python tests/test_serper_google_search.py`, `python tests/test_serpapi_image_search.py`, `python tests/test_single_url_qa.py`, and `python tests/test_webpage_visit.py`.
 
 ## TODO
 - Rui: adding a GUI grounder

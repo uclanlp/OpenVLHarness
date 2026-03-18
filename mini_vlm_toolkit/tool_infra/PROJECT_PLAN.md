@@ -27,6 +27,7 @@ Non-goals:
 - Implemented: explicit `input_schema` added to most tools (non-SAM3 included).
 - Implemented: config-driven subagent tools via `SUBAGENT_CONFIG_DIR` YAML configs (`src/tools/subagent/`).
 - Implemented: `SerpApi_Image_Search_Tool` for reverse image search via SerpApi (`src/tools/serpapi_image_search/`).
+- Implemented: `Webpage_Visit_Tool` for webpage content extraction via Zhipu/Jina Reader APIs with LLM-based summarization (`src/tools/webpage_visit/`).
 
 ## Reference Sources
 When referencing external code or behavior, only use the repos under `reference/`:
@@ -57,6 +58,10 @@ These tools are the initial compatibility target:
   - Summary: LLM generates Python snippet for math-like tasks, executes in restricted mode
   - Input: `query: str`
   - Output: `dict`
+- Webpage_Visit_Tool
+  - Summary: Visit URLs via Reader APIs (Zhipu/Jina), convert to markdown, extract content relevant to a goal
+  - Input: `urls: list[str]`, `goal: str`
+  - Output: `str`
 
 ## Planned Tools (Vision tool ports)
 We will port tool logic directly into `src/tools` and skip all external controller/worker or Gradio servers. Heavyweight models are served via dedicated FastAPI servers that the toolkit calls as wrappers.
