@@ -1,3 +1,4 @@
+import copy
 import ast
 import contextlib
 import keyword
@@ -383,7 +384,7 @@ def execute_python_code(
     if sanitize_main_code is not None:
         exec_code = sanitize_main_code(exec_code)
 
-    namespace = dict(prepared_context.bindings)
+    namespace = copy.deepcopy(prepared_context.bindings)
     stdout_buffer = StringIO()
 
     with timeout(timeout_seconds):

@@ -122,13 +122,15 @@ def test_direct_invocation_with_context_import_resolution():
 def test_direct_invocation_with_mutated_context_binding():
     log_step("Direct invocation with mutated context binding")
     tool = Python_Executor_Tool()
+    context_bindings = {"data": {"count": 1}}
     result = tool.execute(
         code='data["count"] += 1\nprint(data["count"])',
-        context_bindings={"data": {"count": 1}},
+        context_bindings=context_bindings,
     )
     log_output("Result", result)
     assert result["printed_output"] == "2", "Expected printed output to be 2"
     assert result["variables"]["data"] == "{'count': 2}", "Expected mutated binding"
+    assert context_bindings == {"data": {"count": 1}}, "Expected caller-owned input to remain unchanged"
 
 
 def test_direct_invocation_fenced_code_variants():
