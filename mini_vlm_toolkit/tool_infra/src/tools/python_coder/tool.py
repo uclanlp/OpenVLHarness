@@ -22,7 +22,10 @@ INPUT_SCHEMA = {
     "properties": {
         "query": {
             "type": "string",
-            "description": "Task description for the Python code generator",
+            "description": (
+                "Math-focused task description with required inputs; additional "
+                "runtime values/helpers may be supplied via context_bindings/context_code"
+            ),
         },
         "context_bindings": {
             "type": "object",
@@ -55,20 +58,26 @@ INPUT_SCHEMA = {
 
 LIMITATION = f"""
 The {TOOL_NAME} has several limitations:
-1. No sandboxing. Do not use it for untrusted tasks.
-2. Best suited for lightweight Python reasoning and transformation tasks.
-3. Prefer using provided context_bindings/context_code directly instead of recreating large constants or helpers.
-4. Avoid unnecessary imports, external I/O, and network access.
-5. Keep generated code short, direct, and easy to inspect.
+1. Restricted primarily to basic Python arithmetic operations and built-in mathematical functions.
+2. Should not use any external libraries or modules unless they are explicitly provided through context_code.
+3. Limited to simple mathematical calculations and problems.
+4. Should not perform string processing, data structure manipulation, or complex algorithms unless the caller explicitly provides the needed runtime context.
+5. Should not access system resources, file operations, or network requests.
+6. Should not use 'import' statements unless they are explicitly provided through context_code.
+7. All calculations must be self-contained within a single function or script, aside from caller-provided runtime context.
+8. Input may be provided directly in the query string or through context_bindings/context_code.
+9. Output should be kept to a single numerical result or a simple list/tuple of numbers.
+10. DO NOT generate loop output.
 """
 
 BEST_PRACTICE = f"""
 For optimal results with the {TOOL_NAME}:
-1. Provide a clear task description.
-2. Put reusable helper code in context_code when possible.
-3. Put runtime values in context_bindings instead of asking the model to reconstruct them.
-4. Use context_annotations when a binding is opaque or semantically important.
-5. Review generated code before relying on it for important work.
+1. Provide clear and specific queries that describe the desired mathematical calculation.
+2. Include all necessary numerical inputs directly in the query string or through context_bindings/context_code.
+3. Keep tasks focused on basic arithmetic, algebraic calculations, or simple mathematical algorithms.
+4. Ensure all required numerical data is included in the query or provided through context_bindings/context_code.
+5. Verify that the query mainly involves mathematical operations and does not require external I/O or broad general-purpose programming.
+6. Review generated code to ensure it mainly uses basic Python arithmetic operations, built-in math functions, and any caller-provided helpers/context.
 """
 
 
@@ -86,16 +95,18 @@ class Python_Coder_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Generate Python code from a query, execute it, and "
-                "return stdout plus variables. It can also use caller-provided "
-                "runtime bindings and helper definitions through context_bindings "
-                "and context_code. Do not use it for untrusted tasks, external I/O, "
-                "or broad autonomous programming."
+                "Generate Python code from a math-focused query, execute it, and "
+                "return stdout plus variables. Use this tool for arithmetic and "
+                "lightweight math reasoning when the user provides all needed inputs, "
+                "either directly in the query or through context_bindings/context_code. "
+                "Do not use it for untrusted tasks, external I/O, or broad "
+                "general-purpose programming."
             ),
             tool_version="0.2.0",
             input_types={
                 "query": (
-                    "str - task description for the Python code generator"
+                    "str - math-focused task description with required inputs; additional "
+                    "runtime values/helpers may be supplied via context_bindings/context_code"
                 ),
                 "context_bindings": (
                     "dict - optional JSON-serializable runtime bindings injected before execution"
