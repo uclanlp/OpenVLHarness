@@ -260,10 +260,15 @@ class Webpage_Visit_Tool(BaseTool):
         if not isinstance(data, dict):
             raise RuntimeError("Zhipu Reader API data field missing or malformed")
 
-        return {
+        result = {
             "content": data.get("content") or "",
             "description": data.get("description") or "",
         }
+        if not result["content"] and not result["description"]:
+            raise RuntimeError(
+                "Zhipu Reader API returned empty content and description"
+            )
+        return result
 
     def _fetch_page_jina(self, url: str) -> Dict[str, Any]:
         """Fetch page content via Jina Reader API (fallback).

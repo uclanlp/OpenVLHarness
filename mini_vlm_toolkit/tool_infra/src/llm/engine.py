@@ -62,7 +62,9 @@ class LLMEngine:
         # max_completion_tokens and do not support temperature/top_p.
         # Other OpenAI models (gpt-4o, etc.) accept both param names.
         _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
-        is_reasoning = any(self.model.startswith(p) for p in _REASONING_PREFIXES)
+        # Strip provider prefix (e.g. "openai/o3-mini" -> "o3-mini")
+        bare_model = self.model.rsplit("/", 1)[-1]
+        is_reasoning = any(bare_model.startswith(p) for p in _REASONING_PREFIXES)
 
         request_kwargs = {
             "model": self.model,
