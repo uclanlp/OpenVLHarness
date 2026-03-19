@@ -1,4 +1,5 @@
 from mini_vlm_toolkit import *
+from ..smp import *
 from .image_base import ImageBaseDataset
 from .utils import build_judge
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
@@ -97,7 +98,7 @@ class ImageShortQADataset(ImageBaseDataset):
         if not osp.exists(storage):
             ans_map = {} if not osp.exists(tmp_file) else load(tmp_file)
 
-            model = judge_kwargs.get('model', 'gpt-4o-mini')
+            model = judge_kwargs.pop('model', 'gpt-4o-mini')
             if model == 'exact_matching':
                 model = None
             else:

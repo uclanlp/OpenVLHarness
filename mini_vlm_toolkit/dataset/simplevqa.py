@@ -146,7 +146,7 @@ class SimpleVQA(ImageBaseDataset):
         # base_url = os.environ.get('OPENAI_API_BASE', None)
         api_key = judge_kwargs.get('key', None)
         api_base = judge_kwargs.get('api_base', None)
-        if "/chat/completions" in api_base:
+        if api_base and "/chat/completions" in api_base:
             # prune 
             api_base = api_base.replace("/chat/completions", "")
         model_name = judge_kwargs.get('model', 'gpt-4o')
