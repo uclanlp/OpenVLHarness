@@ -58,14 +58,26 @@ class LLMEngine:
         top_p = generation_kwargs.pop("top_p", self.top_p)
         max_tokens = generation_kwargs.pop("max_tokens", self.max_tokens)
         extra_body = generation_kwargs.pop("extra_body", self.extra_body)
+        # OpenAI reasoning models (o1, o3, o4, gpt-5-mini) only accept
+        # max_completion_tokens and do not support temperature/top_p.
+        # Other OpenAI models (gpt-4o, etc.) accept both param names.
+        _REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+        # Strip provider prefix (e.g. "openai/o3-mini" -> "o3-mini")
+        bare_model = self.model.rsplit("/", 1)[-1]
+        is_reasoning = any(bare_model.startswith(p) for p in _REASONING_PREFIXES)
+
         request_kwargs = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
-            "top_p": top_p,
-            "max_tokens": max_tokens,
             **generation_kwargs,
         }
+        if is_reasoning:
+            request_kwargs["max_completion_tokens"] = max_tokens
+            # reasoning models ignore temperature/top_p; omit them
+        else:
+            request_kwargs["max_tokens"] = max_tokens
+            request_kwargs["temperature"] = temperature
+            request_kwargs["top_p"] = top_p
         if extra_body is not None:
             request_kwargs["extra_body"] = extra_body
 
