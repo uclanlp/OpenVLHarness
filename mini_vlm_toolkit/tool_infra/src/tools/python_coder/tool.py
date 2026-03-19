@@ -189,9 +189,6 @@ class Python_Coder_Tool(BaseTool):
         context_bindings=None,
         context_code=None,
         timeout_seconds=10,
-        max_output_length=7000,
-        max_var_length=2000,
-        max_vars=20,
         prepared_context=None,
     ):
         if not code:
@@ -208,9 +205,6 @@ class Python_Coder_Tool(BaseTool):
                 prepared_context=prepared_context,
                 timeout_seconds=timeout_seconds,
                 sanitize_main_code=sanitize_code,
-                max_output_length=max_output_length,
-                max_var_length=max_var_length,
-                max_vars=max_vars,
             )
         except TimeoutError:
             return {"error": f"Execution timed out after {timeout_seconds} seconds"}

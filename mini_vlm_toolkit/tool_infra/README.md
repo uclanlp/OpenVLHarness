@@ -222,6 +222,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - The executor runs code with `exec()` and no sandboxing.
 - `Python_Executor_Tool` accepts optional `context_bindings` (JSON-serializable runtime values) and `context_code` (Python helper definitions/imports executed first).
 - `Python_Code_Generator_Tool` accepts the same runtime context plus optional generator-only `context_annotations` to describe provided names in the prompt.
+- Runtime context shown to the generator prompt uses summarized/truncated binding previews, but the returned `printed_output` and `variables` payloads from the code tools are not truncated by the tool server.
 - Run commands from the tool infra root. For tests, set `PYTHONPATH="$(pwd)/src:$(pwd)"` so `tests` imports resolve.
 - If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 - `sam3_segment` also depends on `requirements-server.txt` (including `matplotlib`) and runs via `./src/tools/sam3_segment/run_sam3_server.sh`.

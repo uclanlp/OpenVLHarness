@@ -176,6 +176,7 @@ print(response.json())
 - `args`: object (keyword args forwarded to `tool.execute(**args)`)
   - `Python_Executor_Tool` accepts optional `context_bindings` and `context_code`.
   - `Python_Code_Generator_Tool` accepts the same runtime context plus optional generator-only `context_annotations`.
+  - Runtime context is summarized when shown to the generator prompt, but code-tool execution results are returned in full.
 - `tool_call_id`: optional string (for agent-side call/result correlation)
 - `tool_name` can be a canonical tool name or an alias.
 

@@ -351,20 +351,15 @@ def build_context_prompt_sections(
     return "\n\n".join(section for section in sections if section.strip())
 
 
-def render_namespace_variables(namespace, max_var_length=2000, max_vars=None):
+def render_namespace_variables(namespace):
     visible_items = [
         (key, value)
         for key, value in namespace.items()
         if not key.startswith("__")
     ]
     rendered = {}
-    for index, (key, value) in enumerate(visible_items):
-        if max_vars is not None and index >= max_vars:
-            rendered["__truncated__"] = (
-                f"... ({len(visible_items) - max_vars} more variables omitted)"
-            )
-            break
-        rendered[key] = safe_repr(value, max_length=max_var_length)
+    for key, value in visible_items:
+        rendered[key] = safe_repr(value)
     return rendered
 
 
@@ -373,9 +368,6 @@ def execute_python_code(
     prepared_context,
     timeout_seconds=10,
     sanitize_main_code=None,
-    max_output_length=None,
-    max_var_length=2000,
-    max_vars=None,
 ):
     if not code:
         raise ValueError("code is required")
@@ -394,14 +386,7 @@ def execute_python_code(
             exec(exec_code, namespace, namespace)
 
     return {
-        "printed_output": truncate_string(
-            stdout_buffer.getvalue().strip(),
-            max_output_length,
-        ),
-        "variables": render_namespace_variables(
-            namespace,
-            max_var_length=max_var_length,
-            max_vars=max_vars,
-        ),
+        "printed_output": stdout_buffer.getvalue().strip(),
+        "variables": render_namespace_variables(namespace),
         "execution_code": exec_code,
     }

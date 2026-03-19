@@ -98,6 +98,33 @@ def test_execute_code_snippet_with_context():
     assert result["variables"]["value"] == "30", "Expected value 30"
 
 
+def test_execute_code_snippet_returns_full_stdout_and_all_variables():
+    log_step("Python coder execute_code_snippet returns full stdout and all variables")
+    tool = Python_Coder_Tool()
+    long_text = "Y" * 8000
+    assignments = "\n".join(f"v_{index} = {index}" for index in range(25))
+    code = (
+        f'text = "{long_text}"\n'
+        "print(text)\n"
+        f"{assignments}\n"
+    )
+    result = tool.execute_code_snippet(code=code)
+    log_output(
+        "Result summary",
+        {
+            "printed_output_length": len(result["printed_output"]),
+            "variable_count": len(result["variables"]),
+        },
+    )
+    if "error" in result:
+        raise AssertionError(f"Python coder error: {result['error']}")
+    assert result["printed_output"] == long_text, "Expected full printed output"
+    assert result["variables"]["text"] == repr(long_text), "Expected full variable repr"
+    assert "__truncated__" not in result["variables"], "Expected no dropped variables"
+    for index in range(25):
+        assert result["variables"][f"v_{index}"] == str(index), f"Expected v_{index}"
+
+
 def test_execute_code_snippet_rejects_reserved_context_name():
     log_step("Python coder execute_code_snippet rejects reserved context name")
     tool = Python_Coder_Tool()
@@ -150,6 +177,7 @@ def test_client_invocation():
 def main():
     test_execute_code_snippet_fenced_code_variants()
     test_execute_code_snippet_with_context()
+    test_execute_code_snippet_returns_full_stdout_and_all_variables()
     test_execute_code_snippet_rejects_reserved_context_name()
     test_build_prompt_with_context_sections()
     if not ensure_tool_server(

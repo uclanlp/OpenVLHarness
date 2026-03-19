@@ -98,5 +98,4 @@ class Python_Executor_Tool(BaseTool):
             code=code,
             prepared_context=prepared_context,
             timeout_seconds=timeout_seconds,
-            max_var_length=2000,
         )

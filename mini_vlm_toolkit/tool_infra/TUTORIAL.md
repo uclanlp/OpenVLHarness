@@ -72,6 +72,8 @@ curl -X POST http://127.0.0.1:8101/execute \
 `Python_Executor_Tool` also accepts optional `context_bindings` and `context_code`,
 and `Python_Code_Generator_Tool` accepts the same runtime context plus
 generator-only `context_annotations`.
+The code tools summarize binding previews when building the generator prompt,
+but they return full `printed_output` and `variables` payloads to the caller.
 
 ## Example 1: Python executor (no vision)
 

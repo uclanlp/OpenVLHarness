@@ -133,6 +133,24 @@ def test_direct_invocation_with_mutated_context_binding():
     assert context_bindings == {"data": {"count": 1}}, "Expected caller-owned input to remain unchanged"
 
 
+def test_direct_invocation_returns_full_stdout_and_variable_values():
+    log_step("Direct invocation returns full stdout and variable values")
+    tool = Python_Executor_Tool()
+    long_text = "X" * 5000
+    result = tool.execute(
+        code=f'text = "{long_text}"\nprint(text)',
+    )
+    log_output(
+        "Result summary",
+        {
+            "printed_output_length": len(result["printed_output"]),
+            "variable_length": len(result["variables"]["text"]) - 2,
+        },
+    )
+    assert result["printed_output"] == long_text, "Expected full printed output"
+    assert result["variables"]["text"] == repr(long_text), "Expected full variable repr"
+
+
 def test_direct_invocation_fenced_code_variants():
     log_step("Direct invocation with fenced code variants")
     tool = Python_Executor_Tool()
@@ -354,6 +372,7 @@ def main():
     test_direct_invocation_with_context_bindings_and_code()
     test_direct_invocation_with_context_import_resolution()
     test_direct_invocation_with_mutated_context_binding()
+    test_direct_invocation_returns_full_stdout_and_variable_values()
     test_direct_invocation_fenced_code_variants()
     test_direct_invocation_rejects_reserved_context_name()
     test_parse_python_tool_call_args_with_explanatory_text()
