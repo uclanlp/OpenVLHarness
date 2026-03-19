@@ -200,6 +200,9 @@ class Python_Coder_Tool(BaseTool):
                     context_bindings=context_bindings,
                     context_code=context_code,
                 )
+            # Keep context_code semantics aligned with Python_Executor_Tool: caller-provided
+            # prelude code is executed as-is, while only the model-generated main snippet
+            # goes through the lightweight exit/quit sanitization.
             return execute_python_code(
                 code=code,
                 prepared_context=prepared_context,

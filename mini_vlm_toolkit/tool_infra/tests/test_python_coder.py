@@ -125,6 +125,19 @@ def test_execute_code_snippet_returns_full_stdout_and_all_variables():
         assert result["variables"][f"v_{index}"] == str(index), f"Expected v_{index}"
 
 
+def test_execute_code_snippet_rejects_system_exit_in_context_code():
+    log_step("Python coder execute_code_snippet rejects SystemExit in context_code")
+    tool = Python_Coder_Tool()
+    result = tool.execute_code_snippet(
+        code="print('should not run')",
+        context_code="import sys\nsys.exit(5)",
+    )
+    log_output("Result", result)
+    assert "error" in result, "Expected error result"
+    assert "SystemExit is not allowed" in result["error"], "Expected SystemExit guard"
+    assert "5" in result["error"], "Expected exit code in error"
+
+
 def test_execute_code_snippet_rejects_reserved_context_name():
     log_step("Python coder execute_code_snippet rejects reserved context name")
     tool = Python_Coder_Tool()
@@ -178,6 +191,7 @@ def main():
     test_execute_code_snippet_fenced_code_variants()
     test_execute_code_snippet_with_context()
     test_execute_code_snippet_returns_full_stdout_and_all_variables()
+    test_execute_code_snippet_rejects_system_exit_in_context_code()
     test_execute_code_snippet_rejects_reserved_context_name()
     test_build_prompt_with_context_sections()
     if not ensure_tool_server(

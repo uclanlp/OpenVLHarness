@@ -1,7 +1,7 @@
 import json
 import os
 
-from client.client import ToolClient
+from client.client import ToolClient, ToolClientError
 from client.json_tool_call_parser import parse_json_tool_call_args
 from client.python_tool_call_parser import (
     parse_python_tool_call,
@@ -151,6 +151,33 @@ def test_direct_invocation_returns_full_stdout_and_variable_values():
     assert result["variables"]["text"] == repr(long_text), "Expected full variable repr"
 
 
+def test_direct_invocation_rejects_system_exit_in_main_code():
+    log_step("Direct invocation rejects SystemExit in main code")
+    tool = Python_Executor_Tool()
+    try:
+        tool.execute(code="import sys\nsys.exit(7)")
+    except RuntimeError as exc:
+        assert "SystemExit is not allowed" in str(exc), "Expected SystemExit guard"
+        assert "7" in str(exc), "Expected exit code in error"
+        return
+    raise AssertionError("Expected SystemExit in main code to raise RuntimeError")
+
+
+def test_direct_invocation_rejects_system_exit_in_context_code():
+    log_step("Direct invocation rejects SystemExit in context_code")
+    tool = Python_Executor_Tool()
+    try:
+        tool.execute(
+            code="print('should not run')",
+            context_code="import sys\nsys.exit(9)",
+        )
+    except RuntimeError as exc:
+        assert "SystemExit is not allowed" in str(exc), "Expected SystemExit guard"
+        assert "9" in str(exc), "Expected exit code in error"
+        return
+    raise AssertionError("Expected SystemExit in context_code to raise RuntimeError")
+
+
 def test_direct_invocation_fenced_code_variants():
     log_step("Direct invocation with fenced code variants")
     tool = Python_Executor_Tool()
@@ -273,6 +300,28 @@ def test_client_invocation_with_context():
     assert result["variables"]["value"] == "20", "Expected value to be 20"
 
 
+def test_client_invocation_system_exit_returns_error_and_server_stays_alive():
+    log_step("Client invocation returns error for SystemExit and server stays alive")
+    client = ToolClient(SERVER_URL)
+    try:
+        client.execute(
+            "Python_Executor_Tool",
+            {"code": "import sys\nsys.exit(11)"},
+        )
+    except ToolClientError as exc:
+        assert exc.status_code == 500, "Expected server-side tool execution error"
+        assert "SystemExit is not allowed" in str(exc), "Expected SystemExit guard"
+    else:
+        raise AssertionError("Expected ToolClientError for SystemExit")
+
+    response = client.execute(
+        "Python_Executor_Tool",
+        {"code": "print(13)\nvalue = 13"},
+    )
+    log_output("Follow-up response", response)
+    assert response["result"]["printed_output"] == "13", "Expected server to remain healthy"
+
+
 def test_llm_invocation_python():
     log_step("LLM-assisted invocation via server (python)")
     model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
@@ -373,6 +422,8 @@ def main():
     test_direct_invocation_with_context_import_resolution()
     test_direct_invocation_with_mutated_context_binding()
     test_direct_invocation_returns_full_stdout_and_variable_values()
+    test_direct_invocation_rejects_system_exit_in_main_code()
+    test_direct_invocation_rejects_system_exit_in_context_code()
     test_direct_invocation_fenced_code_variants()
     test_direct_invocation_rejects_reserved_context_name()
     test_parse_python_tool_call_args_with_explanatory_text()
@@ -384,6 +435,7 @@ def main():
         return
     test_client_invocation()
     test_client_invocation_with_context()
+    test_client_invocation_system_exit_returns_error_and_server_stays_alive()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("All python executor tests passed.")

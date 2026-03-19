@@ -379,11 +379,18 @@ def execute_python_code(
     namespace = copy.deepcopy(prepared_context.bindings)
     stdout_buffer = StringIO()
 
-    with timeout(timeout_seconds):
-        with contextlib.redirect_stdout(stdout_buffer):
-            if prepared_context.context_code:
-                exec(prepared_context.context_code, namespace, namespace)
-            exec(exec_code, namespace, namespace)
+    try:
+        with timeout(timeout_seconds):
+            with contextlib.redirect_stdout(stdout_buffer):
+                if prepared_context.context_code:
+                    exec(prepared_context.context_code, namespace, namespace)
+                exec(exec_code, namespace, namespace)
+    except SystemExit as exc:
+        if exc.code is None:
+            message = "SystemExit is not allowed in executed code"
+        else:
+            message = f"SystemExit is not allowed in executed code: {exc.code!r}"
+        raise RuntimeError(message) from exc
 
     return {
         "printed_output": stdout_buffer.getvalue().strip(),
