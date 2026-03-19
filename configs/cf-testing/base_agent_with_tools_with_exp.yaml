@@ -24,5 +24,5 @@ agent_kwargs:
     name: "image"
     emit_policy: "always"  # "always" (default) or "on_change"
   extra_body: {} # optional provider-specific fields forwarded to chat/completions
-  max_iterations: 15
-  experience_file: "/data/<user>/mini-vlm-toolkit/outputs/experience_learning/Qwen3-VL-8B-Instruct/baseagentwithtools/reflection_20260306_082704/Qwen_Qwen3-VL-8B-Instruct/RealWorldQA/experience.md"  # path to experience.md with learned tool-usage principles
+  max_iterations: 30
+  experience_file: "/data/<user>/mini-vlm-toolkit/outputs/experience_learning/Qwen3-VL-8B-Instruct/baseagentwithtools/reflection_20260316_085755/Qwen_Qwen3-VL-8B-Instruct/FSC147_val/experience_v2.md"

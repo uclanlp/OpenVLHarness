@@ -17,7 +17,6 @@ INPUT_SCHEMA = {
         },
     },
     "required": ["code"],
-    "additionalProperties": False,
 }
 
 

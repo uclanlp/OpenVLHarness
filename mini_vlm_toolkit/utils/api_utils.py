@@ -339,6 +339,38 @@ def filter_kwargs_for_endpoint(kwargs: Dict[str, Any], endpoint_type: str) -> Di
 # Core request helpers
 # --------------------------------------------------------------------------- #
 
+def _dump_failed_request(payload: Dict[str, Any], response) -> None:
+    """Dump request payload and response to a file for debugging 400 errors."""
+    import datetime
+    dump_dir = os.path.join(os.getcwd(), "debug_dumps")
+    os.makedirs(dump_dir, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    dump_path = os.path.join(dump_dir, f"failed_request_{ts}.json")
+
+    # Scrub base64 image data to keep dump readable
+    def _scrub(obj):
+        if isinstance(obj, dict):
+            return {k: _scrub(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_scrub(v) for v in obj]
+        if isinstance(obj, str) and len(obj) > 500 and ("base64" in obj[:100] or obj[:20].startswith("data:image")):
+            return f"<base64_image, len={len(obj)}>"
+        return obj
+
+    dump = {
+        "timestamp": ts,
+        "response_status": response.status_code,
+        "response_body": response.text[:4096],
+        "request_payload": _scrub(copy.deepcopy(payload)),
+    }
+    try:
+        with open(dump_path, "w", encoding="utf-8") as f:
+            json.dump(dump, f, ensure_ascii=False, indent=2, default=str)
+        print(f"\n[DEBUG] 400 error — request payload dumped to: {dump_path}\n")
+    except Exception as exc:
+        print(f"\n[DEBUG] Failed to dump request payload: {exc}\n")
+
+
 @retry_with_exponential_backoff
 def chat_completion_request(
     *,
@@ -407,6 +439,8 @@ def chat_completion_request(
     if resolved_api_key:
         headers["Authorization"] = f"Bearer {resolved_api_key}"
     response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout_seconds)
+    if response.status_code == 400:
+        _dump_failed_request(payload, response)
     raise_for_status_with_detail(response, prefix=f"Chat request failed at endpoint {endpoint}")
     return response.json()
 

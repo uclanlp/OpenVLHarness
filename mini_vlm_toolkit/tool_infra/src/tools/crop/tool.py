@@ -20,8 +20,6 @@ INPUT_SCHEMA = {
                 "Crop box as [x1, y1, x2, y2]. Prefer normalized values in [0, 1] "
                 "with x1 < x2 and y1 < y2."
             ),
-            "minItems": 4,
-            "maxItems": 4,
             "items": {"type": "number"},
         },
         "coords_type": {
@@ -31,37 +29,9 @@ INPUT_SCHEMA = {
                 "Use pixel_xyxy only when you intentionally provide pixel coordinates."
             ),
             "enum": ["normalized_xyxy", "pixel_xyxy"],
-            "default": "normalized_xyxy",
         },
     },
     "required": ["coords"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
-    "allOf": [
-        {
-            "if": {
-                "properties": {"coords_type": {"const": "pixel_xyxy"}},
-                "required": ["coords_type"],
-            },
-            "then": {
-                "properties": {
-                    "coords": {
-                        "items": {"type": "number"},
-                    }
-                }
-            },
-            "else": {
-                "properties": {
-                    "coords": {
-                        "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    }
-                }
-            },
-        }
-    ],
-    "additionalProperties": False,
 }
 
 
@@ -72,8 +42,8 @@ class Crop_Tool(BaseTool):
             tool_description=(
                 "Crop an image using explicit box coordinates. Use this tool when "
                 "you already know the target box and need the cropped region only. "
-                "Do not use it to discover objects from text; use GroundingDINO_Tool "
-                "or SAM tools for region discovery first. By default, provide "
+                "Do not use it to discover objects from text; use Visual_Grounding_Tool "
+                "for region discovery first. By default, provide "
                 "normalized coordinates in [0, 1]."
             ),
             tool_version="0.1.0",

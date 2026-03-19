@@ -50,11 +50,17 @@ api_utils_stub.tool_execute_request = lambda **kwargs: {}
 sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
 import mini_vlm_toolkit.agent.base as base_module
-from mini_vlm_toolkit.agent.base import BaseAgentWithTools
+from mini_vlm_toolkit.agent.base import BaseAgentWithTools, BaseAgentWithToolsV3
 from mini_vlm_toolkit.memory import ImageStateMemory, PersistentStateMemory
 
 
 class _DummyAgent(BaseAgentWithTools):
+    def __init__(self):
+        # Intentionally skip parent init to avoid network calls in unit tests.
+        pass
+
+
+class _DummyAgentV3(BaseAgentWithToolsV3):
     def __init__(self):
         # Intentionally skip parent init to avoid network calls in unit tests.
         pass
@@ -89,6 +95,47 @@ def _build_agent():
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
+    agent.default_kwargs = {}
+    agent._tokenizer = None
+    return agent
+
+
+def _build_agent_v3():
+    agent = _DummyAgentV3()
+    agent.model = "dummy-model"
+    agent.api_base = "http://dummy/v1/chat/completions"
+    agent.key = "EMPTY"
+    agent.tool_base = "http://tool-server"
+    agent.tools = {
+        "Python_Executor_Tool": {
+            "tool_description": "Execute Python code",
+        }
+    }
+    agent.json_schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "Python_Executor_Tool",
+                "description": "Execute Python code",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string"},
+                    },
+                },
+            },
+        }
+    ]
+    agent.max_iterations = 3
+    agent.tool_choice = "auto"
+    agent.prompt_version = "v7"
+    agent.stop_tokens = ["</action>"]
+    agent.system_prompt = agent._construct_system_message()
+    agent.persistent_state_memory = ImageStateMemory(emit_policy="always")
+    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
+    agent.timeout = 10
+    agent.fail_msg = "Error: test failure"
+    agent.logger = _get_logger("BaseAgentNativeToolCallTestV3")
     agent.default_kwargs = {}
     agent._tokenizer = None
     return agent

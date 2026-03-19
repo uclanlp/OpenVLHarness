@@ -5,7 +5,7 @@ import json
 import logging
 import math
 from typing import Optional
-
+import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -124,6 +124,81 @@ def _resolve_parameters_schema(metadata, tool_name):
         _validate_input_schema(input_schema, tool_name)
         return copy.deepcopy(input_schema)
     return _input_types_to_schema(metadata.get("input_types"))
+
+
+def _load_skills_for_tool(tool_name: str) -> str:
+    """Load SKILLS.md for a tool, or auto-generate a schema doc if not found."""
+    metadata = tool_metadata.get(tool_name)
+    if metadata is None:
+        # Try case-insensitive lookup
+        for name, meta in tool_metadata.items():
+            if name.casefold() == tool_name.casefold():
+                metadata = meta
+                tool_name = name
+                break
+
+    if metadata is not None:
+        module_path = metadata.get("tool_module_path", "")
+        if module_path:
+            # e.g. "tools.sam3_segment.tool" -> "tools/sam3_segment/"
+            parts = module_path.rsplit(".", 1)
+            rel_dir = parts[0].replace(".", os.sep) if len(parts) > 1 else module_path.replace(".", os.sep)
+            tools_base = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"
+            )
+            # rel_dir is like "tools/sam3_segment", strip leading "tools/"
+            tool_subdir = rel_dir.split(os.sep, 1)[1] if os.sep in rel_dir else rel_dir
+            skills_path = os.path.join(tools_base, tool_subdir, "SKILLS.md")
+            if os.path.isfile(skills_path):
+                with open(skills_path, "r", encoding="utf-8") as f:
+                    return f.read()
+
+    # Auto-generate from metadata
+    return _auto_generate_skills(tool_name, metadata)
+
+
+def _auto_generate_skills(tool_name: str, metadata: Optional[dict]) -> str:
+    """Auto-generate a schema document when SKILLS.md is not available."""
+    if metadata is None:
+        return f"# {tool_name}\nNo schema information available for this tool."
+
+    description = metadata.get("tool_description", "No description available.")
+    schema = _resolve_parameters_schema(metadata, tool_name)
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+
+    lines = [f"# {tool_name} Usage Guide", "", description, "", "## Parameters"]
+    if properties:
+        for param_name, param_info in properties.items():
+            param_type = param_info.get("type", "string")
+            param_desc = param_info.get("description", "")
+            req_label = "required" if param_name in required else "optional"
+            lines.append(f"- `{param_name}` ({param_type}, {req_label}): {param_desc}")
+    else:
+        lines.append("No parameters documented.")
+
+    lines.append("")
+    lines.append("## Call Format")
+    example_args = {}
+    for param_name, param_info in properties.items():
+        param_type = param_info.get("type", "string")
+        if param_type == "integer":
+            example_args[param_name] = 0
+        elif param_type == "number":
+            example_args[param_name] = 0.0
+        elif param_type == "boolean":
+            example_args[param_name] = True
+        elif param_type == "array":
+            example_args[param_name] = []
+        elif param_type == "object":
+            example_args[param_name] = {}
+        else:
+            example_args[param_name] = f"<{param_name}>"
+
+    call_obj = {"type": "tool_call", "name": tool_name, "arguments": example_args}
+    lines.append(json.dumps(call_obj, ensure_ascii=False, indent=2))
+
+    return "\n".join(lines)
 
 
 def _count_tools():
@@ -286,6 +361,11 @@ def load_tool_registry():
     global tool_instances, tool_metadata
     try:
         tool_instances, tool_metadata = load_tools()
+        # Inject the schema loader into Get_Tool_Schema so it can
+        # serve schemas for all registered tools at runtime.
+        gts_instance = tool_instances.get("Get_Tool_Schema")
+        if gts_instance is not None and hasattr(gts_instance, "configure"):
+            gts_instance.configure(load_fn=_load_skills_for_tool)
         if tool_metadata:
             routes = _format_routes()
             if routes:

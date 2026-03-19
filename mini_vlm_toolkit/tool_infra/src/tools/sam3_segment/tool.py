@@ -29,11 +29,6 @@ INPUT_SCHEMA = {
         },
     },
     "required": ["query"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
-    "additionalProperties": False,
 }
 
 
