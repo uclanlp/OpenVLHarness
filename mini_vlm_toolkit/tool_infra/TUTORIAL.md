@@ -69,6 +69,9 @@ curl -X POST http://127.0.0.1:8101/execute \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"},"tool_call_id":"call_123"}'
 ```
+`Python_Executor_Tool` also accepts optional `context_bindings` and `context_code`,
+and `Python_Code_Generator_Tool` accepts the same runtime context plus
+generator-only `context_annotations`.
 
 ## Example 1: Python executor (no vision)
 
@@ -80,6 +83,19 @@ client = ToolClient("http://127.0.0.1:8101")
 response = client.execute(
     "Python_Executor_Tool",
     {"code": "print(2 + 2)\nvalue = 2 + 2"},
+)
+print(response["result"])
+```
+
+With runtime context:
+```python
+response = client.execute(
+    "Python_Executor_Tool",
+    {
+        "code": "value = scale(x)\nprint(value)",
+        "context_bindings": {"x": 4},
+        "context_code": "def scale(v):\n    return v * 5",
+    },
 )
 print(response["result"])
 ```

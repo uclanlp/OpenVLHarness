@@ -88,6 +88,49 @@ def test_direct_invocation_nonstandard_outputs():
     ), "Expected fallback repr for NonStringRepr"
 
 
+def test_direct_invocation_with_context_bindings_and_code():
+    log_step("Direct invocation with context_bindings and context_code")
+    tool = Python_Executor_Tool()
+    result = tool.execute(
+        code="result = scale(x)\nprint(result)",
+        context_bindings={"x": 3},
+        context_code="def scale(v):\n    return v * 10",
+    )
+    log_output("Result", result)
+    assert result["printed_output"] == "30", "Expected printed output to be 30"
+    assert result["variables"]["result"] == "30", "Expected result variable to be 30"
+    assert result["variables"]["x"] == "3", "Expected injected binding to survive"
+
+
+def test_direct_invocation_with_context_import_resolution():
+    log_step("Direct invocation with context_code import resolution")
+    tool = Python_Executor_Tool()
+    result = tool.execute(
+        code="result = calc(number)\nprint(result)",
+        context_bindings={"number": 9},
+        context_code=(
+            "import math\n"
+            "def calc(value):\n"
+            "    return math.sqrt(value)\n"
+        ),
+    )
+    log_output("Result", result)
+    assert result["printed_output"] == "3.0", "Expected printed output to be 3.0"
+    assert result["variables"]["result"] == "3.0", "Expected result variable to be 3.0"
+
+
+def test_direct_invocation_with_mutated_context_binding():
+    log_step("Direct invocation with mutated context binding")
+    tool = Python_Executor_Tool()
+    result = tool.execute(
+        code='data["count"] += 1\nprint(data["count"])',
+        context_bindings={"data": {"count": 1}},
+    )
+    log_output("Result", result)
+    assert result["printed_output"] == "2", "Expected printed output to be 2"
+    assert result["variables"]["data"] == "{'count': 2}", "Expected mutated binding"
+
+
 def test_direct_invocation_fenced_code_variants():
     log_step("Direct invocation with fenced code variants")
     tool = Python_Executor_Tool()
@@ -115,6 +158,20 @@ def test_direct_invocation_fenced_code_variants():
         assert result["printed_output"] == expected, f"Expected printed output {expected}"
         assert result["variables"]["value"] == expected, f"Expected value to be {expected}"
         assert "```" not in result["execution_code"], "Expected fenced markers to be stripped"
+
+
+def test_direct_invocation_rejects_reserved_context_name():
+    log_step("Direct invocation rejects reserved context_bindings name")
+    tool = Python_Executor_Tool()
+    try:
+        tool.execute(
+            code="print('should not run')",
+            context_bindings={"__builtins__": "bad"},
+        )
+    except ValueError as exc:
+        assert "reserved" in str(exc), "Expected reserved-name validation error"
+        return
+    raise AssertionError("Expected reserved context_bindings name to raise ValueError")
 
 
 def test_parse_python_tool_call_args_with_explanatory_text():
@@ -177,6 +234,23 @@ def test_client_invocation():
     result = response["result"]
     assert "10" in result["printed_output"], "Expected printed output to contain 10"
     assert result["variables"]["value"] == "10", "Expected value to be 10"
+
+
+def test_client_invocation_with_context():
+    log_step("Client invocation via server with context")
+    client = ToolClient(SERVER_URL)
+    response = client.execute(
+        "Python_Executor_Tool",
+        {
+            "code": "value = scale(x)\nprint(value)",
+            "context_bindings": {"x": 4},
+            "context_code": "def scale(v):\n    return v * 5",
+        },
+    )
+    log_output("Response", response)
+    result = response["result"]
+    assert result["printed_output"] == "20", "Expected printed output to be 20"
+    assert result["variables"]["value"] == "20", "Expected value to be 20"
 
 
 def test_llm_invocation_python():
@@ -272,17 +346,23 @@ def test_llm_invocation_json():
 
 
 def main():
-    if not ensure_tool_server(SERVER_URL, required_tools=["Python_Executor_Tool"]):
-        return
     log_step("Python executor tests")
     test_direct_invocation()
     test_direct_invocation_nonstandard_outputs()
+    test_direct_invocation_with_context_bindings_and_code()
+    test_direct_invocation_with_context_import_resolution()
+    test_direct_invocation_with_mutated_context_binding()
     test_direct_invocation_fenced_code_variants()
+    test_direct_invocation_rejects_reserved_context_name()
     test_parse_python_tool_call_args_with_explanatory_text()
     test_parse_python_tool_call_args_with_fenced_block()
     test_parse_python_tool_call_args_with_think_block()
     test_parse_python_tool_call_with_tool_name()
+    if not ensure_tool_server(SERVER_URL, required_tools=["Python_Executor_Tool"]):
+        print("Skipping server-backed python executor tests.")
+        return
     test_client_invocation()
+    test_client_invocation_with_context()
     test_llm_invocation_python()
     test_llm_invocation_json()
     print("All python executor tests passed.")

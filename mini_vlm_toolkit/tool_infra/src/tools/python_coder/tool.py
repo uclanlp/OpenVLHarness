@@ -1,10 +1,5 @@
 import os
 import re
-import signal
-import threading
-from contextlib import contextmanager
-from io import StringIO
-import contextlib
 
 from config import (
     DEFAULT_LLM_API_KEY,
@@ -13,6 +8,13 @@ from config import (
 )
 from llm.engine import LLMEngine
 from tools.base import BaseTool
+from tools.python_execution_common import (
+    TimeoutError,
+    build_context_prompt_sections,
+    execute_python_code,
+    prepare_execution_context,
+    validate_context_annotations,
+)
 
 TOOL_NAME = "Python_Code_Generator_Tool"
 INPUT_SCHEMA = {
@@ -20,7 +22,28 @@ INPUT_SCHEMA = {
     "properties": {
         "query": {
             "type": "string",
-            "description": "Math-focused task description with all required inputs",
+            "description": "Task description for the Python code generator",
+        },
+        "context_bindings": {
+            "type": "object",
+            "description": (
+                "Optional JSON-serializable runtime bindings injected before executing "
+                "context_code and the generated code"
+            ),
+        },
+        "context_code": {
+            "type": "string",
+            "description": (
+                "Optional Python code executed before the generated code. Use it to "
+                "define helper functions, classes, imports, or setup variables."
+            ),
+        },
+        "context_annotations": {
+            "type": "object",
+            "description": (
+                "Optional free-form prompt hints for names coming from context_bindings "
+                "or context_code"
+            ),
         },
         "model": {"type": "string", "description": "Override LLM model name"},
         "base_url": {"type": "string", "description": "Override LLM base URL"},
@@ -32,91 +55,21 @@ INPUT_SCHEMA = {
 
 LIMITATION = f"""
 The {TOOL_NAME} has several limitations:
-1. Restricted to basic Python arithmetic operations and built-in mathematical functions.
-2. Cannot use any external libraries or modules, including those in the Python standard library.
-3. Limited to simple mathematical calculations and problems.
-4. Cannot perform any string processing, data structure manipulation, or complex algorithms.
-5. No access to any system resources, file operations, or network requests.
-6. Cannot use 'import' statements.
-7. All calculations must be self-contained within a single function or script.
-8. Input must be provided directly in the query string.
-9. Output is limited to numerical results or simple lists/tuples of numbers.
-10. Output should be kept to a single numerical result or a simple list/tuple of numbers.
-11. DO NOT generate loop output.
+1. No sandboxing. Do not use it for untrusted tasks.
+2. Best suited for lightweight Python reasoning and transformation tasks.
+3. Prefer using provided context_bindings/context_code directly instead of recreating large constants or helpers.
+4. Avoid unnecessary imports, external I/O, and network access.
+5. Keep generated code short, direct, and easy to inspect.
 """
 
 BEST_PRACTICE = f"""
 For optimal results with the {TOOL_NAME}:
-1. Provide clear and specific queries that describe the desired mathematical calculation.
-2. Include all necessary numerical inputs directly in the query string.
-3. Keep tasks focused on basic arithmetic, algebraic calculations, or simple mathematical algorithms.
-4. Ensure all required numerical data is included in the query.
-5. Verify that the query only involves mathematical operations and does not require any data processing or complex algorithms.
-6. Review generated code to ensure it only uses basic Python arithmetic operations and built-in math functions.
+1. Provide a clear task description.
+2. Put reusable helper code in context_code when possible.
+3. Put runtime values in context_bindings instead of asking the model to reconstruct them.
+4. Use context_annotations when a binding is opaque or semantically important.
+5. Review generated code before relying on it for important work.
 """
-
-
-class TimeoutError(Exception):
-    pass
-
-
-@contextmanager
-def timeout(seconds):
-    if not seconds or seconds <= 0:
-        yield
-        return
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
-    if not hasattr(signal, "SIGALRM"):
-        yield
-        return
-
-    def handler(signum, frame):
-        raise TimeoutError("Execution timed out")
-
-    signal.signal(signal.SIGALRM, handler)
-    signal.alarm(seconds)
-    try:
-        yield
-    finally:
-        signal.alarm(0)
-
-
-def extract_python_code(text):
-    match = re.search(
-        r"```\s*(?:python|py)\b\s*(.*?)\s*```",
-        text,
-        re.DOTALL | re.IGNORECASE,
-    )
-    if match:
-        return match.group(1).strip()
-    return text.strip()
-
-
-def truncate_string(text, max_length):
-    if text is None:
-        return ""
-    if len(text) <= max_length:
-        return text
-
-    marker = " ... (truncated: middle content omitted) ... "
-    if max_length <= len(marker) + 2:
-        return text[:max_length]
-
-    head_size = (max_length - len(marker)) // 2
-    tail_size = max_length - len(marker) - head_size
-    return f"{text[:head_size]}{marker}{text[-tail_size:]}"
-
-
-def safe_repr(value, max_length=2000):
-    try:
-        representation = repr(value)
-    except Exception as exc:
-        return f"<repr_error {type(value).__name__}: {exc}>"
-    if not isinstance(representation, str):
-        return f"<repr_error {type(value).__name__}: non-string repr>"
-    return truncate_string(representation, max_length)
 
 
 def sanitize_code(code):
@@ -133,17 +86,26 @@ class Python_Coder_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Generate Python code from a math-focused query, execute it, and "
-                "return stdout plus variables. Use this tool for arithmetic and "
-                "lightweight math reasoning when the user provides all needed inputs. "
-                "Do not use it for untrusted tasks, external I/O, or broad "
-                "general-purpose programming."
+                "Generate Python code from a query, execute it, and "
+                "return stdout plus variables. It can also use caller-provided "
+                "runtime bindings and helper definitions through context_bindings "
+                "and context_code. Do not use it for untrusted tasks, external I/O, "
+                "or broad autonomous programming."
             ),
-            tool_version="0.1.1",
+            tool_version="0.2.0",
             input_types={
                 "query": (
-                    "str - math-focused task description with required numeric inputs"
-                )
+                    "str - task description for the Python code generator"
+                ),
+                "context_bindings": (
+                    "dict - optional JSON-serializable runtime bindings injected before execution"
+                ),
+                "context_code": (
+                    "str - optional Python code executed before the generated code"
+                ),
+                "context_annotations": (
+                    "dict[str, str] - optional free-form prompt hints for provided names"
+                ),
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - printed_output, variables, execution_code",
@@ -161,6 +123,19 @@ class Python_Coder_Tool(BaseTool):
                     "description": (
                         "Generate a Python function for a specific mathematical operation"
                         " on a given list of numbers."
+                    ),
+                },
+                {
+                    "command": (
+                        'Python_Code_Generator_Tool('
+                        'query="Use scale(x) and print the result.", '
+                        'context_bindings={"x": 3}, '
+                        'context_code="def scale(v):\\n    return v * 10", '
+                        'context_annotations={"scale": "helper function already defined in context_code"}'
+                        ")"
+                    ),
+                    "description": (
+                        "Generate code that uses caller-provided runtime bindings and helper definitions."
                     ),
                 },
             ],
@@ -183,73 +158,101 @@ class Python_Coder_Tool(BaseTool):
             top_p=1.0,
         )
 
-    def _build_prompt(self, query):
+    def _build_prompt(
+        self,
+        query,
+        prepared_context=None,
+        context_annotations=None,
+    ):
         task_description = (
-            "Given a query, generate a Python code snippet that performs the specified "
-            "operation on the provided data. Think step by step and keep the code simple. "
-            "Ensure the final result is printed with a short descriptive label. "
+            "Given a query, generate a concise Python code snippet that solves the task. "
+            "Use the available runtime context directly when it is relevant. "
             "Return only a single Python code block:\n\n"
             "```python\n"
             "<code snippet>\n"
             "```"
         )
-        return f"Task:\n{task_description}\n\nQuery:\n{query}"
+        sections = [f"Task:\n{task_description}"]
+        if prepared_context is not None:
+            context_section = build_context_prompt_sections(
+                prepared_context,
+                context_annotations=context_annotations,
+            )
+            if context_section:
+                sections.append(context_section)
+        sections.append(f"Query:\n{query}")
+        return "\n\n".join(sections)
 
     def execute_code_snippet(
         self,
         code,
+        context_bindings=None,
+        context_code=None,
         timeout_seconds=10,
         max_output_length=7000,
         max_var_length=2000,
         max_vars=20,
+        prepared_context=None,
     ):
         if not code:
             return {"error": "No code to execute"}
 
-        exec_code = extract_python_code(code)
-        exec_code = sanitize_code(exec_code)
-        local_vars = {}
-        stdout_buffer = StringIO()
-
         try:
-            with timeout(timeout_seconds):
-                with contextlib.redirect_stdout(stdout_buffer):
-                    exec(exec_code, {}, local_vars)
+            if prepared_context is None:
+                prepared_context = prepare_execution_context(
+                    context_bindings=context_bindings,
+                    context_code=context_code,
+                )
+            return execute_python_code(
+                code=code,
+                prepared_context=prepared_context,
+                timeout_seconds=timeout_seconds,
+                sanitize_main_code=sanitize_code,
+                max_output_length=max_output_length,
+                max_var_length=max_var_length,
+                max_vars=max_vars,
+            )
         except TimeoutError:
             return {"error": f"Execution timed out after {timeout_seconds} seconds"}
         except Exception as exc:
             return {"error": str(exc)}
 
-        printed_output = truncate_string(stdout_buffer.getvalue().strip(), max_output_length)
-        variables = {}
-        for key, value in local_vars.items():
-            if key.startswith("__"):
-                continue
-            if len(variables) >= max_vars:
-                variables["__truncated__"] = (
-                    f"... ({len(local_vars) - len(variables)} more variables omitted)"
-                )
-                break
-            variables[key] = safe_repr(value, max_var_length)
-
-        return {
-            "printed_output": printed_output,
-            "variables": variables,
-            "execution_code": exec_code,
-        }
-
-    def execute(self, query, timeout_seconds=10, model=None, base_url=None, api_key=None):
+    def execute(
+        self,
+        query,
+        context_bindings=None,
+        context_code=None,
+        context_annotations=None,
+        timeout_seconds=10,
+        model=None,
+        base_url=None,
+        api_key=None,
+    ):
         if not query:
             raise ValueError("query is required")
+
+        prepared_context = prepare_execution_context(
+            context_bindings=context_bindings,
+            context_code=context_code,
+        )
+        validated_annotations = validate_context_annotations(context_annotations)
 
         engine = self.llm_engine
         if model or base_url or api_key:
             engine = self._init_llm_engine(model=model, base_url=base_url, api_key=api_key)
 
-        prompt = self._build_prompt(query)
+        prompt = self._build_prompt(
+            query,
+            prepared_context=prepared_context,
+            context_annotations=validated_annotations,
+        )
         try:
             response = engine.generate(prompt, temperature=0.0, top_p=1.0)
         except Exception as exc:
             return {"error": f"LLM generation failed: {exc}"}
 
-        return self.execute_code_snippet(response, timeout_seconds=timeout_seconds)
+        return self.execute_code_snippet(
+            response,
+            timeout_seconds=timeout_seconds,
+            prepared_context=prepared_context,
+        )
