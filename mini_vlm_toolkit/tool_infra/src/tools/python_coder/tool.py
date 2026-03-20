@@ -22,9 +22,10 @@ INPUT_SCHEMA = {
         "query": {
             "type": "string",
             "description": (
-                "Task description: describe the task to generate and run code for with the corresponding input"
+                "Task description: describe the task to generate and run code for with the corresponding input."
             ),
         },
+        # TODO: Need to hide the following four variables to the agent
         "context_bindings": {
             "type": "object",
             "description": (
@@ -33,37 +34,38 @@ INPUT_SCHEMA = {
                 "Reserved for runtime. Do not pass in anything."
             ),
         },
-        "model": {"type": "string", "description": "Override LLM model name"},
-        "base_url": {"type": "string", "description": "Override LLM base URL"},
-        "api_key": {"type": "string", "description": "Override LLM API key"},
+        "model": {"type": "string", "description": "Override LLM model name. Reserved for runtime. Do not pass in anything."},
+        "base_url": {"type": "string", "description": "Override LLM base URL. Reserved for runtime. Do not pass in anything."},
+        "api_key": {"type": "string", "description": "Override LLM API key. Reserved for runtime. Do not pass in anything."},
     },
     "required": ["query"],
     "additionalProperties": False,
 }
 
-LIMITATION = f"""
-The {TOOL_NAME} has several limitations:
-1. Restricted primarily to basic Python arithmetic operations and built-in mathematical functions.
-2. Should not use any external libraries or modules.
-3. Limited to simple mathematical calculations and problems.
-4. Should not perform string processing, data structure manipulation, or complex algorithms.
-5. Should not access system resources, file operations, or network requests.
-6. Should not use 'import' statements.
-7. All calculations must be self-contained within a single function or script.
-8. The query should fully describe the meaning of any values the generated code needs.
-9. Output should be kept to a single numerical result or a simple list/tuple of numbers.
-10. DO NOT generate loop output.
-"""
+# This is invisible to the agent today.
+# LIMITATION = f"""
+# The {TOOL_NAME} has several limitations:
+# 1. Restricted primarily to basic Python arithmetic operations and built-in mathematical functions.
+# 2. Should not use any external libraries or modules.
+# 3. Limited to simple mathematical calculations and problems.
+# 4. Should not perform string processing, data structure manipulation, or complex algorithms.
+# 5. Should not access system resources, file operations, or network requests.
+# 6. Should not use 'import' statements.
+# 7. All calculations must be self-contained within a single function or script.
+# 8. The query should fully describe the meaning of any values the generated code needs.
+# 9. Output should be kept to a single numerical result or a simple list/tuple of numbers.
+# 10. DO NOT generate loop output.
+# """
 
-BEST_PRACTICE = f"""
-For optimal results with the {TOOL_NAME}:
-1. Provide clear and specific queries that describe the desired mathematical calculation.
-2. Include all necessary numerical inputs and semantic context directly in the query string.
-3. Keep tasks focused on basic arithmetic, algebraic calculations, or simple mathematical algorithms.
-4. Ensure the query explains what each required runtime value means if the harness has already injected it.
-5. Verify that the query mainly involves mathematical operations and does not require external I/O or broad general-purpose programming.
-6. Review generated code to ensure it mainly uses basic Python arithmetic operations and built-in math functions.
-"""
+# BEST_PRACTICE = f"""
+# For optimal results with the {TOOL_NAME}:
+# 1. Provide clear and specific queries that describe the desired mathematical calculation.
+# 2. Include all necessary numerical inputs and semantic context directly in the query string.
+# 3. Keep tasks focused on basic arithmetic, algebraic calculations, or simple mathematical algorithms.
+# 4. Ensure the query explains what each required runtime value means if the harness has already injected it.
+# 5. Verify that the query mainly involves mathematical operations and does not require external I/O or broad general-purpose programming.
+# 6. Review generated code to ensure it mainly uses basic Python arithmetic operations and built-in math functions.
+# """
 
 
 def sanitize_code(code):
@@ -80,13 +82,10 @@ class Python_Coder_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Generate Python code from a math-focused query, execute it, and "
+                "Generate Python code from query, execute it, and "
                 "return stdout plus variables. Use this tool for arithmetic and "
                 "lightweight math reasoning when the user provides all needed task "
-                "meaning in the query. Runtime-only bindings may already be injected "
-                "by the harness, but agents should not populate that field themselves. "
-                "Do not use it for untrusted tasks, external I/O, or broad "
-                "general-purpose programming."
+                "meaning in the query."
             ),
             tool_version="0.2.0",
             input_types={
@@ -94,11 +93,12 @@ class Python_Coder_Tool(BaseTool):
                     "str - math-focused task description with all required inputs and task meaning described in the query"
                 ),
                 "context_bindings": (
-                    "dict - runtime-only JSON-serializable bindings injected by the harness before execution. Reserved for runtime. Do not pass in anything."
+                    "object - JSON-serializable bindings containing variables in the environment, injected before execution. Reserved for runtime. Do not pass in anything."
                 ),
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - printed_output, variables, execution_code",
+            # TODO: need to adjust the examples based on our task use cases
             demo_commands=[
                 {
                     "command": 'Python_Code_Generator_Tool(query="Find the sum of prime numbers up to 50")',
@@ -117,8 +117,8 @@ class Python_Coder_Tool(BaseTool):
                 },
             ],
             user_metadata={
-                "limitations": LIMITATION,
-                "best_practices": BEST_PRACTICE,
+                #limitations": LIMITATION,
+                #best_practices": BEST_PRACTICE,
             },
         )
         self.llm_engine = self._init_llm_engine()
