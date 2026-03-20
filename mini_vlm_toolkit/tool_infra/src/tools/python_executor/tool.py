@@ -16,14 +16,15 @@ INPUT_SCHEMA = {
             "type": "object",
             "description": (
                 "Optional JSON-serializable runtime bindings injected before executing "
-                "context_code and code"
+                "context_code and code. "
+                "Reserved for runtime. Do not pass in anything."
             ),
         },
         "context_code": {
             "type": "string",
             "description": (
-                "Optional Python code executed before code. Use it to define helper "
-                "functions, classes, imports, or setup variables."
+                "Optional Python code executed before code. "
+                "Reserved for runtime. Do not pass in anything."
             ),
         },
     },
@@ -40,10 +41,9 @@ class Python_Executor_Tool(BaseTool):
                 "Execute a provided Python code snippet and return stdout plus local variables. "
                 "Important: if you need the numeric/text result explicitly, use print(...) and/or "
                 "assign the value to a variable. Bare expressions are executed but their value is "
-                "not returned automatically. Do not use with untrusted code. "
+                "not returned automatically. "
                 "Note: always include explicit import statements for any modules you use "
-                "(e.g., `import math`, `import os`) unless they are already available "
-                "through context_code. No modules are pre-imported."
+                "(e.g., `import math`, `import os`). No modules are pre-imported."
             ),
             tool_version="0.4.0",
             input_types={
@@ -52,10 +52,10 @@ class Python_Executor_Tool(BaseTool):
                     "Use print(...) and/or variable assignment if you need explicit values in the result."
                 ),
                 "context_bindings": (
-                    "dict - optional JSON-serializable runtime bindings injected before execution"
+                    "dict - optional JSON-serializable runtime bindings injected before execution. Reserved for runtime. Do not pass in anything."
                 ),
                 "context_code": (
-                    "str - optional Python code executed before code to define helpers/imports"
+                    "str - optional Python code executed before code to define helpers/imports. Reserved for runtime. Do not pass in anything."
                 ),
             },
             input_schema=INPUT_SCHEMA,
@@ -70,16 +70,18 @@ class Python_Executor_Tool(BaseTool):
                     "command": 'Python_Executor_Tool(code="for i in range(3):\\n    print(i)")',
                     "description": "Execute a short loop and return stdout."
                 },
-                {
-                    "command": (
-                        'Python_Executor_Tool('
-                        'code="result = scale(x)\\nprint(result)", '
-                        'context_bindings={"x": 3}, '
-                        'context_code="def scale(v):\\n    return v * 10"'
-                        ")"
-                    ),
-                    "description": "Execute code with caller-provided bindings and helper definitions."
-                }
+                # We will not add this example because it will be confusing for the agent.
+                # The agent will never use context_bindings or context_code
+                # {
+                #     "command": (
+                #         'Python_Executor_Tool('
+                #         'code="result = scale(x)\\nprint(result)", '
+                #         'context_bindings={"x": 3}, '
+                #         'context_code="def scale(v):\\n    return v * 10"'
+                #         ")"
+                #     ),
+                #     "description": "Execute code with caller-provided bindings and helper definitions."
+                # }
             ],
             user_metadata={
                 "limitations": "No sandboxing. Code is executed as-is with exec()."
