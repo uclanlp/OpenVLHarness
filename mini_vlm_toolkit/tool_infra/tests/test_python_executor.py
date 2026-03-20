@@ -88,35 +88,17 @@ def test_direct_invocation_nonstandard_outputs():
     ), "Expected fallback repr for NonStringRepr"
 
 
-def test_direct_invocation_with_context_bindings_and_code():
-    log_step("Direct invocation with context_bindings and context_code")
+def test_direct_invocation_with_context_bindings():
+    log_step("Direct invocation with context_bindings")
     tool = Python_Executor_Tool()
     result = tool.execute(
-        code="result = scale(x)\nprint(result)",
+        code="result = x * 10\nprint(result)",
         context_bindings={"x": 3},
-        context_code="def scale(v):\n    return v * 10",
     )
     log_output("Result", result)
     assert result["printed_output"] == "30", "Expected printed output to be 30"
     assert result["variables"]["result"] == "30", "Expected result variable to be 30"
     assert result["variables"]["x"] == "3", "Expected injected binding to survive"
-
-
-def test_direct_invocation_with_context_import_resolution():
-    log_step("Direct invocation with context_code import resolution")
-    tool = Python_Executor_Tool()
-    result = tool.execute(
-        code="result = calc(number)\nprint(result)",
-        context_bindings={"number": 9},
-        context_code=(
-            "import math\n"
-            "def calc(value):\n"
-            "    return math.sqrt(value)\n"
-        ),
-    )
-    log_output("Result", result)
-    assert result["printed_output"] == "3.0", "Expected printed output to be 3.0"
-    assert result["variables"]["result"] == "3.0", "Expected result variable to be 3.0"
 
 
 def test_direct_invocation_with_mutated_context_binding():
@@ -161,21 +143,6 @@ def test_direct_invocation_rejects_system_exit_in_main_code():
         assert "7" in str(exc), "Expected exit code in error"
         return
     raise AssertionError("Expected SystemExit in main code to raise RuntimeError")
-
-
-def test_direct_invocation_rejects_system_exit_in_context_code():
-    log_step("Direct invocation rejects SystemExit in context_code")
-    tool = Python_Executor_Tool()
-    try:
-        tool.execute(
-            code="print('should not run')",
-            context_code="import sys\nsys.exit(9)",
-        )
-    except RuntimeError as exc:
-        assert "SystemExit is not allowed" in str(exc), "Expected SystemExit guard"
-        assert "9" in str(exc), "Expected exit code in error"
-        return
-    raise AssertionError("Expected SystemExit in context_code to raise RuntimeError")
 
 
 def test_direct_invocation_fenced_code_variants():
@@ -289,9 +256,8 @@ def test_client_invocation_with_context():
     response = client.execute(
         "Python_Executor_Tool",
         {
-            "code": "value = scale(x)\nprint(value)",
+            "code": "value = x * 5\nprint(value)",
             "context_bindings": {"x": 4},
-            "context_code": "def scale(v):\n    return v * 5",
         },
     )
     log_output("Response", response)
@@ -418,12 +384,10 @@ def main():
     log_step("Python executor tests")
     test_direct_invocation()
     test_direct_invocation_nonstandard_outputs()
-    test_direct_invocation_with_context_bindings_and_code()
-    test_direct_invocation_with_context_import_resolution()
+    test_direct_invocation_with_context_bindings()
     test_direct_invocation_with_mutated_context_binding()
     test_direct_invocation_returns_full_stdout_and_variable_values()
     test_direct_invocation_rejects_system_exit_in_main_code()
-    test_direct_invocation_rejects_system_exit_in_context_code()
     test_direct_invocation_fenced_code_variants()
     test_direct_invocation_rejects_reserved_context_name()
     test_parse_python_tool_call_args_with_explanatory_text()

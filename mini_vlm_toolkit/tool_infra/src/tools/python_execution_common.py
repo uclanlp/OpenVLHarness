@@ -1,5 +1,4 @@
 import copy
-import ast
 import contextlib
 import keyword
 import math
@@ -23,7 +22,6 @@ class TimeoutError(Exception):
 @dataclass
 class PreparedExecutionContext:
     bindings: dict
-    context_code: str
 
 
 @contextmanager
@@ -141,81 +139,10 @@ def validate_context_bindings(context_bindings):
     return validated
 
 
-def validate_context_annotations(context_annotations):
-    if context_annotations is None:
-        return {}
-    if not isinstance(context_annotations, dict):
-        raise TypeError("context_annotations must be a dict")
-
-    validated = {}
-    for key, value in context_annotations.items():
-        if not isinstance(key, str):
-            raise TypeError("context_annotations keys must be strings")
-        if not isinstance(value, str):
-            raise TypeError(
-                f"context_annotations[{key!r}] must be a string"
-            )
-        validated[key] = value
-    return validated
-
-
-def normalize_context_code(context_code):
-    if context_code is None:
-        return ""
-    if not isinstance(context_code, str):
-        raise TypeError("context_code must be a string")
-    normalized = extract_python_code(context_code)
-    if normalized:
-        compile(normalized, "<context_code>", "exec")
-    return normalized
-
-
-def prepare_execution_context(context_bindings=None, context_code=None):
+def prepare_execution_context(context_bindings=None):
     return PreparedExecutionContext(
         bindings=validate_context_bindings(context_bindings),
-        context_code=normalize_context_code(context_code),
     )
-
-
-def _extract_assigned_names(target):
-    names = []
-    if isinstance(target, ast.Name):
-        names.append(target.id)
-    elif isinstance(target, (ast.Tuple, ast.List)):
-        for item in target.elts:
-            names.extend(_extract_assigned_names(item))
-    return names
-
-
-def extract_context_symbols(context_code):
-    symbols = {}
-    if not context_code:
-        return symbols
-
-    tree = ast.parse(context_code)
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            symbols.setdefault(node.name, "function")
-        elif isinstance(node, ast.ClassDef):
-            symbols.setdefault(node.name, "class")
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                bound_name = alias.asname or alias.name.split(".", 1)[0]
-                symbols.setdefault(bound_name, "imported module")
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name == "*":
-                    continue
-                bound_name = alias.asname or alias.name
-                symbols.setdefault(bound_name, "imported symbol")
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                for name in _extract_assigned_names(target):
-                    symbols.setdefault(name, "variable")
-        elif isinstance(node, ast.AnnAssign):
-            for name in _extract_assigned_names(node.target):
-                symbols.setdefault(name, "variable")
-    return symbols
 
 
 def _looks_like_data_url(value):
@@ -303,49 +230,21 @@ def summarize_binding_type(value):
 
 def build_context_prompt_sections(
     prepared_context,
-    context_annotations=None,
     binding_preview_length=160,
 ):
-    annotations = validate_context_annotations(context_annotations)
-    remaining_annotations = dict(annotations)
     sections = []
 
-    if prepared_context.context_code:
-        sections.append(
-            "Available executed context_code:\n"
-            "```python\n"
-            f"{prepared_context.context_code}\n"
-            "```"
-        )
-        context_symbols = extract_context_symbols(prepared_context.context_code)
-        if context_symbols:
-            lines = ["Available names from executed context_code:"]
-            for name, kind in context_symbols.items():
-                line = f"- {name}: {kind}"
-                annotation = remaining_annotations.pop(name, None)
-                if annotation:
-                    line += f"; annotation: {annotation}"
-                lines.append(line)
-            sections.append("\n".join(lines))
-
     if prepared_context.bindings:
-        lines = ["Available runtime bindings:"]
+        lines = [
+            "Available runtime bindings already injected by the harness:"
+        ]
         for name, value in prepared_context.bindings.items():
             type_summary = summarize_binding_type(value)
             preview = safe_repr(value, max_length=binding_preview_length)
             line = f"- {name}: {type_summary}"
             if preview:
                 line += f" value_preview={preview}"
-            annotation = remaining_annotations.pop(name, None)
-            if annotation:
-                line += f"; annotation: {annotation}"
             lines.append(line)
-        sections.append("\n".join(lines))
-
-    if remaining_annotations:
-        lines = ["Additional annotated runtime names:"]
-        for name, annotation in remaining_annotations.items():
-            lines.append(f"- {name}: annotation: {annotation}")
         sections.append("\n".join(lines))
 
     return "\n\n".join(section for section in sections if section.strip())
@@ -382,8 +281,6 @@ def execute_python_code(
     try:
         with timeout(timeout_seconds):
             with contextlib.redirect_stdout(stdout_buffer):
-                if prepared_context.context_code:
-                    exec(prepared_context.context_code, namespace, namespace)
                 exec(exec_code, namespace, namespace)
     except SystemExit as exc:
         if exc.code is None:

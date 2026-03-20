@@ -101,15 +101,14 @@ response = client.execute(tool_call["tool_name"], tool_call["args"])
 print(response["result"])
 ```
 
-`Python_Executor_Tool` can also receive caller-provided runtime context:
+`Python_Executor_Tool` can also receive runtime bindings injected by the harness:
 
 ```python
 response = client.execute(
     "Python_Executor_Tool",
     {
-        "code": "value = scale(x)\nprint(value)",
+        "code": "value = x * 5\nprint(value)",
         "context_bindings": {"x": 4},
-        "context_code": "def scale(v):\n    return v * 5",
     },
 )
 print(response["result"])
@@ -160,9 +159,8 @@ print(tools.json())
 payload = {
     "tool_name": "Python_Executor_Tool",
     "args": {
-        "code": "value = scale(x)\nprint(value)",
+        "code": "value = x * 10\nprint(value)",
         "context_bindings": {"x": 3},
-        "context_code": "def scale(v):\n    return v * 10",
     },
 }
 response = requests.post(f"{base_url}/execute", json=payload, timeout=300)
@@ -174,9 +172,9 @@ print(response.json())
 
 - `tool_name`: string
 - `args`: object (keyword args forwarded to `tool.execute(**args)`)
-  - `Python_Executor_Tool` accepts optional `context_bindings` and `context_code`.
-  - `Python_Code_Generator_Tool` accepts the same runtime context plus optional generator-only `context_annotations`.
-  - Runtime context is summarized when shown to the generator prompt, but code-tool execution results are returned in full.
+  - `Python_Executor_Tool` and `Python_Code_Generator_Tool` accept optional `context_bindings`.
+  - `context_bindings` is a runtime/harness field. Agents should not populate it directly.
+  - Runtime bindings are summarized when shown to the generator prompt, but code-tool execution results are returned in full.
 - `tool_call_id`: optional string (for agent-side call/result correlation)
 - `tool_name` can be a canonical tool name or an alias.
 

@@ -87,9 +87,8 @@ def test_execute_code_snippet_with_context():
     log_step("Python coder execute_code_snippet with context")
     tool = Python_Coder_Tool()
     result = tool.execute_code_snippet(
-        code="value = scale(x)\nprint(value)",
+        code="value = x * 6\nprint(value)",
         context_bindings={"x": 5},
-        context_code="def scale(v):\n    return v * 6",
     )
     log_output("Result", result)
     if "error" in result:
@@ -125,19 +124,6 @@ def test_execute_code_snippet_returns_full_stdout_and_all_variables():
         assert result["variables"][f"v_{index}"] == str(index), f"Expected v_{index}"
 
 
-def test_execute_code_snippet_rejects_system_exit_in_context_code():
-    log_step("Python coder execute_code_snippet rejects SystemExit in context_code")
-    tool = Python_Coder_Tool()
-    result = tool.execute_code_snippet(
-        code="print('should not run')",
-        context_code="import sys\nsys.exit(5)",
-    )
-    log_output("Result", result)
-    assert "error" in result, "Expected error result"
-    assert "SystemExit is not allowed" in result["error"], "Expected SystemExit guard"
-    assert "5" in result["error"], "Expected exit code in error"
-
-
 def test_execute_code_snippet_rejects_reserved_context_name():
     log_step("Python coder execute_code_snippet rejects reserved context name")
     tool = Python_Coder_Tool()
@@ -154,23 +140,17 @@ def test_build_prompt_with_context_sections():
     log_step("Python coder prompt rendering with context sections")
     tool = Python_Coder_Tool()
     prompt = tool._build_prompt(
-        query="Use scale(x) and print the result.",
+        query="Use x as the number of items and print five times that value.",
         prepared_context=prepare_execution_context(
             context_bindings={"x": 3, "image_b64": "A" * 200},
-            context_code="def scale(v):\n    return v * 10",
         ),
-        context_annotations={
-            "scale": "helper function already defined in context_code",
-            "image_b64": "base64-encoded PNG image",
-        },
     )
     log_output("Prompt", {"prompt": prompt})
-    assert "Available executed context_code" in prompt, "Expected context_code section"
-    assert "def scale(v):" in prompt, "Expected full context_code in prompt"
-    assert "Available names from executed context_code" in prompt, "Expected context symbol section"
-    assert "scale: function" in prompt, "Expected extracted context_code symbol"
+    assert "Available runtime bindings already injected by the harness" in prompt
+    assert "If the query refers to those existing names, use them directly." in prompt
     assert "image_b64: str base64-like len=200" in prompt, "Expected binding summary"
-    assert "annotation: base64-encoded PNG image" in prompt, "Expected binding annotation"
+    assert "value_preview=" in prompt, "Expected truncated binding preview"
+    assert "context_code" not in prompt, "Did not expect removed context_code section"
 
 
 def test_client_invocation():
@@ -191,7 +171,6 @@ def main():
     test_execute_code_snippet_fenced_code_variants()
     test_execute_code_snippet_with_context()
     test_execute_code_snippet_returns_full_stdout_and_all_variables()
-    test_execute_code_snippet_rejects_system_exit_in_context_code()
     test_execute_code_snippet_rejects_reserved_context_name()
     test_build_prompt_with_context_sections()
     if not ensure_tool_server(

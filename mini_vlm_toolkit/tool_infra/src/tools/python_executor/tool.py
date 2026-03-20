@@ -15,15 +15,7 @@ INPUT_SCHEMA = {
         "context_bindings": {
             "type": "object",
             "description": (
-                "Optional JSON-serializable runtime bindings injected before executing "
-                "context_code and code. "
-                "Reserved for runtime. Do not pass in anything."
-            ),
-        },
-        "context_code": {
-            "type": "string",
-            "description": (
-                "Optional Python code executed before code. "
+                "Optional JSON-serializable runtime bindings injected before executing code. "
                 "Reserved for runtime. Do not pass in anything."
             ),
         },
@@ -54,9 +46,6 @@ class Python_Executor_Tool(BaseTool):
                 "context_bindings": (
                     "dict - optional JSON-serializable runtime bindings injected before execution. Reserved for runtime. Do not pass in anything."
                 ),
-                "context_code": (
-                    "str - optional Python code executed before code to define helpers/imports. Reserved for runtime. Do not pass in anything."
-                ),
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["python_executor", "code_interpreter"],
@@ -70,31 +59,18 @@ class Python_Executor_Tool(BaseTool):
                     "command": 'Python_Executor_Tool(code="for i in range(3):\\n    print(i)")',
                     "description": "Execute a short loop and return stdout."
                 },
-                # We will not add this example because it will be confusing for the agent.
-                # The agent will never use context_bindings or context_code
-                # {
-                #     "command": (
-                #         'Python_Executor_Tool('
-                #         'code="result = scale(x)\\nprint(result)", '
-                #         'context_bindings={"x": 3}, '
-                #         'context_code="def scale(v):\\n    return v * 10"'
-                #         ")"
-                #     ),
-                #     "description": "Execute code with caller-provided bindings and helper definitions."
-                # }
             ],
             user_metadata={
                 "limitations": "No sandboxing. Code is executed as-is with exec()."
             },
         )
 
-    def execute(self, code, context_bindings=None, context_code=None, timeout_seconds=5):
+    def execute(self, code, context_bindings=None, timeout_seconds=5):
         if not code:
             raise ValueError("code is required")
 
         prepared_context = prepare_execution_context(
             context_bindings=context_bindings,
-            context_code=context_code,
         )
         return execute_python_code(
             code=code,

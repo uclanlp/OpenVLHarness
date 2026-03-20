@@ -13,7 +13,6 @@ from tools.python_execution_common import (
     build_context_prompt_sections,
     execute_python_code,
     prepare_execution_context,
-    validate_context_annotations,
 )
 
 TOOL_NAME = "Python_Code_Generator_Tool"
@@ -23,29 +22,15 @@ INPUT_SCHEMA = {
         "query": {
             "type": "string",
             "description": (
-                "Math-focused task description with required inputs; additional "
-                "runtime values/helpers may be supplied via context_bindings/context_code"
+                "Task description: describe the task to generate and run code for with the corresponding input"
             ),
         },
         "context_bindings": {
             "type": "object",
             "description": (
                 "Optional JSON-serializable runtime bindings injected before executing "
-                "context_code and the generated code"
-            ),
-        },
-        "context_code": {
-            "type": "string",
-            "description": (
-                "Optional Python code executed before the generated code. Use it to "
-                "define helper functions, classes, imports, or setup variables."
-            ),
-        },
-        "context_annotations": {
-            "type": "object",
-            "description": (
-                "Optional free-form prompt hints for names coming from context_bindings "
-                "or context_code"
+                "the generated code. "
+                "Reserved for runtime. Do not pass in anything."
             ),
         },
         "model": {"type": "string", "description": "Override LLM model name"},
@@ -59,13 +44,13 @@ INPUT_SCHEMA = {
 LIMITATION = f"""
 The {TOOL_NAME} has several limitations:
 1. Restricted primarily to basic Python arithmetic operations and built-in mathematical functions.
-2. Should not use any external libraries or modules unless they are explicitly provided through context_code.
+2. Should not use any external libraries or modules.
 3. Limited to simple mathematical calculations and problems.
-4. Should not perform string processing, data structure manipulation, or complex algorithms unless the caller explicitly provides the needed runtime context.
+4. Should not perform string processing, data structure manipulation, or complex algorithms.
 5. Should not access system resources, file operations, or network requests.
-6. Should not use 'import' statements unless they are explicitly provided through context_code.
-7. All calculations must be self-contained within a single function or script, aside from caller-provided runtime context.
-8. Input may be provided directly in the query string or through context_bindings/context_code.
+6. Should not use 'import' statements.
+7. All calculations must be self-contained within a single function or script.
+8. The query should fully describe the meaning of any values the generated code needs.
 9. Output should be kept to a single numerical result or a simple list/tuple of numbers.
 10. DO NOT generate loop output.
 """
@@ -73,11 +58,11 @@ The {TOOL_NAME} has several limitations:
 BEST_PRACTICE = f"""
 For optimal results with the {TOOL_NAME}:
 1. Provide clear and specific queries that describe the desired mathematical calculation.
-2. Include all necessary numerical inputs directly in the query string or through context_bindings/context_code.
+2. Include all necessary numerical inputs and semantic context directly in the query string.
 3. Keep tasks focused on basic arithmetic, algebraic calculations, or simple mathematical algorithms.
-4. Ensure all required numerical data is included in the query or provided through context_bindings/context_code.
+4. Ensure the query explains what each required runtime value means if the harness has already injected it.
 5. Verify that the query mainly involves mathematical operations and does not require external I/O or broad general-purpose programming.
-6. Review generated code to ensure it mainly uses basic Python arithmetic operations, built-in math functions, and any caller-provided helpers/context.
+6. Review generated code to ensure it mainly uses basic Python arithmetic operations and built-in math functions.
 """
 
 
@@ -97,25 +82,19 @@ class Python_Coder_Tool(BaseTool):
             tool_description=(
                 "Generate Python code from a math-focused query, execute it, and "
                 "return stdout plus variables. Use this tool for arithmetic and "
-                "lightweight math reasoning when the user provides all needed inputs, "
-                "either directly in the query or through context_bindings/context_code. "
+                "lightweight math reasoning when the user provides all needed task "
+                "meaning in the query. Runtime-only bindings may already be injected "
+                "by the harness, but agents should not populate that field themselves. "
                 "Do not use it for untrusted tasks, external I/O, or broad "
                 "general-purpose programming."
             ),
             tool_version="0.2.0",
             input_types={
                 "query": (
-                    "str - math-focused task description with required inputs; additional "
-                    "runtime values/helpers may be supplied via context_bindings/context_code"
+                    "str - math-focused task description with all required inputs and task meaning described in the query"
                 ),
                 "context_bindings": (
-                    "dict - optional JSON-serializable runtime bindings injected before execution"
-                ),
-                "context_code": (
-                    "str - optional Python code executed before the generated code"
-                ),
-                "context_annotations": (
-                    "dict[str, str] - optional free-form prompt hints for provided names"
+                    "dict - runtime-only JSON-serializable bindings injected by the harness before execution. Reserved for runtime. Do not pass in anything."
                 ),
             },
             input_schema=INPUT_SCHEMA,
@@ -134,19 +113,6 @@ class Python_Coder_Tool(BaseTool):
                     "description": (
                         "Generate a Python function for a specific mathematical operation"
                         " on a given list of numbers."
-                    ),
-                },
-                {
-                    "command": (
-                        'Python_Code_Generator_Tool('
-                        'query="Use scale(x) and print the result.", '
-                        'context_bindings={"x": 3}, '
-                        'context_code="def scale(v):\\n    return v * 10", '
-                        'context_annotations={"scale": "helper function already defined in context_code"}'
-                        ")"
-                    ),
-                    "description": (
-                        "Generate code that uses caller-provided runtime bindings and helper definitions."
                     ),
                 },
             ],
@@ -173,11 +139,11 @@ class Python_Coder_Tool(BaseTool):
         self,
         query,
         prepared_context=None,
-        context_annotations=None,
     ):
         task_description = (
             "Given a query, generate a concise Python code snippet that solves the task. "
-            "Use the available runtime context directly when it is relevant. "
+            "The query fully describes the meaning of any runtime bindings that may already "
+            "be available. If the query refers to those existing names, use them directly. "
             "Return only a single Python code block:\n\n"
             "```python\n"
             "<code snippet>\n"
@@ -185,10 +151,7 @@ class Python_Coder_Tool(BaseTool):
         )
         sections = [f"Task:\n{task_description}"]
         if prepared_context is not None:
-            context_section = build_context_prompt_sections(
-                prepared_context,
-                context_annotations=context_annotations,
-            )
+            context_section = build_context_prompt_sections(prepared_context)
             if context_section:
                 sections.append(context_section)
         sections.append(f"Query:\n{query}")
@@ -198,7 +161,6 @@ class Python_Coder_Tool(BaseTool):
         self,
         code,
         context_bindings=None,
-        context_code=None,
         timeout_seconds=10,
         prepared_context=None,
     ):
@@ -209,11 +171,9 @@ class Python_Coder_Tool(BaseTool):
             if prepared_context is None:
                 prepared_context = prepare_execution_context(
                     context_bindings=context_bindings,
-                    context_code=context_code,
                 )
-            # Keep context_code semantics aligned with Python_Executor_Tool: caller-provided
-            # prelude code is executed as-is, while only the model-generated main snippet
-            # goes through the lightweight exit/quit sanitization.
+            # Only the model-generated main snippet goes through the lightweight
+            # exit/quit sanitization. Runtime bindings are harness-provided input.
             return execute_python_code(
                 code=code,
                 prepared_context=prepared_context,
@@ -229,8 +189,6 @@ class Python_Coder_Tool(BaseTool):
         self,
         query,
         context_bindings=None,
-        context_code=None,
-        context_annotations=None,
         timeout_seconds=10,
         model=None,
         base_url=None,
@@ -241,9 +199,7 @@ class Python_Coder_Tool(BaseTool):
 
         prepared_context = prepare_execution_context(
             context_bindings=context_bindings,
-            context_code=context_code,
         )
-        validated_annotations = validate_context_annotations(context_annotations)
 
         engine = self.llm_engine
         if model or base_url or api_key:
@@ -252,7 +208,6 @@ class Python_Coder_Tool(BaseTool):
         prompt = self._build_prompt(
             query,
             prepared_context=prepared_context,
-            context_annotations=validated_annotations,
         )
         try:
             response = engine.generate(prompt, temperature=0.0, top_p=1.0)

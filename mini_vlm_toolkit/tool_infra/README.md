@@ -23,9 +23,9 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `OCR_Tool` | Extract text strings from an image using an OCR server. |
 | `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
 | `Point_Tool` | Extract point coordinates from text or provided points and return normalized coordinates. |
-| `Python_Code_Generator_Tool` | Generate and execute Python code snippets, optionally using caller-provided runtime bindings and helper definitions. |
+| `Python_Code_Generator_Tool` | Generate and execute Python code snippets, with optional runtime bindings injected by the harness. |
 | `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
-| `Python_Executor_Tool` | Execute a provided Python code snippet, optionally with caller-provided runtime bindings and helper definitions. |
+| `Python_Executor_Tool` | Execute a provided Python code snippet, with optional runtime bindings injected by the harness. |
 | `Visual_Grounding_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
 | `SegmentAndMark_Tool` | Segment the full image and annotate each mask with a numeric label. |
 | `SegmentRegionAroundPoint_Tool` | Segment a region around one or more points using SAM3. |
@@ -138,7 +138,7 @@ Execute a tool with runtime context:
 ```bash
 curl -X POST http://127.0.0.1:8101/execute \
   -H "Content-Type: application/json" \
-  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"value = scale(x)\nprint(value)","context_bindings":{"x":4},"context_code":"def scale(v):\n    return v * 5"},"tool_call_id":"call_ctx_123"}'
+  -d '{"tool_name":"Python_Executor_Tool","args":{"code":"value = x * 5\nprint(value)","context_bindings":{"x":4}},"tool_call_id":"call_ctx_123"}'
 ```
 `POST /execute` response contract:
 - Success keeps legacy fields and adds envelope fields:
@@ -220,9 +220,9 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 
 ## Notes
 - The executor runs code with `exec()` and no sandboxing.
-- `Python_Executor_Tool` accepts optional `context_bindings` (JSON-serializable runtime values) and `context_code` (Python helper definitions/imports executed first).
-- `Python_Code_Generator_Tool` accepts the same runtime context plus optional generator-only `context_annotations` to describe provided names in the prompt.
-- Runtime context shown to the generator prompt uses summarized/truncated binding previews, but the returned `printed_output` and `variables` payloads from the code tools are not truncated by the tool server.
+- `Python_Executor_Tool` and `Python_Code_Generator_Tool` accept optional `context_bindings` (JSON-serializable runtime values injected by the harness before execution).
+- `context_bindings` is a runtime/harness field. Agents should not populate it directly.
+- Runtime bindings shown to the generator prompt use summarized/truncated binding previews, but the returned `printed_output` and `variables` payloads from the code tools are not truncated by the tool server.
 - Run commands from the tool infra root. For tests, set `PYTHONPATH="$(pwd)/src:$(pwd)"` so `tests` imports resolve.
 - If you are using Di's shared server (always running on port 8101), use the Serper search, cloud search, and OpenAI-related tools with caution because they use Di's personal API key.
 - `sam3_segment` also depends on `requirements-server.txt` (including `matplotlib`) and runs via `./src/tools/sam3_segment/run_sam3_server.sh`.
