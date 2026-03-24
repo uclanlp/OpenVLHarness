@@ -7,6 +7,7 @@ from config import (
     DEFAULT_LLM_BASE_URL,
     DEFAULT_LLM_MODEL,
 )
+from tools.python_execution_common import prepare_execution_context
 from tools.python_coder.tool import Python_Coder_Tool
 from tests.utils import ensure_tool_server
 
@@ -82,6 +83,76 @@ def test_execute_code_snippet_fenced_code_variants():
         assert "```" not in result["execution_code"], "Expected fenced markers to be stripped"
 
 
+def test_execute_code_snippet_with_context():
+    log_step("Python coder execute_code_snippet with context")
+    tool = Python_Coder_Tool()
+    result = tool.execute_code_snippet(
+        code="value = x * 6\nprint(value)",
+        context_bindings={"x": 5},
+    )
+    log_output("Result", result)
+    if "error" in result:
+        raise AssertionError(f"Python coder error: {result['error']}")
+    assert result["printed_output"] == "30", "Expected printed output 30"
+    assert result["variables"]["value"] == "30", "Expected value 30"
+
+
+def test_execute_code_snippet_returns_full_stdout_and_all_variables():
+    log_step("Python coder execute_code_snippet returns full stdout and all variables")
+    tool = Python_Coder_Tool()
+    long_text = "Y" * 8000
+    assignments = "\n".join(f"v_{index} = {index}" for index in range(25))
+    code = (
+        f'text = "{long_text}"\n'
+        "print(text)\n"
+        f"{assignments}\n"
+    )
+    result = tool.execute_code_snippet(code=code)
+    log_output(
+        "Result summary",
+        {
+            "printed_output_length": len(result["printed_output"]),
+            "variable_count": len(result["variables"]),
+        },
+    )
+    if "error" in result:
+        raise AssertionError(f"Python coder error: {result['error']}")
+    assert result["printed_output"] == long_text, "Expected full printed output"
+    assert result["variables"]["text"] == repr(long_text), "Expected full variable repr"
+    assert "__truncated__" not in result["variables"], "Expected no dropped variables"
+    for index in range(25):
+        assert result["variables"][f"v_{index}"] == str(index), f"Expected v_{index}"
+
+
+def test_execute_code_snippet_rejects_reserved_context_name():
+    log_step("Python coder execute_code_snippet rejects reserved context name")
+    tool = Python_Coder_Tool()
+    result = tool.execute_code_snippet(
+        code="print('should not run')",
+        context_bindings={"__builtins__": "bad"},
+    )
+    log_output("Result", result)
+    assert "error" in result, "Expected validation error"
+    assert "reserved" in result["error"], "Expected reserved-name validation error"
+
+
+def test_build_prompt_with_context_sections():
+    log_step("Python coder prompt rendering with context sections")
+    tool = Python_Coder_Tool()
+    prompt = tool._build_prompt(
+        query="Use x as the number of items and print five times that value.",
+        prepared_context=prepare_execution_context(
+            context_bindings={"x": 3, "image_b64": "A" * 200},
+        ),
+    )
+    log_output("Prompt", {"prompt": prompt})
+    assert "Available runtime bindings already injected by the harness" in prompt
+    assert "If the query refers to those existing names, use them directly." in prompt
+    assert "image_b64: str base64-like len=200" in prompt, "Expected binding summary"
+    assert "value_preview=" in prompt, "Expected truncated binding preview"
+    assert "context_code" not in prompt, "Did not expect removed context_code section"
+
+
 def test_client_invocation():
     log_step("Python coder client invocation via server")
     client = ToolClient(SERVER_URL)
@@ -98,6 +169,10 @@ def test_client_invocation():
 
 def main():
     test_execute_code_snippet_fenced_code_variants()
+    test_execute_code_snippet_with_context()
+    test_execute_code_snippet_returns_full_stdout_and_all_variables()
+    test_execute_code_snippet_rejects_reserved_context_name()
+    test_build_prompt_with_context_sections()
     if not ensure_tool_server(
         SERVER_URL, required_tools=["Python_Code_Generator_Tool"]
     ):

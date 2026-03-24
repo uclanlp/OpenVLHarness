@@ -69,6 +69,11 @@ curl -X POST http://127.0.0.1:8101/execute \
   -H "Content-Type: application/json" \
   -d '{"tool_name":"Python_Executor_Tool","args":{"code":"print(2+2)\nvalue=4"},"tool_call_id":"call_123"}'
 ```
+`Python_Executor_Tool` and `Python_Code_Generator_Tool` also accept optional
+`context_bindings`, which are runtime bindings injected by the harness.
+Agents should not populate that field directly.
+The code tools summarize binding previews when building the generator prompt,
+but they return full `printed_output` and `variables` payloads to the caller.
 
 ## Example 1: Python executor (no vision)
 
@@ -80,6 +85,18 @@ client = ToolClient("http://127.0.0.1:8101")
 response = client.execute(
     "Python_Executor_Tool",
     {"code": "print(2 + 2)\nvalue = 2 + 2"},
+)
+print(response["result"])
+```
+
+With runtime context:
+```python
+response = client.execute(
+    "Python_Executor_Tool",
+    {
+        "code": "value = x * 5\nprint(value)",
+        "context_bindings": {"x": 4},
+    },
 )
 print(response["result"])
 ```
