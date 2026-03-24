@@ -125,7 +125,7 @@ print(response["result"])
 
 ## Example 2: ZoomInImageByBBox tool (vision input)
 
-`ZoomInImageByBBox_Tool` crops an image using a normalized bbox and optional padding. It returns a base64-encoded cropped image. Image tools accept either `image_path` or `image_base64` (exactly one); `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` instead of paths.
+`ZoomInImageByBBox_Tool` crops an image using normalized coords (xyxy) and optional padding. It returns a base64-encoded cropped image. Image tools accept either `image_path` or `image_base64` (exactly one); `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` instead of paths.
 
 ### Client-only call
 ```python
@@ -138,7 +138,7 @@ response = client.execute(
     "ZoomInImageByBBox_Tool",
     {
         "image_path": image_path,
-        "bbox": [0.1, 0.1, 0.4, 0.4],
+        "coords": [0.1, 0.1, 0.4, 0.4],
         "padding": 0.05,
     },
 )
@@ -156,7 +156,7 @@ response = client.execute(
     "ZoomInImageByBBox_Tool",
     {
         "image_base64": image_base64,
-        "bbox": [0.1, 0.1, 0.4, 0.4],
+        "coords": [0.1, 0.1, 0.4, 0.4],
         "padding": 0.05,
     },
 )
@@ -188,7 +188,7 @@ prompt = (
     f"Tool name: ZoomInImageByBBox_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
-    "User request: Zoom into bbox [0.05, 0.05, 0.45, 0.45] with padding 0.05.\n"
+    "User request: Zoom into coords [0.05, 0.05, 0.45, 0.45] with padding 0.05.\n"
     "Return only the code block."
 )
 
@@ -203,7 +203,7 @@ args = tool_call["args"]
 
 # Guardrails if the LLM omitted required fields.
 args.setdefault("image_path", image_path)
-args.setdefault("bbox", [0.05, 0.05, 0.45, 0.45])
+args.setdefault("coords", [0.05, 0.05, 0.45, 0.45])
 args.setdefault("padding", 0.05)
 
 response = client.execute(tool_call["tool_name"], args)

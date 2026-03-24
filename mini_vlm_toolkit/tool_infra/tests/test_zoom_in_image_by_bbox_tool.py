@@ -70,7 +70,7 @@ def test_direct_invocation():
     tool = ZoomInImageByBBox_Tool()
     result = tool.execute(
         image_path=image_path,
-        bbox=[0.2, 0.2, 0.4, 0.4],
+        coords=[0.2, 0.2, 0.4, 0.4],
         padding=0.05,
     )
     log_output("Result", result)
@@ -95,7 +95,7 @@ def test_client_invocation():
         "ZoomInImageByBBox_Tool",
         {
             "image_path": image_path,
-            "bbox": [0.1, 0.1, 0.3, 0.3],
+            "coords": [0.1, 0.1, 0.3, 0.3],
             "padding": 0.1,
         },
     )
@@ -116,7 +116,7 @@ def test_direct_invocation_base64():
     tool = ZoomInImageByBBox_Tool()
     result = tool.execute(
         image_base64=image_base64,
-        bbox=[0.2, 0.2, 0.4, 0.4],
+        coords=[0.2, 0.2, 0.4, 0.4],
         padding=0.05,
     )
     log_output("Result", result)
@@ -139,7 +139,7 @@ def test_client_invocation_base64():
         "ZoomInImageByBBox_Tool",
         {
             "image_base64": image_base64,
-            "bbox": [0.1, 0.1, 0.3, 0.3],
+            "coords": [0.1, 0.1, 0.3, 0.3],
             "padding": 0.1,
         },
     )
@@ -177,7 +177,7 @@ def test_llm_invocation_python():
     prompt = build_tool_call_prompt(
         "ZoomInImageByBBox_Tool",
         metadata,
-        "Zoom in on bbox [0.25, 0.25, 0.3, 0.3] with padding 0.05.",
+        "Zoom in on coords [0.25, 0.25, 0.3, 0.3] with padding 0.05.",
         image_path,
         call_format="python",
     )
@@ -185,7 +185,7 @@ def test_llm_invocation_python():
     log_output("LLM output", llm_output)
     args = parse_python_tool_call_args(llm_output)
     args.setdefault("image_path", image_path)
-    args.setdefault("bbox", [0.25, 0.25, 0.3, 0.3])
+    args.setdefault("coords", [0.25, 0.25, 0.3, 0.3])
     args.setdefault("padding", 0.05)
 
     response = client.execute("ZoomInImageByBBox_Tool", args)
@@ -223,7 +223,7 @@ def test_llm_invocation_json():
     prompt = build_tool_call_prompt(
         "ZoomInImageByBBox_Tool",
         metadata,
-        "Zoom in on bbox [0.25, 0.25, 0.3, 0.3] with padding 0.05.",
+        "Zoom in on coords [0.25, 0.25, 0.3, 0.3] with padding 0.05.",
         image_path,
         call_format="json",
     )
@@ -231,7 +231,7 @@ def test_llm_invocation_json():
     log_output("LLM output", llm_output)
     args = parse_json_tool_call_args(llm_output)
     args.setdefault("image_path", image_path)
-    args.setdefault("bbox", [0.25, 0.25, 0.3, 0.3])
+    args.setdefault("coords", [0.25, 0.25, 0.3, 0.3])
     args.setdefault("padding", 0.05)
 
     response = client.execute("ZoomInImageByBBox_Tool", args)
