@@ -2086,18 +2086,19 @@ class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
         super().__init__(**kwargs)
         self.stop_tokens = ["</tool_call>"]  # matches post-training
         self.logger = get_logger("BaseAgentWithToolsV3")
-        self._schema_seen_tools = set()
 
     # -------------------------------------------------------------- #
-    # Per-run reset + schema intercept
+    # Per-run state + schema intercept
     # -------------------------------------------------------------- #
 
-    def _run(self, question, **kwargs):
-        self._schema_seen_tools = set()
-        return super()._run(question, **kwargs)
+    def _new_persistent_state_memory(self):
+        memory = super()._new_persistent_state_memory()
+        memory.schema_seen_tools = set()
+        return memory
 
     def _execute_tool_call(self, call, run_memory, debug_tool_loop, debug_char_limit):
-        intercept = self._maybe_intercept_for_schema(call, self._schema_seen_tools)
+        schema_seen = run_memory.schema_seen_tools
+        intercept = self._maybe_intercept_for_schema(call, schema_seen)
         if intercept is not None:
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] auto-schema intercept for '{call['name']}' id={call['id']}")
