@@ -11,13 +11,11 @@ from .constant import (
     DEFAULT_SYSTEM_PROMPT_V2,
     DEFAULT_SYSTEM_PROMPT_V3,
     DEFAULT_SYSTEM_PROMPT_V4,
-    DEFAULT_SYSTEM_PROMPT_V7,
     DEFAULT_SYSTEM_PROMPT_V8,
     DEFAULT_USER_PROMPT_PREFIX_V1,
     DEFAULT_USER_PROMPT_PREFIX_V2,
     DEFAULT_USER_PROMPT_PREFIX_V3,
     DEFAULT_USER_PROMPT_PREFIX_V4,
-    DEFAULT_USER_PROMPT_PREFIX_V7,
     DEFAULT_USER_PROMPT_PREFIX_V8,
 )
 from ..memory import PersistentStateMemory, ImageStateMemory
@@ -1831,9 +1829,6 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
             # Repair truncated closing tags if generation was stopped by stop token.
             if raw_response and "<tool_call>" in raw_response and "</tool_call>" not in raw_response:
                 raw_response += "</tool_call>"
-            if raw_response and "<action>" in raw_response and "</action>" not in raw_response:
-                raw_response += "</action>"
-
             if debug_tool_loop and raw_response:
                 self.logger.info(
                     f"[ToolLoop] assistant_content={self._truncate_for_debug(raw_response, max_chars=debug_char_limit)}"
@@ -1993,9 +1988,6 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
 
                     if final_raw_response and "<tool_call>" in final_raw_response and "</tool_call>" not in final_raw_response:
                         final_raw_response += "</tool_call>"
-                    if final_raw_response and "<action>" in final_raw_response and "</action>" not in final_raw_response:
-                        final_raw_response += "</action>"
-
                     final_text_tool_calls = self._parse_tool_calls_from_text(final_raw_response, turn_idx=i + 1)
                     final_text_tool_calls = self._enforce_single_tool_call_per_message(
                         final_text_tool_calls,
@@ -2087,7 +2079,7 @@ class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
     ``get_tool_schema`` intercept transparently.
     """
 
-    _ALLOWED_PROMPT_VERSIONS = ("v7", "v8")
+    _ALLOWED_PROMPT_VERSIONS = ("v8",)
 
     def __init__(self, **kwargs):
         kwargs.setdefault("prompt_version", "v8")
@@ -2118,10 +2110,6 @@ class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
 
     def _get_prompt_templates(self) -> tuple:
         version = str(getattr(self, "prompt_version", "v8")).strip().lower()
-        if version == "v8":
-            return DEFAULT_SYSTEM_PROMPT_V8, DEFAULT_USER_PROMPT_PREFIX_V8
-        if version == "v7":
-            return DEFAULT_SYSTEM_PROMPT_V7, DEFAULT_USER_PROMPT_PREFIX_V7
         return DEFAULT_SYSTEM_PROMPT_V8, DEFAULT_USER_PROMPT_PREFIX_V8
 
     def _build_tools_directory(self) -> str:

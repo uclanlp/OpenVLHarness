@@ -128,8 +128,8 @@ def _build_agent_v3():
     ]
     agent.max_iterations = 3
     agent.tool_choice = "auto"
-    agent.prompt_version = "v7"
-    agent.stop_tokens = ["</action>"]
+    agent.prompt_version = "v8"
+    agent.stop_tokens = ["</tool_call>"]
     agent.system_prompt = agent._construct_system_message()
     agent.persistent_state_memory = ImageStateMemory(emit_policy="always")
     agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
