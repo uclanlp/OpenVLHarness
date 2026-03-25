@@ -1,4 +1,4 @@
-from .base import BaseAgent, BaseAgentWithTools
+from .base import BaseAgent, BaseAgentWithTools, BaseAgentWithToolsV2, BaseAgentWithToolsV3
 from .config import load_agent_config
 
 try:
@@ -9,6 +9,8 @@ except Exception:  # pragma: no cover - optional heavy deps may be missing.
 AVAILABLE_AGENTS = {
     'BaseAgent': BaseAgent,
     'BaseAgentWithTools': BaseAgentWithTools,
+    'BaseAgentWithToolsV2': BaseAgentWithToolsV2,
+    'BaseAgentWithToolsV3': BaseAgentWithToolsV3,
 }
 
 if DVDAgent is not None:

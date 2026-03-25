@@ -530,6 +530,55 @@ def write_html_reports(records, out_dir, limit, max_chars=2000):
             f.write(html_text)
 
 
+def build_raw_response_messages(trajectory):
+    """Build raw text-only message chain for SFT/RL training.
+
+    Strips parsed tool_calls from assistant messages (keeps raw text with
+    <tool_call> blocks inline) and removes role="tool" protocol ACKs.
+    Returns only: system, user, and assistant messages as raw text.
+    """
+    if not isinstance(trajectory, dict):
+        return None
+    messages = trajectory.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    complete_messages = build_complete_messages_from_trajectory(trajectory)
+    if complete_messages is None:
+        return None
+
+    raw_messages = []
+    for msg in complete_messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role")
+        if role == "tool":
+            continue
+        entry = {"role": role, "content": msg.get("content", "")}
+        # Drop tool_calls key from assistant messages
+        raw_messages.append(entry)
+    return raw_messages
+
+
+def write_raw_response_jsons(records, out_dir):
+    """Write per-sample raw response JSONs for SFT/RL training."""
+    os.makedirs(out_dir, exist_ok=True)
+    for record in records:
+        trajectory = record.get("trajectory")
+        raw_messages = build_raw_response_messages(trajectory)
+        payload = {
+            "task_id": record.get("task_id"),
+            "dataset": record.get("dataset"),
+            "model_name": record.get("model_name"),
+            "prediction": record.get("prediction"),
+        }
+        if raw_messages is not None:
+            payload["messages"] = raw_messages
+        task_id = payload.get("task_id")
+        output_path = os.path.join(out_dir, f"{task_id}.json")
+        dump(payload, output_path)
+
+
 def write_full_trajectory_jsons(records, out_dir, limit):
     """Write per-sample full trajectory JSONs aligned to the HTML selection policy."""
     if limit == 0:

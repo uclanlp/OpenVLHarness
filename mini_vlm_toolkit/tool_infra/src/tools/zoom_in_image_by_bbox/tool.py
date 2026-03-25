@@ -1,6 +1,6 @@
 from tools.base import BaseTool
 from tools.image_utils import (
-    crop_image_normalized,
+    coerce_xyxy,
     pil_to_base64,
     resolve_image_input,
 )
@@ -14,29 +14,20 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Base64 image data (use instead of image_path)",
         },
-        "bbox": {
+        "coords": {
             "type": "array",
             "description": (
-                "Normalized bbox [x, y, w, h] where every value must be in [0, 1]. "
-                "x,y is top-left and w,h are width/height ratios."
+                "Normalized bbox [x1, y1, x2, y2] where every value must be in [0, 1]. "
+                "(x1, y1) is top-left and (x2, y2) is bottom-right."
             ),
-            "minItems": 4,
-            "maxItems": 4,
-            "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "items": {"type": "number"},
         },
         "padding": {
             "type": "number",
             "description": "Extra normalized margin on each side (>= 0.05).",
-            "minimum": 0.05,
-            "default": 0.05,
         },
     },
-    "required": ["bbox"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
-    "additionalProperties": False,
+    "required": ["coords"],
 }
 
 
@@ -46,9 +37,9 @@ class ZoomInImageByBBox_Tool(BaseTool):
             tool_name=TOOL_NAME,
             tool_description=(
                 "Zoom into a region by cropping an image with a normalized bbox "
-                "[x, y, w, h] plus padding, and return the cropped image. Use this "
+                "[x1, y1, x2, y2] plus padding, and return the cropped image. Use this "
                 "tool for closer visual inspection after you already know the region. "
-                "All bbox values must be normalized in [0, 1]. "
+                "All coords values must be normalized in [0, 1]. "
                 "Do not use it to find regions from text prompts; use "
                 "GroundingDINO_Tool or SAM tools for region discovery/segmentation first."
             ),
@@ -56,7 +47,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "bbox": "list[float] - normalized [x, y, w, h], each value in [0, 1]",
+                "coords": "list[float] - normalized [x1, y1, x2, y2], each value in [0, 1]",
                 "padding": "float - extra margin on each side (must be >= 0.05)",
             },
             input_schema=INPUT_SCHEMA,
@@ -64,7 +55,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": "ZoomInImageByBBox_Tool(image_path=\"/path/to/image.jpg\", bbox=[0.1, 0.2, 0.3, 0.4])",
+                    "command": 'ZoomInImageByBBox_Tool(image_path="/path/to/image.jpg", coords=[0.1, 0.2, 0.5, 0.6])',
                     "description": "Crop around a bbox with padding.",
                 }
             ],
@@ -75,18 +66,23 @@ class ZoomInImageByBBox_Tool(BaseTool):
         )
 
     def execute(
-        self, image_path=None, bbox=None, padding=0.05, image_base64=None
+        self, image_path=None, coords=None, padding=0.05, image_base64=None
     ):
-        if bbox is None or len(bbox) != 4:
-            raise ValueError("bbox must be a list of four values")
+        if coords is None or len(coords) != 4:
+            raise ValueError("coords must be a list of four values")
         padding = float(padding)
         if padding < 0.05:
             raise ValueError("padding must be at least 0.05")
         image = resolve_image_input(image_path=image_path, image_base64=image_base64)
-        x, y, w, h = [float(value) for value in bbox]
-        x -= padding
-        y -= padding
-        w += 2 * padding
-        h += 2 * padding
-        cropped = crop_image_normalized(image, x, y, w, h)
+        x1, y1, x2, y2 = [float(v) for v in coords]
+        # Apply padding
+        x1 -= padding
+        y1 -= padding
+        x2 += padding
+        y2 += padding
+        width, height = image.size
+        left, top, right, bottom = coerce_xyxy(
+            [x1, y1, x2, y2], width, height, "normalized_xyxy"
+        )
+        cropped = image.crop((left, top, right, bottom))
         return {"cropped_image_base64": pil_to_base64(cropped)}

@@ -32,7 +32,7 @@ reflector:
 
 # --- Learning / reflection settings ---
 learning:
-  max_tries: 3                         # number of iterative learning trials
+  max_tries: 1                         # number of iterative learning trials
   generation_strategy: "instance_summarize"              # "batch" | "instance" | "instance_summarize"
                                        #   batch:              compress all trajectories → 1 reflector call per trial
                                        #   instance:           per-instance reflection, save lesson files (no summary)
@@ -53,6 +53,7 @@ trajectory:
                                        # "existing" → use pre-existing trajectories + results
   existing_trajectories_dir: null      # path to full_trajectories/ dir (when source: "existing")
   existing_results_file: null          # path to result file with answers   (when source: "existing")
+  save_trajectories: true              # keep full_trajectories/*.json each trial (useful for debugging)
   save_trajectories: false              # keep full_trajectories/*.json each trial (useful for debugging)
 
 # --- Output ---

@@ -9,8 +9,14 @@ from .utils import _get_json, pretty_print_msgs
 from .constant import (
     DEFAULT_SYSTEM_PROMPT_V1,
     DEFAULT_SYSTEM_PROMPT_V2,
+    DEFAULT_SYSTEM_PROMPT_V3,
+    DEFAULT_SYSTEM_PROMPT_V4,
+    DEFAULT_SYSTEM_PROMPT_V8,
     DEFAULT_USER_PROMPT_PREFIX_V1,
     DEFAULT_USER_PROMPT_PREFIX_V2,
+    DEFAULT_USER_PROMPT_PREFIX_V3,
+    DEFAULT_USER_PROMPT_PREFIX_V4,
+    DEFAULT_USER_PROMPT_PREFIX_V8,
 )
 from ..memory import PersistentStateMemory, ImageStateMemory
 from ..utils.api_utils import (
@@ -488,7 +494,7 @@ class BaseAgent:
     
 
 class BaseAgentWithTools(BaseAgent):
-    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2")
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
     _SUPPORTED_MEMORY_NAMES = ("image",)
 
@@ -562,6 +568,8 @@ class BaseAgentWithTools(BaseAgent):
         version = str(getattr(self, "prompt_version", "v1")).strip().lower()
         if version == "v2":
             return DEFAULT_SYSTEM_PROMPT_V2, DEFAULT_USER_PROMPT_PREFIX_V2
+        if version == "v3":
+            return DEFAULT_SYSTEM_PROMPT_V3, DEFAULT_USER_PROMPT_PREFIX_V3
         return DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
 
     def _construct_system_message(self) -> str:
@@ -964,7 +972,7 @@ class BaseAgentWithTools(BaseAgent):
         prompt_version = str(getattr(self, "prompt_version", "v1")).strip().lower()
 
         # Support v2 "Action: Final Answer" + "Action Input:" response style.
-        if prompt_version == "v2":
+        if prompt_version in ("v2", "v3"):
             action_name_match = re.search(
                 r"^\s*Action\s*:\s*(.+?)\s*$",
                 content,
@@ -1544,3 +1552,693 @@ class BaseAgentWithTools(BaseAgent):
         if input_snapshot is not None:
             trajectory["input_snapshot"] = input_snapshot
         return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}
+
+
+class BaseAgentWithToolsV2(BaseAgentWithTools):
+    """Text-based tool calling agent.
+
+    Embeds full tool JSON schemas in the system prompt and parses
+    tool calls from <tool_call> XML blocks in the model's text output,
+    instead of relying on native OpenAI tool-calling protocol.
+    """
+
+    _TOOL_CALL_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+
+    def __init__(self, stop_tokens=None, save_raw_response: bool = False, **kwargs):
+        kwargs.setdefault("prompt_version", "v3")
+        super().__init__(**kwargs)
+        self.save_raw_response = save_raw_response
+        self.stop_tokens = stop_tokens if stop_tokens is not None else ["</tool_call>"]
+        # Rebuild system prompt with tool schemas embedded.
+        self.system_prompt = self._construct_system_message()
+        self.logger = get_logger("BaseAgentWithToolsV2")
+
+    # -------------------------------------------------------------- #
+    # Prompt construction
+    # -------------------------------------------------------------- #
+
+    def _construct_system_message(self) -> str:
+        sys_template, _ = self._get_prompt_templates()
+        directory = self._build_tools_directory()
+        prompt = sys_template.replace("{tools_directory}", directory)
+        # Append experience (same as parent pattern).
+        if getattr(self, "experience_file", None) and os.path.exists(self.experience_file):
+            from ..experience.reflector import load_experience
+            experience_text = load_experience(self.experience_file)
+            if experience_text.strip():
+                prompt += (
+                    "\n\nAdditional learned tool-usage principles from prior runs:\n"
+                    "- Treat these as reusable heuristics when choosing tools, arguments, and retries.\n"
+                    "- Follow them when relevant, but do not violate tool protocols above.\n"
+                    "<learned_principles>\n"
+                    f"{experience_text}\n"
+                    "</learned_principles>"
+                )
+                self.logger.info(f"Loaded experience from {self.experience_file}")
+        return prompt
+
+    def _build_tools_directory(self) -> str:
+        entries = []
+        for entry in self.json_schema:
+            if isinstance(entry, dict) and isinstance(entry.get("function"), dict):
+                entries.append(json.dumps(entry, ensure_ascii=False, indent=2))
+        return "\n".join(entries)
+
+    # -------------------------------------------------------------- #
+    # Text-based tool-call parsing
+    # -------------------------------------------------------------- #
+
+    def _parse_tool_calls_from_text(self, content: str, turn_idx: int) -> List[Dict[str, Any]]:
+        if not content:
+            return []
+        matches = self._TOOL_CALL_RE.findall(content)
+        if not matches:
+            return []
+
+        results = []
+        for idx, block in enumerate(matches):
+            block = block.strip()
+            call_id = f"call_{turn_idx + 1}_{idx + 1}"
+
+            try:
+                parsed = json.loads(block)
+            except Exception as exc:
+                results.append({
+                    "id": call_id,
+                    "name": "unknown",
+                    "raw_arguments": block,
+                    "args": {},
+                    "assistant_tool_call": {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": "unknown", "arguments": block},
+                    },
+                    "parse_error": {
+                        "code": "invalid_tool_call_json",
+                        "message": "Could not parse <tool_call> block as JSON.",
+                        "details": {"raw": block, "exception": str(exc)},
+                    },
+                })
+                continue
+
+            if not isinstance(parsed, dict) or "name" not in parsed:
+                results.append({
+                    "id": call_id,
+                    "name": "unknown",
+                    "raw_arguments": block,
+                    "args": {},
+                    "assistant_tool_call": {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": "unknown", "arguments": block},
+                    },
+                    "parse_error": {
+                        "code": "invalid_tool_call_format",
+                        "message": "Tool call JSON must be an object with a 'name' field.",
+                        "details": {"raw": block},
+                    },
+                })
+                continue
+
+            tool_name = parsed["name"]
+            args = parsed.get("arguments", {})
+            if not isinstance(args, dict):
+                args = {}
+            raw_arguments = json.dumps(args, ensure_ascii=False)
+            results.append({
+                "id": call_id,
+                "name": tool_name,
+                "raw_arguments": raw_arguments,
+                "args": args,
+                "assistant_tool_call": {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": raw_arguments},
+                },
+                "parse_error": None,
+            })
+        return results
+
+    # -------------------------------------------------------------- #
+    # Per-call execution (overridable by subclasses)
+    # -------------------------------------------------------------- #
+
+    def _execute_tool_call(self, call, run_memory, debug_tool_loop, debug_char_limit):
+        """Execute a single parsed tool call. Returns (normalized_payload, image_resolution)."""
+        image_resolution = {"rewrites": [], "errors": []}
+        resolved_args, image_resolution = run_memory.resolve_tool_call_args(
+            agent=self, args=call["args"],
+        )
+        if debug_tool_loop:
+            self.logger.info(
+                f"[ToolLoop] execute {call['name']} id={call['id']} "
+                f"args={self._truncate_for_debug(resolved_args, max_chars=debug_char_limit)}"
+            )
+        execute_request = {
+            "tool_name": call["name"],
+            "args": resolved_args,
+            "tool_call_id": call["id"],
+        }
+        if image_resolution.get("errors"):
+            normalized_payload = {
+                "ok": False,
+                "tool_name": call["name"],
+                "result": None,
+                "error": {
+                    "code": "unresolved_image_reference",
+                    "message": "Failed to map one or more image_path arguments to runtime images.",
+                    "details": image_resolution.get("errors", []),
+                },
+                "tool_call_id": call["id"],
+                "meta": {"image_resolution": image_resolution},
+            }
+        else:
+            try:
+                payload = tool_execute_request(
+                    base_url=self.tool_base,
+                    tool_call=execute_request,
+                    timeout=self.timeout,
+                )
+                normalized_payload = self._normalize_execute_payload(
+                    payload, tool_name=call["name"], tool_call_id=call["id"],
+                )
+            except Exception as e:
+                normalized_payload = {
+                    "ok": False,
+                    "tool_name": call["name"],
+                    "result": None,
+                    "error": {"code": "tool_execution_error", "message": str(e)},
+                    "tool_call_id": call["id"],
+                    "meta": {},
+                }
+            if image_resolution.get("rewrites"):
+                meta = normalized_payload.get("meta")
+                if not isinstance(meta, dict):
+                    meta = {}
+                meta["image_resolution"] = image_resolution
+                normalized_payload["meta"] = meta
+        return normalized_payload, image_resolution
+
+    # -------------------------------------------------------------- #
+    # Main loop
+    # -------------------------------------------------------------- #
+
+    def _run(
+        self,
+        question,
+        return_messages: bool = False,
+        return_snapshot: bool = False,
+        **kwargs,
+    ) -> tuple:
+        debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
+        debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
+        chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
+        _ = kwargs.pop("tool_choice", None)  # not used in V2
+        active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
+        endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
+        is_openai_official = "api.openai.com" in endpoint_hint
+        model_name = getattr(self, "model", "") or ""
+        is_openai_native = is_openai_official or model_name.strip().lower().startswith("gpt-5")
+        _ = kwargs.pop("dataset", None)  # always remove — not a vLLM/API param
+        repetition_penalty = kwargs.pop("repetition_penalty", getattr(self, "repetition_penalty", 1.0))
+        if not is_openai_native:
+            kwargs["repetition_penalty"] = repetition_penalty
+        _ = kwargs.pop("tools", None)  # not used in V2
+
+        run_memory = self._new_persistent_state_memory()
+        run_memory.reset()
+
+        msgs = self.prepare_inputs(question, system_prompt=active_system_prompt)
+        msgs = self._add_user_prompt_prefix(msgs)
+        self._append_messages_with_indices(
+            msgs,
+            run_memory.on_run_start(agent=self, question=question, messages=msgs),
+        )
+
+        chat_history = []
+        input_snapshot = None
+        final_answer = None
+
+        for i in range(self.max_iterations):
+            if i == 0:
+                input_snapshot = {
+                    "system_prompt": next((m["content"] for m in msgs if m["role"] == "system"), None),
+                    "user_messages": [m for m in msgs if m["role"] == "user"],
+                    "tool_definitions": cp.deepcopy(self.json_schema),
+                    "rendered_prompt": None,
+                }
+                self._input_snapshot = input_snapshot
+
+            if debug_tool_loop:
+                self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
+
+            if i == self.max_iterations - 1:
+                msgs.append({
+                    "role": "user",
+                    "content": "Please provide your best final answer now if enough information is available.",
+                })
+
+            # No native tools; use stop tokens.
+            response = chat_completion_request(
+                model=self.model,
+                messages=msgs,
+                base_url=self.api_base,
+                api_key=self.key,
+                tools=None,
+                tool_choice=None,
+                stop=self.stop_tokens,
+                timeout_seconds=chat_timeout_seconds,
+                **kwargs,
+            )
+            if not isinstance(response, dict):
+                raise RuntimeError(f"Invalid chat response type: expected dict, got {type(response).__name__}")
+            choices = response.get("choices")
+            if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+                raise RuntimeError(
+                    f"Invalid chat response payload: missing choices. Response={self._truncate_for_debug(response)}"
+                )
+            message = choices[0].get("message")
+            if not isinstance(message, dict):
+                raise RuntimeError(
+                    f"Invalid chat response payload: choices[0].message must be an object. "
+                    f"Response={self._truncate_for_debug(response)}"
+                )
+            raw_response = message.get("content")
+            raw_response = raw_response if isinstance(raw_response, str) else ""
+
+            # Repair truncated closing tags if generation was stopped by stop token.
+            if raw_response and "<tool_call>" in raw_response and "</tool_call>" not in raw_response:
+                raw_response += "</tool_call>"
+            if debug_tool_loop and raw_response:
+                self.logger.info(
+                    f"[ToolLoop] assistant_content={self._truncate_for_debug(raw_response, max_chars=debug_char_limit)}"
+                )
+
+            text_tool_calls = self._parse_tool_calls_from_text(raw_response, turn_idx=i)
+
+            # Fallback: if text parsing found nothing but the server returned
+            # native tool_calls (e.g. vLLM's Qwen tool parser strips
+            # <tool_call> from content and puts it in message.tool_calls),
+            # convert them so they go through _execute_tool_call as normal.
+            if not text_tool_calls:
+                native_tc = self._normalize_tool_calls(message.get("tool_calls"), turn_idx=i)
+                if native_tc:
+                    text_tool_calls = native_tc
+
+            text_tool_calls = self._enforce_single_tool_call_per_message(
+                text_tool_calls, turn_idx=i, phase="main",
+            )
+
+            parsed_response = self.parse_response(raw_response)
+
+            turn_info = {
+                "turn": i + 1,
+                "assistant": {
+                    "content": raw_response,
+                    "perception": parsed_response["perception"],
+                    "thinking": parsed_response["thinking"],
+                    "tool_calls": [
+                        {
+                            "id": call["id"],
+                            "name": call["name"],
+                            "raw_arguments": call["raw_arguments"],
+                            "args": call["args"],
+                            "parse_error": call.get("parse_error"),
+                        }
+                        for call in text_tool_calls
+                    ],
+                },
+                "tool_responses": [],
+                "memory_outputs": [],
+                "memory_turn_message_indices": [],
+            }
+
+            if text_tool_calls:
+                assistant_message = {
+                    "role": "assistant",
+                    "content": raw_response,
+                    "tool_calls": [call["assistant_tool_call"] for call in text_tool_calls],
+                }
+                msgs.append(assistant_message)
+
+                deferred_memory_outputs: List[Dict[str, Any]] = []
+                for call in text_tool_calls:
+                    parse_error = call.get("parse_error")
+                    if parse_error:
+                        normalized_payload = {
+                            "ok": False,
+                            "tool_name": call["name"],
+                            "result": None,
+                            "error": parse_error,
+                            "tool_call_id": call["id"],
+                            "meta": {"source": "agent.tool_call_parser"},
+                        }
+                    else:
+                        normalized_payload, image_resolution = self._execute_tool_call(
+                            call, run_memory, debug_tool_loop, debug_char_limit
+                        )
+                    turn_info["tool_responses"].append(normalized_payload)
+                    memory_result = run_memory.consume_tool_payload(
+                        agent=self, turn_idx=i, tool_call=call, payload=normalized_payload,
+                    )
+                    immediate_messages = memory_result.get("immediate_messages")
+                    deferred_messages = memory_result.get("deferred_messages")
+                    prepared_tool_payload = memory_result.get("prepared_payload")
+                    processor_info = memory_result.get("processor_info")
+
+                    immediate_indices = self._append_messages_with_indices(msgs, immediate_messages)
+                    memory_output = {
+                        "tool_call_id": call["id"],
+                        "tool_name": call["name"],
+                        "memory_name": run_memory.memory_name,
+                        "immediate_message_indices": immediate_indices,
+                        "deferred_message_indices": [],
+                        "message_summaries": [
+                            self._summarize_message_for_trace(msgs[idx]) for idx in immediate_indices
+                        ],
+                    }
+                    if isinstance(prepared_tool_payload, dict):
+                        image_refs = prepared_tool_payload.get("image_refs")
+                        if isinstance(image_refs, list) and image_refs:
+                            memory_output["image_refs"] = image_refs
+                    if isinstance(processor_info, dict) and processor_info:
+                        memory_output["tool_output_processor"] = cp.deepcopy(processor_info)
+                    turn_info["memory_outputs"].append(memory_output)
+
+                    if isinstance(deferred_messages, list) and deferred_messages:
+                        deferred_memory_outputs.append({
+                            "memory_output": memory_output,
+                            "messages": deferred_messages,
+                        })
+
+                # Append deferred messages (e.g. images) from memory.
+                if deferred_memory_outputs:
+                    for deferred in deferred_memory_outputs:
+                        deferred_indices = self._append_messages_with_indices(msgs, deferred["messages"])
+                        deferred["memory_output"]["deferred_message_indices"] = deferred_indices
+                        deferred["memory_output"]["message_summaries"].extend(
+                            [self._summarize_message_for_trace(msgs[idx]) for idx in deferred_indices]
+                        )
+
+                turn_info["memory_turn_message_indices"] = self._append_messages_with_indices(
+                    msgs,
+                    run_memory.emit_after_tool_turn(
+                        agent=self, turn_idx=i,
+                        tool_calls=text_tool_calls,
+                        tool_payloads=turn_info["tool_responses"],
+                        messages=msgs,
+                    ),
+                )
+                chat_history.append(turn_info)
+
+                if i == self.max_iterations - 1:
+                    if debug_tool_loop:
+                        self.logger.info(
+                            "[ToolLoop] last iteration ended with tool calls; requesting one final text-only answer."
+                        )
+                    final_response = chat_completion_request(
+                        model=self.model,
+                        messages=msgs,
+                        base_url=self.api_base,
+                        api_key=self.key,
+                        tools=None,
+                        tool_choice=None,
+                        stop=self.stop_tokens,
+                        timeout_seconds=chat_timeout_seconds,
+                        **kwargs,
+                    )
+                    if not isinstance(final_response, dict):
+                        raise RuntimeError(
+                            f"Invalid chat response type: expected dict, got {type(final_response).__name__}"
+                        )
+                    final_choices = final_response.get("choices")
+                    if not isinstance(final_choices, list) or not final_choices or not isinstance(final_choices[0], dict):
+                        raise RuntimeError(
+                            f"Invalid chat response payload: missing choices. Response={self._truncate_for_debug(final_response)}"
+                        )
+                    final_message = final_choices[0].get("message")
+                    if not isinstance(final_message, dict):
+                        raise RuntimeError(
+                            "Invalid chat response payload: choices[0].message must be an object. "
+                            f"Response={self._truncate_for_debug(final_response)}"
+                        )
+
+                    final_raw_response = final_message.get("content")
+                    final_raw_response = final_raw_response if isinstance(final_raw_response, str) else ""
+
+                    if final_raw_response and "<tool_call>" in final_raw_response and "</tool_call>" not in final_raw_response:
+                        final_raw_response += "</tool_call>"
+                    final_text_tool_calls = self._parse_tool_calls_from_text(final_raw_response, turn_idx=i + 1)
+                    final_text_tool_calls = self._enforce_single_tool_call_per_message(
+                        final_text_tool_calls,
+                        turn_idx=i + 1,
+                        phase="final_text_only",
+                    )
+                    final_parsed_response = self.parse_response(final_raw_response)
+                    final_answer = self._extract_final_answer_from_content(final_raw_response)
+
+                    if final_text_tool_calls:
+                        msgs.append({
+                            "role": "assistant",
+                            "content": final_raw_response,
+                            "tool_calls": [call["assistant_tool_call"] for call in final_text_tool_calls],
+                        })
+                    else:
+                        msgs.append({"role": "assistant", "content": final_raw_response})
+
+                    final_turn_info = {
+                        "turn": i + 2,
+                        "assistant": {
+                            "content": final_raw_response,
+                            "perception": final_parsed_response["perception"],
+                            "thinking": final_parsed_response["thinking"],
+                            "tool_calls": [
+                                {
+                                    "id": call["id"],
+                                    "name": call["name"],
+                                    "raw_arguments": call["raw_arguments"],
+                                    "args": call["args"],
+                                    "parse_error": call.get("parse_error"),
+                                }
+                                for call in final_text_tool_calls
+                            ],
+                        },
+                        "tool_responses": [],
+                        "final_answer": final_answer,
+                    }
+                    chat_history.append(final_turn_info)
+
+                    if final_answer:
+                        if return_messages:
+                            if return_snapshot:
+                                return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
+                            return final_answer, chat_history, msgs
+                        if return_snapshot:
+                            return final_answer, chat_history, cp.deepcopy(input_snapshot)
+                        return final_answer, chat_history
+                    if return_messages:
+                        if return_snapshot:
+                            return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
+                        return self.fail_msg, chat_history, msgs
+                    if return_snapshot:
+                        return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
+                    return self.fail_msg, chat_history
+                continue
+
+            final_answer = self._extract_final_answer_from_content(raw_response)
+            turn_info["final_answer"] = final_answer
+            chat_history.append(turn_info)
+            if final_answer:
+                if return_messages:
+                    if return_snapshot:
+                        return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
+                    return final_answer, chat_history, msgs
+                if return_snapshot:
+                    return final_answer, chat_history, cp.deepcopy(input_snapshot)
+                return final_answer, chat_history
+
+            msgs.append({"role": "assistant", "content": raw_response})
+
+        if return_messages:
+            if return_snapshot:
+                return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
+            return self.fail_msg, chat_history, msgs
+        if return_snapshot:
+            return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
+        return self.fail_msg, chat_history
+
+class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
+    """Deferred tool-schema loading agent.
+
+    Only shows tool name + description in the system prompt.  When the model
+    wants to use a tool it hasn't seen before it calls it with
+    ``{"get_tool_schema": true}`` and the server returns the SKILLS.md (or
+    auto-generated schema).  The model then re-calls with real arguments.
+
+    Execution logic is identical to V2 — the server handles the
+    ``get_tool_schema`` intercept transparently.
+    """
+
+    _ALLOWED_PROMPT_VERSIONS = ("v8",)
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("prompt_version", "v8")
+        super().__init__(**kwargs)
+        self.stop_tokens = ["</tool_call>"]  # matches post-training
+        self.logger = get_logger("BaseAgentWithToolsV3")
+
+    # -------------------------------------------------------------- #
+    # Per-run state + schema intercept
+    # -------------------------------------------------------------- #
+
+    def _new_persistent_state_memory(self):
+        memory = super()._new_persistent_state_memory()
+        memory.schema_seen_tools = set()
+        return memory
+
+    def _execute_tool_call(self, call, run_memory, debug_tool_loop, debug_char_limit):
+        schema_seen = run_memory.schema_seen_tools
+        intercept = self._maybe_intercept_for_schema(call, schema_seen)
+        if intercept is not None:
+            if debug_tool_loop:
+                self.logger.info(f"[ToolLoop] auto-schema intercept for '{call['name']}' id={call['id']}")
+            return intercept, {"rewrites": [], "errors": []}
+        return super()._execute_tool_call(call, run_memory, debug_tool_loop, debug_char_limit)
+
+    # -------------------------------------------------------------- #
+    # Prompt construction overrides
+    # -------------------------------------------------------------- #
+
+    def _get_prompt_templates(self) -> tuple:
+        version = str(getattr(self, "prompt_version", "v8")).strip().lower()
+        return DEFAULT_SYSTEM_PROMPT_V8, DEFAULT_USER_PROMPT_PREFIX_V8
+
+    def _build_tools_directory(self) -> str:
+        """Compact directory: one line per canonical tool (name + description)."""
+        seen = set()
+        lines = []
+        for tool_name, metadata in self.tools.items():
+            if metadata.get("is_alias"):
+                continue
+            canonical = metadata.get("canonical_tool_name", tool_name)
+            if canonical in seen:
+                continue
+            seen.add(canonical)
+            description = metadata.get("tool_description", "No description.")
+            lines.append(f"- {tool_name}: {description}")
+        return "\n".join(lines)
+
+    # -------------------------------------------------------------- #
+    # Two-tier tool name resolution + auto-schema intercept
+    # -------------------------------------------------------------- #
+
+    def _resolve_tool_name(self, raw_name: str) -> str | None:
+        """Tier 1 structured match: exact -> case-insensitive -> alias lookup."""
+        tools = self.tools
+        # Exact
+        if raw_name in tools:
+            return tools[raw_name].get("canonical_tool_name", raw_name)
+        # Case-insensitive
+        raw_cf = raw_name.casefold()
+        for name, meta in tools.items():
+            if name.casefold() == raw_cf:
+                return meta.get("canonical_tool_name", name)
+        # Alias
+        for name, meta in tools.items():
+            for alias in (meta.get("tool_aliases") or []):
+                if alias.casefold() == raw_cf:
+                    return meta.get("canonical_tool_name", name)
+        return None
+
+    @staticmethod
+    def _normalize_for_scan(s: str) -> str:
+        return s.casefold().replace("_", "").replace(" ", "").replace("-", "")
+
+    def _scan_text_for_tool_name(self, text: str) -> str | None:
+        """Tier 2: scan raw text for a known tool name. Returns canonical name or None."""
+        text_norm = self._normalize_for_scan(text)
+        candidates = []
+        for name, meta in self.tools.items():
+            if meta.get("is_alias"):
+                continue
+            name_norm = self._normalize_for_scan(name)
+            if name_norm in text_norm:
+                candidates.append(name)
+        if len(candidates) == 1:
+            return candidates[0]
+        # If multiple, use longest match (most specific)
+        if candidates:
+            candidates.sort(key=lambda n: len(n), reverse=True)
+            return candidates[0]
+        return None
+
+    def _fetch_tool_schema(self, tool_name: str, tool_call_id: str) -> dict:
+        """Fetch the schema for *tool_name* from the tool server and wrap it."""
+        try:
+            payload = tool_execute_request(
+                base_url=self.tool_base,
+                tool_call={
+                    "tool_name": "Get_Tool_Schema",
+                    "args": {"tool_name": tool_name},
+                    "tool_call_id": tool_call_id,
+                },
+                timeout=self.timeout,
+            )
+            schema_text = payload.get("result", "") if isinstance(payload, dict) else str(payload)
+            result_text = (
+                f"[Tool Schema for '{tool_name}']\n{schema_text}\n\n"
+                f"Now call {tool_name} again with the correct arguments shown above."
+            )
+        except Exception as e:
+            result_text = f"Schema fetch failed for {tool_name}: {e}. Try calling with your best guess."
+        
+        return {
+            "ok": True,
+            "tool_name": tool_name,
+            "result": result_text,
+            "error": None,
+            "tool_call_id": tool_call_id,
+            "meta": {"source": "auto_schema_on_first_use"},
+        }
+
+    def _maybe_intercept_for_schema(self, call, schema_seen_tools):
+        """Auto-return tool schema on first invocation with two-tier name resolution."""
+        tool_name = call["name"]
+        
+        # Tier 1: structured name resolution (if we got a real name from parsing)
+        if tool_name != "unknown":
+            resolved = self._resolve_tool_name(tool_name)
+            if resolved is not None and resolved != tool_name:
+                self.logger.info(f"[ToolLoop] Resolved tool name '{tool_name}' -> '{resolved}'")
+                call["name"] = resolved
+                tool_name = resolved
+            elif resolved is None:
+                # Name not recognized — fall through to Tier 2
+                raw_text = call.get("raw_arguments", "")
+                scanned = self._scan_text_for_tool_name(tool_name + " " + raw_text)
+                if scanned:
+                    self.logger.info(f"[ToolLoop] Scanned tool name '{tool_name}' -> '{scanned}'")
+                    call["name"] = scanned
+                    tool_name = scanned
+
+        # Tier 2: name is "unknown" (malformed JSON) — scan raw block
+        if tool_name == "unknown":
+            raw_text = call.get("raw_arguments", "")
+            scanned = self._scan_text_for_tool_name(raw_text)
+            if scanned:
+                self.logger.info(f"[ToolLoop] Scanned unknown call -> '{scanned}'")
+                call["name"] = scanned
+                tool_name = scanned
+            else:
+                return None  # can't resolve — let existing error handling deal with it
+
+        # Skip Get_Tool_Schema itself and already-seen tools
+        if tool_name == "Get_Tool_Schema" or tool_name in schema_seen_tools:
+            return None
+
+        schema_seen_tools.add(tool_name)
+        return self._fetch_tool_schema(tool_name, call["id"])
+
+    # V8 uses the same <tool_call> format and natural-language "Final Answer"
+    # as V2, so we inherit _parse_tool_calls_from_text and
+    # _extract_final_answer_from_content from the parent class.

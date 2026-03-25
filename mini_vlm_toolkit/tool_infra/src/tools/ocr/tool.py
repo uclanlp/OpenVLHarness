@@ -19,11 +19,7 @@ INPUT_SCHEMA = {
             "description": "Base64 image data (use instead of image_path)",
         },
     },
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
-    "additionalProperties": False,
+    "required": [],
 }
 
 
