@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="$ROOT_DIR/src"
 
+# HOST can be set by conda's build toolchain to a compiler triplet (e.g.
+# x86_64-conda-linux-gnu) which is not a valid bind address.  Clear it so the
+# .env file's value is used unless the caller explicitly wants an override.
+unset HOST
+
 # Accept env file name as argument, default to .env
 ENV_FILE_NAME="${1:-.env}"
 ENV_FILE="$ROOT_DIR/$ENV_FILE_NAME"
