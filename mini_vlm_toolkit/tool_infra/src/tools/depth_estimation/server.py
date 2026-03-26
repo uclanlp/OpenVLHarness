@@ -26,12 +26,31 @@ def _resolve_device(device):
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
+def _patch_cpu_forward(model, device):
+    if not str(device).startswith("cpu"):
+        return model
+
+    # DepthAnything3's upstream forward path autocasts CPU inference to float16,
+    # which raises on CPU. Keep the CPU fallback in float32 instead.
+    def _forward_cpu_safe(
+        image, extrinsics=None, intrinsics=None, export_feat_layers=None, infer_gs=False
+    ):
+        with torch.no_grad():
+            return model.model(
+                image, extrinsics, intrinsics, export_feat_layers, infer_gs
+            )
+
+    model.forward = _forward_cpu_safe
+    return model
+
+
 def _load_model():
     from depth_anything_3.api import DepthAnything3
 
     device = _resolve_device(DEVICE_ENV)
     model = DepthAnything3.from_pretrained(MODEL_ID)
     model = model.to(device)
+    model = _patch_cpu_forward(model, device)
     return model, device
 
 
