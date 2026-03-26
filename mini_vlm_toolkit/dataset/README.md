@@ -25,30 +25,21 @@ ImageBaseDataset  (image_base.py)      MODALITY = 'IMAGE'
 ├── RefSpatialBench      (refspatialbench.py)TYPE = 'VQA'
 └── (many specialized subclasses ...)
 
-VideoBaseDataset  (video_base.py)      MODALITY = 'VIDEO'
-├── MMBenchVideo         (mmbench_video.py)
-├── VideoMME             (videomme.py)
-├── MVBench              (mvbench.py)
-├── MLVU                 (mlvu.py)
-├── LongVideoBench       (longvideobench.py)
-└── (many more ...)
-
 TextBaseDataset   (text_base.py)       MODALITY = 'TEXT'
 └── TextMCQDataset       (text_mcq.py)       TYPE = 'MCQ'
 ```
 
 ### Dataset Registration
 
-All dataset classes are imported and registered in `__init__.py`. The three master lists are:
+All dataset classes are imported and registered in `__init__.py`. The two master lists are:
 
 - `IMAGE_DATASET` — all image-based dataset classes
-- `VIDEO_DATASET` — all video-based dataset classes
 - `TEXT_DATASET` — text-only dataset classes
 
 The `build_dataset(dataset_name)` function iterates over these lists, matches the name against each class's `supported_datasets()`, and instantiates the first match. If no match is found, it falls back to loading a local TSV and auto-detecting whether it's MCQ (has columns `A`, `B`) or VQA.
 
 Each class exposes two key class-level attributes:
-- **`MODALITY`**: `'IMAGE'`, `'VIDEO'`, or `'TEXT'` — determines the inference pipeline
+- **`MODALITY`**: `'IMAGE'` or `'TEXT'` — determines the inference pipeline
 - **`TYPE`**: `'MCQ'`, `'VQA'`, `'Y/N'`, `'Short'`, `'Caption'`, `'GROUNDING'` — determines the prompt suffix and evaluation strategy
 
 ---
@@ -69,26 +60,6 @@ The foundation for all image benchmarks.
 | `evaluate(eval_file, **judge_kwargs)` | **Abstract** — must be implemented by subclasses |
 
 **Data format**: TSV with required columns `index`, `question`, and either `image` (base64) or `image_path`. The `image` field can reference another row's index (for deduplication when multiple questions share one image).
-
-### `VideoBaseDataset` (`video_base.py`)
-
-The foundation for all video benchmarks.
-
-| Method | Description |
-|--------|-------------|
-| `__init__(dataset, pack, nframe, fps)` | Loads video metadata, sets up frame extraction |
-| `save_video_frames(video)` | Extracts frames using `decord` with thread-safe file locking |
-| `frame_paths(video)` | Returns frame paths for uniform nframe sampling |
-| `frame_paths_fps(video, num_frames)` | Returns frame paths for FPS-based sampling |
-| `prepare_dataset(dataset)` | **Abstract** — must return `{'root': video_dir, 'data_file': tsv_path}` |
-| `build_prompt(idx)` | **Abstract** |
-| `evaluate(eval_file, **judge_kwargs)` | **Abstract** |
-
-**Frame extraction modes** (mutually exclusive):
-- **nframe mode** (`nframe=8`): uniformly sample N frames → `frame-{i}-of-{N}.jpg`
-- **fps mode** (`fps=0.5`): sample at given FPS → `frame-{i}-of-{N}-{fps}fps.jpg`
-
-**Pack mode** (`pack=True`): groups all questions about the same video into a single inference request (used by MMBench-Video for efficiency).
 
 ### `TextBaseDataset` (`text_base.py`)
 
@@ -362,10 +333,6 @@ Mechanics:
 - Remaps indices via `original_index` to avoid collisions
 - `evaluate()` splits results back by sub-dataset, evaluates each independently, then aggregates
 
-### `ConcatVideoDataset` (`video_concat_dataset.py`)
-
-Same concept for video datasets. Used by e.g. MLVU (= MLVU_MCQ + MLVU_OpenEnded).
-
 ---
 
 ## Adding a New Dataset
@@ -380,7 +347,6 @@ Same concept for video datasets. Used by e.g. MLVU (= MLVU_MCQ + MLVU_OpenEnded)
 | Image + short answer | `ImageShortQADataset` | `image_shortqa.py` |
 | Image + captioning | `ImageCaptionDataset` | `image_caption.py` |
 | Image + bounding box | `RefCOCODataset` | `refcoco.py` |
-| Video + any type | `VideoBaseDataset` | `video_base.py` |
 | Text-only MCQ | `TextMCQDataset` | `text_mcq.py` |
 | Something unique | `ImageBaseDataset` | `image_base.py` |
 
@@ -414,7 +380,7 @@ class MyDataset(ImageMCQDataset):   # or whichever base
 
 If subclassing `ImageMCQDataset`, `ImageVQADataset`, `ImageYORNDataset`, etc., you inherit a working `evaluate()` — only override if you need custom metrics.
 
-If subclassing `ImageBaseDataset` or `VideoBaseDataset` directly, you **must** implement `evaluate()`.
+If subclassing `ImageBaseDataset` directly, you **must** implement `evaluate()`.
 
 ### Step 3: Register
 
@@ -428,15 +394,6 @@ IMAGE_DATASET = [
     ...,
     MyDataset,
 ]
-```
-
-### Step 4: For Video Datasets
-
-Add sampling configurations in `video_dataset_config.py`:
-
-```python
-'MyDataset_8frame': partial(MyDataset, dataset='MyDataset', nframe=8, pack=False),
-'MyDataset_1fps':   partial(MyDataset, dataset='MyDataset', fps=1.0, pack=False),
 ```
 
 ### TSV Data Format
