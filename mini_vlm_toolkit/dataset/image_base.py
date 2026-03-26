@@ -20,6 +20,10 @@ def img_root_map(dataset):
         return "QSpatial"
     if 'FSC147' in dataset:
         return 'FSC147'
+    if 'LVIS' in dataset:
+        return 'LVIS'
+    if 'ODinW' in dataset:
+        return 'ODinW'
 
     mmbench_root_map = {
         'MMBench_DEV_EN': 'MMBench', 'MMBench_TEST_EN': 'MMBench',

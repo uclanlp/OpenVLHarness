@@ -35,6 +35,8 @@ from .chartmuseum import ChartMuseum
 from .chartqapro import ChartQAPro
 from .refcoco import RefCOCODataset
 from .refspatial import RefSpatialDataset
+from .lvis import LVISBBoxDataset, LVISMaskDataset
+from .odinw import ODinWBBoxDataset
 from .simplevqa import SimpleVQA
 
 from .mmbench_video import MMBenchVideo
@@ -242,6 +244,8 @@ IMAGE_DATASET = [
     UniSVG, SArena_MINI, MMSIVideoBench, MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization,
     MMBrowseCompDataset, OSWorldG,
     FSC147Dataset, RefSpatialDataset,
+    LVISBBoxDataset, LVISMaskDataset,
+    ODinWBBoxDataset,
 ]
 
 
