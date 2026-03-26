@@ -15,3 +15,7 @@ decord
 pycocotools
 matplotlib
 PyYAML
+
+xformers # remember to match the version of xformers to the PyTorch version in use
+git+https://github.com/ByteDance-Seed/depth-anything-3
+git+https://github.com/nerfstudio-project/gsplat.git@0b4dddf04cb687367602c01196913cde6a743d70
