@@ -82,6 +82,16 @@ python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-conf
 python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10
 ```
 
+`--shuffle` changes `--num-examples` from "take the first N" to "randomly sample N examples" from the dataset:
+```
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10 --shuffle
+```
+
+`--seed` sets the random seed used by `--shuffle` (default: `42`) so the sampled subset is reproducible:
+```
+python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10 --shuffle --seed 123
+```
+
 `--save-html` controls HTML report generation:
 - `--save-html 0` (default): disable HTML output.
 - `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
