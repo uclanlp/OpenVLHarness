@@ -104,6 +104,8 @@ if __name__ == "__main__":
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
+    parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for --shuffle (default: 42)')
     parser.add_argument('--run-tag', type=str, default='default', help='Custom tag appended to run_id (default: "default")')
     parser.add_argument('--resume', action='store_true', help='Resume the latest existing run instead of creating a new one')
     args = parser.parse_args()
@@ -193,8 +195,16 @@ if __name__ == "__main__":
 
         dataset = build_dataset(dataset_name, **dataset_kwargs)
         if dataset is not None and args.num_examples is not None:
-            dataset.data = dataset.data.head(args.num_examples)
-            logger.info(f"Limiting dataset {dataset_name} to first {args.num_examples} examples")
+            if args.shuffle:
+                import random
+                rng = random.Random(args.seed)
+                n = min(args.num_examples, len(dataset.data))
+                indices = sorted(rng.sample(range(len(dataset.data)), n))
+                dataset.data = dataset.data.iloc[indices].reset_index(drop=True)
+                logger.info(f"Randomly sampled {n} examples from {dataset_name} (seed={args.seed})")
+            else:
+                dataset.data = dataset.data.head(args.num_examples)
+                logger.info(f"Limiting dataset {dataset_name} to first {args.num_examples} examples")
         result_file = get_pred_file_path(pred_root, model_name, dataset_name, use_env_format=True)
         if dataset is None:
             logger.error(f'Dataset {dataset_name} is not valid, will be skipped. ')
