@@ -38,6 +38,8 @@ from .refspatial import RefSpatialDataset
 from .lvis import LVISBBoxDataset, LVISMaskDataset
 from .odinw import ODinWBBoxDataset
 from .simplevqa import SimpleVQA
+from .livevqa import LIVEVQADataset
+from .browsecomp_vl import BrowseCompVLDataset
 
 from .mmbench_video import MMBenchVideo
 from .videomme import VideoMME
@@ -246,6 +248,8 @@ IMAGE_DATASET = [
     FSC147Dataset, RefSpatialDataset,
     LVISBBoxDataset, LVISMaskDataset,
     ODinWBBoxDataset,
+    LIVEVQADataset,
+    BrowseCompVLDataset,
 ]
 
 

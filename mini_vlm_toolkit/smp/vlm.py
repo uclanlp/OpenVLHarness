@@ -7,6 +7,7 @@ from uuid import uuid4
 import os.path as osp
 import base64
 from PIL import Image
+import pillow_avif
 import sys
 
 Image.MAX_IMAGE_PIXELS = 1e9
