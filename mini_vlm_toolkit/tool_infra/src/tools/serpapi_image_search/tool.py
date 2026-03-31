@@ -6,6 +6,7 @@ import requests
 
 from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
+from tools.image_utils import decode_base64_image_data
 
 TOOL_NAME = "SerpApi_Image_Search_Tool"
 KEY_FILENAME = "serpapi_api_key"
@@ -20,8 +21,20 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Public HTTP(S) image URL for reverse image search",
         },
+        "image_path": {
+            "type": "string",
+            "description": "Local image path (will be uploaded to cloud storage to obtain a public URL)",
+        },
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (will be uploaded to cloud storage to obtain a public URL)",
+        },
     },
-    "required": ["image_url"],
+    "oneOf": [
+        {"required": ["image_url"]},
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
     "additionalProperties": False,
 }
 
@@ -31,12 +44,14 @@ class SerpApi_Image_Search_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Search similar images with SerpApi Google Reverse Image Search "
-                "from a single public image URL."
+                "Search similar images with SerpApi Google Reverse Image Search. "
+                "Accepts a public image URL, a local image path, or base64 image data."
             ),
-            tool_version="1.0.0",
+            tool_version="1.1.0",
             input_types={
                 "image_url": "str - public HTTP(S) URL of the image to search",
+                "image_path": "str - local image path (auto-uploaded to cloud storage)",
+                "image_base64": "str - base64-encoded image (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["image_search"],
@@ -50,8 +65,16 @@ class SerpApi_Image_Search_Tool(BaseTool):
                         'image_url="https://example.com/dog.jpg"'
                         ")"
                     ),
-                    "description": "Find up to 5 reverse-image matches.",
-                }
+                    "description": "Find up to 5 reverse-image matches from a public URL.",
+                },
+                {
+                    "command": (
+                        "SerpApi_Image_Search_Tool("
+                        'image_path="/path/to/local/image.jpg"'
+                        ")"
+                    ),
+                    "description": "Search a local image (auto-uploaded to cloud storage).",
+                },
             ],
             user_metadata={
                 "api_key_file": KEY_FILENAME,
@@ -108,6 +131,34 @@ class SerpApi_Image_Search_Tool(BaseTool):
             raise ValueError("image_url must be a valid public http(s) URL")
         return raw_url
 
+    def _resolve_image_url(
+        self,
+        image_url: Optional[str] = None,
+        image_path: Optional[str] = None,
+        image_base64: Optional[str] = None,
+    ) -> str:
+        """Resolve input to a public URL. Upload to cloud storage if needed."""
+        if image_url:
+            return self._validate_image_url(image_url)
+
+        from tools.image_upload_utils import upload_image_bytes, upload_image_file
+
+        if image_path:
+            if not os.path.isfile(image_path):
+                raise FileNotFoundError(f"image_path not found: {image_path}")
+            return upload_image_file(image_path)
+
+        if image_base64:
+            image_bytes, content_type = decode_base64_image_data(image_base64)
+            ext = ".png" if "png" in (content_type or "") else ".jpg"
+            return upload_image_bytes(
+                image_bytes, content_type or "image/jpeg", ext
+            )
+
+        raise ValueError(
+            "Provide exactly one of: image_url, image_path, or image_base64"
+        )
+
     @staticmethod
     def _extract_item(item_data: Dict[str, object]) -> Optional[Dict[str, object]]:
         image_url = item_data.get("original") or item_data.get("thumbnail")
@@ -126,13 +177,18 @@ class SerpApi_Image_Search_Tool(BaseTool):
             "thumbnail": item_data.get("thumbnail", ""),
         }
 
-    def execute(self, image_url: str):
-        validated_image_url = self._validate_image_url(image_url)
+    def execute(
+        self,
+        image_url: Optional[str] = None,
+        image_path: Optional[str] = None,
+        image_base64: Optional[str] = None,
+    ):
+        resolved_url = self._resolve_image_url(image_url, image_path, image_base64)
         api_key = self._load_api_key()
 
         params = {
             "engine": SERPAPI_ENGINE,
-            "image_url": validated_image_url,
+            "image_url": resolved_url,
             "api_key": api_key,
         }
         response = requests.get(SERPAPI_ENDPOINT, params=params, timeout=30)
@@ -159,4 +215,3 @@ class SerpApi_Image_Search_Tool(BaseTool):
                 break
 
         return results
-
