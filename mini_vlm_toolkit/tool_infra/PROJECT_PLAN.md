@@ -27,6 +27,7 @@ Non-goals:
 - Implemented: explicit `input_schema` added to most tools (non-SAM3 included).
 - Implemented: config-driven subagent tools via `SUBAGENT_CONFIG_DIR` YAML configs (`src/tools/subagent/`).
 - Implemented: `SerpApi_Image_Search_Tool` for reverse image search via SerpApi (`src/tools/serpapi_image_search/`).
+- Implemented: `SerpApi_Google_Lens_Tool` for image identification via Google Lens through SerpApi (`src/tools/serpapi_google_lens/`).
 - Implemented: `Webpage_Visit_Tool` for webpage content extraction via Zhipu/Jina Reader APIs with LLM-based summarization (`src/tools/webpage_visit/`).
 
 ## Reference Sources

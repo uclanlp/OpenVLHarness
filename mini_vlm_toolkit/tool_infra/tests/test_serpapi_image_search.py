@@ -1,5 +1,10 @@
 import os
+import base64
+from io import BytesIO
 
+from PIL import Image
+
+from tools import image_upload_utils
 from tools.serpapi_image_search import tool as serpapi_tool_module
 from tools.serpapi_image_search.tool import (
     DEFAULT_NUM_RESULTS,
@@ -22,6 +27,16 @@ class _DummyResponse:
 
     def json(self):
         return self._payload
+
+
+def _encode_test_image_base64(image_format, include_data_url=False, content_type=None):
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), (255, 0, 0)).save(buffer, format=image_format)
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    if not include_data_url:
+        return encoded
+    content_type = content_type or Image.MIME[image_format]
+    return f"data:{content_type};base64,{encoded}"
 
 
 def test_invalid_image_url():
@@ -118,9 +133,36 @@ def test_response_parse_limit_and_dedupe():
     assert all("source_url" in item for item in results)
 
 
+def test_plain_base64_png_preserves_inferred_mime_and_extension():
+    captured = {}
+
+    def fake_upload_image_bytes(image_bytes, content_type, extension, provider=None):
+        captured["content_type"] = content_type
+        captured["extension"] = extension
+        captured["provider"] = provider
+        captured["size"] = len(image_bytes)
+        return "https://example.com/uploaded.png"
+
+    original_upload = image_upload_utils.upload_image_bytes
+    try:
+        image_upload_utils.upload_image_bytes = fake_upload_image_bytes
+        tool = SerpApi_Image_Search_Tool()
+        resolved = tool._resolve_image_url(
+            image_base64=_encode_test_image_base64("PNG")
+        )
+    finally:
+        image_upload_utils.upload_image_bytes = original_upload
+
+    assert resolved == "https://example.com/uploaded.png"
+    assert captured["content_type"] == "image/png"
+    assert captured["extension"] == ".png"
+    assert captured["size"] > 0
+
+
 if __name__ == "__main__":
     test_invalid_image_url()
     print(f"PASS: {TOOL_NAME} invalid image_url validation")
     test_response_parse_limit_and_dedupe()
     print(f"PASS: {TOOL_NAME} response parsing and default top-{DEFAULT_NUM_RESULTS}")
-
+    test_plain_base64_png_preserves_inferred_mime_and_extension()
+    print(f"PASS: {TOOL_NAME} plain base64 PNG preserves inferred MIME and extension")

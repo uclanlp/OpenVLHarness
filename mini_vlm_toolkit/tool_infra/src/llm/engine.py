@@ -16,6 +16,7 @@ class LLMEngine:
         top_p=0.95,
         max_tokens=8192,
         extra_body: Optional[Dict[str, Any]] = None,
+        enable_thinking: Optional[bool] = None,
     ):
         if not model:
             raise ValueError("model is required")
@@ -30,6 +31,13 @@ class LLMEngine:
         self.temperature = temperature
         self.top_p = top_p
         self.max_tokens = max_tokens
+        self.enable_thinking = enable_thinking
+        # Merge enable_thinking into extra_body when explicitly set
+        if enable_thinking is not None:
+            extra_body = dict(extra_body or {})
+            chat_kwargs = extra_body.get("chat_template_kwargs", {})
+            chat_kwargs["enable_thinking"] = enable_thinking
+            extra_body["chat_template_kwargs"] = chat_kwargs
         self.extra_body = extra_body
         self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
 
