@@ -32,6 +32,45 @@ def _guess_content_type(path: str) -> str:
     return ct or "application/octet-stream"
 
 
+def _resolve_upload_provider(provider: Optional[str] = None) -> str:
+    resolved = (provider or os.getenv("IMAGE_UPLOAD_PROVIDER", "")).strip().lower()
+    if not resolved:
+        raise RuntimeError(
+            "Local/base64 image upload requires an explicitly configured backend. "
+            "Set IMAGE_UPLOAD_PROVIDER to 'gcs' or 's3'."
+        )
+    if resolved not in {"gcs", "s3"}:
+        raise ValueError(
+            f"Unknown IMAGE_UPLOAD_PROVIDER: {resolved!r}. Use 'gcs' or 's3'."
+        )
+    return resolved
+
+
+def _validate_provider_config(provider: str) -> None:
+    if provider == "gcs":
+        missing = [
+            name
+            for name in ("GCS_BUCKET_NAME", "GOOGLE_APPLICATION_CREDENTIALS")
+            if not os.getenv(name)
+        ]
+    else:
+        missing = [
+            name
+            for name in (
+                "AWS_S3_BUCKET_NAME",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+            )
+            if not os.getenv(name)
+        ]
+
+    if missing:
+        raise RuntimeError(
+            f"Image upload backend '{provider}' is not fully configured. "
+            f"Missing environment variables: {', '.join(missing)}"
+        )
+
+
 # ---- GCS ------------------------------------------------------------------
 
 def _upload_gcs(image_bytes: bytes, content_type: str, extension: str) -> str:
@@ -112,7 +151,8 @@ def upload_image_bytes(
     Returns:
         A publicly accessible (signed) URL.
     """
-    provider = (provider or os.getenv("IMAGE_UPLOAD_PROVIDER", "gcs")).lower()
+    provider = _resolve_upload_provider(provider)
+    _validate_provider_config(provider)
     if provider == "gcs":
         return _upload_gcs(image_bytes, content_type, extension)
     elif provider == "s3":
