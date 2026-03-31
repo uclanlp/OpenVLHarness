@@ -1,5 +1,10 @@
 import os
+import base64
+from io import BytesIO
 
+from PIL import Image
+
+from tools import image_upload_utils
 from tools.serpapi_google_lens import tool as lens_tool_module
 from tools.serpapi_google_lens.tool import (
     DEFAULT_NUM_RESULTS,
@@ -23,6 +28,16 @@ class _DummyResponse:
 
     def json(self):
         return self._payload
+
+
+def _encode_test_image_base64(image_format, include_data_url=False, content_type=None):
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), (0, 255, 0)).save(buffer, format=image_format)
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    if not include_data_url:
+        return encoded
+    content_type = content_type or Image.MIME[image_format]
+    return f"data:{content_type};base64,{encoded}"
 
 
 def test_invalid_image_url():
@@ -204,6 +219,32 @@ def test_api_key_from_env():
             os.environ["SERPAPI_API_KEY"] = original_api_key_env
 
 
+def test_data_url_gif_preserves_extension():
+    captured = {}
+
+    def fake_upload_image_bytes(image_bytes, content_type, extension, provider=None):
+        captured["content_type"] = content_type
+        captured["extension"] = extension
+        captured["provider"] = provider
+        captured["size"] = len(image_bytes)
+        return "https://example.com/uploaded.gif"
+
+    original_upload = image_upload_utils.upload_image_bytes
+    try:
+        image_upload_utils.upload_image_bytes = fake_upload_image_bytes
+        tool = SerpApi_Google_Lens_Tool()
+        resolved = tool._resolve_image_url(
+            image_base64=_encode_test_image_base64("GIF", include_data_url=True)
+        )
+    finally:
+        image_upload_utils.upload_image_bytes = original_upload
+
+    assert resolved == "https://example.com/uploaded.gif"
+    assert captured["content_type"] == "image/gif"
+    assert captured["extension"] == ".gif"
+    assert captured["size"] > 0
+
+
 if __name__ == "__main__":
     test_invalid_image_url()
     print(f"PASS: {TOOL_NAME} invalid image_url validation")
@@ -215,4 +256,6 @@ if __name__ == "__main__":
     print(f"PASS: {TOOL_NAME} empty visual_matches returns []")
     test_api_key_from_env()
     print(f"PASS: {TOOL_NAME} API key loading from env")
+    test_data_url_gif_preserves_extension()
+    print(f"PASS: {TOOL_NAME} data URL GIF preserves MIME and extension")
     print(f"\nAll {TOOL_NAME} tests passed.")

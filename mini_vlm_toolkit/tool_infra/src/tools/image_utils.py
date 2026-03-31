@@ -49,6 +49,32 @@ def decode_base64_image_data(image_base64):
     return data, content_type
 
 
+def infer_image_content_type_and_extension(image_bytes):
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            image_format = (image.format or "").upper()
+    except Exception as exc:
+        raise ValueError(f"decoded base64 is not a valid image: {exc}") from exc
+
+    content_type = Image.MIME.get(image_format)
+    extension_map = {
+        "JPEG": ".jpg",
+        "PNG": ".png",
+        "WEBP": ".webp",
+        "GIF": ".gif",
+        "BMP": ".bmp",
+        "TIFF": ".tiff",
+    }
+    extension = extension_map.get(image_format)
+
+    if not content_type or not extension:
+        raise ValueError(
+            f"unsupported image format for upload: {image_format or 'unknown'}"
+        )
+
+    return content_type, extension
+
+
 def load_image_base64(image_base64):
     data, _ = decode_base64_image_data(image_base64)
     try:

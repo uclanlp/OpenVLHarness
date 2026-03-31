@@ -6,7 +6,10 @@ import requests
 
 from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
-from tools.image_utils import decode_base64_image_data
+from tools.image_utils import (
+    decode_base64_image_data,
+    infer_image_content_type_and_extension,
+)
 
 TOOL_NAME = "SerpApi_Google_Lens_Tool"
 KEY_FILENAME = "serpapi_api_key"
@@ -155,10 +158,23 @@ class SerpApi_Google_Lens_Tool(BaseTool):
 
         if image_base64:
             image_bytes, content_type = decode_base64_image_data(image_base64)
-            ext = ".png" if "png" in (content_type or "") else ".jpg"
-            return upload_image_bytes(
-                image_bytes, content_type or "image/jpeg", ext
-            )
+            if content_type:
+                ext_map = {
+                    "image/jpeg": ".jpg",
+                    "image/png": ".png",
+                    "image/webp": ".webp",
+                    "image/gif": ".gif",
+                    "image/bmp": ".bmp",
+                    "image/tiff": ".tiff",
+                }
+                ext = ext_map.get(content_type.lower())
+                if not ext:
+                    content_type, ext = infer_image_content_type_and_extension(
+                        image_bytes
+                    )
+            else:
+                content_type, ext = infer_image_content_type_and_extension(image_bytes)
+            return upload_image_bytes(image_bytes, content_type, ext)
 
         raise ValueError(
             "Provide exactly one of: image_url, image_path, or image_base64"
