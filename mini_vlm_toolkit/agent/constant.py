@@ -193,6 +193,37 @@ For each function call, return a json object with function name and arguments wi
 DEFAULT_USER_PROMPT_PREFIX_V8 = """Question: {user_query}"""
 
 
+# ---------------------------------------------------------------------------
+# RAG pipeline prompts
+# ---------------------------------------------------------------------------
+
+DEFAULT_RAG_SYSTEM_PROMPT = """You are a reasoning agent that answers questions using a retrieval-augmented generation (RAG) pipeline.
+
+You will be guided through retrieval steps, then asked to provide a final answer.
+
+## If the input includes an image (2-step RAG):
+
+Step 1 — Image Search: You will be asked to call an image search tool on the input image. This tool identifies objects, landmarks, artwork, text, and other content depicted in the image.
+
+Step 2 — Text Search: After receiving image search results, you will be asked to call a text search tool. Use the image search results to formulate a specific, targeted text query that will help answer the original question.
+
+Step 3 — Final Answer: Use all accumulated context (image, image search results, text search results) to answer the question.
+
+## If the input is text-only (1-step RAG):
+
+Step 1 — Text Search: You will be asked to call a text search tool. Formulate a specific query based on the question.
+
+Step 2 — Final Answer: Use the search results to answer the question.
+
+## General rules:
+- At each step you will be given exactly one tool to call. Call it with well-chosen arguments.
+- If a tool requires image input, use only runtime image IDs from Environment Update messages in *_image_path fields. Do NOT invent image file names or paths.
+- Focus on generating high-quality, specific search queries that directly address the question.
+"""
+
+DEFAULT_RAG_USER_PROMPT_PREFIX = """Question: {user_query}"""
+
+
 """
 KNOWN LIMITATIONS: WHEN TO USE TOOLS
 

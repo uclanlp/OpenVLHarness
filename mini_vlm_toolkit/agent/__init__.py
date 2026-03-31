@@ -1,4 +1,5 @@
 from .base import BaseAgent, BaseAgentWithTools, BaseAgentWithToolsV2, BaseAgentWithToolsV3
+from .rag import BaseAgentWithRAG
 from .config import load_agent_config
 
 try:
@@ -11,6 +12,7 @@ AVAILABLE_AGENTS = {
     'BaseAgentWithTools': BaseAgentWithTools,
     'BaseAgentWithToolsV2': BaseAgentWithToolsV2,
     'BaseAgentWithToolsV3': BaseAgentWithToolsV3,
+    'BaseAgentWithRAG': BaseAgentWithRAG,
 }
 
 if DVDAgent is not None:
