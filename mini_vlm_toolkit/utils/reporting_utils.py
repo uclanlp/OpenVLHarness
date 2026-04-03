@@ -594,6 +594,9 @@ def write_full_trajectory_jsons(records, out_dir, limit):
             "agent_class": copy.deepcopy(record.get("agent_class")),
             "prediction": copy.deepcopy(record.get("prediction")),
         }
+        gt = record.get("ground_truth")
+        if gt is not None:
+            payload["ground_truth"] = copy.deepcopy(gt)
         if complete_messages is not None:
             payload["messages"] = complete_messages
         elif isinstance(trajectory, dict) and isinstance(trajectory.get("messages"), list):

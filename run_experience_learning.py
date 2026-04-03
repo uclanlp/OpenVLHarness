@@ -96,6 +96,9 @@ def _to_bool(value):
             return float(val) > 0.5
         except ValueError:
             return False
+    # for vqa
+    if isinstance(value, list):
+        return sum(value) > 0
     return False
 
 
@@ -109,7 +112,7 @@ def _extract_correctness_map(data):
         return {}
 
     metric_col = None
-    for name in ["is_correct", "correct", "hit", "score", "match"]:
+    for name in ["is_correct", "correct", "hit", "score", "match", "eval_score", "eval_match"]:
         if name in columns_lower:
             metric_col = columns_lower[name]
             break
@@ -961,10 +964,10 @@ def main():
             logger.info(f"  Change: {sign}{delta:.1f}%")
 
         # Clean up full_trajectories dirs to save disk
-        for traj_dir in glob.glob(osp.join(infer_work_dir, "trial_*", "full_trajectories")):
-            shutil.rmtree(traj_dir, ignore_errors=True)
-        logger.info("Cleaned up full_trajectories directories")
-
+        if not save_trajectories:
+            for traj_dir in glob.glob(osp.join(infer_work_dir, "trial_*", "full_trajectories")):
+                shutil.rmtree(traj_dir, ignore_errors=True)
+            logger.info("Cleaned up full_trajectories directories")
 
 if __name__ == "__main__":
     main()

@@ -18,7 +18,7 @@ from .constant import (
     DEFAULT_USER_PROMPT_PREFIX_V4,
     DEFAULT_USER_PROMPT_PREFIX_V8,
 )
-from ..memory import PersistentStateMemory, ImageStateMemory
+from ..memory import PersistentStateMemory, ImageStateMemory, ToolContextMemory
 from ..utils.api_utils import (
     chat_completion_request,
     filter_kwargs_for_endpoint,
@@ -496,7 +496,7 @@ class BaseAgent:
 class BaseAgentWithTools(BaseAgent):
     _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
-    _SUPPORTED_MEMORY_NAMES = ("image",)
+    _SUPPORTED_MEMORY_NAMES = ("image", "tool_context")
 
     def __init__(self,
                 tool_base,
@@ -507,6 +507,7 @@ class BaseAgentWithTools(BaseAgent):
                 max_iterations: int = 15,
                 experience_file: Optional[str] = None,
                 instance_critique_dir: Optional[str] = None,
+                max_context_length: Optional[int] = None,
                 **kwargs):
         legacy_keys = [key for key in self._LEGACY_RUNTIME_ENV_KEYS if key in kwargs]
         if legacy_keys:
@@ -530,7 +531,8 @@ class BaseAgentWithTools(BaseAgent):
             raise ConnectionError(f"Failed to get tool schemas from {self.tool_base}/jsonschema")
         self.tool_choice = tool_choice
         self.max_iterations = max_iterations
-        
+        self.max_context_length = max_context_length
+
         if tool_list is not None:
             self.tools = {name: tool for name, tool in self.tools.items() if name in tool_list}
             self.json_schema = [
@@ -553,6 +555,19 @@ class BaseAgentWithTools(BaseAgent):
             f"{self.persistent_state_memory.__class__.__name__} "
             f"(name={self.persistent_state_memory.memory_name})"
         )
+
+        # Eagerly load tokenizer once so _count_tokens is thread-safe.
+        # HuggingFace tokenizers (Rust-backed) are safe for concurrent encode
+        # calls, but AutoTokenizer.from_pretrained is not meant to race.
+        self._tokenizer = None
+        if self.max_context_length and self.model:
+            try:
+                from transformers import AutoTokenizer
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    self.model, trust_remote_code=True
+                )
+            except Exception as e:
+                self.logger.warning(f"Could not load tokenizer for context-length protection: {e}")
 
     def _load_instance_critique(self, task_id: str) -> Optional[str]:
         """Load a per-instance critique file if it exists."""
@@ -612,6 +627,8 @@ class BaseAgentWithTools(BaseAgent):
         options = {key: value for key, value in spec.items() if key != "name"}
         if memory_name == "image":
             return ImageStateMemory(**options)
+        if memory_name == "tool_context":
+            return ToolContextMemory(**options)
 
         raise ValueError(
             f"Unknown persistent_state_memory '{name}'. "
@@ -960,6 +977,20 @@ class BaseAgentWithTools(BaseAgent):
             "meta": {"warning": "unstructured_tool_payload"},
         }
 
+    def _post_process_tool_payload(
+        self,
+        normalized_payload: Dict[str, Any],
+        tool_call: Dict[str, Any],
+        run_memory,
+    ) -> Dict[str, Any]:
+        """Hook for subclasses to post-process a tool execution payload.
+
+        Called after ``_normalize_execute_payload`` and image-resolution
+        metadata have been applied but before the payload is consumed by
+        memory.  The default implementation is a no-op passthrough.
+        """
+        return normalized_payload
+
     def _extract_final_answer_from_content(self, content: str) -> str:
         if content is None:
             return ""
@@ -991,17 +1022,14 @@ class BaseAgentWithTools(BaseAgent):
             if action_match:
                 tail = content[action_match.end():]
                 action_input_match = re.search(
-                    r"^\s*Action\s*Input\s*:\s*(.*)$",
+                    r"^\s*Action\s*Input\s*:\s*",
                     tail,
                     flags=re.IGNORECASE | re.MULTILINE,
                 )
                 if action_input_match:
-                    inline_answer = action_input_match.group(1).strip()
-                    if inline_answer:
-                        return inline_answer
-                    trailing = tail[action_input_match.end():].strip()
-                    if trailing:
-                        return trailing
+                    answer = tail[action_input_match.end():].strip()
+                    if answer:
+                        return answer
                     return ""
 
             v2_scaffold_line = r"^\s*(Question|Observation|Thought|Action|Action\s+Input)\s*:\s*.*$"
@@ -1009,6 +1037,9 @@ class BaseAgentWithTools(BaseAgent):
                 non_scaffold = re.sub(v2_scaffold_line, "", content, flags=re.IGNORECASE | re.MULTILINE).strip()
                 if not non_scaffold:
                     return ""
+                fa_match = re.search(r"Final\s+Answer\s*:\s*", non_scaffold, re.IGNORECASE)
+                if fa_match:
+                    return non_scaffold[fa_match.end():].strip()
 
         cleaned = re.sub(r"<perception>.*?</perception>", "", content, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
@@ -1020,6 +1051,128 @@ class BaseAgentWithTools(BaseAgent):
         if re.search(r"</?\s*(perception|thinking)\s*>", content, flags=re.IGNORECASE):
             return ""
         return content.strip()
+
+    # ------------------------------------------------------------------ #
+    # Context-length protection helpers
+    # ------------------------------------------------------------------ #
+
+    def _count_tokens(self, msgs, tools=None):
+        """Return token count for *msgs* using the cached tokenizer, or None."""
+        try:
+            tokenizer = getattr(self, "_tokenizer", None)
+            if tokenizer is None:
+                return None
+            sanitized = self._sanitize_msgs_for_template(msgs)
+            tmpl_kwargs = dict(tokenize=True, add_generation_prompt=True)
+            if tools:
+                tmpl_kwargs["tools"] = tools
+            tokens = tokenizer.apply_chat_template(sanitized, **tmpl_kwargs)
+            return len(tokens)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _is_environment_update(msg):
+        """Check if a message is an Environment Update from persistent state memory."""
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            return content.startswith("Environment Update")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    if part.get("text", "").startswith("Environment Update"):
+                        return True
+        return False
+
+    def _compact_history(self, msgs, token_budget, tools=None):
+        """Truncate older conversation messages in-place to fit *token_budget*.
+
+        Walks from oldest to newest and replaces tool/assistant/user content
+        with a short placeholder.  Preserves:
+        - The system message and initial user message block
+        - The most recent assistant+tool exchange
+        - The latest Environment Update message (needed for image ID tracking)
+
+        Returns True if the messages now fit within *token_budget*.
+        """
+        # Find the index of the first assistant message (start of tool turns)
+        first_assistant = None
+        for idx, m in enumerate(msgs):
+            if m.get("role") == "assistant":
+                first_assistant = idx
+                break
+        if first_assistant is None:
+            return False  # nothing to compact
+
+        # Find the last assistant message index — preserve the most recent turn
+        last_assistant = None
+        for idx in range(len(msgs) - 1, -1, -1):
+            if msgs[idx].get("role") == "assistant":
+                last_assistant = idx
+                break
+
+        # Find the latest Environment Update — always preserve it
+        last_env_update = None
+        for idx in range(len(msgs) - 1, -1, -1):
+            if msgs[idx].get("role") == "user" and self._is_environment_update(msgs[idx]):
+                last_env_update = idx
+                break
+
+        # Compact from oldest turns forward, skipping the latest turn and env update
+        for idx in range(first_assistant, last_assistant or len(msgs)):
+            if idx == last_env_update:
+                continue  # preserve latest environment update
+            role = msgs[idx].get("role")
+            if role in ("tool", "assistant", "user"):
+                content = msgs[idx].get("content", "")
+                if isinstance(content, str) and len(content) > 100:
+                    msgs[idx]["content"] = "[Truncated to save context]"
+                elif isinstance(content, list):
+                    msgs[idx]["content"] = "[Truncated to save context]"
+                count = self._count_tokens(msgs, tools)
+                if count is not None and count <= token_budget:
+                    return True
+
+        count = self._count_tokens(msgs, tools)
+        return count is not None and count <= token_budget
+
+    def _ensure_context_fits(self, msgs, model_tools, tool_choice):
+        """Check context length and compact/force final answer if needed.
+
+        Returns (model_tools, tool_choice) — may be modified if the model is
+        forced to answer directly.
+        """
+        max_ctx = getattr(self, "max_context_length", None)
+        if not max_ctx:
+            return model_tools, tool_choice
+        tokenizer = getattr(self, "_tokenizer", None)
+        if tokenizer is None:
+            return model_tools, tool_choice
+
+        token_budget = max_ctx - self.max_tokens - 256
+        current_tokens = self._count_tokens(msgs, model_tools)
+        if current_tokens is None or current_tokens <= token_budget:
+            return model_tools, tool_choice
+
+        self.logger.warning(
+            f"[ToolLoop] Token count ({current_tokens}) exceeds budget "
+            f"({token_budget}), compacting history..."
+        )
+        if self._compact_history(msgs, token_budget, model_tools):
+            return model_tools, tool_choice
+
+        # Still over limit — force a final answer without tools
+        self.logger.warning(
+            "[ToolLoop] Still over limit after compaction, forcing final answer"
+        )
+        msgs.append({
+            "role": "user",
+            "content": (
+                "Context limit reached. Please provide your best final answer "
+                "now based on the information gathered so far."
+            ),
+        })
+        return None, "none"
 
     @staticmethod
     def _sanitize_msgs_for_template(msgs):
@@ -1143,16 +1296,49 @@ class BaseAgentWithTools(BaseAgent):
                     }
                 )
 
-            response = chat_completion_request(
-                model=self.model,
-                messages=msgs,
-                base_url=self.api_base,
-                api_key=self.key,
-                tools=model_tools,
-                tool_choice=tool_choice,
-                timeout_seconds=chat_timeout_seconds,
-                **kwargs,
+            # Context-length protection: compact or force final answer
+            active_tools, active_tool_choice = self._ensure_context_fits(
+                msgs, model_tools, tool_choice
             )
+
+            try:
+                response = chat_completion_request(
+                    model=self.model,
+                    messages=msgs,
+                    base_url=self.api_base,
+                    api_key=self.key,
+                    tools=active_tools,
+                    tool_choice=active_tool_choice,
+                    timeout_seconds=chat_timeout_seconds,
+                    **kwargs,
+                )
+            except RuntimeError as e:
+                err_msg = str(e).lower()
+                if "context length" in err_msg or "maximum input length" in err_msg:
+                    self.logger.warning(
+                        f"[ToolLoop] Context length error from server, forcing final answer: {e}"
+                    )
+                    # Drop older turns aggressively and retry without tools
+                    self._compact_history(msgs, 0)  # compact everything possible
+                    msgs.append({
+                        "role": "user",
+                        "content": (
+                            "Context limit reached. Please provide your best final "
+                            "answer now based on the information gathered so far."
+                        ),
+                    })
+                    response = chat_completion_request(
+                        model=self.model,
+                        messages=msgs,
+                        base_url=self.api_base,
+                        api_key=self.key,
+                        tools=None,
+                        tool_choice="none",
+                        timeout_seconds=chat_timeout_seconds,
+                        **kwargs,
+                    )
+                else:
+                    raise
             if not isinstance(response, dict):
                 raise RuntimeError(
                     f"Invalid chat response type: expected dict, got {type(response).__name__}"
@@ -1229,6 +1415,7 @@ class BaseAgentWithTools(BaseAgent):
                         resolved_args, image_resolution = run_memory.resolve_tool_call_args(
                             agent=self,
                             args=call["args"],
+                            tool_name=call.get("name", ""),
                         )
                         if debug_tool_loop:
                             self.logger.info(
@@ -1281,6 +1468,9 @@ class BaseAgentWithTools(BaseAgent):
                                     meta = {}
                                 meta["image_resolution"] = image_resolution
                                 normalized_payload["meta"] = meta
+                            normalized_payload = self._post_process_tool_payload(
+                                normalized_payload, call, run_memory,
+                            )
                     if debug_tool_loop:
                         self.logger.info(
                             f"[ToolLoop] result ok={normalized_payload.get('ok')} id={call['id']} error={self._truncate_for_debug(normalized_payload.get('error'), max_chars=debug_char_limit)}"
@@ -1687,7 +1877,7 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
         """Execute a single parsed tool call. Returns (normalized_payload, image_resolution)."""
         image_resolution = {"rewrites": [], "errors": []}
         resolved_args, image_resolution = run_memory.resolve_tool_call_args(
-            agent=self, args=call["args"],
+            agent=self, args=call["args"], tool_name=call.get("name", ""),
         )
         if debug_tool_loop:
             self.logger.info(
@@ -1798,18 +1988,49 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
                     "content": "Please provide your best final answer now if enough information is available.",
                 })
 
+            # Context-length protection: compact or force final answer
+            self._ensure_context_fits(msgs, None, None)
+
             # No native tools; use stop tokens.
-            response = chat_completion_request(
-                model=self.model,
-                messages=msgs,
-                base_url=self.api_base,
-                api_key=self.key,
-                tools=None,
-                tool_choice=None,
-                stop=self.stop_tokens,
-                timeout_seconds=chat_timeout_seconds,
-                **kwargs,
-            )
+            try:
+                response = chat_completion_request(
+                    model=self.model,
+                    messages=msgs,
+                    base_url=self.api_base,
+                    api_key=self.key,
+                    tools=None,
+                    tool_choice=None,
+                    stop=self.stop_tokens,
+                    timeout_seconds=chat_timeout_seconds,
+                    **kwargs,
+                )
+            except RuntimeError as e:
+                err_msg = str(e).lower()
+                if "context length" in err_msg or "input tokens" in err_msg:
+                    self.logger.warning(
+                        f"[ToolLoop] Context length error from server, forcing final answer: {e}"
+                    )
+                    self._compact_history(msgs, 0)
+                    msgs.append({
+                        "role": "user",
+                        "content": (
+                            "Context limit reached. Please provide your best final "
+                            "answer now based on the information gathered so far."
+                        ),
+                    })
+                    response = chat_completion_request(
+                        model=self.model,
+                        messages=msgs,
+                        base_url=self.api_base,
+                        api_key=self.key,
+                        tools=None,
+                        tool_choice=None,
+                        stop=None,
+                        timeout_seconds=chat_timeout_seconds,
+                        **kwargs,
+                    )
+                else:
+                    raise
             if not isinstance(response, dict):
                 raise RuntimeError(f"Invalid chat response type: expected dict, got {type(response).__name__}")
             choices = response.get("choices")
