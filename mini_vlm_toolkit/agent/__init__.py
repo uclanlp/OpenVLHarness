@@ -1,4 +1,5 @@
 from .base import BaseAgent, BaseAgentWithTools, BaseAgentWithToolsV2, BaseAgentWithToolsV3
+from .base_with_code import BaseAgentWithToolsAndCode
 from .rag import BaseAgentWithRAG
 from .config import load_agent_config
 
@@ -10,6 +11,7 @@ except Exception:  # pragma: no cover - optional heavy deps may be missing.
 AVAILABLE_AGENTS = {
     'BaseAgent': BaseAgent,
     'BaseAgentWithTools': BaseAgentWithTools,
+    'BaseAgentWithToolsAndCode': BaseAgentWithToolsAndCode,
     'BaseAgentWithToolsV2': BaseAgentWithToolsV2,
     'BaseAgentWithToolsV3': BaseAgentWithToolsV3,
     'BaseAgentWithRAG': BaseAgentWithRAG,
