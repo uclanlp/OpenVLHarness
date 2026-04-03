@@ -64,22 +64,12 @@ class BaseAgentWithToolsAndCode(BaseAgentWithTools):
                 timeout_seconds=self._CODE_EXECUTION_TIMEOUT,
             )
         except CodeExecutionTimeoutError:
-            normalized_payload["ok"] = False
-            normalized_payload["error"] = {
-                "code": "code_execution_timeout",
-                "message": (
-                    f"Generated code timed out after "
-                    f"{self._CODE_EXECUTION_TIMEOUT}s"
-                ),
-            }
-            normalized_payload["result"]["execution_error"] = "timeout"
+            normalized_payload["result"]["execution_error"] = (
+                f"Code execution timed out after "
+                f"{self._CODE_EXECUTION_TIMEOUT}s"
+            )
             return normalized_payload
         except Exception as exc:
-            normalized_payload["ok"] = False
-            normalized_payload["error"] = {
-                "code": "code_execution_error",
-                "message": str(exc),
-            }
             normalized_payload["result"]["execution_error"] = str(exc)
             return normalized_payload
 
