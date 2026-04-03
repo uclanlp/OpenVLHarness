@@ -1,9 +1,18 @@
-"""Upload local images to cloud storage (GCS / S3) and return public URLs."""
+"""Upload local images to cloud storage (GCS / S3) and return public URLs.
 
+Uses content-hash-based blob names so that identical images are never uploaded
+twice — even across server restarts or experiment runs. Before uploading, a
+HEAD request checks whether the object already exists on the remote.
+
+An in-memory cache (keyed by SHA-256 of the image bytes) further avoids the
+HEAD round-trip for repeated calls within the same process.
+"""
+
+import hashlib
 import os
-import uuid
+import time
 import mimetypes
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Provider selection via environment variable
@@ -23,8 +32,34 @@ from typing import Optional, Tuple
 # ---------------------------------------------------------------------------
 
 
-def _generate_blob_name(extension: str = ".jpg") -> str:
-    return f"tool-uploads/{uuid.uuid4().hex}{extension}"
+# In-memory cache: content hash -> (url, timestamp)
+# Signed URLs expire after 1 hour, so cache entries older than 50 min are evicted.
+_upload_cache: Dict[str, Tuple[str, float]] = {}
+_CACHE_TTL_SECONDS = 50 * 60  # 50 minutes (signed URLs valid for 60 min)
+
+
+def _content_hash(image_bytes: bytes) -> str:
+    return hashlib.sha256(image_bytes).hexdigest()
+
+
+def _get_cached_url(content_hash: str) -> Optional[str]:
+    entry = _upload_cache.get(content_hash)
+    if entry is None:
+        return None
+    url, ts = entry
+    if time.time() - ts > _CACHE_TTL_SECONDS:
+        del _upload_cache[content_hash]
+        return None
+    return url
+
+
+def _set_cached_url(content_hash: str, url: str) -> None:
+    _upload_cache[content_hash] = (url, time.time())
+
+
+def _blob_name(content_hash: str, extension: str = ".jpg") -> str:
+    """Deterministic blob name based on content hash."""
+    return f"tool-uploads/{content_hash}{extension}"
 
 
 def _guess_content_type(path: str) -> str:
@@ -32,49 +67,11 @@ def _guess_content_type(path: str) -> str:
     return ct or "application/octet-stream"
 
 
-def _resolve_upload_provider(provider: Optional[str] = None) -> str:
-    resolved = (provider or os.getenv("IMAGE_UPLOAD_PROVIDER", "")).strip().lower()
-    if not resolved:
-        raise RuntimeError(
-            "Local/base64 image upload requires an explicitly configured backend. "
-            "Set IMAGE_UPLOAD_PROVIDER to 'gcs' or 's3'."
-        )
-    if resolved not in {"gcs", "s3"}:
-        raise ValueError(
-            f"Unknown IMAGE_UPLOAD_PROVIDER: {resolved!r}. Use 'gcs' or 's3'."
-        )
-    return resolved
-
-
-def _validate_provider_config(provider: str) -> None:
-    if provider == "gcs":
-        missing = [
-            name
-            for name in ("GCS_BUCKET_NAME", "GOOGLE_APPLICATION_CREDENTIALS")
-            if not os.getenv(name)
-        ]
-    else:
-        missing = [
-            name
-            for name in (
-                "AWS_S3_BUCKET_NAME",
-                "AWS_ACCESS_KEY_ID",
-                "AWS_SECRET_ACCESS_KEY",
-            )
-            if not os.getenv(name)
-        ]
-
-    if missing:
-        raise RuntimeError(
-            f"Image upload backend '{provider}' is not fully configured. "
-            f"Missing environment variables: {', '.join(missing)}"
-        )
-
-
 # ---- GCS ------------------------------------------------------------------
 
-def _upload_gcs(image_bytes: bytes, content_type: str, extension: str) -> str:
+def _upload_gcs(image_bytes: bytes, content_type: str, extension: str, content_hash: str) -> str:
     from google.cloud import storage as gcs_storage
+    from datetime import timedelta
 
     creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if not creds_path:
@@ -89,20 +86,22 @@ def _upload_gcs(image_bytes: bytes, content_type: str, extension: str) -> str:
     project_id = os.getenv("GCS_PROJECT_ID")
     client = gcs_storage.Client(project=project_id)
     bucket = client.bucket(bucket_name)
-    blob_name = _generate_blob_name(extension)
-    blob = bucket.blob(blob_name)
-    blob.upload_from_string(image_bytes, content_type=content_type)
+    key = _blob_name(content_hash, extension)
+    blob = bucket.blob(key)
 
-    # Generate a signed URL valid for 1 hour
-    from datetime import timedelta
+    # Skip upload if object already exists
+    if not blob.exists():
+        blob.upload_from_string(image_bytes, content_type=content_type)
+
     url = blob.generate_signed_url(expiration=timedelta(hours=1), method="GET")
     return url
 
 
 # ---- S3 -------------------------------------------------------------------
 
-def _upload_s3(image_bytes: bytes, content_type: str, extension: str) -> str:
+def _upload_s3(image_bytes: bytes, content_type: str, extension: str, content_hash: str) -> str:
     import boto3
+    from botocore.exceptions import ClientError
 
     bucket_name = os.getenv("AWS_S3_BUCKET_NAME")
     if not bucket_name:
@@ -115,18 +114,22 @@ def _upload_s3(image_bytes: bytes, content_type: str, extension: str) -> str:
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     )
-    blob_name = _generate_blob_name(extension)
-    client.put_object(
-        Bucket=bucket_name,
-        Key=blob_name,
-        Body=image_bytes,
-        ContentType=content_type,
-    )
+    key = _blob_name(content_hash, extension)
 
-    # Generate a presigned URL valid for 1 hour
+    # Skip upload if object already exists
+    try:
+        client.head_object(Bucket=bucket_name, Key=key)
+    except ClientError:
+        client.put_object(
+            Bucket=bucket_name,
+            Key=key,
+            Body=image_bytes,
+            ContentType=content_type,
+        )
+
     url = client.generate_presigned_url(
         "get_object",
-        Params={"Bucket": bucket_name, "Key": blob_name},
+        Params={"Bucket": bucket_name, "Key": key},
         ExpiresIn=3600,
     )
     return url
@@ -142,6 +145,10 @@ def upload_image_bytes(
 ) -> str:
     """Upload image bytes to cloud storage and return a public URL.
 
+    Uses content-hash-based blob names for deduplication:
+    - In-memory cache avoids repeated calls within the same process.
+    - Remote HEAD check avoids re-uploading across server restarts.
+
     Args:
         image_bytes: Raw image data.
         content_type: MIME type of the image.
@@ -151,14 +158,24 @@ def upload_image_bytes(
     Returns:
         A publicly accessible (signed) URL.
     """
-    provider = _resolve_upload_provider(provider)
-    _validate_provider_config(provider)
+    ch = _content_hash(image_bytes)
+
+    # Level 1: in-memory cache (avoids even a HEAD request)
+    cached = _get_cached_url(ch)
+    if cached:
+        return cached
+
+    # Level 2: remote check + conditional upload
+    provider = (provider or os.getenv("IMAGE_UPLOAD_PROVIDER", "gcs")).lower()
     if provider == "gcs":
-        return _upload_gcs(image_bytes, content_type, extension)
+        url = _upload_gcs(image_bytes, content_type, extension, ch)
     elif provider == "s3":
-        return _upload_s3(image_bytes, content_type, extension)
+        url = _upload_s3(image_bytes, content_type, extension, ch)
     else:
         raise ValueError(f"Unknown IMAGE_UPLOAD_PROVIDER: {provider!r}. Use 'gcs' or 's3'.")
+
+    _set_cached_url(ch, url)
+    return url
 
 
 def upload_image_file(
