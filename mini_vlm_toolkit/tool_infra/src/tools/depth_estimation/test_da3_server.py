@@ -27,7 +27,7 @@ print(f"Saved depth_output.png")
 # Decode raw float32 depth array
 shape = result["depth_shape"]
 depth_array = np.frombuffer(
-    base64.b64decode(result["depth_raw_b64"]), dtype=np.float32
+    base64.b64decode(result["depth_meters_b64"]), dtype=np.float32
 ).reshape(shape)
 print(f"Depth array shape: {depth_array.shape}, range: [{depth_array.min():.4f}, {depth_array.max():.4f}]")
 print(f"Colormap: {result['colormap']}, Model: {result['model_id']}")

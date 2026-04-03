@@ -36,13 +36,12 @@ class Depth_Estimation_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Estimate a monocular depth map from one image using a "
-                "Depth Anything 3 server. Returns both raw float32 depth "
+                "Estimate a monocular depth map from an image. Returns both raw float32 depth"
                 "values (base64-encoded) and a colorized visualization. "
                 "Use this tool for relative near/far reasoning, depth "
                 "comparison between regions, or depth visualization. "
-                "Do not treat the output as calibrated metric depth "
-                "without external camera calibration."
+                # "Do not treat the output as calibrated metric depth "
+                # "without external camera calibration."
             ),
             tool_version="0.1.0",
             input_types={
@@ -52,9 +51,8 @@ class Depth_Estimation_Tool(BaseTool):
             },
             input_schema=INPUT_SCHEMA,
             output_type=(
-                "dict - depth_raw_b64 (base64-encoded float32 array, "
-                "decodable via np.frombuffer(base64.b64decode(v), dtype=np.float32)"
-                ".reshape(depth_shape)), depth_shape [H, W], "
+                "dict - depth_meters_b64 (base64-encoded float32 array of metric "
+                "depth in meters), depth_shape [H, W], "
                 "depth_map_base64 (colorized PNG), colormap, model_id, device, size"
             ),
             demo_commands=[
