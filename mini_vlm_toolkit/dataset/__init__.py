@@ -38,6 +38,10 @@ from .refspatial import RefSpatialDataset
 from .lvis import LVISBBoxDataset, LVISMaskDataset
 from .odinw import ODinWBBoxDataset
 from .simplevqa import SimpleVQA
+from .embspatialbench import EmbSpatialBench
+from .erqabench import ERQABench
+from .robospatialbench import RoboSpatialBench
+from .mmsibench import MMSIBench
 from .livevqa import LIVEVQADataset
 from .browsecomp_vl import BrowseCompVLDataset
 
@@ -254,7 +258,7 @@ IMAGE_DATASET = [
 
 
 # add by EASI team
-IMAGE_DATASET += [RefSpatialBench]
+IMAGE_DATASET += [RefSpatialBench, EmbSpatialBench, ERQABench, RoboSpatialBench, MMSIBench]
 
 
 VIDEO_DATASET = [

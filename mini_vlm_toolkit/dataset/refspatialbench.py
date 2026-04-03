@@ -157,6 +157,34 @@ class RefSpatialBench(ImageVQADataset):
             data = data.sort_values(by='index')
         data['prediction'] = data['prediction'].astype(str)
 
+        # Optional LLM-based answer extraction (clean verbose predictions)
+        model_name = judge_kwargs.get('model', None)
+        if model_name is not None and model_name not in ('exact_matching', 'extract_matching'):
+            from .utils.spatial_bench.llm_extract import (
+                parallel_llm_extract_only, REFSPATIAL_EXTRACT_PROMPT,
+            )
+            from .utils.spatial_bench.cal_scores import _build_llm_judge
+            from ..smp.file import get_intermediate_file_path
+
+            model = _build_llm_judge(judge_kwargs, task_name='RefSpatial')
+            if model is not None:
+                nproc = judge_kwargs.get('nproc', judge_kwargs.get('api_nproc', 1) or 1)
+                max_retry = judge_kwargs.get('retry', 3)
+                judge_tag = f'llm_{model_name}'.replace('/', '_')
+                cache_file = get_intermediate_file_path(
+                    eval_file, suffix=f'_{judge_tag}_extract', target_format='pkl',
+                )
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                cleaned = parallel_llm_extract_only(
+                    df=data,
+                    model=model,
+                    prompt_template=REFSPATIAL_EXTRACT_PROMPT,
+                    max_retry=max_retry,
+                    nproc=nproc,
+                    cache_file=cache_file,
+                )
+                data['prediction'] = cleaned
+
         result_file, xlsx_path, acc_tsv_path = build_eval_paths(eval_file, judge_tag='Point2D')
 
         required = ['category', 'mask_path', 'prediction']
