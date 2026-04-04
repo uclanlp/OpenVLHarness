@@ -83,11 +83,10 @@ class RefSpatialDataset(ImageBaseDataset):
     @classmethod
     def supported_datasets(cls):
         """Return all supported dataset names."""
-        base_names = ['RefSpatial', 'RefSpatial-Bench']
         split_names = [f'RefSpatial-{s}' for s in cls.SPLITS]
         split_names += [f'RefSpatial_{s}' for s in cls.SPLITS]
         split_names += [f'RefSpatial-Bench-{s}' for s in cls.SPLITS]
-        return list(set(base_names + split_names))
+        return list(set(split_names))
 
     def _get_split_name(self, dataset: str) -> str:
         """Normalize dataset name to split name."""

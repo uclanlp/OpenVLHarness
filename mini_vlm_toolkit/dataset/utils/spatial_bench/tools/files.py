@@ -10,6 +10,9 @@ def _judge_tag_from_mode_and_model(judge_mode: str | None, judge_model: str | No
         - 'llm_gpt-4o' / 'llm_matching'
     """
     if judge_mode == 'llm':
+        if "/" in judge_model:
+            # For HuggingFace models, use the part after the last slash as the tag
+            return f'llm_{judge_model.split("/")[-1]}'
         return f'llm_{judge_model}' if judge_model else 'llm_matching'
     return 'extract_matching'
 

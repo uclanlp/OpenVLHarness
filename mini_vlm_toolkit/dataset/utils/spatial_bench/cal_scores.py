@@ -436,11 +436,11 @@ def _build_llm_judge(judge_kwargs: dict, *, task_name: str):
         - model instance if everything is OK;
         - None if API key is missing or the judge is not working.
     """
-    if not gpt_key_set():
-        warnings.warn(
-            f'OPENAI_API_KEY is not set properly, fallback to rule-based {task_name} scoring.'
-        )
-        return None
+    # if not gpt_key_set():
+    #     warnings.warn(
+    #         f'OPENAI_API_KEY is not set properly, fallback to rule-based {task_name} scoring.'
+    #     )
+    #     return None
 
     model = build_judge(**judge_kwargs)
     if (model is None) or (hasattr(model, "working") and not model.working()):

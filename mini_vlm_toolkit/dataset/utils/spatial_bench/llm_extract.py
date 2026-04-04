@@ -81,6 +81,194 @@ GENERIC_EXTRACT_JUDGE_PROMPT = (
 )
 
 
+REFSPATIAL_EXTRACT_PROMPT = (
+    "You are an answer extraction assistant for a spatial referring task.\n"
+    "The model was asked to output point coordinates in JSON format.\n"
+    "Your job is to extract ONLY the final point coordinates from the model's response.\n"
+    "\n"
+    "Rules:\n"
+    "- Output valid JSON: a list of objects with \"point_2d\" and \"label\" keys.\n"
+    "- Preserve the exact numeric values (do NOT convert between coordinate systems).\n"
+    "- If the response contains multiple \"Final Answer\" blocks, use the LAST one.\n"
+    "- Strip any surrounding text, markdown fences, or explanations.\n"
+    "- If no coordinates can be found at all, output exactly: N/A\n"
+    "\n"
+    "Examples:\n"
+    "\n"
+    "Input: Thought: Based on the cropped image, I can confirm the presence of the orange box.\n"
+    "The orange box is in the upper right portion of the image.\n"
+    'Final Answer: [{"point_2d": [787, 222], "label": "orange box"}]\n'
+    "Note: The actual pixel coordinates may vary.\n"
+    'Output: [{"point_2d": [787, 222], "label": "orange box"}]\n'
+    "\n"
+    "Input: ```json\n"
+    '[{"point_2d": [0.78, 0.76], "label": "point_1"}]\n'
+    "```\n"
+    'Output: [{"point_2d": [0.78, 0.76], "label": "point_1"}]\n'
+    "\n"
+    'Input: The point is at (0.5, 0.3) in the image. Final Answer: [{"point_2d": [1.0, 0.3], "label": "point_1"}]\n'
+    "However, given the constraint, I will choose (0.7, 0.4) as a safe estimate.\n"
+    'Final Answer: [{"point_2d": [0.7, 0.4], "label": "point_1"}]\n'
+    'Output: [{"point_2d": [0.7, 0.4], "label": "point_1"}]\n'
+    "\n"
+    "Now extract the coordinates from the following response.\n"
+    "Input: {prediction}\n"
+    "Output:"
+)
+
+
+ROBOSPATIAL_EXTRACT_PROMPT = (
+    "You are an answer extraction assistant for a spatial reasoning task.\n"
+    "The model was asked either a yes/no question or to provide point coordinates.\n"
+    "Your job is to extract ONLY the final answer from the model's response.\n"
+    "\n"
+    "Rules:\n"
+    "- For yes/no questions: output exactly \"yes\" or \"no\" (lowercase).\n"
+    "- For coordinate questions: output the coordinates as a list of tuples, "
+    "e.g. [(0.251, 0.438), (0.302, 0.426)].\n"
+    "  Alternatively, JSON format like [{\"point_2d\": [x, y]}] is also acceptable.\n"
+    "- Preserve the exact numeric values.\n"
+    "- If the response contains multiple answers, use the LAST one.\n"
+    "- Strip any surrounding text or explanations.\n"
+    "- If no answer can be found at all, output exactly: N/A\n"
+    "\n"
+    "Examples:\n"
+    "\n"
+    "Input: No, the fire extinguisher cannot fit in front of the monitor because "
+    "there is insufficient clearance between the monitor and the edge of the desk.\n"
+    "Output: no\n"
+    "\n"
+    "Input: Thought: After zooming in, I can see there is enough space.\n"
+    "Final Answer: Yes\n"
+    "Output: yes\n"
+    "\n"
+    "Input: The vacant space can be found at these coordinates.\n"
+    "Final Answer: [(0.251, 0.438), (0.302, 0.426), (0.379, 0.430)]\n"
+    "Note: These are approximate coordinates.\n"
+    "Output: [(0.251, 0.438), (0.302, 0.426), (0.379, 0.430)]\n"
+    "\n"
+    'Input: Final Answer: [{"point_2d": [700, 650], "label": "point_1"}]\n'
+    'Output: [{"point_2d": [700, 650], "label": "point_1"}]\n'
+    "\n"
+    "Now extract the answer from the following response.\n"
+    "Input: {prediction}\n"
+    "Output:"
+)
+
+
+def call_llm_extract_only(
+    model,
+    max_retry: int,
+    prediction: str,
+    prompt_template: str,
+) -> str:
+    """
+    Extract-only LLM call. Returns the cleaned prediction text.
+    No grading is performed.
+
+    On failure, returns the original prediction unchanged (graceful fallback).
+    """
+    logger = get_logger('LLM Extract')
+
+    prompt = prompt_template.replace('{prediction}', prediction)
+
+    for _ in range(max_retry):
+        ans = model.generate(prompt).strip()
+        if 'Failed to obtain answer via API' in ans:
+            logger.warning('GPT API failed to answer.')
+            continue
+
+        # Use only the first non-empty line
+        for line in ans.splitlines():
+            line = line.strip()
+            if line:
+                return line
+
+    logger.warning('LLM extract-only failed after max_retry, returning original prediction.')
+    return prediction
+
+
+def parallel_llm_extract_only(
+    df: pd.DataFrame,
+    model,
+    *,
+    prompt_template: str,
+    max_retry: int = 3,
+    nproc: int = 4,
+    cache_file: str | None = None,
+    key_col: str = 'index',
+) -> list[str]:
+    """
+    Run extract-only LLM cleaning in parallel with optional cache.
+
+    Returns:
+        list of cleaned prediction strings, aligned with df rows.
+    """
+    df = df.copy()
+    rows: List[Dict[str, Any]] = list(df.to_dict(orient='records'))
+
+    def _one_sample(row: Dict[str, Any]):
+        prediction = str(row.get('prediction', ''))
+        cleaned = call_llm_extract_only(
+            model=model,
+            max_retry=max_retry,
+            prediction=prediction,
+            prompt_template=prompt_template,
+        )
+        return cleaned
+
+    # ===== case 1: no cache, plain parallel run =====
+    if not cache_file:
+        tasks = [dict(row=r) for r in rows]
+        return track_progress_rich(
+            func=_one_sample,
+            tasks=tasks,
+            nproc=nproc,
+        )
+
+    # ===== case 2: with cache, resume by key_col =====
+    cache: dict = {}
+    if os.path.exists(cache_file):
+        try:
+            cache = load(cache_file)
+            if not isinstance(cache, dict):
+                cache = {}
+        except Exception:
+            cache = {}
+
+    results: list = [None] * len(rows)
+    tasks: list[dict] = []
+    keys: list = []
+    task_pos: list[int] = []
+
+    for i, row in enumerate(rows):
+        key = row.get(key_col, None)
+        if key is not None and key in cache:
+            results[i] = cache[key]
+        else:
+            tasks.append(dict(row=row))
+            keys.append(key)
+            task_pos.append(i)
+
+    if tasks:
+        new_results = track_progress_rich(
+            func=_one_sample,
+            tasks=tasks,
+            nproc=nproc,
+            save=cache_file,
+            keys=keys,
+        )
+        for pos, cleaned in zip(task_pos, new_results):
+            results[pos] = cleaned
+
+    # Fallback: if any result is still None, use original prediction
+    for i, r in enumerate(results):
+        if r is None:
+            results[i] = str(rows[i].get('prediction', ''))
+
+    return results
+
+
 def build_option_str(option_dict):
     s = ''
     for c, content in option_dict.items():
