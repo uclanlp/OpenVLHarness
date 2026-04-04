@@ -2935,3 +2935,70 @@ class TopViewRS(ImageMCQDataset):
         score_file = eval_file.replace(f'.{suffix}', '_acc.csv')
         dump(acc, score_file)
         return acc
+
+
+class FREAKMCQDataset(ImageMCQDataset):
+    TYPE = 'MCQ'
+    DATASET_URL = {'FREAK_mcq': ''}
+    DATASET_MD5 = {}
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+
+        if self.meta_only:
+            tgt_path = toliststr(line['image_path'])
+        else:
+            tgt_path = self.dump_image(line)
+
+        msgs = []
+        if isinstance(tgt_path, list):
+            msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        else:
+            msgs = [dict(type='image', value=tgt_path)]
+        msgs.append(dict(type='text', value=line['prompt']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        import json as json_mod
+        from ..utils.matching_util import can_infer
+
+        data = load(eval_file)
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['mcq_answer'] = [str(x) for x in data['mcq_answer']]
+
+        extracted = []
+        for i in range(len(data)):
+            pred = data['prediction'].iloc[i]
+            # Reconstruct choices dict from the JSON list column
+            choices_dict = {c: c for c in 'ABCD'}
+            if 'choices' in data.columns:
+                try:
+                    choices_list = json_mod.loads(data['choices'].iloc[i])
+                    choices_dict = {string.ascii_uppercase[j]: opt
+                                    for j, opt in enumerate(choices_list)}
+                except Exception:
+                    pass
+            letter = can_infer(pred, choices_dict)
+            extracted.append(letter if letter else None)
+
+        data['extracted'] = extracted
+        detailed_file = get_intermediate_file_path(eval_file, '_detailed')
+        dump(data, detailed_file)
+
+        correct = sum(1 for e, a in zip(extracted, data['mcq_answer']) if e == a)
+        total = len(data)
+
+        ret = {'Overall': round(correct / total * 100, 2) if total > 0 else 0}
+        if 'category' in data.columns:
+            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
+                mask = data['category'] == c
+                sub_ext = [e for e, m in zip(extracted, mask) if m]
+                sub_ans = data.loc[mask, 'mcq_answer'].tolist()
+                sub_correct = sum(1 for e, a in zip(sub_ext, sub_ans) if e == a)
+                ret[c] = round(sub_correct / len(sub_ext) * 100, 2) if sub_ext else 0
+
+        ret = d2df(ret)
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(ret, result_file)
+        return ret
