@@ -10,6 +10,7 @@ from .utils.reporting_utils import (
     write_input_snapshot_json,
     write_html_reports,
     write_full_trajectory_jsons,
+    write_raw_response_jsons,
 )
 from .utils import track_progress_rich
 from .smp import *
@@ -380,6 +381,10 @@ def infer_image_job(
                     rec['ground_truth'] = str(gt)
 
         write_full_trajectory_jsons(full_records, full_trajectory_dir, limit=-1)
+
+        if getattr(model, 'save_raw_response', False):
+            raw_response_dir = osp.join(work_dir, "raw_response")
+            write_raw_response_jsons(full_records, raw_response_dir)
 
         # HTML reports are still gated by html_limit
         if html_limit != 0:
