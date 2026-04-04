@@ -33,6 +33,7 @@ class ImageStateMemory(PersistentStateMemory):
         "masks_png_b64",
         "subplot_images_base64",
     )
+    _RAW_DATA_HINTS = ("raw", "meters")
 
     def __init__(self, emit_policy: str = "always", **kwargs):
         super().__init__(**kwargs)
@@ -589,6 +590,7 @@ class ImageStateMemory(PersistentStateMemory):
         *,
         agent: Any,
         args: Dict[str, Any],
+        tool_name: str = "",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if not isinstance(args, dict):
             return {}, {"rewrites": [], "errors": []}
@@ -641,6 +643,8 @@ class ImageStateMemory(PersistentStateMemory):
 
     def _is_image_result_key(self, key: str) -> bool:
         k = str(key).lower()
+        if any(hint in k for hint in self._RAW_DATA_HINTS):
+            return False
         if k in self._IMAGE_RESULT_KEY_HINTS:
             return True
         if k.endswith("_base64") or k.endswith("_b64"):

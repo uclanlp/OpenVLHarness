@@ -8,6 +8,12 @@ import torch
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from PIL import Image
 
+"""
+Monocular Metric Depth: To obtain metric depth in meters from DA3METRIC-LARGE, 
+use metric_depth = focal * net_output / 300., where focal is the focal length in pixels 
+(typically the average of fx and fy from the camera intrinsic matrix K).
+Note that the output from DA3NESTED-GIANT-LARGE is already in meters.
+"""
 
 MODEL_ID = os.getenv(
     "DEPTH_ESTIMATION_MODEL_ID", "depth-anything/DA3NESTED-GIANT-LARGE"
@@ -26,31 +32,12 @@ def _resolve_device(device):
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _patch_cpu_forward(model, device):
-    if not str(device).startswith("cpu"):
-        return model
-
-    # DepthAnything3's upstream forward path autocasts CPU inference to float16,
-    # which raises on CPU. Keep the CPU fallback in float32 instead.
-    def _forward_cpu_safe(
-        image, extrinsics=None, intrinsics=None, export_feat_layers=None, infer_gs=False
-    ):
-        with torch.no_grad():
-            return model.model(
-                image, extrinsics, intrinsics, export_feat_layers, infer_gs
-            )
-
-    model.forward = _forward_cpu_safe
-    return model
-
-
 def _load_model():
     from depth_anything_3.api import DepthAnything3
 
     device = _resolve_device(DEVICE_ENV)
     model = DepthAnything3.from_pretrained(MODEL_ID)
     model = model.to(device)
-    model = _patch_cpu_forward(model, device)
     return model, device
 
 
@@ -117,7 +104,8 @@ async def depth(
             status_code=400, detail=f"invalid image: {exc}"
         ) from exc
 
-    prediction = MODEL.inference([pil_image])
+    process_res = max(pil_image.size)  # longer side (width, height)
+    prediction = MODEL.inference([pil_image], process_res=process_res)
     depth_map = prediction.depth[0]  # [H, W] float32
 
     if not isinstance(depth_map, np.ndarray):
@@ -127,8 +115,8 @@ async def depth(
     height, width = depth_map.shape
     depth_norm = _normalize_depth(depth_map)
 
-    # Encode raw float32 depth for programmatic use
-    depth_raw_b64 = base64.b64encode(depth_norm.tobytes()).decode("utf-8")
+    # Encode raw metric depth (meters) for programmatic use
+    depth_meters_b64 = base64.b64encode(depth_map.tobytes()).decode("utf-8")
 
     # Colorized visualization
     try:
@@ -140,7 +128,7 @@ async def depth(
     depth_map_base64 = _encode_png(depth_image)
 
     return {
-        "depth_raw_b64": depth_raw_b64,
+        "depth_meters_b64": depth_meters_b64,
         "depth_shape": [height, width],
         "depth_map_base64": depth_map_base64,
         "colormap": colormap_used,

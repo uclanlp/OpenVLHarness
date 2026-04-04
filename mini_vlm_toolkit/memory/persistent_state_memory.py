@@ -57,6 +57,7 @@ class PersistentStateMemory:
         *,
         agent: Any,
         args: Dict[str, Any],
+        tool_name: str = "",
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Rewrite tool args before /execute (default: no-op)."""
         if not isinstance(args, dict):
