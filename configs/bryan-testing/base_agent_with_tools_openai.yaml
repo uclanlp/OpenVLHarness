@@ -3,15 +3,13 @@ agent_name: BaseAgentWithTools
 agent_config_version: v1_0215
 
 agent_kwargs:
-  base: "http://localhost:8002"
+  base: "http://localhost:8222"
   key: "empty"
-  model: "Qwen/Qwen3-VL-8B-Instruct"
+  model: "gpt-5-mini"
   timeout: 600
   custom_prompt: false
   max_tokens: 2048
   temperature: 0.3
-  top_p: 0.95
-  repetition_penalty: 1.1
   retry: 3
   verbose: true
   debug_tool_loop: true

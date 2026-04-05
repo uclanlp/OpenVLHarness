@@ -2972,6 +2972,27 @@ class FSC147Dataset(ImageVQADataset):
         return result
 
 
+class FREAKVQADataset(ImageVQADataset):
+    TYPE = 'VQA'
+    DATASET_URL = {'FREAK_vqa': ''}
+    DATASET_MD5 = {}
+
+    def _get_eval_method(self):
+        return 'accuracy'
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+        tgt_path = self.dump_image(line)
+        msgs = []
+        msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        msgs.append(dict(type='text', value=line['prompt']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        return self.evaluate_verifier(eval_file, **judge_kwargs)
+
+
 class OCR_Reasoning(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {

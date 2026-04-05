@@ -18,6 +18,8 @@ def img_root_map(dataset):
         return 'COCO'
     if "QSpatial" in dataset:
         return "QSpatial"
+    if 'FREAK' in dataset:
+        return 'FREAK'
     if 'FSC147' in dataset:
         return 'FSC147'
     if 'LVIS' in dataset:

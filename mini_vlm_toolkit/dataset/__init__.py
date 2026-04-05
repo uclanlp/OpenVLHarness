@@ -7,7 +7,7 @@ from .image_mcq import (
     ImageMCQDataset, MMMUDataset, CustomMCQDataset, MUIRDataset, GMAIMMBenchDataset, MMERealWorld, HRBenchDataset,
     NaturalBenchDataset, WeMath, MMMUProDataset, VMCBenchDataset, MedXpertQA_MM_test, LEGO, VisuLogic, CVBench, TDBench,
     MicroBench, OmniMedVQA, MSEarthMCQ, VLMBlind, SCAM, _3DSRBench, AffordanceDataset, OmniEarthMCQBench, XLRSBench,
-    TreeBench, CVQA, TopViewRS
+    TreeBench, CVQA, TopViewRS, FREAKMCQDataset
 )
 from .image_mt import MMDUDataset
 from .image_vqa import (
@@ -15,7 +15,7 @@ from .image_vqa import (
     TableVQABench, CustomVQADataset, CRPE, MathVerse, OlympiadBench, SeePhys, QSpatial, VizWiz, MMNIAH, LogicVista,
     MME_CoT, MMSci_Captioning, Physics_yale, TDBenchGrounding, WildDocBenchmark, OCR_Reasoning, PhyX, CountBenchQA,
     ZEROBench, Omni3DBench, TallyQA, MMEReasoning, MMVMBench, BMMR, OCRBench_v2, AyaVisionBench, MathCanvas, MMReason,
-    FSC147Dataset
+    FSC147Dataset, FREAKVQADataset
 )
 
 from .image_ccocr import CCOCRDataset
@@ -249,7 +249,7 @@ IMAGE_DATASET = [
     olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, HiPhODataset, MaCBench,
     UniSVG, SArena_MINI, MMSIVideoBench, MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization,
     MMBrowseCompDataset, OSWorldG,
-    FSC147Dataset, RefSpatialDataset,
+    FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, RefSpatialDataset,
     LVISBBoxDataset, LVISMaskDataset,
     ODinWBBoxDataset,
     LIVEVQADataset,
