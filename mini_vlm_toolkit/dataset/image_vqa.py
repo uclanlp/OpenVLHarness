@@ -2990,6 +2990,11 @@ class FREAKVQADataset(ImageVQADataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
+        # Parent evaluate_verifier expects 'answer' column; rename GT -> answer
+        data = load(eval_file)
+        if 'GT' in data.columns and 'answer' not in data.columns:
+            data.rename(columns={'GT': 'answer'}, inplace=True)
+            dump(data, eval_file)
         return self.evaluate_verifier(eval_file, **judge_kwargs)
 
 

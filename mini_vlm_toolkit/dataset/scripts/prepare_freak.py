@@ -107,9 +107,9 @@ def main():
                 'image_path': img_filename,
                 'question': question,
                 'prompt': prompt,
-                'mcq_answer': answer_letter,
+                'mcq_GT': answer_letter,
                 'choices': json.dumps(shuffled),
-                'ground_truth': ground_truth,
+                'text_GT': ground_truth,
                 'category': category_str,
             }
             mcq_records.append(record)
@@ -123,7 +123,7 @@ def main():
                 'image_path': img_filename,
                 'question': question,
                 'prompt': prompt,
-                'answer': ground_truth,
+                'GT': ground_truth,
                 'category': category_str,
             }
             vqa_records.append(record)
@@ -134,22 +134,22 @@ def main():
 
     # Write MCQ TSV
     if mcq_records:
-        columns = ['index', 'image_path', 'question', 'prompt', 'mcq_answer',
-                    'choices', 'ground_truth', 'category']
+        columns = ['index', 'image_path', 'question', 'prompt', 'mcq_GT',
+                    'choices', 'text_GT', 'category']
         mcq_df = pd.DataFrame(mcq_records, columns=columns)
         mcq_path = os.path.join(output_dir, 'FREAK_mcq.tsv')
         mcq_df.to_csv(mcq_path, sep='\t', index=False)
         print(f'Wrote {len(mcq_df)} MCQ records to {mcq_path}')
 
         # Print answer distribution to verify shuffling
-        dist = mcq_df['mcq_answer'].value_counts().sort_index()
+        dist = mcq_df['mcq_GT'].value_counts().sort_index()
         print(f'Answer distribution: {dict(dist)}')
     else:
         print('Warning: no MCQ records found')
 
     # Write VQA TSV
     if vqa_records:
-        columns = ['index', 'image_path', 'question', 'prompt', 'answer', 'category']
+        columns = ['index', 'image_path', 'question', 'prompt', 'GT', 'category']
         vqa_df = pd.DataFrame(vqa_records, columns=columns)
         vqa_path = os.path.join(output_dir, 'FREAK_vqa.tsv')
         vqa_df.to_csv(vqa_path, sep='\t', index=False)
