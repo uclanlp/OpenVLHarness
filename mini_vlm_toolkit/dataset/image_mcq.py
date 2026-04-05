@@ -2961,32 +2961,51 @@ class FREAKMCQDataset(ImageMCQDataset):
 
     def evaluate(self, eval_file, **judge_kwargs):
         import json as json_mod
-        from ..utils.matching_util import can_infer
+        from .utils.multiple_choice import extract_answer_from_item
 
         data = load(eval_file)
         data['prediction'] = [str(x) for x in data['prediction']]
-        data['mcq_answer'] = [str(x) for x in data['mcq_answer']]
+        data['mcq_GT'] = [str(x) for x in data['mcq_GT']]
+
+        # Expand the JSON 'choices' column into A, B, C, D, ... columns
+        # so that extract_answer_from_item / build_choices can find them.
+        if 'choices' in data.columns:
+            for i in range(len(data)):
+                try:
+                    choices_list = json_mod.loads(data['choices'].iloc[i])
+                except Exception:
+                    choices_list = []
+                for j, opt in enumerate(choices_list):
+                    col = string.ascii_uppercase[j]
+                    if col not in data.columns:
+                        data[col] = pd.Series([None] * len(data), dtype=object)
+                    data.at[data.index[i], col] = opt
+
+        # Add a 'question' column if missing (extract_answer_from_item needs it)
+        if 'question' not in data.columns and 'prompt' in data.columns:
+            data['question'] = data['prompt']
+
+        # Build judge model for LLM fallback
+        model = judge_kwargs.get('model', 'exact_matching')
+        if model == 'exact_matching':
+            model = None
+        else:
+            model = build_judge(**judge_kwargs)
+            if not model.working():
+                warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
+                model = None
 
         extracted = []
         for i in range(len(data)):
-            pred = data['prediction'].iloc[i]
-            # Reconstruct choices dict from the JSON list column
-            choices_dict = {c: c for c in 'ABCD'}
-            if 'choices' in data.columns:
-                try:
-                    choices_list = json_mod.loads(data['choices'].iloc[i])
-                    choices_dict = {string.ascii_uppercase[j]: opt
-                                    for j, opt in enumerate(choices_list)}
-                except Exception:
-                    pass
-            letter = can_infer(pred, choices_dict)
-            extracted.append(letter if letter else None)
+            item = data.iloc[i]
+            res = extract_answer_from_item(model, item, dataset_name='FREAK_mcq')
+            extracted.append(res['opt'])
 
         data['extracted'] = extracted
         detailed_file = get_intermediate_file_path(eval_file, '_detailed')
         dump(data, detailed_file)
 
-        correct = sum(1 for e, a in zip(extracted, data['mcq_answer']) if e == a)
+        correct = sum(1 for e, a in zip(extracted, data['mcq_GT']) if e == a)
         total = len(data)
 
         ret = {'Overall': round(correct / total * 100, 2) if total > 0 else 0}
@@ -2994,7 +3013,7 @@ class FREAKMCQDataset(ImageMCQDataset):
             for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
                 mask = data['category'] == c
                 sub_ext = [e for e, m in zip(extracted, mask) if m]
-                sub_ans = data.loc[mask, 'mcq_answer'].tolist()
+                sub_ans = data.loc[mask, 'mcq_GT'].tolist()
                 sub_correct = sum(1 for e, a in zip(sub_ext, sub_ans) if e == a)
                 ret[c] = round(sub_correct / len(sub_ext) * 100, 2) if sub_ext else 0
 
