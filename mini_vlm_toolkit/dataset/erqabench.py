@@ -2,7 +2,7 @@ import json
 
 import pandas as pd
 
-from vlmeval.smp import load, toliststr
+from ..smp import load, toliststr
 from .image_vqa import ImageVQADataset
 
 
