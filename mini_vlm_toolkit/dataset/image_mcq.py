@@ -2946,10 +2946,7 @@ class FREAKMCQDataset(ImageMCQDataset):
         if isinstance(line, int):
             line = self.data.iloc[line]
 
-        if self.meta_only:
-            tgt_path = toliststr(line['image_path'])
-        else:
-            tgt_path = self.dump_image(line)
+        tgt_path = self.dump_image(line)
 
         msgs = []
         if isinstance(tgt_path, list):
