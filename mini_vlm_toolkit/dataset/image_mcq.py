@@ -2939,7 +2939,7 @@ class TopViewRS(ImageMCQDataset):
 
 class FREAKMCQDataset(ImageMCQDataset):
     TYPE = 'MCQ'
-    DATASET_URL = {'FREAK_mcq': ''}
+    DATASET_URL = {'FREAK_MCQ': ''}
     DATASET_MD5 = {}
 
     def build_prompt(self, line):
@@ -2998,7 +2998,7 @@ class FREAKMCQDataset(ImageMCQDataset):
         extracted = []
         for i in range(len(data)):
             item = data.iloc[i]
-            res = extract_answer_from_item(model, item, dataset_name='FREAK_mcq')
+            res = extract_answer_from_item(model, item, dataset_name='FREAK_MCQ')
             extracted.append(res['opt'])
 
         data['extracted'] = extracted

@@ -2974,7 +2974,7 @@ class FSC147Dataset(ImageVQADataset):
 
 class FREAKVQADataset(ImageVQADataset):
     TYPE = 'VQA'
-    DATASET_URL = {'FREAK_vqa': ''}
+    DATASET_URL = {'FREAK_VQA': ''}
     DATASET_MD5 = {}
 
     def _get_eval_method(self):
