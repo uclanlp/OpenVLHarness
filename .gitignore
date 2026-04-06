@@ -231,4 +231,5 @@ rl/configs/tool_config.smoke.yaml
 # Runtime artifacts
 wandb/
 checkpoints/
+debug_dumps/
 .claude/

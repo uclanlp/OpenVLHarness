@@ -2974,7 +2974,7 @@ class FSC147Dataset(ImageVQADataset):
 
 class FREAKVQADataset(ImageVQADataset):
     TYPE = 'VQA'
-    DATASET_URL = {'FREAK_vqa': ''}
+    DATASET_URL = {'FREAK_VQA': ''}
     DATASET_MD5 = {}
 
     def _get_eval_method(self):
@@ -2990,12 +2990,61 @@ class FREAKVQADataset(ImageVQADataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
-        # Parent evaluate_verifier expects 'answer' column; rename GT -> answer
+        import re
+        from .utils.verifier import QUESTION_QUALITY_PROMPT_EN_NO_COT
+
         data = load(eval_file)
         if 'GT' in data.columns and 'answer' not in data.columns:
             data.rename(columns={'GT': 'answer'}, inplace=True)
-            dump(data, eval_file)
-        return self.evaluate_verifier(eval_file, **judge_kwargs)
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        model = build_judge(**judge_kwargs)
+
+        def _parse_judgment(text):
+            """Parse A/B/C grade from judge response."""
+            boxed = re.findall(r"boxed{([A-C])}", text)
+            if boxed:
+                return boxed[-1]
+            text = text.strip().upper()
+            if text in ('A', 'B', 'C'):
+                return text
+            text = text.split("FINAL JUDGMENT:")[-1]
+            matches = re.findall(r"\(([A-C])\)", text)
+            if matches:
+                return matches[-1]
+            matches = re.findall(r"([A-C])", text)
+            if matches:
+                return matches[-1]
+            return 'C'
+
+        scores = []
+        for i in range(len(data)):
+            row = data.iloc[i]
+            prompt = QUESTION_QUALITY_PROMPT_EN_NO_COT.format(
+                question=row['question'],
+                gold_answer=row['answer'],
+                llm_response=row['prediction'],
+            )
+            ans = model.generate(prompt)
+            grade = _parse_judgment(ans)
+            scores.append(1 if grade == 'A' else 0)
+
+        data['hit'] = scores
+
+        detailed_file = get_intermediate_file_path(eval_file, '_detailed')
+        dump(data, detailed_file)
+
+        ret = {'Overall': round(np.mean(data['hit']) * 100, 2)}
+        if 'category' in data.columns:
+            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
+                mask = data['category'] == c
+                ret[c] = round(np.mean(data.loc[mask, 'hit']) * 100, 2)
+
+        ret = d2df(ret)
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(ret, result_file)
+        return ret
 
 
 class OCR_Reasoning(ImageBaseDataset):

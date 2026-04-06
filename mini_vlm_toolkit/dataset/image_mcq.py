@@ -2939,17 +2939,14 @@ class TopViewRS(ImageMCQDataset):
 
 class FREAKMCQDataset(ImageMCQDataset):
     TYPE = 'MCQ'
-    DATASET_URL = {'FREAK_mcq': ''}
+    DATASET_URL = {'FREAK_MCQ': ''}
     DATASET_MD5 = {}
 
     def build_prompt(self, line):
         if isinstance(line, int):
             line = self.data.iloc[line]
 
-        if self.meta_only:
-            tgt_path = toliststr(line['image_path'])
-        else:
-            tgt_path = self.dump_image(line)
+        tgt_path = self.dump_image(line)
 
         msgs = []
         if isinstance(tgt_path, list):
@@ -2998,7 +2995,7 @@ class FREAKMCQDataset(ImageMCQDataset):
         extracted = []
         for i in range(len(data)):
             item = data.iloc[i]
-            res = extract_answer_from_item(model, item, dataset_name='FREAK_mcq')
+            res = extract_answer_from_item(model, item, dataset_name='FREAK_MCQ')
             extracted.append(res['opt'])
 
         data['extracted'] = extracted

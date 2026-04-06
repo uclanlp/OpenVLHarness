@@ -9,7 +9,7 @@ The script:
   2. Saves all images to ${LMUData}/images/FREAK/
   3. Splits examples by type ("mcq" vs "fib")
   4. Shuffles MCQ options (seed=42) so the correct answer isn't always A
-  5. Generates FREAK_mcq.tsv and FREAK_vqa.tsv with a pre-built "prompt" column
+  5. Generates FREAK_MCQ.tsv and FREAK_VQA.tsv with a pre-built "prompt" column
 """
 
 import argparse
@@ -137,7 +137,7 @@ def main():
         columns = ['index', 'image_path', 'question', 'prompt', 'mcq_GT',
                     'choices', 'text_GT', 'category']
         mcq_df = pd.DataFrame(mcq_records, columns=columns)
-        mcq_path = os.path.join(output_dir, 'FREAK_mcq.tsv')
+        mcq_path = os.path.join(output_dir, 'FREAK_MCQ.tsv')
         mcq_df.to_csv(mcq_path, sep='\t', index=False)
         print(f'Wrote {len(mcq_df)} MCQ records to {mcq_path}')
 
@@ -151,7 +151,7 @@ def main():
     if vqa_records:
         columns = ['index', 'image_path', 'question', 'prompt', 'GT', 'category']
         vqa_df = pd.DataFrame(vqa_records, columns=columns)
-        vqa_path = os.path.join(output_dir, 'FREAK_vqa.tsv')
+        vqa_path = os.path.join(output_dir, 'FREAK_VQA.tsv')
         vqa_df.to_csv(vqa_path, sep='\t', index=False)
         print(f'Wrote {len(vqa_df)} VQA records to {vqa_path}')
     else:

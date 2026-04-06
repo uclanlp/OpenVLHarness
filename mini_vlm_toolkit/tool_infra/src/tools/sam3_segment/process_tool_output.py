@@ -47,23 +47,29 @@ def process_tool_output(payload, memory, tool_metadata=None):
     tool_name = str(payload.get("tool_name") or "Visual_Grounding_Tool").strip()
     prompt = str(result.get("prompt") or "").strip()
 
-    if image_ref:
-        if mask_count == 0:
-            text = (
-                f"{tool_name} generated 0 masks for prompt {prompt!r}. "
-                f"A rendered result image is still provided below; refer to it as {image_ref}."
-            )
-        else:
-            text = (
-                f"{tool_name} generated {mask_count} masks"
-                + (f" for prompt {prompt!r}" if prompt else "")
-                + f". They are rendered on the following image, which shall be referred to as {image_ref}."
-            )
+    if mask_count > 0 and image_ref:
+        pred_boxes = result.get("pred_boxes", [])
+        orig_w = result.get("orig_img_w", 1)
+        orig_h = result.get("orig_img_h", 1)
+        box_mapping = {
+            f"object {i + 1}": [
+                min(max(round(box[0] / orig_w, 4), 0), 1),
+                min(max(round(box[1] / orig_h, 4), 0), 1),
+                min(max(round(box[2] / orig_w, 4), 0), 1),
+                min(max(round(box[3] / orig_h, 4), 0), 1),
+            ]
+            for i, box in enumerate(pred_boxes)
+            if len(box) == 4
+        }
+        text = (
+            f"{tool_name} grounded {mask_count} objects for the prompt {prompt!r}. "
+            f"Their corresponding bounding boxes are: {box_mapping}. "
+            f"The object numbers correspond to the labeled masks rendered in the following image, which you can refer to as {image_ref}."
+        )
     else:
         text = (
-            f"{tool_name} generated {mask_count} masks"
-            + (f" for prompt {prompt!r}" if prompt else "")
-            + ". No rendered image was returned."
+            f"{tool_name} grounded {mask_count} objects for the prompt {prompt!r}."
+            + f"Please examine the image carefully to determine whether it contains {prompt!r}. If the image does contain {prompt!r} but {tool_name} did not successfully ground it, you may try calling {tool_name} again with an alternative / simpler prompt or locate it directly by yourself."
         )
 
     return memory.build_processed_tool_output(
