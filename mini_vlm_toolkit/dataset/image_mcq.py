@@ -3007,10 +3007,23 @@ class FREAKMCQDataset(ImageMCQDataset):
 
         ret = {'Overall': round(correct / total * 100, 2) if total > 0 else 0}
         if 'category' in data.columns:
-            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
-                mask = data['category'] == c
+            # Parse JSON category lists and collect all individual categories
+            parsed_cats = []
+            all_cats = set()
+            for x in data['category']:
+                try:
+                    cats = json_mod.loads(str(x)) if pd.notna(x) else []
+                except (json_mod.JSONDecodeError, TypeError):
+                    cats = []
+                if isinstance(cats, str):
+                    cats = [cats]
+                parsed_cats.append(cats)
+                all_cats.update(cats)
+            # Compute accuracy for each individual category
+            for c in sorted(all_cats):
+                mask = [c in cats for cats in parsed_cats]
                 sub_ext = [e for e, m in zip(extracted, mask) if m]
-                sub_ans = data.loc[mask, 'mcq_GT'].tolist()
+                sub_ans = [a for a, m in zip(data['mcq_GT'], mask) if m]
                 sub_correct = sum(1 for e, a in zip(sub_ext, sub_ans) if e == a)
                 ret[c] = round(sub_correct / len(sub_ext) * 100, 2) if sub_ext else 0
 

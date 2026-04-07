@@ -3037,9 +3037,22 @@ class FREAKVQADataset(ImageVQADataset):
 
         ret = {'Overall': round(np.mean(data['hit']) * 100, 2)}
         if 'category' in data.columns:
-            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
-                mask = data['category'] == c
-                ret[c] = round(np.mean(data.loc[mask, 'hit']) * 100, 2)
+            import json as json_mod
+            parsed_cats = []
+            all_cats = set()
+            for x in data['category']:
+                try:
+                    cats = json_mod.loads(str(x)) if pd.notna(x) else []
+                except (json_mod.JSONDecodeError, TypeError):
+                    cats = []
+                if isinstance(cats, str):
+                    cats = [cats]
+                parsed_cats.append(cats)
+                all_cats.update(cats)
+            for c in sorted(all_cats):
+                mask = [c in cats for cats in parsed_cats]
+                hits = [h for h, m in zip(data['hit'], mask) if m]
+                ret[c] = round(sum(hits) / len(hits) * 100, 2) if hits else 0
 
         ret = d2df(ret)
         result_file = get_intermediate_file_path(eval_file, '_acc')
