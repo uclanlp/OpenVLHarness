@@ -555,6 +555,10 @@ class MMSearchEnd2End(ImageBaseDataset):
             f1_scores.append(best)
 
         data["f1_score"] = f1_scores
+        # Per-instance correctness based on F1 (used by experience learning
+        # pipeline to label correct/incorrect trajectories). LLM judge will
+        # override this below if enabled.
+        data["is_correct"] = [s >= 0.5 for s in f1_scores]
         avg_f1 = float(np.mean(f1_scores)) if f1_scores else 0.0
 
         # Aggregate by area/subfield when available
@@ -587,7 +591,204 @@ class MMSearchEnd2End(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_mmsearch_f1", "json")
         dump(summary, score_file)
         _augment_trajectories_with_gt_and_parsed(eval_file, data, extract_parsed=True)
+
+        # Optional LLM judge evaluation. Only runs when explicitly enabled via
+        # `enable_llm_judge: true` in the judge config. Default behavior is
+        # unchanged — token-F1 only.
+        if judge_kwargs.get("enable_llm_judge"):
+            try:
+                judge_summary, judge_verdicts = _run_mmsearch_llm_judge(
+                    eval_file=eval_file,
+                    data=data,
+                    judge_kwargs=judge_kwargs,
+                )
+                summary["llm_judge"] = judge_summary
+                # Override per-instance is_correct with LLM judge verdicts
+                # (more reliable than token-F1 for semantic equivalence).
+                data["is_correct"] = [
+                    judge_verdicts.get(idx, {}).get("verdict") == "correct"
+                    for idx in data["index"]
+                ]
+            except Exception as exc:
+                logger.warning(f"LLM judge evaluation failed: {exc}")
+
+        # Persist updated data (with f1_score + is_correct columns) back to
+        # the eval file so downstream consumers (e.g. experience learning
+        # pipeline) can read per-instance correctness.
+        try:
+            dump(data, eval_file)
+        except Exception as exc:
+            logger.warning(f"Failed to write evaluated data back to {eval_file}: {exc}")
+
         return summary
+
+
+def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Run LLM judge evaluation on MMSearch predictions.
+
+    Reuses the standard `build_judge` + `track_progress_rich` pattern from
+    other datasets (e.g. MathVista in image_vqa.py).
+    """
+    from .utils import build_judge
+    from ..utils.mp_util import track_progress_rich
+
+    judge_kwargs_local = dict(judge_kwargs)
+    judge_kwargs_local.pop("enable_llm_judge", None)
+    nproc = judge_kwargs_local.pop("nproc", 4)
+    # `judge_max_tokens` is the YAML key; convert it to the `max_tokens`
+    # kwarg expected by OpenAIWrapper. Default to 128 since the judge only
+    # needs to return CORRECT/INCORRECT.
+    max_tokens = judge_kwargs_local.pop("judge_max_tokens", 128)
+
+    judge = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
+    assert judge.working(), "MMSearch LLM judge requires a working OpenAI API"
+
+    judge_cache_file = get_intermediate_file_path(eval_file, "_mmsearch_llm_judge_cache", "pkl")
+    cached: Dict[Any, Dict[str, Any]] = {}
+    if osp.exists(judge_cache_file):
+        cached = load(judge_cache_file)
+
+    tups = []
+    indices = []
+    for _, row in data.iterrows():
+        idx = row["index"]
+        if idx in cached:
+            continue
+        tups.append((judge, row))
+        indices.append(idx)
+
+    if indices:
+        new_results = track_progress_rich(
+            _mmsearch_judge_one,
+            tups,
+            nproc=nproc,
+            chunksize=nproc,
+            keys=indices,
+            save=judge_cache_file,
+        )
+        cached = load(judge_cache_file)
+
+    # Aggregate
+    verdicts = {idx: cached[idx] for idx in data["index"] if idx in cached}
+    n_total = len(data)
+    n_correct = sum(1 for v in verdicts.values() if v.get("verdict") == "correct")
+    n_incorrect = sum(1 for v in verdicts.values() if v.get("verdict") == "incorrect")
+    n_error = n_total - n_correct - n_incorrect
+    accuracy = n_correct / n_total if n_total else 0.0
+
+    # By area / subfield
+    by_subfield: Dict[str, Dict[str, Any]] = {}
+    by_area: Dict[str, Dict[str, Any]] = {}
+    for _, row in data.iterrows():
+        idx = row["index"]
+        v = verdicts.get(idx, {}).get("verdict")
+        is_correct = 1 if v == "correct" else 0
+
+        sf = str(row.get("subfield", "") or "unknown")
+        by_subfield.setdefault(sf, {"length": 0, "correct": 0})
+        by_subfield[sf]["length"] += 1
+        by_subfield[sf]["correct"] += is_correct
+
+        ar = str(row.get("area", "") or "unknown")
+        by_area.setdefault(ar, {"length": 0, "correct": 0})
+        by_area[ar]["length"] += 1
+        by_area[ar]["correct"] += is_correct
+
+    for d in (by_subfield, by_area):
+        for k, v in d.items():
+            v["accuracy"] = v["correct"] / v["length"] if v["length"] else 0.0
+
+    judge_summary = {
+        "total": {"total_length": n_total, "accuracy": accuracy},
+        "correct": n_correct,
+        "incorrect": n_incorrect,
+        "error": n_error,
+        "area": by_area,
+        "subfield": by_subfield,
+    }
+
+    judge_score_file = get_intermediate_file_path(eval_file, "_mmsearch_llm_judge", "json")
+    dump(judge_summary, judge_score_file)
+    return judge_summary, verdicts
+
+
+_MMSEARCH_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
+
+Given a question, the ground-truth answer, and a model's prediction, judge whether the prediction is **semantically correct** (i.e. it conveys the same answer as the ground truth, even if the wording differs).
+
+Be lenient about:
+- Synonyms (e.g. "England" vs "United Kingdom")
+- Number formats (e.g. "1" vs "One")
+- Date formats (e.g. "September 29 to October 4, 2024" vs "2024-09-29 to 2024-10-04")
+- Verbose answers that contain the correct answer plus extra explanation
+- Capitalization and punctuation
+
+Be strict about:
+- Wrong facts (e.g. wrong color, wrong name, wrong number)
+- Refusal or "I don't know" responses
+
+Question: {question}
+Ground Truth: {gt_answer}
+Prediction: {prediction}
+
+Respond with EXACTLY one word: either "CORRECT" or "INCORRECT". No explanation."""
+
+
+def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
+    """Judge a single MMSearch prediction. Returns dict with 'verdict' field."""
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+
+    # Extract the parsed answer using existing helper
+    pred_extracted = _extract_mmsearch_answer(pred)
+
+    # Include alternative GTs
+    alts_raw = row.get("alternative_gt_answers", [])
+    alts: List[str] = []
+    if isinstance(alts_raw, list):
+        alts = [str(a) for a in alts_raw if a]
+    elif isinstance(alts_raw, str) and alts_raw.strip():
+        s = alts_raw.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                import json as _json
+                parsed = _json.loads(s)
+                if isinstance(parsed, list):
+                    alts = [str(a) for a in parsed if a]
+            except Exception:
+                alts = [s]
+        else:
+            alts = [s]
+
+    gt_str = gt
+    if alts:
+        gt_str = f'"{gt}" (also acceptable: {", ".join(repr(a) for a in alts)})'
+
+    if not pred_extracted.strip():
+        return {"verdict": "incorrect", "raw_response": ""}
+
+    msgs = [{
+        "type": "text",
+        "value": _MMSEARCH_JUDGE_PROMPT.format(
+            question=question[:1000],
+            gt_answer=gt_str[:500],
+            prediction=pred_extracted[:2000],
+        ),
+    }]
+
+    try:
+        code, answer, _ = judge.generate_inner(msgs)
+        if code != 0:
+            return {"verdict": "error", "raw_response": str(answer)[:200]}
+        ans_upper = str(answer).strip().upper()
+        if "INCORRECT" in ans_upper:
+            return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
+        if "CORRECT" in ans_upper:
+            return {"verdict": "correct", "raw_response": str(answer)[:200]}
+        return {"verdict": "error", "raw_response": str(answer)[:200]}
+    except Exception as exc:
+        return {"verdict": "error", "raw_response": f"exception: {exc}"}
 
 
 # ----- Requery (stage1) -----
