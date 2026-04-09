@@ -6,7 +6,6 @@ import torch
 import torch.distributed as dist
 from .utils.reporting_utils import (
     build_trajectory_records,
-    write_trajectory_jsonl,
     write_input_snapshot_json,
     write_html_reports,
     write_full_trajectory_jsons,
@@ -343,18 +342,6 @@ def infer_image_job(
             data_all,
             osp.join(work_dir, "input_snapshot.json"),
         )
-
-        records = build_trajectory_records(
-            data["index"],
-            data_all,
-            dataset_name=dataset_name,
-            model_name=model_name,
-            agent_class=model.__class__.__name__,
-            scrub_images=True,
-            strip_assistant_content=True,
-        )
-        trajectories_path = osp.join(work_dir, "trajectories.jsonl")
-        write_trajectory_jsonl(records, trajectories_path)
 
         # Always save full trajectories for all instances (needed by experience learning).
         # Pruning happens at reflection time, not save time.

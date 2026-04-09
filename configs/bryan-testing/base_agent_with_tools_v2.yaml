@@ -25,3 +25,4 @@ agent_kwargs:
     emit_policy: "always"  # "always" (default) or "on_change"
   extra_body: {}  # optional provider-specific fields forwarded to chat/completions
   max_iterations: 15
+  # save_raw_response: true

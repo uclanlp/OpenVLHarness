@@ -259,44 +259,6 @@ def _extract_mmsearch_answer(prediction: str) -> str:
     return last_answer if last_answer is not None else pred
 
 
-def _augment_trajectories_with_gt_and_parsed(
-    eval_file: str,
-    data: pd.DataFrame,
-    extract_parsed: bool = True,
-) -> None:
-    """
-    If trajectories.jsonl exists in the same directory as eval_file, add to each record:
-    - ground_truth: from data['answer'] by task_id (index)
-    - parsed_answer: from _extract_mmsearch_answer(prediction) when extract_parsed=True.
-    Overwrites trajectories.jsonl in place. Only call from MMSearch dataset evaluate().
-    """
-    work_dir = osp.dirname(osp.abspath(eval_file))
-    trajectories_path = osp.join(work_dir, "trajectories.jsonl")
-    if not osp.isfile(trajectories_path):
-        return
-    idx_to_gt = {}
-    idx_to_parsed = {}
-    for _, row in data.iterrows():
-        idx = str(row.get("index", ""))
-        idx_to_gt[idx] = str(row.get("answer", ""))
-        if extract_parsed:
-            idx_to_parsed[idx] = _extract_mmsearch_answer(str(row.get("prediction", "")))
-    try:
-        records = load(trajectories_path, fmt="jsonl")
-    except Exception:
-        return
-    if not isinstance(records, list):
-        return
-    for r in records:
-        tid = r.get("task_id")
-        r["ground_truth"] = idx_to_gt.get(tid, "")
-        r["parsed_answer"] = idx_to_parsed.get(tid, "") if extract_parsed else ""
-    try:
-        dump(records, trajectories_path)
-    except Exception:
-        pass
-
-
 # Official MMSearch final score: weighted average of four tasks
 MMSEARCH_TASK_RATIO = {
     "end2end": 0.75,
@@ -590,7 +552,6 @@ class MMSearchEnd2End(ImageBaseDataset):
 
         score_file = get_intermediate_file_path(eval_file, "_mmsearch_f1", "json")
         dump(summary, score_file)
-        _augment_trajectories_with_gt_and_parsed(eval_file, data, extract_parsed=True)
 
         # Optional LLM judge evaluation. Only runs when explicitly enabled via
         # `enable_llm_judge: true` in the judge config. Default behavior is
@@ -910,7 +871,6 @@ class MMSearchRequery(ImageBaseDataset):
             return {n: {"length": len(v), "average": float(np.mean(v))} for n, v in g.items()}
         summary = {"total": {"total_length": len(scores), "average_requery_score": float(np.mean(scores)) if scores else 0}, "area": _agg("area"), "subfield": _agg("subfield")}
         dump(summary, get_intermediate_file_path(eval_file, "_mmsearch_requery", "json"))
-        _augment_trajectories_with_gt_and_parsed(eval_file, data, extract_parsed=False)
         return summary
 
 
@@ -1098,7 +1058,6 @@ class MMSearchRerank(ImageBaseDataset):
             return {n: {"length": len(v), "average": float(np.mean(v))} for n, v in g.items()}
         summary = {"total": {"total_length": len(scores), "average_rerank_score": float(np.mean(scores)) if scores else 0}, "area": _agg("area"), "subfield": _agg("subfield")}
         dump(summary, get_intermediate_file_path(eval_file, "_mmsearch_rerank", "json"))
-        _augment_trajectories_with_gt_and_parsed(eval_file, data, extract_parsed=False)
         return summary
 
 
@@ -1268,6 +1227,5 @@ class MMSearchSummarization(ImageBaseDataset):
             return {n: {"length": len(v), "average": float(np.mean(v))} for n, v in g.items()}
         summary = {"total": {"total_length": len(f1_scores), "average_f1": float(np.mean(f1_scores)) if f1_scores else 0}, "area": _agg("area"), "subfield": _agg("subfield")}
         dump(summary, get_intermediate_file_path(eval_file, "_mmsearch_summarization_f1", "json"))
-        _augment_trajectories_with_gt_and_parsed(eval_file, data, extract_parsed=True)
         return summary
 
