@@ -1,19 +1,30 @@
 #!/usr/bin/env python3
-"""Convert mini-vlm-toolkit trajectories to LlamaFactory SFT format.
+"""Convert mini-vlm-toolkit full_trajectories/ folders to LlamaFactory SFT format.
 
-Reads trajectories.jsonl from experiment outputs and converts them to
-LlamaFactory-compatible ShareGPT format for supervised fine-tuning.
+Reads a ``full_trajectories/`` directory of per-task ``{task_id}.json`` files
+and converts them to LlamaFactory-compatible ShareGPT format for supervised
+fine-tuning.
+
+Each input file is expected to have:
+  - ``prediction`` and ``ground_truth`` (top-level)
+  - ``messages``: a list of OpenAI-style messages where user content is a
+    list of parts, each either ``{"type": "text", "text": ...}`` or
+    ``{"type": "image_url", "image_url": {"url": ...}}``. Image urls are
+    relative paths into a sibling ``images/`` folder (produced by
+    ``run_benchmark.py --save-images files``); inline ``data:image/...`` URIs
+    are also tolerated but skipped (no on-disk path to reference).
 
 Usage:
     python -m sft.data.convert_trajectories \
-        --input outputs/.../trajectories.jsonl \
+        --input outputs/.../full_trajectories \
         --output sft/data/my_dataset.json \
-        [--filter-success]            # only keep trajectories with non-empty final answer
-        [--skip-env-updates]          # strip "Environment Update" messages
-        [--skip-rag-instructions]     # strip "[RAG Step ...]" instruction messages
-        [--strip-experience-block]    # remove <learned_principles> block from system prompt
-                                      # (default: True; use --no-strip-experience-block to keep it)
-        [--max-samples 100]           # limit number of samples
+        [--filter-success]                # only keep correct samples
+        [--success-criteria exact_match]  # exact_match | llm_judge | mean_iou_point_5
+        [--skip-env-updates]              # strip "Environment Update" messages
+        [--skip-rag-instructions]         # strip "[RAG Step ...]" instruction messages
+        [--strip-experience-block]        # remove <learned_principles> block from system prompt
+                                          # (default: True; use --no-strip-experience-block to keep it)
+        [--max-samples 100]               # limit number of samples
 
 The --strip-experience-block flag is for trajectories produced by the
 experience learning pipeline (run_experience_learning.py). When the agent
@@ -23,16 +34,18 @@ those principles into SFT training data (which would create a train/inference
 distribution mismatch), this flag strips the appended block before
 conversion, leaving only the original base system prompt.
 
-Output: JSON file in ShareGPT format, compatible with LlamaFactory's data loader.
+Output: JSON file in LlamaFactory ShareGPT format. Each user message that
+contains images is prefixed with one ``<image>`` placeholder per image, and
+the resolved on-disk paths are appended to a per-sample ``images`` list in
+the same order — this is the alignment LlamaFactory's data loader expects.
 """
 
 import argparse
 import json
 import os
 import re
-import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # Matches the experience block appended by mini_vlm_toolkit/agent/base.py
@@ -47,28 +60,68 @@ _EXPERIENCE_BLOCK_RE = re.compile(
 
 
 def _strip_experience_block(text: str) -> str:
-    """Remove the appended <learned_principles> block from a system prompt.
-
-    No-op if the text doesn't contain the block (e.g. baseline trajectories).
-    """
+    """Remove the appended <learned_principles> block from a system prompt."""
     if not text:
         return text
     return _EXPERIENCE_BLOCK_RE.sub("", text)
 
 
-def load_trajectories(path: str) -> List[Dict[str, Any]]:
-    """Load records from trajectories.jsonl."""
+def load_full_trajectories(folder: str) -> List[Dict[str, Any]]:
+    """Load per-task JSON files from a full_trajectories/ folder.
+
+    Sorted by task_id (numeric when possible) for deterministic output.
+    Skips the sibling ``images/`` subdirectory.
+    """
+    folder_path = Path(folder)
+    files = [p for p in folder_path.iterdir() if p.is_file() and p.suffix == ".json"]
+
+    def _sort_key(p: Path):
+        stem = p.stem
+        try:
+            return (0, int(stem))
+        except ValueError:
+            return (1, stem)
+
+    files.sort(key=_sort_key)
     records = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
+    for fp in files:
+        with open(fp, "r", encoding="utf-8") as f:
+            records.append(json.load(f))
     return records
 
 
+# ---------------------------------------------------------------------------
+# Success criteria
+# ---------------------------------------------------------------------------
+
+
+def _success_exact_match(prediction: Any, ground_truth: Any) -> bool:
+    if prediction is None or ground_truth is None:
+        return False
+    return str(prediction).strip() == str(ground_truth).strip()
+
+
+def _success_llm_judge(prediction: Any, ground_truth: Any) -> bool:
+    raise NotImplementedError("llm_judge success criterion not implemented")
+
+
+def _success_mean_iou_point_5(prediction: Any, ground_truth: Any) -> bool:
+    raise NotImplementedError("mean_iou_point_5 success criterion not implemented")
+
+
+_SUCCESS_FNS = {
+    "exact_match": _success_exact_match,
+    "llm_judge": _success_llm_judge,
+    "mean_iou_point_5": _success_mean_iou_point_5,
+}
+
+
+# ---------------------------------------------------------------------------
+# Message helpers
+# ---------------------------------------------------------------------------
+
+
 def _is_env_update(msg: Dict[str, Any]) -> bool:
-    """Check if a message is an Environment Update."""
     content = msg.get("content", "")
     if isinstance(content, str):
         return "Environment Update" in content
@@ -80,7 +133,6 @@ def _is_env_update(msg: Dict[str, Any]) -> bool:
 
 
 def _is_rag_instruction(msg: Dict[str, Any]) -> bool:
-    """Check if a message is a RAG step instruction."""
     content = msg.get("content", "")
     if isinstance(content, str):
         return content.strip().startswith("[RAG Step")
@@ -94,27 +146,54 @@ def _extract_text_content(content: Any) -> str:
     if isinstance(content, list):
         parts = []
         for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    parts.append(item.get("text", ""))
-                elif item.get("type") == "image_url":
-                    # Skip inline images in text — they'll be in the images field
-                    pass
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(item.get("text", ""))
         return "\n".join(parts)
     return str(content)
 
 
-def _extract_images(record: Dict[str, Any]) -> List[str]:
-    """Extract image paths from the trajectory's input_messages."""
-    images = []
-    traj = record.get("trajectory", {})
-    input_msgs = traj.get("input_messages", [])
-    for msg in input_msgs:
-        if isinstance(msg, dict) and msg.get("type") == "image":
-            path = msg.get("value", "")
-            if path and os.path.isfile(path):
-                images.append(path)
-    return images
+def _resolve_image_url(url: str, input_dir: str) -> Optional[str]:
+    """Resolve a relative image_url path against ``input_dir``.
+
+    Returns the resolved file path (absolute when ``input_dir`` is absolute)
+    if the file exists, else None. Inline ``data:`` URIs and unresolvable
+    paths are skipped.
+    """
+    if not isinstance(url, str) or not url or url.startswith("data:"):
+        return None
+    candidate = url if os.path.isabs(url) else os.path.normpath(os.path.join(input_dir, url))
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _extract_user_text_and_images(
+    content: Any, input_dir: str
+) -> Tuple[str, List[str]]:
+    """Return (text, image_paths) for a user message's content list.
+
+    Walks the parts in order: text parts are joined with newlines, image_url
+    parts are resolved against ``input_dir``. The returned image list is in
+    encounter order — same order they should be referenced in the prefixed
+    ``<image>`` tokens.
+    """
+    if isinstance(content, str):
+        return content, []
+    if not isinstance(content, list):
+        return str(content), []
+
+    text_parts: List[str] = []
+    image_paths: List[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        t = item.get("type")
+        if t == "text":
+            text_parts.append(item.get("text", ""))
+        elif t == "image_url":
+            url = (item.get("image_url") or {}).get("url", "")
+            resolved = _resolve_image_url(url, input_dir)
+            if resolved is not None:
+                image_paths.append(resolved)
+    return "\n".join(text_parts), image_paths
 
 
 def _convert_tool_calls_to_text(msg: Dict[str, Any]) -> str:
@@ -137,34 +216,40 @@ def _convert_tool_calls_to_text(msg: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# Record conversion
+# ---------------------------------------------------------------------------
+
+
 def convert_record(
     record: Dict[str, Any],
+    input_dir: str,
     skip_env_updates: bool = True,
     skip_rag_instructions: bool = False,
     strip_experience_block: bool = True,
 ) -> Optional[Dict[str, Any]]:
-    """Convert one trajectory record to LlamaFactory ShareGPT format.
+    """Convert one full_trajectories record to LlamaFactory ShareGPT format.
 
+    Inserts ``<image>`` placeholders inline (one per image, prepended to the
+    user message that originally contained that image) and accumulates the
+    resolved file paths into the ShareGPT ``images`` list in the same order.
     Returns None if the record should be skipped.
     """
-    traj = record.get("trajectory", {})
-    messages = traj.get("messages", [])
+    messages = record.get("messages", [])
     if not messages:
         return None
 
-    conversations = []
+    conversations: List[Dict[str, str]] = []
+    images: List[str] = []
+
     for msg in messages:
         role = msg.get("role", "")
 
-        # Skip Environment Update messages if requested.
         if skip_env_updates and role == "user" and _is_env_update(msg):
             continue
-
-        # Skip RAG instruction messages if requested.
         if skip_rag_instructions and role == "user" and _is_rag_instruction(msg):
             continue
 
-        # Map roles to ShareGPT format.
         if role == "system":
             sharegpt_role = "system"
             value = _extract_text_content(msg.get("content", ""))
@@ -172,7 +257,14 @@ def convert_record(
                 value = _strip_experience_block(value)
         elif role == "user":
             sharegpt_role = "human"
-            value = _extract_text_content(msg.get("content", ""))
+            text, msg_images = _extract_user_text_and_images(
+                msg.get("content", ""), input_dir
+            )
+            if msg_images:
+                value = ("<image>\n" * len(msg_images)) + text
+                images.extend(msg_images)
+            else:
+                value = text
         elif role == "assistant":
             sharegpt_role = "gpt"
             value = _convert_tool_calls_to_text(msg)
@@ -190,13 +282,21 @@ def convert_record(
     if not conversations:
         return None
 
-    result: Dict[str, Any] = {"conversations": conversations}
+    # Defensive: <image> token count must match images list length, otherwise
+    # LlamaFactory will reject or mis-align the sample. Only human turns
+    # carry placeholders, so other roles are excluded to avoid false
+    # positives from incidental "<image>" substrings in tool output.
+    token_count = sum(
+        c["value"].count("<image>") for c in conversations if c["from"] == "human"
+    )
+    assert token_count == len(images), (
+        f"<image> token / images-list mismatch: tokens={token_count} "
+        f"images={len(images)} (task_id={record.get('task_id')})"
+    )
 
-    # Add images if present.
-    images = _extract_images(record)
+    result: Dict[str, Any] = {"conversations": conversations}
     if images:
         result["images"] = images
-
     return result
 
 
@@ -204,26 +304,40 @@ def convert_trajectories(
     input_path: str,
     output_path: str,
     filter_success: bool = False,
+    success_criteria: str = "exact_match",
     skip_env_updates: bool = True,
     skip_rag_instructions: bool = False,
     strip_experience_block: bool = True,
     max_samples: Optional[int] = None,
 ) -> int:
-    """Convert trajectories.jsonl to LlamaFactory SFT format.
+    """Convert a full_trajectories/ folder to LlamaFactory SFT format.
 
     Returns the number of converted samples.
     """
-    records = load_trajectories(input_path)
+    if not os.path.isdir(input_path):
+        raise NotADirectoryError(
+            f"--input must be a full_trajectories/ folder, got: {input_path}"
+        )
+
+    if filter_success and success_criteria not in _SUCCESS_FNS:
+        raise ValueError(
+            f"Unknown success_criteria {success_criteria!r}; "
+            f"expected one of {sorted(_SUCCESS_FNS)}"
+        )
+    success_fn = _SUCCESS_FNS[success_criteria] if filter_success else None
+
+    records = load_full_trajectories(input_path)
     converted = []
 
     for record in records:
-        if filter_success:
-            final_answer = record.get("trajectory", {}).get("final_answer", "")
-            if not final_answer or final_answer == "Error: Unable to get response from the server.":
-                continue
+        if filter_success and not success_fn(
+            record.get("prediction"), record.get("ground_truth")
+        ):
+            continue
 
         sample = convert_record(
             record,
+            input_dir=input_path,
             skip_env_updates=skip_env_updates,
             skip_rag_instructions=skip_rag_instructions,
             strip_experience_block=strip_experience_block,
@@ -243,19 +357,26 @@ def convert_trajectories(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert mini-vlm-toolkit trajectories to LlamaFactory SFT format."
+        description="Convert mini-vlm-toolkit full_trajectories/ to LlamaFactory SFT format."
     )
     parser.add_argument(
         "--input", required=True,
-        help="Path to trajectories.jsonl",
+        help="Path to a full_trajectories/ folder containing per-task JSON files",
     )
     parser.add_argument(
         "--output", required=True,
-        help="Output path for LlamaFactory JSON file",
+        help="Output path for the LlamaFactory ShareGPT JSON file",
     )
     parser.add_argument(
         "--filter-success", action="store_true",
-        help="Only keep trajectories with non-empty final answer",
+        help="Only keep samples whose prediction matches ground_truth under --success-criteria.",
+    )
+    parser.add_argument(
+        "--success-criteria",
+        choices=sorted(_SUCCESS_FNS.keys()),
+        default="exact_match",
+        help="Comparator used by --filter-success (default: exact_match). "
+             "'llm_judge' and 'mean_iou_point_5' are not implemented yet.",
     )
     parser.add_argument(
         "--skip-env-updates", action="store_true", default=True,
@@ -286,6 +407,7 @@ def main():
         input_path=args.input,
         output_path=args.output,
         filter_success=args.filter_success,
+        success_criteria=args.success_criteria,
         skip_env_updates=args.skip_env_updates,
         skip_rag_instructions=args.skip_rag_instructions,
         strip_experience_block=args.strip_experience_block,
