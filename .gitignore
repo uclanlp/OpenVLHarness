@@ -244,3 +244,4 @@ sft/saves/
 sft/configs/sft_lora_qwen3vl_8b.yaml
 sft/configs/sft_full_qwen3vl_8b.yaml
 sft/data/dataset_info.json
+sft/data/
