@@ -73,10 +73,30 @@ When registering datasets in `sft/data/dataset_info.json`, use absolute paths fo
 
 ```bash
 python -m sft.data.convert_trajectories \
-    --input outputs/.../trajectories.jsonl \
+    --input outputs/.../full_trajectories \
     --output sft/data/my_dataset.json \
-    --filter-success
+    --filter-success --success-criteria exact_match
 ```
+
+`--input` must be a `full_trajectories/` folder produced by
+`run_benchmark.py` (one `<task_id>.json` per sample). With `--filter-success`,
+pass `--success-criteria` to choose how `prediction` is compared against
+`ground_truth`:
+
+| Criterion | Status |
+|-----------|--------|
+| `exact_match` (default) | implemented — string-equal after strip |
+| `llm_judge` | not yet implemented (raises `NotImplementedError`) |
+| `mean_iou_point_5` | not yet implemented (raises `NotImplementedError`) |
+
+Run `run_benchmark.py` with `--save-images files` (the default) so each user
+and tool image lives at `full_trajectories/images/<task_id>_<idx>.<ext>`. The
+converter resolves those paths, prepends one `<image>` placeholder per image
+to the originating user message, and appends the resolved paths to the
+ShareGPT `images` list in the same order — this is the alignment LlamaFactory
+expects for multimodal training. Folders produced with `--save-images base64`
+will load but their inline data URIs are skipped (no `images` field), so
+prefer `files` for SFT.
 
 ### 2. Register dataset
 
@@ -129,7 +149,7 @@ bash sft/scripts/run_sft.sh sft/configs/sft_full_qwen3vl_8b.yaml
 bash sft/scripts/run_sft.sh path/to/your_config.yaml
 
 # End-to-end: convert + train
-TRAJECTORY_INPUT=outputs/.../trajectories.jsonl bash sft/scripts/run_sft.sh
+TRAJECTORY_INPUT=outputs/.../full_trajectories bash sft/scripts/run_sft.sh
 
 # Save checkpoints to a custom directory
 SFT_SAVE_ROOT=/data/models bash sft/scripts/run_sft.sh
@@ -186,11 +206,15 @@ The script automatically: starts vLLM server -> generates agent config -> runs M
 
 ### From trajectories (convert_trajectories.py)
 
-Converts `trajectories.jsonl` -> LlamaFactory ShareGPT format:
+Converts a `full_trajectories/` folder -> LlamaFactory ShareGPT format:
 - System/user/assistant/tool messages are mapped to `system/human/gpt/tool` roles
 - Tool calls are serialized as `<tool_call>` XML blocks
-- Images are extracted from input_messages
+- Each user message that carried images gets one `<image>` placeholder
+  prepended per image; resolved paths (from the sibling `images/` folder)
+  are appended to the sample's `images` list in the same order
 - Environment Update messages are stripped by default
+- `--filter-success` keeps only correct samples; `--success-criteria`
+  selects the comparator (default `exact_match`)
 
 ### External datasets
 

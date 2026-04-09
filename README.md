@@ -98,6 +98,17 @@ python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-conf
 - `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
 - `--save-html all`: generate HTML for all tasks.
 
+`--save-images` controls how images are stored inside the per-task
+`full_trajectories/<task_id>.json` files:
+- `--save-images files` (default): every user/tool image is decoded and
+  written to a sibling `full_trajectories/images/` folder as
+  `<task_id>_<idx>.<ext>`, and the corresponding `image_url` entries in the
+  saved messages are rewritten to relative paths like `images/51_0.jpg`.
+  Keeps the JSON files small and gives downstream tooling (e.g. SFT data
+  conversion) real on-disk paths.
+- `--save-images base64`: keep inline `data:image/...;base64,...` URIs in
+  the messages (legacy behavior). No `images/` folder is created.
+
 `--incremental-json` enables real-time JSONL output during inference:
 - When enabled, writes `{model_name}_incremental.jsonl` in the dataset work directory.
 - Each completed task is appended as a JSON object per line as results arrive.
