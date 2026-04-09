@@ -579,11 +579,106 @@ def write_raw_response_jsons(records, out_dir):
         dump(payload, output_path)
 
 
-def write_full_trajectory_jsons(records, out_dir, limit):
-    """Write per-sample full trajectory JSONs aligned to the HTML selection policy."""
+_DATA_URI_EXT = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "image/bmp": ".bmp",
+    "image/tiff": ".tiff",
+}
+
+
+def _decode_data_uri(url):
+    """Return (bytes, ext) for a data:image/...;base64,... URI, or None."""
+    if not isinstance(url, str) or not url.startswith("data:image/"):
+        return None
+    try:
+        header, b64 = url.split(",", 1)
+    except ValueError:
+        return None
+    if ";base64" not in header:
+        return None
+    mime = header[len("data:"):].split(";", 1)[0].strip().lower()
+    ext = _DATA_URI_EXT.get(mime, ".jpg")
+    try:
+        data = base64.b64decode(b64)
+    except Exception:
+        return None
+    return data, ext
+
+
+def _replace_data_uris_with_files(messages, task_id, images_subdir):
+    """In-place: decode every data:image/... URI in messages to a file.
+
+    Walks all messages (regardless of role, so tool-generated images are
+    handled too), decodes each data URI's base64 payload, writes it to
+    ``<images_subdir>/<task_id>_<idx><ext>`` with a per-record counter, and
+    rewrites the URL to the relative path ``images/<task_id>_<idx><ext>``.
+    URIs that fail to decode are left unchanged.
+    """
+    if not isinstance(messages, list):
+        return
+    counter = [0]
+
+    def _process_image_url_dict(image_url):
+        url = image_url.get("url", "")
+        decoded = _decode_data_uri(url)
+        if decoded is None:
+            return
+        data, ext = decoded
+        idx = counter[0]
+        rel_name = f"{task_id}_{idx}{ext}"
+        dst = os.path.join(images_subdir, rel_name)
+        try:
+            with open(dst, "wb") as f:
+                f.write(data)
+        except OSError:
+            return
+        image_url["url"] = f"images/{rel_name}"
+        counter[0] += 1
+
+    def _walk(node):
+        if isinstance(node, dict):
+            if (
+                node.get("type") == "image_url"
+                and isinstance(node.get("image_url"), dict)
+            ):
+                _process_image_url_dict(node["image_url"])
+                return
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    for msg in messages:
+        _walk(msg)
+
+
+def write_full_trajectory_jsons(records, out_dir, limit, save_images="base64"):
+    """Write per-sample full trajectory JSONs aligned to the HTML selection policy.
+
+    Args:
+        save_images: "base64" (default) keeps inline ``data:image/...;base64,...``
+            URIs in the messages — current behavior. "files" decodes every
+            inline data URI in the messages (handles user *and* tool-generated
+            images) to a real file under ``<out_dir>/images/<task_id>_<idx><ext>``
+            and rewrites those URLs to the relative path
+            ``images/<task_id>_<idx><ext>``. URIs that fail to decode are left
+            unchanged.
+    """
+    if save_images not in ("base64", "files"):
+        raise ValueError(
+            f"save_images must be 'base64' or 'files', got {save_images!r}"
+        )
     if limit == 0:
         return
     os.makedirs(out_dir, exist_ok=True)
+    images_subdir = os.path.join(out_dir, "images")
+    if save_images == "files":
+        os.makedirs(images_subdir, exist_ok=True)
     for record in select_records_for_report_limit(records, limit):
         trajectory = record.get("trajectory")
         complete_messages = build_complete_messages_from_trajectory(trajectory)
@@ -603,5 +698,10 @@ def write_full_trajectory_jsons(records, out_dir, limit):
             payload["messages"] = copy.deepcopy(trajectory["messages"])
 
         task_id = payload.get("task_id")
+        if save_images == "files":
+            _replace_data_uris_with_files(
+                payload.get("messages"), task_id, images_subdir
+            )
+
         output_path = os.path.join(out_dir, f"{task_id}.json")
         dump(payload, output_path)

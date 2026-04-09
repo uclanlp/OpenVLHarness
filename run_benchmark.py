@@ -134,6 +134,9 @@ if __name__ == "__main__":
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
     parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
+    parser.add_argument('--save-images', type=str, default='files', choices=['files', 'base64'],
+                        help='How to store images in full_trajectories JSONs: "files" copies '
+                             'them to a sibling images/ folder (default), "base64" inlines them as data URIs.')
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
     parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
@@ -274,6 +277,7 @@ if __name__ == "__main__":
                     api_nproc=args.num_proc,
                     html_limit=html_limit,
                     enable_incremental_json=args.incremental_json,
+                    save_images=args.save_images,
                 )
 
         

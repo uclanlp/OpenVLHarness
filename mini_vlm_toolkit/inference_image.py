@@ -264,6 +264,7 @@ def infer_image_job(
     html_limit=0,
     enable_incremental_json=False,
     use_dataset_subdir=True,
+    save_images="files",
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -380,7 +381,9 @@ def infer_image_job(
                 if gt is not None:
                     rec['ground_truth'] = str(gt)
 
-        write_full_trajectory_jsons(full_records, full_trajectory_dir, limit=-1)
+        write_full_trajectory_jsons(
+            full_records, full_trajectory_dir, limit=-1, save_images=save_images
+        )
 
         if getattr(model, 'save_raw_response', False):
             raw_response_dir = osp.join(work_dir, "raw_response")
