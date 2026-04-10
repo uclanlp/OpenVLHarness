@@ -10,7 +10,7 @@ set -euo pipefail
 #
 # Environment variables:
 #   CONFIG          — path to LlamaFactory YAML config (default: sft/configs/sft_lora_qwen3vl_8b.yaml)
-#   TRAJECTORY_INPUT — path to trajectories.jsonl for data conversion (optional)
+#   TRAJECTORY_INPUT — path to a full_trajectories/ folder for data conversion (optional)
 #   SFT_DATA_OUTPUT  — output path for converted SFT data (default: sft/data/sft_train.json)
 #   SFT_DATASET_NAME — dataset name in dataset_info.json (default: sft_train)
 #   SKIP_CONVERT     — set to 1 to skip data conversion step

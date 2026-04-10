@@ -6,7 +6,6 @@ import torch
 import torch.distributed as dist
 from .utils.reporting_utils import (
     build_trajectory_records,
-    write_trajectory_jsonl,
     write_input_snapshot_json,
     write_html_reports,
     write_full_trajectory_jsons,
@@ -264,6 +263,7 @@ def infer_image_job(
     html_limit=0,
     enable_incremental_json=False,
     use_dataset_subdir=True,
+    save_images="files",
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -343,18 +343,6 @@ def infer_image_job(
             osp.join(work_dir, "input_snapshot.json"),
         )
 
-        records = build_trajectory_records(
-            data["index"],
-            data_all,
-            dataset_name=dataset_name,
-            model_name=model_name,
-            agent_class=model.__class__.__name__,
-            scrub_images=True,
-            strip_assistant_content=True,
-        )
-        trajectories_path = osp.join(work_dir, "trajectories.jsonl")
-        write_trajectory_jsonl(records, trajectories_path)
-
         # Always save full trajectories for all instances (needed by experience learning).
         # Pruning happens at reflection time, not save time.
         full_trajectory_dir = osp.join(work_dir, "full_trajectories")
@@ -380,7 +368,9 @@ def infer_image_job(
                 if gt is not None:
                     rec['ground_truth'] = str(gt)
 
-        write_full_trajectory_jsons(full_records, full_trajectory_dir, limit=-1)
+        write_full_trajectory_jsons(
+            full_records, full_trajectory_dir, limit=-1, save_images=save_images
+        )
 
         if getattr(model, 'save_raw_response', False):
             raw_response_dir = osp.join(work_dir, "raw_response")
