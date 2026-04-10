@@ -113,11 +113,12 @@ def Hallusion_rating(data_file):
     data['figure_id'] = [x.split('_')[4] for x in data['index']]
     data['question_id'] = [x.split('_')[5] for x in data['index']]
 
-    res = dict(split=[], aAcc=[], fAcc=[], qAcc=[])
+    res = dict(split=[], aAcc=[], fAcc=[], qAcc=[], Overall=[])
     res['split'].append('Overall')
     res['aAcc'].append(calc_aAcc(data))
     res['fAcc'].append(calc_fAcc(data))
     res['qAcc'].append(calc_qAcc(data))
+    res['Overall'].append((calc_aAcc(data)+ calc_fAcc(data)+ calc_qAcc(data))/3)
 
     if 'category' in data:
         cates = list(set(data['category']))
@@ -127,6 +128,7 @@ def Hallusion_rating(data_file):
             res['aAcc'].append(calc_aAcc(sub))
             res['fAcc'].append(calc_fAcc(sub))
             res['qAcc'].append(calc_qAcc(sub))
+            res['Overall'].append((calc_aAcc(sub)+ calc_fAcc(sub)+ calc_qAcc(sub))/3)
 
     if 'l2-category' in data:
         cates = list(set(data['l2-category']))
@@ -136,6 +138,8 @@ def Hallusion_rating(data_file):
             res['aAcc'].append(calc_aAcc(sub))
             res['fAcc'].append(calc_fAcc(sub))
             res['qAcc'].append(calc_qAcc(sub))
+            res['Overall'].append((calc_aAcc(sub)+ calc_fAcc(sub)+ calc_qAcc(sub))/3)
+            
     ret = pd.DataFrame(res)
     return ret
 

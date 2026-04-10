@@ -177,14 +177,17 @@ class RoboSpatialBench(ImageVQADataset):
         from .utils.spatial_bench.tools.files import build_eval_paths
         from ..smp.file import get_intermediate_file_path
 
-        result_file, xlsx_path, acc_tsv_path = build_eval_paths(eval_file, judge_tag='Point2D')
+        model_name = judge_kwargs.get('model', None)
+        model_tag = model_name.split('/')[-1] if model_name and '/' in model_name else model_name
+
+        result_file, xlsx_path, acc_tsv_path = build_eval_paths(eval_file, judge_tag=model_tag)
 
         data = load(eval_file)
         if 'index' in data.columns:
             data = data.sort_values(by='index')
 
         # Optional LLM-based answer extraction (clean verbose predictions)
-        model_name = judge_kwargs.get('model', None)
+        
         if model_name is not None and model_name not in ('exact_matching', 'extract_matching'):
             from .utils.spatial_bench.llm_extract import (
                 parallel_llm_extract_only, ROBOSPATIAL_EXTRACT_PROMPT,
@@ -195,7 +198,7 @@ class RoboSpatialBench(ImageVQADataset):
             if model is not None:
                 nproc = judge_kwargs.get('nproc', judge_kwargs.get('api_nproc', 1) or 1)
                 max_retry = judge_kwargs.get('retry', 3)
-                judge_tag = f'llm_{model_name}'.replace('/', '_')
+                judge_tag = model_name.split('/')[-1] if '/' in model_name else model_name
                 cache_file = get_intermediate_file_path(
                     eval_file, suffix=f'_{judge_tag}_extract', target_format='pkl',
                 )

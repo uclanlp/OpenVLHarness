@@ -2844,7 +2844,7 @@ class ZEROBench(ImageVQADataset):
         predictions = [str(x) for x in data['prediction']]
         answers = [str(x) for x in data['answers']]
         indexes = [str(x) for x in data['index']]
-        output_df = pd.DataFrame(columns=["Question_ID", "Ground_Truth", "Model_Output", "Correct?"])
+        output_df = pd.DataFrame(columns=["index", "gt", "pred", "correct"])
         for idx, (pred, ans, index) in enumerate(zip(predictions, answers, indexes)):
             formatted_response = pred.strip()
             # convert to lowercase
@@ -2860,16 +2860,25 @@ class ZEROBench(ImageVQADataset):
             # evaluate via exact matching
             correct = ans.strip().lower() in parsed_answer.lower()
             # store results
-            results_row = {"Question_ID": idx,
-                           "Ground_Truth": ans,
-                           "Model_Output": pred,
-                           "Correct?": correct}
+            results_row = {"index": idx,
+                           "gt": ans,
+                           "pred": pred,
+                           "correct": correct} # add this for exp learning
             output_df = pd.concat([output_df, pd.DataFrame([results_row])],
                                   ignore_index=True)
 
         # compute accuracy
-        accuracy = output_df["Correct?"].mean()
-        return {"accuracy": accuracy}
+        accuracy = output_df["correct"].mean()
+
+        # Save detailed results
+        detailed_result_file = get_intermediate_file_path(eval_file, '_result')
+        dump(output_df, detailed_result_file)
+
+        # Save accuracy summary
+        ret = d2df({"Overall": round(accuracy * 100, 2)})
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(ret, result_file)
+        return ret
 
     def build_prompt(self, line):
         if isinstance(line, int):
@@ -3019,7 +3028,7 @@ class FREAKVQADataset(ImageVQADataset):
             return 'C'
 
         scores = []
-        for i in range(len(data)):
+        for i in tqdm(range(len(data)), desc='FREAK_VQA eval'):
             row = data.iloc[i]
             prompt = QUESTION_QUALITY_PROMPT_EN_NO_COT.format(
                 question=row['question'],
@@ -3032,27 +3041,20 @@ class FREAKVQADataset(ImageVQADataset):
 
         data['hit'] = scores
 
-        detailed_file = get_intermediate_file_path(eval_file, '_detailed')
-        dump(data, detailed_file)
+        # Derive name_str from judge model for result file naming
+        model_name = judge_kwargs.get('model', 'exact_matching')
+        name_str_map = {"chatgpt-0125": "openai", "gpt-4-0125": "gpt4"}
+        name_str = name_str_map.get(model_name, model_name)
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
+        result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result')
+        dump(data, result_file)
 
         ret = {'Overall': round(np.mean(data['hit']) * 100, 2)}
         if 'category' in data.columns:
-            import json as json_mod
-            parsed_cats = []
-            all_cats = set()
-            for x in data['category']:
-                try:
-                    cats = json_mod.loads(str(x)) if pd.notna(x) else []
-                except (json_mod.JSONDecodeError, TypeError):
-                    cats = []
-                if isinstance(cats, str):
-                    cats = [cats]
-                parsed_cats.append(cats)
-                all_cats.update(cats)
-            for c in sorted(all_cats):
-                mask = [c in cats for cats in parsed_cats]
-                hits = [h for h, m in zip(data['hit'], mask) if m]
-                ret[c] = round(sum(hits) / len(hits) * 100, 2) if hits else 0
+            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
+                mask = data['category'] == c
+                ret[c] = round(np.mean(data.loc[mask, 'hit']) * 100, 2)
 
         ret = d2df(ret)
         result_file = get_intermediate_file_path(eval_file, '_acc')

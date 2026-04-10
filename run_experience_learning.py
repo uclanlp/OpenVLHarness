@@ -344,7 +344,7 @@ def _find_result_xlsx(result_file, judge_kwargs):
             return candidate
 
     # Fallback: glob for any matching result file
-    matches = sorted(glob.glob(f"{stem}_*result.*"))
+    matches = sorted(glob.glob(f"{stem}_*result*"))
     if matches:
         return matches[0]
 
@@ -423,6 +423,192 @@ def _get_labeled_trajectories(result_file, dataset_name, judge_kwargs, trajector
 
 
 # ====================================================================
+# Resume helpers
+# ====================================================================
+
+def _find_resumable_reflection_dir(
+    work_dir, model_name, agent_class, reflector_model, dataset_names, max_tries,
+):
+    """Search newest→oldest for a config-matching, unfinished reflection run directory."""
+    model_part = sanitize_for_path(model_name, field_name="model_name")
+    agent_part = sanitize_for_path(agent_class.lower(), field_name="agent_class")
+    reflector_part = sanitize_for_path(reflector_model, field_name="reflector_model")
+
+    parent_dir = osp.join(work_dir, model_part, agent_part)
+    if not osp.isdir(parent_dir):
+        raise FileNotFoundError(
+            f"No run directories found under {parent_dir}. Nothing to resume."
+        )
+
+    candidates = sorted(
+        d for d in os.listdir(parent_dir)
+        if osp.isdir(osp.join(parent_dir, d)) and d.startswith("reflection_")
+    )
+    if not candidates:
+        raise FileNotFoundError(
+            f"No reflection run directories found in {parent_dir}. Nothing to resume."
+        )
+
+    for dirname in reversed(candidates):
+        output_dir = osp.join(parent_dir, dirname, reflector_part)
+        manifest_path = osp.join(output_dir, "reflection_manifest.json")
+
+        if not osp.exists(manifest_path):
+            logger.debug(f"Skipping {dirname}: no reflection_manifest.json")
+            continue
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.debug(f"Skipping {dirname}: {exc}")
+            continue
+
+        # Validate manifest fields match
+        if manifest.get("agent_model_name") != model_name:
+            logger.debug(f"Skipping {dirname}: agent_model_name mismatch")
+            continue
+        if manifest.get("agent_class") != agent_class:
+            logger.debug(f"Skipping {dirname}: agent_class mismatch")
+            continue
+        if manifest.get("reflector_model") != reflector_model:
+            logger.debug(f"Skipping {dirname}: reflector_model mismatch")
+            continue
+        expected_ds = ", ".join(dataset_names)
+        if manifest.get("dataset_name") != expected_ds:
+            logger.debug(f"Skipping {dirname}: dataset_name mismatch")
+            continue
+
+        # Check if run is incomplete: any dataset missing accuracy_trends.json
+        all_finished = all(
+            osp.exists(osp.join(output_dir, ds_name, "accuracy_trends.json"))
+            for ds_name in dataset_names
+        )
+        if all_finished:
+            logger.debug(f"Skipping {dirname}: all datasets already finished")
+            continue
+
+        logger.info(f"Found resumable run: {output_dir}")
+        return output_dir
+
+    raise FileNotFoundError(
+        f"No resumable reflection run found in {parent_dir}. "
+        "All matching runs are either incompatible or already finished."
+    )
+
+
+def _detect_resume_point(ds_output_dir, infer_work_dir, model_name, max_tries):
+    """Determine which trial to resume from for a dataset.
+
+    Returns start_trial (0-based index of first incomplete trial),
+    or -1 if the dataset is already complete.
+    """
+    trends_path = osp.join(ds_output_dir, "accuracy_trends.json")
+    if osp.exists(trends_path):
+        return -1  # dataset complete, skip
+
+    # Scan trial dirs for result files
+    for trial in range(max_tries):
+        trial_dir = osp.join(infer_work_dir, f"trial_{trial}")
+        result_file = get_pred_file_path(trial_dir, model_name, dataset_name=None, use_env_format=True)
+        if not osp.exists(result_file):
+            return trial
+
+    return max_tries  # all trial dirs have results but no accuracy_trends (need eval/reflect)
+
+
+def _restore_resume_state(
+    ds_output_dir, infer_work_dir, model_name, dataset_name,
+    start_trial, judge_kwargs, skip_correct,
+    experience_filename, save_all_intermediate, generation_strategy,
+):
+    """Restore state variables from completed trials for resume.
+
+    Returns (trial_stats, carried_forward, experience_file, previous_experience).
+    """
+    trial_stats = []
+    carried_forward = {}
+    experience_file = None
+    previous_experience = None
+
+    for trial in range(start_trial):
+        trial_dir = osp.join(infer_work_dir, f"trial_{trial}")
+        result_file = get_pred_file_path(trial_dir, model_name, dataset_name=None, use_env_format=True)
+        trajectory_dir = osp.join(trial_dir, "full_trajectories")
+
+        # Re-label to get accuracy stats and carried_forward
+        try:
+            labeled = _get_labeled_trajectories(
+                result_file=result_file,
+                dataset_name=dataset_name,
+                judge_kwargs=judge_kwargs,
+                trajectory_dir=trajectory_dir,
+            )
+        except Exception as exc:
+            logger.warning(f"Could not restore trial {trial} state: {exc}")
+            continue
+
+        n_correct = sum(1 for r in labeled if r.get("is_correct"))
+        accuracy = n_correct / max(len(labeled), 1) * 100
+        trial_stats.append({
+            "trial": trial + 1,
+            "correct": n_correct,
+            "total": len(labeled),
+            "accuracy": round(accuracy, 2),
+        })
+
+        # Restore carried_forward for skip_correct
+        if skip_correct:
+            name_str = _get_eval_name_str(judge_kwargs)
+            eval_pkl_path = get_intermediate_file_path(
+                result_file, f'_{name_str}_result', 'pkl'
+            )
+            eval_pkl_data = {}
+            if osp.exists(eval_pkl_path):
+                try:
+                    eval_pkl_data = smp_load(eval_pkl_path)
+                except Exception:
+                    pass
+            for r in labeled:
+                if r.get("is_correct"):
+                    task_id = r["task_id"]
+                    eval_result = eval_pkl_data.get(task_id)
+                    if eval_result is None:
+                        try:
+                            eval_result = eval_pkl_data.get(int(task_id))
+                        except (ValueError, TypeError):
+                            pass
+                    carried_forward[task_id] = {
+                        "prediction": r.get("prediction", ""),
+                        "eval_result": eval_result,
+                    }
+
+        logger.info(
+            f"Restored trial {trial + 1}: {n_correct}/{len(labeled)} correct ({accuracy:.1f}%)"
+        )
+
+    # Restore experience file from the last completed trial
+    if generation_strategy in ("batch", "instance_summarize"):
+        if save_all_intermediate:
+            for t in range(start_trial - 1, -1, -1):
+                candidate = osp.join(ds_output_dir, f"experience_v{t + 1}.md")
+                if osp.exists(candidate):
+                    experience_file = candidate
+                    break
+        else:
+            candidate = osp.join(ds_output_dir, "experience_latest.md")
+            if osp.exists(candidate):
+                experience_file = candidate
+
+        if experience_file:
+            from mini_vlm_toolkit.experience.reflector import load_experience
+            previous_experience = load_experience(experience_file)
+            logger.info(f"Restored experience from: {experience_file}")
+
+    return trial_stats, carried_forward, experience_file, previous_experience
+
+
+# ====================================================================
 # Inference helpers
 # ====================================================================
 
@@ -476,6 +662,15 @@ def _run_inference_trial(
         supp_file = osp.join(trial_dir, f'{model_name}_supp.pkl')
         os.makedirs(trial_dir, exist_ok=True)
         supp_data = {k: v["prediction"] for k, v in carried_forward.items()}
+        # Merge with existing pkl to preserve partial inference progress on resume
+        if osp.exists(supp_file):
+            try:
+                existing = smp_load(supp_file)
+                if isinstance(existing, dict):
+                    existing.update(supp_data)
+                    supp_data = existing
+            except Exception:
+                pass
         dump(supp_data, supp_file)
         logger.info(
             f"Trial {trial}: skipping {len(carried_forward)} previously-correct "
@@ -547,6 +742,10 @@ def main():
     parser.add_argument(
         "--no-reflection", action="store_true",
         help="Run the pipeline without reflection for ablation",
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="Resume the latest existing run instead of creating a new one",
     )
     args = parser.parse_args()
 
@@ -712,49 +911,85 @@ def main():
             learning_cfg.get("instance_reflection_prompt")
         )
 
-    run_id = datetime.now().strftime("reflection_%Y%m%d_%H%M%S")
-    output_dir = _build_reflection_output_dir(
-        args.work_dir,
-        model_name,
-        agent_class,
-        run_id,
-        reflector_model,
-    )
-    _prepare_reflection_run_dir(
-        output_dir=output_dir,
-        run_id=run_id,
-        source=source,
-        dataset_name=", ".join(dataset_names),
-        model_name=model_name,
-        agent_class=agent_class,
-        reflector_model=reflector_model,
-        reflection_config=rconfig,
-        reflection_config_path=args.reflection_config,
-        judge_config_path=args.judge_config,
-        strategy=generation_strategy,
-        reflect_on=reflect_on,
-    )
+    if args.resume:
+        output_dir = _find_resumable_reflection_dir(
+            args.work_dir, model_name, agent_class, reflector_model,
+            dataset_names, max_tries,
+        )
+        logger.info(f"Resuming run from: {output_dir}")
+    else:
+        run_id = datetime.now().strftime("reflection_%Y%m%d_%H%M%S")
+        output_dir = _build_reflection_output_dir(
+            args.work_dir,
+            model_name,
+            agent_class,
+            run_id,
+            reflector_model,
+        )
+        _prepare_reflection_run_dir(
+            output_dir=output_dir,
+            run_id=run_id,
+            source=source,
+            dataset_name=", ".join(dataset_names),
+            model_name=model_name,
+            agent_class=agent_class,
+            reflector_model=reflector_model,
+            reflection_config=rconfig,
+            reflection_config_path=args.reflection_config,
+            judge_config_path=args.judge_config,
+            strategy=generation_strategy,
+            reflect_on=reflect_on,
+        )
 
     for dataset_name in dataset_names:
+        ds_output_dir = osp.join(output_dir, dataset_name)
+        infer_work_dir = osp.join(ds_output_dir, "trials")
+
+        # Detect resume point
+        start_trial = 0
+        experience_file = None
+        instance_critique_dir = None
+        previous_experience = None
+        carried_forward = {}
+        trial_stats = []
+
+        if args.resume:
+            start_trial = _detect_resume_point(
+                ds_output_dir, infer_work_dir, model_name, max_tries,
+            )
+            if start_trial == -1:
+                logger.info(f"Dataset {dataset_name} already complete, skipping")
+                continue
+
+            if start_trial > 0:
+                logger.info(
+                    f"Resuming {dataset_name} from trial {start_trial + 1}/{max_tries} "
+                    f"({start_trial} trial(s) already complete)"
+                )
+                trial_stats, carried_forward, experience_file, previous_experience = (
+                    _restore_resume_state(
+                        ds_output_dir, infer_work_dir, model_name, dataset_name,
+                        start_trial, judge_kwargs, skip_correct,
+                        experience_filename, save_all_intermediate, generation_strategy,
+                    )
+                )
+                # Restore instance_critique_dir if lessons exist
+                instance_lessons_dir_candidate = osp.join(ds_output_dir, "instance_lessons")
+                if osp.isdir(instance_lessons_dir_candidate):
+                    instance_critique_dir = instance_lessons_dir_candidate
+
+        os.makedirs(infer_work_dir, exist_ok=True)
+
         logger.info(
             f"Running {max_tries} trial(s) on {dataset_name} "
             f"with generation_strategy={generation_strategy}, "
             f"passing_strategy={passing_strategy}, skip_correct={skip_correct}"
         )
 
-        ds_output_dir = osp.join(output_dir, dataset_name)
-        infer_work_dir = osp.join(ds_output_dir, "trials")
-        os.makedirs(infer_work_dir, exist_ok=True)
-
-        experience_file = None
-        instance_critique_dir = None
-        previous_experience = None
-        carried_forward = {}  # {task_id: {"prediction": ..., "eval_result": ...}}
-        trial_stats = []
         instance_lessons_dir = osp.join(ds_output_dir, "instance_lessons")
         final_experience_path = osp.join(ds_output_dir, experience_filename)
 
-        for trial in range(max_tries):
+        for trial in range(start_trial, max_tries):
             logger.info(f"\n{'='*60}")
             logger.info(f"TRIAL {trial + 1}/{max_tries} [{dataset_name}]")
             logger.info(f"{'='*60}")

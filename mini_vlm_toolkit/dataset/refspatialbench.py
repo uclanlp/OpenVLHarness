@@ -170,7 +170,7 @@ class RefSpatialBench(ImageVQADataset):
             if model is not None:
                 nproc = judge_kwargs.get('nproc', judge_kwargs.get('api_nproc', 1) or 1)
                 max_retry = judge_kwargs.get('retry', 3)
-                judge_tag = f'llm_{model_name}'.replace('/', '_')
+                judge_tag = model_name.split('/')[-1] if '/' in model_name else model_name
                 cache_file = get_intermediate_file_path(
                     eval_file, suffix=f'_{judge_tag}_extract', target_format='pkl',
                 )
@@ -185,7 +185,8 @@ class RefSpatialBench(ImageVQADataset):
                 )
                 data['prediction'] = cleaned
 
-        result_file, xlsx_path, acc_tsv_path = build_eval_paths(eval_file, judge_tag='Point2D')
+        model_tag = model_name.split('/')[-1] if model_name and '/' in model_name else model_name
+        result_file, xlsx_path, acc_tsv_path = build_eval_paths(eval_file, judge_tag=model_tag)
 
         required = ['category', 'mask_path', 'prediction']
         for col in required:
