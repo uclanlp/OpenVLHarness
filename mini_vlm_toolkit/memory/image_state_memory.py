@@ -356,14 +356,18 @@ class ImageStateMemory(PersistentStateMemory):
         if snapshot:
             for ref_id, source in snapshot:
                 lines.append(f"- {ref_id}: {source}")
+            lines.extend(
+                [
+                    "When a tool needs image input, pass one of these IDs via the *_image_path field.",
+                    "Do NOT invent image file names or paths.",
+                ]
+            )
         else:
             lines.append("- (none)")
-        lines.extend(
-            [
-                "When a tool needs image input, pass one of these IDs via the *_image_path field.",
-                "Do NOT invent image file names or paths.",
-            ]
-        )
+            lines.append(
+                "No images are available, but you can still use text-based tools "
+                "(e.g. Text_Search_Tool, Webpage_Visit_Tool) to answer the question."
+            )
         return {"role": "user", "content": "\n".join(lines)}
 
     def _emit_environment_update(self) -> List[Dict[str, Any]]:
@@ -503,6 +507,11 @@ class ImageStateMemory(PersistentStateMemory):
             if ref_id and ref_id in self._image_registry:
                 return self._image_registry[ref_id]["data_url"], ref_id, None
 
+        # HTTP(S) URL: download, convert to data URL, and register in memory
+        # so downstream tools (ZoomInImageByBBox, SAM, OCR, etc.) can use it.
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return self._download_and_register_url(raw)
+
         if os.path.isfile(raw):
             return None, None, None
 
@@ -514,6 +523,51 @@ class ImageStateMemory(PersistentStateMemory):
                 "single_image_registry_default",
             )
 
+        return None, None, None
+
+    def _download_and_register_url(self, url: str):
+        """Download an HTTP(S) image URL, register it in the memory system.
+
+        Returns the same (data_url, ref_id, fallback_mode) tuple as
+        ``_resolve_registry_image_data_url``.  On failure returns
+        ``(None, None, None)`` so the caller can fall through to
+        subsequent resolution strategies or report an error.
+        """
+        import base64
+        import mimetypes
+
+        import requests
+
+        # Check if this URL was already downloaded and registered.
+        norm_alias = self._normalize_image_alias(url)
+        existing_ref = self._image_alias_to_ref.get(norm_alias)
+        if existing_ref and existing_ref in self._image_registry:
+            return self._image_registry[existing_ref]["data_url"], existing_ref, None
+
+        try:
+            resp = requests.get(url, timeout=30, stream=False)
+            resp.raise_for_status()
+        except Exception:
+            return None, None, None
+
+        content_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
+        if not content_type.startswith("image/"):
+            # Try guessing from URL extension
+            guessed, _ = mimetypes.guess_type(url)
+            content_type = guessed if guessed and guessed.startswith("image/") else "image/jpeg"
+
+        b64 = base64.b64encode(resp.content).decode("ascii")
+        data_url = f"data:{content_type};base64,{b64}"
+
+        ref_id = self._next_tool_generated_image_ref_id()
+        assigned_ref = self._register_image_data_url(
+            ref_id,
+            data_url,
+            source=f"downloaded:{url[:120]}",
+            aliases=[url],
+        )
+        if assigned_ref:
+            return data_url, assigned_ref, "http_download"
         return None, None, None
 
     def _is_image_path_key(self, key: str) -> bool:

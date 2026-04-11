@@ -1723,14 +1723,32 @@ class BaseAgentWithTools(BaseAgent):
         kwargs.update(kwargs1)
         kwargs = filter_kwargs_for_endpoint(kwargs, "chat")
 
-        # Run the ReAct-style loop
-        answer, chat_history, messages, input_snapshot = self._run(
-            message,
-            return_messages=True,
-            return_snapshot=True,
-            system_prompt=active_system_prompt,
-            **kwargs,
-        )
+        # Run the ReAct-style loop. Catch RuntimeError per-sample so a single
+        # failed request (e.g. malformed JSON from the model) does not crash
+        # the entire benchmark run.
+        try:
+            answer, chat_history, messages, input_snapshot = self._run(
+                message,
+                return_messages=True,
+                return_snapshot=True,
+                system_prompt=active_system_prompt,
+                **kwargs,
+            )
+        except RuntimeError as exc:
+            self.logger.warning(
+                f"[generate] Sample failed with RuntimeError, marking as failed: {exc}"
+            )
+            trajectory = {
+                "input_messages": raw_message,
+                "chat_history": [],
+                "messages": [],
+                "final_answer": self.fail_msg,
+                "error": str(exc),
+            }
+            return {
+                "prediction": self.fail_msg,
+                "extra_records": {"trajectory": trajectory},
+            }
 
         final_answer = self.fail_msg if answer in ['', None] else answer
         trajectory = {
