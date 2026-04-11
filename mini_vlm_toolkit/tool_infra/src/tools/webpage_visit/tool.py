@@ -13,7 +13,7 @@ from config import (
 from llm.engine import LLMEngine
 from tools.base import BaseTool
 
-TOOL_NAME = "Webpage_Visit_Tool"
+TOOL_NAME = "Webpage_Visit_Tool_BK"
 
 ZHIPU_KEY_FILENAME = "zhipu_api_key"
 JINA_KEY_FILENAME = "jina_api_key"
@@ -77,8 +77,12 @@ Example:
 """
 
 
-class Webpage_Visit_Tool(BaseTool):
-    """Visit webpage(s) via Reader APIs and extract content relevant to a goal."""
+class Webpage_Visit_Tool_BK(BaseTool):
+    """[Legacy] Visit webpage(s) via Jina/Zhipu Reader APIs and extract content.
+
+    This is the legacy implementation using Jina/Zhipu Reader backends.
+    The primary Webpage_Visit_Tool now uses Serper Scrape API.
+    """
 
     require_llm_engine = True
 
