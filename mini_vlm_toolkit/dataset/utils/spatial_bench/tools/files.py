@@ -1,20 +1,22 @@
 from .....smp.file import get_intermediate_file_path
 
+_NAME_STR_MAP = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
+
 
 def _judge_tag_from_mode_and_model(judge_mode: str | None, judge_model: str | None) -> str:
     """
     Map (judge_mode, judge_model) to a judge_tag string used in filenames.
 
-    Returns examples:
-        - 'extract_matching'
-        - 'llm_gpt-4o' / 'llm_matching'
+    Follows the same naming convention as MCQ / VQA benchmarks:
+        - 'exact_matching'          (rule-based)
+        - 'gpt-4o' / 'openai'      (LLM-based, no 'llm_' prefix)
     """
     if judge_mode == 'llm':
-        if "/" in judge_model:
-            # For HuggingFace models, use the part after the last slash as the tag
-            return f'llm_{judge_model.split("/")[-1]}'
-        return f'llm_{judge_model}' if judge_model else 'llm_matching'
-    return 'extract_matching'
+        name = _NAME_STR_MAP.get(judge_model, judge_model) if judge_model else None
+        if name and "/" in name:
+            return name.split("/")[-1]
+        return name if name else 'exact_matching'
+    return 'exact_matching'
 
 
 def get_judge_tag_from_score_fn(score_fn) -> str:
@@ -34,27 +36,26 @@ def build_eval_paths(eval_file: str, judge_tag: str):
     """
     Build unified evaluation-related file paths from eval_file and judge_tag.
 
-    It returns:
-        - result_file: *_result.pkl
-        - xlsx_path  : *_{judge_tag}.xlsx
+    Follows MCQ / VQA naming convention. It returns:
+        - result_file: *_{judge_tag}_result.pkl
+        - xlsx_path  : *_{judge_tag}_result.xlsx
         - acc_path   : *_acc.{EVAL_FORMAT or default csv}
     """
     result_file = get_intermediate_file_path(
         eval_file,
-        suffix='_result',
+        suffix=f'_{judge_tag}_result',
         target_format='pkl'
     )
 
     xlsx_path = get_intermediate_file_path(
         eval_file,
-        suffix=f'_{judge_tag}',
+        suffix=f'_{judge_tag}_result',
         target_format='xlsx'
     )
 
     acc_path = get_intermediate_file_path(
         eval_file,
-        suffix=f'_{judge_tag}_acc'
-        # target_format=None -> resolved via suffix '_acc' -> get_eval_file_format()
+        suffix='_acc'
     )
 
     return result_file, xlsx_path, acc_path

@@ -44,6 +44,11 @@ class ImageYORNDataset(ImageBaseDataset):
         data['prediction'] = [str(x) for x in data['prediction']]
         storage = get_intermediate_file_path(eval_file, '_auxmatch')
         tmp_file = get_intermediate_file_path(eval_file, '_tmp', 'pkl')
+        # for experience learning
+        model_name = judge_kwargs.get('model', 'exact_matching')
+        if "/" in model_name:
+            model_name = model_name.split("/")[-1]
+        result_file = get_intermediate_file_path(eval_file, f'_{model_name}_result', 'xlsx')
         nproc = judge_kwargs.pop('nproc', 4)
 
         if not osp.exists(storage):
@@ -87,6 +92,8 @@ class ImageYORNDataset(ImageBaseDataset):
         else:
             data['score'] = (data['answer'] == data['extracted'])
         dump(data, storage)
+        # for exp learning
+        dump(data, result_file)
 
         if dataset is not None and listinstr(['MME'], dataset):
             score = MME_rating(storage)

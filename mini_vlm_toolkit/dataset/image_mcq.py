@@ -1409,6 +1409,17 @@ class NaturalBenchDataset(ImageMCQDataset):
         df = pd.DataFrame(list(scores.items()), columns=['Metric', 'Score'])
         dump(df, score_file)
 
+        # Save detailed results with per-row correctness for experience learning
+        hit = []
+        for i in range(number_answered_samples):
+            r = results[i]
+            correct = (r["q0_i0"] == 1 and r["q0_i1"] == 0 and r["q1_i0"] == 0 and r["q1_i1"] == 1)
+            for _ in range(4):
+                hit.append(1 if correct else 0)
+        data['hit'] = hit
+        result_file = get_intermediate_file_path(eval_file, '_exact_matching_result')
+        dump(data, result_file)
+
         return scores
 
 
@@ -2993,37 +3004,32 @@ class FREAKMCQDataset(ImageMCQDataset):
                 model = None
 
         extracted = []
-        for i in range(len(data)):
+        for i in tqdm(range(len(data)), desc='FREAK_MCQ eval'):
             item = data.iloc[i]
             res = extract_answer_from_item(model, item, dataset_name='FREAK_MCQ')
             extracted.append(res['opt'])
 
         data['extracted'] = extracted
-        detailed_file = get_intermediate_file_path(eval_file, '_detailed')
-        dump(data, detailed_file)
+        data['hit'] = [1 if e == a else 0 for e, a in zip(extracted, data['mcq_GT'])]
+
+        # Derive name_str from judge model for result file naming
+        model_name = judge_kwargs.get('model', 'exact_matching')
+        name_str_map = {"chatgpt-0125": "openai", "gpt-4-0125": "gpt4"}
+        name_str = name_str_map.get(model_name, model_name)
+        if "/" in name_str:
+            name_str = name_str.split("/")[-1]
+        result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result')
+        dump(data, result_file)
 
         correct = sum(1 for e, a in zip(extracted, data['mcq_GT']) if e == a)
         total = len(data)
 
         ret = {'Overall': round(correct / total * 100, 2) if total > 0 else 0}
         if 'category' in data.columns:
-            # Parse JSON category lists and collect all individual categories
-            parsed_cats = []
-            all_cats = set()
-            for x in data['category']:
-                try:
-                    cats = json_mod.loads(str(x)) if pd.notna(x) else []
-                except (json_mod.JSONDecodeError, TypeError):
-                    cats = []
-                if isinstance(cats, str):
-                    cats = [cats]
-                parsed_cats.append(cats)
-                all_cats.update(cats)
-            # Compute accuracy for each individual category
-            for c in sorted(all_cats):
-                mask = [c in cats for cats in parsed_cats]
+            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
+                mask = data['category'] == c
                 sub_ext = [e for e, m in zip(extracted, mask) if m]
-                sub_ans = [a for a, m in zip(data['mcq_GT'], mask) if m]
+                sub_ans = data.loc[mask, 'mcq_GT'].tolist()
                 sub_correct = sum(1 for e, a in zip(sub_ext, sub_ans) if e == a)
                 ret[c] = round(sub_correct / len(sub_ext) * 100, 2) if sub_ext else 0
 

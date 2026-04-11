@@ -44,6 +44,9 @@ from .robospatialbench import RoboSpatialBench
 from .mmsibench import MMSIBench
 from .livevqa import LIVEVQADataset
 from .browsecomp_vl import BrowseCompVLDataset
+from .mindcubebench import MindCubeBench
+from .omnispatialbench import OmniSpatialBench
+from .sparbench import SparBench
 
 from .mmbench_video import MMBenchVideo
 from .videomme import VideoMME
@@ -258,7 +261,7 @@ IMAGE_DATASET = [
 
 
 # add by EASI team
-IMAGE_DATASET += [RefSpatialBench, EmbSpatialBench, ERQABench, RoboSpatialBench, MMSIBench]
+IMAGE_DATASET += [RefSpatialBench, EmbSpatialBench, ERQABench, RoboSpatialBench, MMSIBench, MindCubeBench, OmniSpatialBench, SparBench]
 
 
 VIDEO_DATASET = [

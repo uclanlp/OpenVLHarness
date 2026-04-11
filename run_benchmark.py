@@ -40,8 +40,13 @@ def _write_yaml(path, payload):
         yaml.safe_dump(payload, f, sort_keys=True, allow_unicode=True)
 
 
-def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest, dataset_names, model_name, logger):
-    """Search backwards (newest→oldest) for a config-matching, unfinished run directory."""
+def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest, dataset_names, model_name, logger, mode="all"):
+    """Search backwards (newest→oldest) for a config-matching run directory.
+
+    When *mode* is ``"eval"``, find the newest run that **has** pred files for
+    the requested datasets (ready for evaluation).  Otherwise, find the newest
+    run that still has unfinished datasets (ready for inference).
+    """
     from mini_vlm_toolkit.utils.run_identity import sanitize_for_path
     agent_part = sanitize_for_path(agent_ver, field_name="agent_config_version")
     judge_part = sanitize_for_path(judge_ver, field_name="judge_config_version")
@@ -79,14 +84,21 @@ def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest,
             logger.debug(f"Skipping {dirname}: {exc}")
             continue
 
-        # Check if all datasets are already finished
         all_finished = all(
             os.path.exists(get_pred_file_path(pred_root, model_name, ds, use_env_format=True))
             for ds in dataset_names
         )
-        if all_finished:
-            logger.debug(f"Skipping {dirname}: all datasets already finished")
-            continue
+
+        if mode == "eval":
+            # For eval-only: require that all pred files exist (ready to evaluate)
+            if not all_finished:
+                logger.debug(f"Skipping {dirname}: not all pred files exist for eval")
+                continue
+        else:
+            # For infer/all: skip runs where everything is already done
+            if all_finished:
+                logger.debug(f"Skipping {dirname}: all datasets already finished")
+                continue
 
         return pred_root
 
@@ -145,6 +157,10 @@ if __name__ == "__main__":
     parser.add_argument('--resume', action='store_true', help='Resume the latest existing run instead of creating a new one')
     args = parser.parse_args()
 
+    # --mode eval always needs an existing run with pred files
+    if args.mode == "eval":
+        args.resume = True
+
     logger = get_logger("RUN")
 
     if WORLD_SIZE > 1:
@@ -189,7 +205,7 @@ if __name__ == "__main__":
         )
         pred_root = _find_resumable_run_dir(
             parent_dir, agent_config_version, judge_config_version,
-            tmp_manifest, args.data, model_name, logger,
+            tmp_manifest, args.data, model_name, logger, mode=args.mode,
         )
         run_id = os.path.basename(pred_root)
         run_manifest = build_run_manifest(
