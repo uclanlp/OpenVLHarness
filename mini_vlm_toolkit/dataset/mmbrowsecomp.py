@@ -96,71 +96,44 @@ class MMBrowseCompDataset(ImageBaseDataset):
     TYPE = 'VQA'
     MODALITY = 'IMAGE'
 
-    DATASET_URL = {}  # Not using URL; loading from local JSONL
-    DATASET_MD5 = {}
+    DATASET_URL = {"MMBrowseComp": "https://huggingface.co/datasets/mmbrowsecomp/MMBrowseComp"}
+    DATASET_MD5 = {"MMBrowseComp": ""}
 
     def __init__(self, dataset='MMBrowseComp', skip_noimg=True, jsonl_path=None):
         self._jsonl_path = jsonl_path
         super().__init__(dataset=dataset, skip_noimg=skip_noimg)
 
     def load_data(self, dataset):
-        """Load from JSONL. Expects LMUData/MMBrowseComp_decrypted.jsonl or MMBrowseComp.jsonl."""
+        """Load MMBrowseComp data.
+
+        Tries (in order):
+        1. HuggingFace Hub (mmbrowsecomp/MMBrowseComp) if no local JSONL found.
+        2. Local JSONL files (legacy path).
+        """
         root = LMUDataRoot()
         mmbc_dir = osp.join(root, 'MMBrowseComp')
+
+        # --- Try local JSONL first (legacy) ---
         candidates = [
             os.environ.get('MMBROWSECOMP_JSONL'),
             self._jsonl_path,
-            # Prefer the 400-sample decrypted file; fall back to non-decrypted variant if present.
             osp.join(mmbc_dir, 'MMBrowseComp_400_decrypted.jsonl'),
             osp.join(mmbc_dir, 'MMBrowseComp_400.jsonl'),
             osp.join(root, 'MMBrowseComp_400_decrypted.jsonl'),
             osp.join(root, 'MMBrowseComp_400.jsonl'),
         ]
         candidates = [osp.abspath(p) for p in candidates if p and osp.isfile(p)]
-
         jsonl_path = candidates[0] if candidates else None
-        if jsonl_path is None:
-            raise FileNotFoundError(
-                f"MMBrowseComp JSONL not found. Expected one of: "
-                f"MMBrowseComp_400_decrypted.jsonl or MMBrowseComp_400.jsonl "
-                f"under {root}/MMBrowseComp/ or {root}/. "
-                f"You can also set MMBROWSECOMP_JSONL or pass jsonl_path to build_dataset."
-            )
 
-        rows = []
-        with open(jsonl_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                item = json.loads(line)
-                item_id = item.get('id', len(rows))
-                question = item.get('question', '')
-                images = item.get('images', [])
-                answer = item.get('answer', '')
-                if not question:
-                    continue
-                if isinstance(images, str):
-                    images = [images]
-                # Resolve data URLs / HTTP URLs to local cache paths here (only decode/download if not exists),
-                # so base class and smp.file need no MMBrowseComp-specific handling.
-                image_path = [_resolve_to_local_path(im) for im in images]
-                row = {
-                    'index': item_id,
-                    'question': question,
-                    'answer': answer,
-                    'image_path': image_path,
-                }
-                if 'category' in item:
-                    row['category'] = item['category']
-                if 'subtask' in item:
-                    row['subtask'] = item['subtask']
-                if 'checklist' in item:
-                    row['checklist'] = item['checklist'] if isinstance(item['checklist'], list) else [item['checklist']]
-                else:
-                    row['checklist'] = []
-                rows.append(row)
-        df = pd.DataFrame(rows)
+        if jsonl_path is None:
+            # --- Fallback: load from HuggingFace Hub ---
+            df = self._load_from_hf(mmbc_dir)
+        else:
+            df = self._load_from_jsonl(jsonl_path)
+
+        # Ensure 'level' column exists (defaults to 0 if not present)
+        if 'level' not in df.columns:
+            df['level'] = 0
 
         # Optional: limit number of samples via environment variable.
         # Set MMBROWSECOMP_MAX_SAMPLES to a positive integer to only keep N
@@ -190,6 +163,109 @@ class MMBrowseCompDataset(ImageBaseDataset):
                 pass
 
         return df
+
+    def _load_from_jsonl(self, jsonl_path: str) -> pd.DataFrame:
+        """Load from local JSONL (legacy path)."""
+        rows = []
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                item = json.loads(line)
+                item_id = item.get('id', len(rows))
+                question = item.get('question', '')
+                images = item.get('images', [])
+                answer = item.get('answer', '')
+                if not question:
+                    continue
+                if isinstance(images, str):
+                    images = [images]
+                image_path = [_resolve_to_local_path(im) for im in images]
+                row = {
+                    'index': item_id,
+                    'question': question,
+                    'answer': answer,
+                    'image_path': image_path,
+                }
+                if 'category' in item:
+                    row['category'] = item['category']
+                if 'subtask' in item:
+                    row['subtask'] = item['subtask']
+                if 'level' in item:
+                    row['level'] = int(item['level'])
+                if 'checklist' in item:
+                    row['checklist'] = item['checklist'] if isinstance(item['checklist'], list) else [item['checklist']]
+                else:
+                    row['checklist'] = []
+                rows.append(row)
+        return pd.DataFrame(rows)
+
+    def _load_from_hf(self, cache_dir: str) -> pd.DataFrame:
+        """Load from HuggingFace Hub (mmbrowsecomp/MMBrowseComp).
+
+        NOTE: The HF dataset is **encrypted**. This method checks the first
+        sample's question field — if it looks like base64 ciphertext rather
+        than natural language, it raises an error directing the user to
+        provide a pre-decrypted local JSONL file instead.
+        """
+        try:
+            from datasets import load_dataset
+        except ImportError as exc:
+            raise ImportError(
+                "The `datasets` library is required to load MMBrowseComp from HuggingFace.\n"
+                "Install via `pip install datasets`. Or provide a local JSONL file."
+            ) from exc
+
+        ds = load_dataset("mmbrowsecomp/MMBrowseComp", split="train")
+
+        # Detect encrypted data: if question looks like base64 (no spaces,
+        # contains +/= characters typical of base64), the data is still encrypted.
+        if len(ds) > 0:
+            sample_q = str(ds[0].get("question", ""))
+            if sample_q and " " not in sample_q and ("==" in sample_q or "+/" in sample_q):
+                raise RuntimeError(
+                    "MMBrowseComp HuggingFace dataset appears to be encrypted. "
+                    "This loader does not support automatic decryption. "
+                    "Please provide a pre-decrypted JSONL file instead:\n"
+                    "  1. Decrypt the dataset using the official MMBrowseComp tools\n"
+                    "  2. Save as MMBrowseComp_400_decrypted.jsonl\n"
+                    "  3. Place it under $LMUData/MMBrowseComp/ or set MMBROWSECOMP_JSONL env var"
+                )
+
+        os.makedirs(cache_dir, exist_ok=True)
+
+        rows = []
+        for i, item in enumerate(ds):
+            item_id = item.get('id', i)
+            question = item.get('question', '')
+            if not question:
+                continue
+            answer = item.get('answer', '')
+            images = item.get('images', [])
+            if isinstance(images, str):
+                images = [images]
+            image_path = [_resolve_to_local_path(im) for im in images]
+            row = {
+                'index': item_id,
+                'question': question,
+                'answer': answer,
+                'image_path': image_path,
+            }
+            if 'category' in item:
+                row['category'] = item['category']
+            if 'subtask' in item:
+                row['subtask'] = item['subtask']
+            if 'level' in item and item['level'] is not None:
+                row['level'] = int(item['level'])
+            if 'source' in item:
+                row['source'] = item['source']
+            if 'checklist' in item:
+                row['checklist'] = item['checklist'] if isinstance(item['checklist'], list) else [item['checklist']]
+            else:
+                row['checklist'] = []
+            rows.append(row)
+        return pd.DataFrame(rows)
 
     def build_prompt(self, line):
         """Build prompt with image URLs. Order matches gen_answer.py: question first, then images."""

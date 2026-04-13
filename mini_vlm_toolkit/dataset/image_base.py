@@ -6,6 +6,8 @@ from ..smp import *
 def img_root_map(dataset):
     if 'MMBrowseComp' in dataset:
         return 'MMBrowseComp'
+    if dataset == 'MMSearchPlus':
+        return 'MMSearchPlus'
     if 'MMSearch' in dataset:
         return 'MMSearch'
     if 'MM_NIAH' in dataset:
