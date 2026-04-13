@@ -35,7 +35,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
 | `Webpage_Visit_Tool` | Visit URLs via Reader APIs (Zhipu/Jina), convert to markdown, and extract content relevant to a goal. |
 | `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
-| `ZoomInImageByBBox_Tool` | Crop an image around a normalized bbox with optional padding. |
+| `Zoom_In_Tool` | Crop an image around a normalized bbox with optional padding. |
 | `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
 
 Instead of using the quick start below, you are better off checking `TUTORIAL_NEW.md` and `TUTORIAL.md` for the guidance.

@@ -12,7 +12,7 @@ from config import (
     DEFAULT_LLM_MODEL,
 )
 from llm.engine import LLMEngine
-from tools.zoom_in_image_by_bbox.tool import ZoomInImageByBBox_Tool
+from tools.zoom_in_image_by_bbox.tool import Zoom_In_Tool
 from tests.utils import (
     build_test_id,
     decode_base64_image,
@@ -67,7 +67,7 @@ def test_direct_invocation():
         print("Test image unavailable; skipping zoom direct test.")
         return
 
-    tool = ZoomInImageByBBox_Tool()
+    tool = Zoom_In_Tool()
     result = tool.execute(
         image_path=image_path,
         coords=[0.2, 0.2, 0.4, 0.4],
@@ -92,7 +92,7 @@ def test_client_invocation():
 
     client = ToolClient(SERVER_URL)
     response = client.execute(
-        "ZoomInImageByBBox_Tool",
+        "Zoom_In_Tool",
         {
             "image_path": image_path,
             "coords": [0.1, 0.1, 0.3, 0.3],
@@ -113,7 +113,7 @@ def test_direct_invocation_base64():
         return
 
     image_base64 = encode_image_base64(image_path)
-    tool = ZoomInImageByBBox_Tool()
+    tool = Zoom_In_Tool()
     result = tool.execute(
         image_base64=image_base64,
         coords=[0.2, 0.2, 0.4, 0.4],
@@ -136,7 +136,7 @@ def test_client_invocation_base64():
     image_base64 = encode_image_base64(image_path)
     client = ToolClient(SERVER_URL)
     response = client.execute(
-        "ZoomInImageByBBox_Tool",
+        "Zoom_In_Tool",
         {
             "image_base64": image_base64,
             "coords": [0.1, 0.1, 0.3, 0.3],
@@ -171,11 +171,11 @@ def test_llm_invocation_python():
 
     client = ToolClient(SERVER_URL)
     tools = client.list_tools()
-    metadata = tools["ZoomInImageByBBox_Tool"]
-    log_output("ZoomInImageByBBox_Tool metadata", metadata)
+    metadata = tools["Zoom_In_Tool"]
+    log_output("Zoom_In_Tool metadata", metadata)
 
     prompt = build_tool_call_prompt(
-        "ZoomInImageByBBox_Tool",
+        "Zoom_In_Tool",
         metadata,
         "Zoom in on coords [0.25, 0.25, 0.3, 0.3] with padding 0.05.",
         image_path,
@@ -188,7 +188,7 @@ def test_llm_invocation_python():
     args.setdefault("coords", [0.25, 0.25, 0.3, 0.3])
     args.setdefault("padding", 0.05)
 
-    response = client.execute("ZoomInImageByBBox_Tool", args)
+    response = client.execute("Zoom_In_Tool", args)
     log_output("Response", response)
     cropped = decode_base64_image(response["result"]["cropped_image_base64"])
     save_test_output(cropped, build_test_id(__file__, "test_llm_invocation_python"))
@@ -217,11 +217,11 @@ def test_llm_invocation_json():
 
     client = ToolClient(SERVER_URL)
     tools = client.list_tools()
-    metadata = tools["ZoomInImageByBBox_Tool"]
-    log_output("ZoomInImageByBBox_Tool metadata", metadata)
+    metadata = tools["Zoom_In_Tool"]
+    log_output("Zoom_In_Tool metadata", metadata)
 
     prompt = build_tool_call_prompt(
-        "ZoomInImageByBBox_Tool",
+        "Zoom_In_Tool",
         metadata,
         "Zoom in on coords [0.25, 0.25, 0.3, 0.3] with padding 0.05.",
         image_path,
@@ -234,7 +234,7 @@ def test_llm_invocation_json():
     args.setdefault("coords", [0.25, 0.25, 0.3, 0.3])
     args.setdefault("padding", 0.05)
 
-    response = client.execute("ZoomInImageByBBox_Tool", args)
+    response = client.execute("Zoom_In_Tool", args)
     log_output("Response", response)
     cropped = decode_base64_image(response["result"]["cropped_image_base64"])
     save_test_output(cropped, build_test_id(__file__, "test_llm_invocation_json"))
@@ -243,7 +243,7 @@ def test_llm_invocation_json():
 
 def main():
     if not ensure_tool_server(
-        SERVER_URL, required_tools=["ZoomInImageByBBox_Tool"]
+        SERVER_URL, required_tools=["Zoom_In_Tool"]
     ):
         return
     test_direct_invocation()

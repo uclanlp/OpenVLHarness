@@ -1,4 +1,4 @@
-# ZoomInImageByBBox_Tool Usage Guide
+# Zoom_In_Tool Usage Guide
 
 Zoom into a region by cropping an image with a normalized bbox [x1, y1, x2, y2] plus padding, and return the cropped image. Use this tool for closer visual inspection after you already know the region. All coords values must be normalized in [0, 1]. Do not use it to find regions from text prompts; use GroundingDINO_Tool or SAM tools for region discovery/segmentation first.
 
@@ -8,7 +8,7 @@ Zoom into a region by cropping an image with a normalized bbox [x1, y1, x2, y2] 
 - `padding` (number, optional): Extra normalized margin on each side (must be >= 0.05). Default: 0.05.
 
 ## Call Format
-{"type":"tool_call","name":"ZoomInImageByBBox_Tool","arguments":{"image_path":"input_image_1","coords":[0.2, 0.3, 0.6, 0.6],"padding":0.1}}
+{"type":"tool_call","name":"Zoom_In_Tool","arguments":{"image_path":"input_image_1","coords":[0.2, 0.3, 0.6, 0.6],"padding":0.1}}
 
 ## Best Practices
 1. USE NORMALIZED COORDINATES ONLY — all four values in `coords` must be in [0, 1]. This tool does not accept pixel coordinates.
@@ -19,9 +19,9 @@ Zoom into a region by cropping an image with a normalized bbox [x1, y1, x2, y2] 
 
 ## Examples
 ### Example: Zoom into a detected object region
-{"type":"tool_call","name":"ZoomInImageByBBox_Tool","arguments":{"image_path":"input_image_1","coords":[0.2, 0.3, 0.6, 0.6],"padding":0.05}}
+{"type":"tool_call","name":"Zoom_In_Tool","arguments":{"image_path":"input_image_1","coords":[0.2, 0.3, 0.6, 0.6],"padding":0.05}}
 Expected result: A dict with `cropped_image_base64` containing the zoomed-in region with padding.
 
 ### Example: Zoom with extra context padding
-{"type":"tool_call","name":"ZoomInImageByBBox_Tool","arguments":{"image_path":"input_image_1","coords":[0.5, 0.1, 0.7, 0.25],"padding":0.15}}
+{"type":"tool_call","name":"Zoom_In_Tool","arguments":{"image_path":"input_image_1","coords":[0.5, 0.1, 0.7, 0.25],"padding":0.15}}
 Expected result: A dict with `cropped_image_base64` containing the zoomed-in region with generous surrounding context.
