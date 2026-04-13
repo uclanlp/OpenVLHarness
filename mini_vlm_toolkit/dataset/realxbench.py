@@ -424,13 +424,17 @@ class RealXBench(ImageBaseDataset):
             if not s:
                 return []
             if s.startswith("[") and s.endswith("]"):
-                try:
-                    import json
-                    parsed = json.loads(s)
-                    if isinstance(parsed, list):
-                        return [str(x) for x in parsed]
-                except Exception:
-                    return [s]
+                import json
+                import ast
+                # Try JSON first, then Python repr (TSV round-trip uses repr)
+                for parser in (json.loads, ast.literal_eval):
+                    try:
+                        parsed = parser(s)
+                        if isinstance(parsed, list):
+                            return [str(x) for x in parsed]
+                    except Exception:
+                        continue
+                return [s]
             return [s]
 
         data = data.copy()

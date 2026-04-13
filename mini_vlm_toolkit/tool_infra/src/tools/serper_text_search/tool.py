@@ -1,17 +1,12 @@
-"""Text Search Tool — smart query routing + LLM summarization with citations.
+"""Text Search Tool — Serper-based web search with optional LLM summarization.
 
 Supports all Serper text-search endpoints (search, images, news, scholar,
-maps, places, shopping, patents). When ``search_type`` is ``"auto"``
-(the default), a classifier automatically routes the query to the best
-endpoint based on query intent.
+maps, places, shopping, patents). The agent selects the endpoint via the
+``search_type`` parameter (default ``"search"``).
 
-When ``SEARCH_LLM_SUMMARIZE=true`` (default), search results are passed
-through an LLM that generates a coherent summary with inline citations,
-making it easy for agents to do multi-round search.
-
-Classifier backends (``SEARCH_CLASSIFIER_METHOD``):
-  * ``sentence_transformer`` (default) — local embedding similarity via BAAI/bge-m3
-  * ``llm`` — OpenAI-compatible LLM classification
+When ``SEARCH_LLM_SUMMARIZE=true``, search results are passed through an
+LLM that generates a coherent summary with inline citations. When
+``false`` (recommended), raw formatted snippets are returned directly.
 """
 
 import json
@@ -29,9 +24,7 @@ from tools.base import BaseTool
 from tools.serper_common import (
     ALL_SEARCH_TYPES,
     SerperClient,
-    create_classifier,
     format_search_results,
-    get_enabled_search_types,
     get_serper_api_key,
     strip_think_tags,
 )
@@ -48,8 +41,8 @@ INPUT_SCHEMA = {
             "description": (
                 "The search query string. Can be a natural-language question, "
                 "a keyword phrase, a product name, an academic paper title, etc. "
-                "The tool will automatically route it to the best search endpoint "
-                "when search_type is 'auto'."
+                "Choose the appropriate search_type for your query, "
+                "or leave it as 'search' for general web results."
             ),
         },
         "search_type": {
@@ -131,7 +124,7 @@ class Text_Search_Tool(BaseTool):
                 "the query intent and routes it to the best search endpoint — general "
                 "web search, image search (find images by text), news, academic papers "
                 "(scholar), maps, local places, shopping, or patents. You can also "
-                "specify the search_type explicitly to override the classifier.\n\n"
+                "specify the search_type to choose a specialist endpoint.\n\n"
                 "Returns a coherent summary of search results with inline citations "
                 "[1], [2], ... followed by a Citations block listing source titles and "
                 "URLs. This format supports multi-round search: read the summary for "
@@ -178,9 +171,6 @@ class Text_Search_Tool(BaseTool):
             ],
             user_metadata={
                 "api_key_env": "SERPER_API_KEY",
-                "classifier_method_env": "SEARCH_CLASSIFIER_METHOD",
-                "classifier_model_env": "SEARCH_CLASSIFIER_MODEL",
-                "enabled_types_env": "SEARCH_ENABLED_TYPES",
                 "llm_summarize_env": "SEARCH_LLM_SUMMARIZE",
                 "llm_model_env": "SEARCH_LLM_MODEL",
                 "supported_search_types": ALL_SEARCH_TYPES,
@@ -217,23 +207,11 @@ class Text_Search_Tool(BaseTool):
         self._llm_max_tokens = int(os.getenv("SEARCH_LLM_MAX_TOKENS", "4096"))
         self._num_results = int(os.getenv("SEARCH_NUM_RESULTS", "10"))
         self._client: Optional[SerperClient] = None
-        self._classifier = None
-        self._enabled_types = None
 
     def _get_client(self) -> SerperClient:
         if self._client is None:
             self._client = SerperClient()
         return self._client
-
-    def _get_classifier(self):
-        if self._classifier is None:
-            self._classifier = create_classifier()
-        return self._classifier
-
-    def _get_enabled_types(self):
-        if self._enabled_types is None:
-            self._enabled_types = get_enabled_search_types()
-        return self._enabled_types
 
     def sanity_check(self):
         try:
@@ -325,7 +303,7 @@ class Text_Search_Tool(BaseTool):
 
         Args:
             query: Search query string.
-            search_type: 'auto' to use classifier, or explicit endpoint name.
+            search_type: One of ALL_SEARCH_TYPES (default 'search').
             num_results: Maximum number of results to return (default 10).
             gl: Country code for localized results (e.g. 'us', 'uk', 'cn').
             hl: Language code (e.g. 'en', 'zh', 'fr').
@@ -346,15 +324,6 @@ class Text_Search_Tool(BaseTool):
 
         # --- Resolve search type ---
         resolved_type = search_type.strip().lower() if search_type else "search"
-
-        if resolved_type == "auto":
-            # Legacy: if caller explicitly passes "auto", fall back to classifier
-            enabled = self._get_enabled_types()
-            try:
-                resolved_type = self._get_classifier().classify(query, enabled)
-            except Exception as exc:
-                logger.warning("Classifier failed (%s), falling back to 'search'", exc)
-                resolved_type = "search"
 
         if resolved_type not in ALL_SEARCH_TYPES:
             logger.warning("Invalid search_type '%s', falling back to 'search'", resolved_type)

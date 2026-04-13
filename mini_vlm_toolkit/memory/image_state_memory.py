@@ -552,9 +552,9 @@ class ImageStateMemory(PersistentStateMemory):
 
         content_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
         if not content_type.startswith("image/"):
-            # Try guessing from URL extension
-            guessed, _ = mimetypes.guess_type(url)
-            content_type = guessed if guessed and guessed.startswith("image/") else "image/jpeg"
+            # Response is not an image (e.g. HTML error page, CDN redirect).
+            # Return None so the caller falls through to other resolution strategies.
+            return None, None, None
 
         b64 = base64.b64encode(resp.content).decode("ascii")
         data_url = f"data:{content_type};base64,{b64}"
