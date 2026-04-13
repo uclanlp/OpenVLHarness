@@ -40,7 +40,23 @@ def _write_yaml(path, payload):
         yaml.safe_dump(payload, f, sort_keys=True, allow_unicode=True)
 
 
-def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest, dataset_names, model_name, logger, mode="all"):
+def _artifact_root_for_sample_filter(pred_root, sample_filter):
+    if sample_filter == "all":
+        return pred_root
+    return os.path.join(pred_root, f"sample_filter={sample_filter}")
+
+
+def _find_resumable_run_dir(
+    parent_dir,
+    agent_ver,
+    judge_ver,
+    expected_manifest,
+    dataset_names,
+    model_name,
+    logger,
+    mode="all",
+    sample_filter="all",
+):
     """Search backwards (newest→oldest) for a config-matching run directory.
 
     When *mode* is ``"eval"``, find the newest run that **has** pred files for
@@ -84,20 +100,27 @@ def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest,
             logger.debug(f"Skipping {dirname}: {exc}")
             continue
 
+        artifact_root = _artifact_root_for_sample_filter(pred_root, sample_filter)
         all_finished = all(
-            os.path.exists(get_pred_file_path(pred_root, model_name, ds, use_env_format=True))
+            os.path.exists(get_pred_file_path(artifact_root, model_name, ds, use_env_format=True))
             for ds in dataset_names
         )
 
         if mode == "eval":
             # For eval-only: require that all pred files exist (ready to evaluate)
             if not all_finished:
-                logger.debug(f"Skipping {dirname}: not all pred files exist for eval")
+                logger.debug(
+                    f"Skipping {dirname}: not all pred files exist for eval "
+                    f"(sample_filter={sample_filter})"
+                )
                 continue
         else:
             # For infer/all: skip runs where everything is already done
             if all_finished:
-                logger.debug(f"Skipping {dirname}: all datasets already finished")
+                logger.debug(
+                    f"Skipping {dirname}: all datasets already finished "
+                    f"(sample_filter={sample_filter})"
+                )
                 continue
 
         return pred_root
@@ -308,7 +331,9 @@ if __name__ == "__main__":
         )
         pred_root = _find_resumable_run_dir(
             parent_dir, agent_config_version, judge_config_version,
-            tmp_manifest, args.data, model_name, logger, mode=args.mode,
+            tmp_manifest, args.data, model_name, logger,
+            mode=args.mode,
+            sample_filter=args.sample_filter,
         )
         run_id = os.path.basename(pred_root)
         run_manifest = build_run_manifest(
@@ -385,7 +410,12 @@ if __name__ == "__main__":
                     f"Sample filter '{args.sample_filter}': {before} -> {len(dataset.data)} samples in {dataset_name}"
                 )
 
-        result_file = get_pred_file_path(pred_root, model_name, dataset_name, use_env_format=True)
+        artifact_root = _artifact_root_for_sample_filter(pred_root, args.sample_filter)
+        if args.sample_filter != "all":
+            logger.info(
+                f"Using filtered artifact root for {dataset_name}: {artifact_root}"
+            )
+        result_file = get_pred_file_path(artifact_root, model_name, dataset_name, use_env_format=True)
         if dataset is None:
             logger.error(f'Dataset {dataset_name} is not valid, will be skipped. ')
             continue
@@ -396,7 +426,7 @@ if __name__ == "__main__":
             if dataset.MODALITY == 'VIDEO':
                 infer_video_job(
                     agent,
-                    pred_root,
+                    artifact_root,
                     model_name,
                     dataset,
                     dataset_name,
@@ -407,7 +437,7 @@ if __name__ == "__main__":
             else:
                 infer_image_job(
                     agent,
-                    pred_root,
+                    artifact_root,
                     model_name,
                     dataset,
                     api_nproc=args.num_proc,
@@ -428,6 +458,12 @@ if __name__ == "__main__":
                         f"Using fallback file: {fallback_pkl}"
                     )
                     result_file = fallback_pkl
+                elif args.sample_filter != "all":
+                    raise FileNotFoundError(
+                        f"Filtered prediction file not found for dataset {dataset_name}: {result_file}. "
+                        f"Expected artifacts under sample_filter={args.sample_filter}. "
+                        "Run inference for that filtered slice first, or evaluate the full run with --sample-filter all."
+                    )
             logger.info(f"Start evaluation on dataset {dataset_name} with model {model_name}")
             # Perform the Evaluation
             eval_results = dataset.evaluate(result_file, **judge_kwargs)
