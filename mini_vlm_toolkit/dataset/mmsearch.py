@@ -237,6 +237,15 @@ def _postprocess_rerank(prediction: str, rerank_num: int) -> Tuple[List[int], bo
 # Fixed output format for MMSearch F1 tasks: model must end with "Answer: <concise answer>"
 MMSEARCH_ANSWER_FORMAT_INSTRUCTION = (
     "\n\nYou may provide reasoning first, but you must end your response with exactly one line in this format: Answer: <your concise answer>"
+    "\n\nImportant guidelines for this task:"
+    "\n- Before giving your final answer, verify the question's factual claims against your search results."
+    " If the question contains a false premise (e.g., wrong date, wrong person, event that never happened),"
+    ' answer "invalid question" instead of guessing.'
+    "\n- When search results mention specific dates, numbers, or technical details critical to the answer,"
+    " use Webpage_Visit_Tool to read the full source page for precise information instead of relying"
+    " solely on search snippets."
+    "\n- When constructing search queries, include specific entities, names, dates, and context from"
+    " the image and question. Prefer precise queries over broad ones."
 )
 
 
@@ -541,10 +550,39 @@ class MMSearchEnd2End(ImageBaseDataset):
                 for name, vals in groups.items()
             }
 
+        # Per-modality F1 breakdown (multimodal vs text-only).
+        # Handle both list-typed and string-typed image_path values, since
+        # serialization to TSV/xlsx flattens lists into strings like "[]".
+        def _has_image(row):
+            val = row.get("image_path", "")
+            if isinstance(val, list):
+                return len(val) > 0 and val[0] != ""
+            s = str(val or "").strip()
+            if not s:
+                return False
+            # Empty list serialized as a string
+            if s in ("[]", "['']", "[\"\"]"):
+                return False
+            return True
+
+        data["_has_image"] = data.apply(_has_image, axis=1)
+        mm_f1 = [row["f1_score"] for _, row in data.iterrows() if row["_has_image"]]
+        text_f1 = [row["f1_score"] for _, row in data.iterrows() if not row["_has_image"]]
+
         summary: Dict[str, Any] = {
             "total": {
                 "total_length": len(f1_scores),
                 "average_f1": avg_f1,
+            },
+            "modality": {
+                "multimodal": {
+                    "length": len(mm_f1),
+                    "average_f1": float(np.mean(mm_f1)) if mm_f1 else 0.0,
+                },
+                "text_only": {
+                    "length": len(text_f1),
+                    "average_f1": float(np.mean(text_f1)) if text_f1 else 0.0,
+                },
             },
             "area": _agg_by_key("area"),
             "subfield": _agg_by_key("subfield"),
@@ -576,6 +614,7 @@ class MMSearchEnd2End(ImageBaseDataset):
         # Persist updated data (with f1_score + is_correct columns) back to
         # the eval file so downstream consumers (e.g. experience learning
         # pipeline) can read per-instance correctness.
+        data = data.drop(columns=["_has_image"], errors="ignore")
         try:
             dump(data, eval_file)
         except Exception as exc:
@@ -637,9 +676,10 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     n_error = n_total - n_correct - n_incorrect
     accuracy = n_correct / n_total if n_total else 0.0
 
-    # By area / subfield
+    # By area / subfield / modality
     by_subfield: Dict[str, Dict[str, Any]] = {}
     by_area: Dict[str, Dict[str, Any]] = {}
+    by_modality: Dict[str, Dict[str, Any]] = {"multimodal": {"length": 0, "correct": 0}, "text_only": {"length": 0, "correct": 0}}
     for _, row in data.iterrows():
         idx = row["index"]
         v = verdicts.get(idx, {}).get("verdict")
@@ -655,7 +695,18 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
         by_area[ar]["length"] += 1
         by_area[ar]["correct"] += is_correct
 
-    for d in (by_subfield, by_area):
+        # Modality: check image_path. Handle both list and serialized string forms.
+        img_val = row.get("image_path", "")
+        if isinstance(img_val, list):
+            has_img = len(img_val) > 0 and img_val[0] != ""
+        else:
+            s = str(img_val or "").strip()
+            has_img = bool(s) and s not in ("[]", "['']", "[\"\"]")
+        mod_key = "multimodal" if has_img else "text_only"
+        by_modality[mod_key]["length"] += 1
+        by_modality[mod_key]["correct"] += is_correct
+
+    for d in (by_subfield, by_area, by_modality):
         for k, v in d.items():
             v["accuracy"] = v["correct"] / v["length"] if v["length"] else 0.0
 
@@ -664,6 +715,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
         "correct": n_correct,
         "incorrect": n_incorrect,
         "error": n_error,
+        "modality": by_modality,
         "area": by_area,
         "subfield": by_subfield,
     }
