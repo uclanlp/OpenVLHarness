@@ -5,7 +5,7 @@ from tools.image_utils import (
     resolve_image_input,
 )
 
-TOOL_NAME = "ZoomInImageByBBox_Tool"
+TOOL_NAME = "Zoom_In_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -31,7 +31,7 @@ INPUT_SCHEMA = {
 }
 
 
-class ZoomInImageByBBox_Tool(BaseTool):
+class Zoom_In_Tool(BaseTool):
     def __init__(self):
         super().__init__(
             tool_name=TOOL_NAME,
@@ -55,7 +55,7 @@ class ZoomInImageByBBox_Tool(BaseTool):
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": 'ZoomInImageByBBox_Tool(image_path="/path/to/image.jpg", coords=[0.1, 0.2, 0.5, 0.6])',
+                    "command": 'Zoom_In_Tool(image_path="/path/to/image.jpg", coords=[0.1, 0.2, 0.5, 0.6])',
                     "description": "Crop around a bbox with padding.",
                 }
             ],

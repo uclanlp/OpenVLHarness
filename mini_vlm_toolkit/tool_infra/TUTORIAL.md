@@ -142,7 +142,7 @@ print(response["result"])
 
 ## Example 2: ZoomInImageByBBox tool (vision input)
 
-`ZoomInImageByBBox_Tool` crops an image using normalized coords (xyxy) and optional padding. It returns a base64-encoded cropped image. Image tools accept either `image_path` or `image_base64` (exactly one); `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` instead of paths.
+`Zoom_In_Tool` crops an image using normalized coords (xyxy) and optional padding. It returns a base64-encoded cropped image. Image tools accept either `image_path` or `image_base64` (exactly one); `OverlayImages_Tool` uses `base_image_base64`/`overlay_image_base64` instead of paths.
 
 ### Client-only call
 ```python
@@ -152,7 +152,7 @@ client = ToolClient("http://127.0.0.1:8101")
 image_path = "tests/data/vision_tools_demo.jpg"
 
 response = client.execute(
-    "ZoomInImageByBBox_Tool",
+    "Zoom_In_Tool",
     {
         "image_path": image_path,
         "coords": [0.1, 0.1, 0.4, 0.4],
@@ -170,7 +170,7 @@ with open(image_path, "rb") as handle:
     image_base64 = base64.b64encode(handle.read()).decode("utf-8")
 
 response = client.execute(
-    "ZoomInImageByBBox_Tool",
+    "Zoom_In_Tool",
     {
         "image_base64": image_base64,
         "coords": [0.1, 0.1, 0.4, 0.4],
@@ -194,7 +194,7 @@ from config import (
 from llm.engine import LLMEngine
 
 client = ToolClient("http://127.0.0.1:8101")
-metadata = client.list_tools()["ZoomInImageByBBox_Tool"]
+metadata = client.list_tools()["Zoom_In_Tool"]
 image_path = "tests/data/vision_tools_demo.jpg"
 
 prompt = (
@@ -202,7 +202,7 @@ prompt = (
     "The code must include exactly one line: ToolName(...).\n"
     "Use the tool name as the function name.\n"
     "Use keyword arguments only.\n"
-    f"Tool name: ZoomInImageByBBox_Tool\n"
+    f"Tool name: Zoom_In_Tool\n"
     f"Tool metadata: {metadata}\n"
     f"Image path to use: {image_path}\n"
     "User request: Zoom into coords [0.05, 0.05, 0.45, 0.45] with padding 0.05.\n"
