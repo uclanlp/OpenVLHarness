@@ -13,7 +13,6 @@ difficulty (easy / difficult), category, and subtask.
 """
 
 import base64
-import collections
 import hashlib
 import io
 import logging
@@ -387,10 +386,12 @@ class MMSearchPlus(ImageBaseDataset):
         data["answer"] = primary
         data["alternative_gt_answers"] = alts
 
-        # Metadata
-        data["difficulty"] = df.get("difficulty", "unknown").astype(str)
-        data["category"] = df.get("category", "unknown").astype(str)
-        data["subtask"] = df.get("subtask", "unknown").astype(str)
+        # Metadata (guard against missing columns)
+        for col in ("difficulty", "category", "subtask"):
+            if col in df.columns:
+                data[col] = df[col].astype(str)
+            else:
+                data[col] = "unknown"
 
         data["image_path"] = image_paths_col
 
@@ -461,7 +462,10 @@ class MMSearchPlus(ImageBaseDataset):
             return [s]
 
         data = data.copy()
-        data["alternative_gt_answers"] = data.get("alternative_gt_answers", []).apply(_to_alt_list)
+        if "alternative_gt_answers" in data.columns:
+            data["alternative_gt_answers"] = data["alternative_gt_answers"].apply(_to_alt_list)
+        else:
+            data["alternative_gt_answers"] = [[] for _ in range(len(data))]
 
         f1_scores = []
         em_scores = []

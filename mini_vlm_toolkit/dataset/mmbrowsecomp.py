@@ -192,8 +192,11 @@ class MMBrowseCompDataset(ImageBaseDataset):
                     row['category'] = item['category']
                 if 'subtask' in item:
                     row['subtask'] = item['subtask']
-                if 'level' in item:
-                    row['level'] = int(item['level'])
+                if 'level' in item and item['level'] is not None:
+                    try:
+                        row['level'] = int(item['level'])
+                    except (ValueError, TypeError):
+                        pass
                 if 'checklist' in item:
                     row['checklist'] = item['checklist'] if isinstance(item['checklist'], list) else [item['checklist']]
                 else:
@@ -217,13 +220,26 @@ class MMBrowseCompDataset(ImageBaseDataset):
                 "Install via `pip install datasets`. Or provide a local JSONL file."
             ) from exc
 
-        ds = load_dataset("mmbrowsecomp/MMBrowseComp", split="train")
+        env_cache = os.environ.get("HF_DATASETS_CACHE_DIR")
+        hf_kwargs = {"split": "train"}
+        if env_cache:
+            hf_kwargs["cache_dir"] = env_cache
+        ds = load_dataset("mmbrowsecomp/MMBrowseComp", **hf_kwargs)
 
-        # Detect encrypted data: if question looks like base64 (no spaces,
-        # contains +/= characters typical of base64), the data is still encrypted.
+        # Detect encrypted data: try to decode the first question as base64.
+        # If it decodes successfully and the result is not readable UTF-8 text,
+        # the data is still encrypted.
         if len(ds) > 0:
             sample_q = str(ds[0].get("question", ""))
-            if sample_q and " " not in sample_q and ("==" in sample_q or "+/" in sample_q):
+            _is_encrypted = False
+            if sample_q and " " not in sample_q:
+                try:
+                    import base64
+                    base64.b64decode(sample_q, validate=True)
+                    _is_encrypted = True  # valid base64, not natural language
+                except Exception:
+                    pass
+            if _is_encrypted:
                 raise RuntimeError(
                     "MMBrowseComp HuggingFace dataset appears to be encrypted. "
                     "This loader does not support automatic decryption. "
