@@ -40,7 +40,23 @@ def _write_yaml(path, payload):
         yaml.safe_dump(payload, f, sort_keys=True, allow_unicode=True)
 
 
-def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest, dataset_names, model_name, logger, mode="all"):
+def _artifact_root_for_sample_filter(pred_root, sample_filter):
+    if sample_filter == "all":
+        return pred_root
+    return os.path.join(pred_root, f"sample_filter={sample_filter}")
+
+
+def _find_resumable_run_dir(
+    parent_dir,
+    agent_ver,
+    judge_ver,
+    expected_manifest,
+    dataset_names,
+    model_name,
+    logger,
+    mode="all",
+    sample_filter="all",
+):
     """Search backwards (newest→oldest) for a config-matching run directory.
 
     When *mode* is ``"eval"``, find the newest run that **has** pred files for
@@ -84,20 +100,27 @@ def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest,
             logger.debug(f"Skipping {dirname}: {exc}")
             continue
 
+        artifact_root = _artifact_root_for_sample_filter(pred_root, sample_filter)
         all_finished = all(
-            os.path.exists(get_pred_file_path(pred_root, model_name, ds, use_env_format=True))
+            os.path.exists(get_pred_file_path(artifact_root, model_name, ds, use_env_format=True))
             for ds in dataset_names
         )
 
         if mode == "eval":
             # For eval-only: require that all pred files exist (ready to evaluate)
             if not all_finished:
-                logger.debug(f"Skipping {dirname}: not all pred files exist for eval")
+                logger.debug(
+                    f"Skipping {dirname}: not all pred files exist for eval "
+                    f"(sample_filter={sample_filter})"
+                )
                 continue
         else:
             # For infer/all: skip runs where everything is already done
             if all_finished:
-                logger.debug(f"Skipping {dirname}: all datasets already finished")
+                logger.debug(
+                    f"Skipping {dirname}: all datasets already finished "
+                    f"(sample_filter={sample_filter})"
+                )
                 continue
 
         return pred_root
@@ -106,6 +129,76 @@ def _find_resumable_run_dir(parent_dir, agent_ver, judge_ver, expected_manifest,
         f"No resumable run found in {parent_dir} matching prefix '{prefix}'. "
         "All matching runs either have incompatible configs or are already finished."
     )
+
+
+# Keys that should be redacted in tool env snapshots (API keys, secrets).
+_SENSITIVE_ENV_PATTERNS = (
+    "KEY", "SECRET", "TOKEN", "PASSWORD", "CREDENTIAL",
+)
+
+
+def _snapshot_tool_env(pred_root, logger, agent_config=None):
+    """Save tool env snapshot and warn if .env file diverges from running server."""
+    import requests as _requests
+
+    tool_base = None
+    if agent_config and isinstance(agent_config, dict):
+        tool_base = (agent_config.get("agent_kwargs") or {}).get("tool_base")
+    tool_base = tool_base or "http://localhost:8102"
+
+    # 1. Read from running server
+    server_env = None
+    try:
+        resp = _requests.get(f"{tool_base}/env", timeout=5)
+        resp.raise_for_status()
+        server_env = resp.json()
+    except Exception:
+        pass
+
+    # 2. Read from .env file on disk
+    file_env = {}
+    tool_infra_dir = os.path.join(os.path.dirname(__file__), "mini_vlm_toolkit", "tool_infra")
+    for name in [".env.rui", ".env"]:
+        env_path = os.path.join(tool_infra_dir, name)
+        if os.path.isfile(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, _, v = line.partition("=")
+                    file_env[k.strip()] = v.strip()
+            break
+
+    # 3. Compare and warn on mismatch
+    mismatches = {}
+    if server_env and file_env:
+        for key in server_env:
+            if key.startswith("_"):
+                continue
+            file_val = file_env.get(key)
+            if file_val is not None and file_val != server_env[key]:
+                mismatches[key] = {"server": server_env[key], "file": file_val}
+                msg = (
+                    f"⚠ Tool env MISMATCH: {key} — "
+                    f"server='{server_env[key]}' vs file='{file_val}'. "
+                    f"Did you edit .env without restarting the tool server?"
+                )
+                logger.warning(msg)
+                print(f"\n{'='*60}\nWARNING: {msg}\n{'='*60}\n")
+
+    # 4. Save server env (ground truth) or file env (fallback)
+    snapshot = server_env or {
+        k: ("<REDACTED>" if any(p in k.upper() for p in _SENSITIVE_ENV_PATTERNS) else v)
+        for k, v in file_env.items()
+    }
+    if snapshot:
+        if mismatches:
+            snapshot["_MISMATCHES"] = mismatches
+        snapshot_path = os.path.join(pred_root, "tool_env.snapshot.json")
+        with open(snapshot_path, "w") as f:
+            json.dump(snapshot, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved tool env snapshot: {snapshot_path}")
 
 
 def _prepare_run_root(pred_root, manifest, logger):
@@ -135,6 +228,10 @@ def _prepare_run_root(pred_root, manifest, logger):
     _write_json(run_manifest_path, manifest)
     _write_yaml(agent_cfg_path, manifest["config_snapshot_redacted"]["agent"])
     _write_yaml(judge_cfg_path, manifest["config_snapshot_redacted"]["judge"])
+
+    # Snapshot tool_infra env for reproducibility (search tool settings, API config, etc.)
+    _snapshot_tool_env(pred_root, logger, agent_config=manifest.get("config_snapshot_redacted", {}).get("agent"))
+
     logger.info(f"Initialized new run root: {pred_root}")
 
 if __name__ == "__main__":
@@ -152,9 +249,21 @@ if __name__ == "__main__":
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
     parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
+    parser.add_argument(
+        '--sample-filter', type=str, default='all',
+        choices=['all', 'image_only', 'text_only'],
+        help='Filter samples by modality: all (default), image_only (has image), text_only (no image)',
+    )
     parser.add_argument('--seed', type=int, default=42, help='Random seed for --shuffle (default: 42)')
     parser.add_argument('--run-tag', type=str, default='default', help='Custom tag appended to run_id (default: "default")')
     parser.add_argument('--resume', action='store_true', help='Resume the latest existing run instead of creating a new one')
+    parser.add_argument(
+        '--run-dir', type=str, default=None,
+        help='Path to an existing run directory. When set, all current behavior is bypassed: '
+             'no new run dir is created, --resume scanning is skipped, and result files are '
+             'read/written directly under this directory. Useful for re-evaluating a completed run '
+             '(e.g. with --mode eval to apply LLM judge to an existing inference output).'
+    )
     args = parser.parse_args()
 
     # --mode eval always needs an existing run with pred files
@@ -192,7 +301,24 @@ if __name__ == "__main__":
 
     parent_dir = os.path.join(args.work_dir, model_name, agent_class.lower())
 
-    if args.resume:
+    if args.run_dir:
+        # Use the specified directory directly. Skip resume scanning and
+        # new-dir creation. This is the path for re-evaluating completed runs.
+        pred_root = os.path.abspath(args.run_dir)
+        if not os.path.isdir(pred_root):
+            raise FileNotFoundError(f"--run-dir does not exist: {pred_root}")
+        run_id = os.path.basename(pred_root)
+        run_manifest = build_run_manifest(
+            run_id=run_id,
+            agent_config_version=agent_config_version,
+            judge_config_version=judge_config_version,
+            agent_config=agent_config,
+            judge_config=judge_config,
+            config_path=args.config,
+            judge_config_path=args.judge_config,
+        )
+        logger.info(f"Using specified run directory: {pred_root}")
+    elif args.resume:
         # Build a temporary manifest for compatibility checking (run_id filled after finding dir)
         tmp_manifest = build_run_manifest(
             run_id="__resume_pending__",
@@ -205,7 +331,9 @@ if __name__ == "__main__":
         )
         pred_root = _find_resumable_run_dir(
             parent_dir, agent_config_version, judge_config_version,
-            tmp_manifest, args.data, model_name, logger, mode=args.mode,
+            tmp_manifest, args.data, model_name, logger,
+            mode=args.mode,
+            sample_filter=args.sample_filter,
         )
         run_id = os.path.basename(pred_root)
         run_manifest = build_run_manifest(
@@ -265,7 +393,29 @@ if __name__ == "__main__":
             else:
                 dataset.data = dataset.data.head(args.num_examples)
                 logger.info(f"Limiting dataset {dataset_name} to first {args.num_examples} examples")
-        result_file = get_pred_file_path(pred_root, model_name, dataset_name, use_env_format=True)
+        # --- Sample modality filter ---
+        if dataset is not None and args.sample_filter != "all":
+            if "image_path" in dataset.data.columns:
+                before = len(dataset.data)
+                if args.sample_filter == "image_only":
+                    mask = dataset.data["image_path"].apply(
+                        lambda v: bool(v) and v != "[]" and v != [] and str(v).strip() not in ("", "nan")
+                    )
+                else:  # text_only
+                    mask = dataset.data["image_path"].apply(
+                        lambda v: not v or v == "[]" or v == [] or str(v).strip() in ("", "nan")
+                    )
+                dataset.data = dataset.data[mask].reset_index(drop=True)
+                logger.info(
+                    f"Sample filter '{args.sample_filter}': {before} -> {len(dataset.data)} samples in {dataset_name}"
+                )
+
+        artifact_root = _artifact_root_for_sample_filter(pred_root, args.sample_filter)
+        if args.sample_filter != "all":
+            logger.info(
+                f"Using filtered artifact root for {dataset_name}: {artifact_root}"
+            )
+        result_file = get_pred_file_path(artifact_root, model_name, dataset_name, use_env_format=True)
         if dataset is None:
             logger.error(f'Dataset {dataset_name} is not valid, will be skipped. ')
             continue
@@ -276,7 +426,7 @@ if __name__ == "__main__":
             if dataset.MODALITY == 'VIDEO':
                 infer_video_job(
                     agent,
-                    pred_root,
+                    artifact_root,
                     model_name,
                     dataset,
                     dataset_name,
@@ -287,7 +437,7 @@ if __name__ == "__main__":
             else:
                 infer_image_job(
                     agent,
-                    pred_root,
+                    artifact_root,
                     model_name,
                     dataset,
                     api_nproc=args.num_proc,
@@ -308,6 +458,12 @@ if __name__ == "__main__":
                         f"Using fallback file: {fallback_pkl}"
                     )
                     result_file = fallback_pkl
+                elif args.sample_filter != "all":
+                    raise FileNotFoundError(
+                        f"Filtered prediction file not found for dataset {dataset_name}: {result_file}. "
+                        f"Expected artifacts under sample_filter={args.sample_filter}. "
+                        "Run inference for that filtered slice first, or evaluate the full run with --sample-filter all."
+                    )
             logger.info(f"Start evaluation on dataset {dataset_name} with model {model_name}")
             # Perform the Evaluation
             eval_results = dataset.evaluate(result_file, **judge_kwargs)

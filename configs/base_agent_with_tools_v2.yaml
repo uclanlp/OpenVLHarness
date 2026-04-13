@@ -1,0 +1,112 @@
+# ======================================================================
+# BaseAgentWithToolsV2 — Search Tools v2 Agent Configuration
+# ======================================================================
+#
+# Unified Serper-based search ecosystem. The agent receives three tools
+# whose bodies live in tool_infra/src/tools/serper_*:
+#
+#   - Text_Search_Tool   : general/scholar/news/images/maps/places/shopping/patents.
+#                          Agent picks `search_type` explicitly (default "search").
+#                          Returns raw formatted Serper snippets.
+#
+#   - Image_Search_Tool  : reverse image search via Serper Lens.
+#                          Accepts image_url / image_path / image_base64.
+#
+#   - Webpage_Visit_Tool : Serper Scrape API + LLM content extraction,
+#                          with Jina Reader as fallback. Takes (urls, goal).
+#
+# All tool-side settings (API keys, models, summarization toggle, etc.)
+# live in tool_infra/.env.rui. Copy .env.example.rui and fill in secrets.
+#
+# Prerequisites:
+#   1. vLLM (agent)       — Qwen/Qwen3-VL-8B-Instruct on port 7002
+#   2. vLLM (search LLM)  — Qwen/Qwen3-8B on port 8004 (webpage extraction)
+#   3. Tool server        — cd tool_infra && ./scripts/run_server.sh .env.rui
+#                           (listens on port 8102 by default)
+#   4. SERPER_API_KEY set in .env.rui
+#
+# Quick start:
+#   python run_benchmark.py \
+#     --config configs/base_agent_with_tools_v2.yaml \
+#     --judge-config configs/judge.yaml \
+#     --data MMSearch
+
+agent_name: BaseAgentWithToolsV2
+agent_config_version: v2_0409
+
+agent_kwargs:
+  # ===== Agent model (VLM) =====
+  base: "http://localhost:7002"
+  key: "empty"
+  model: "Qwen/Qwen3-VL-8B-Instruct"
+  timeout: 600
+  max_tokens: 2048
+  temperature: 0.3
+  top_p: 0.95
+  repetition_penalty: 1.1
+  retry: 3
+  verbose: true
+  debug_tool_loop: true
+  custom_prompt: false
+
+  # ===== Tool server =====
+  tool_base: "http://localhost:8102"
+  tool_choice: "auto"
+
+  # ===== Tool list =====
+  # The agent exposes only these tools. Text_Search_Tool's `search_type`
+  # parameter lets the agent opt into scholar/news/images/maps/etc.;
+  # if omitted it defaults to general web search.
+  tool_list:
+    # --- Search tools (v2 Serper ecosystem) ---
+    - "Text_Search_Tool"           # Serper text search (8 sub-endpoints)
+    - "Image_Search_Tool"          # Reverse image search (Serper Lens)
+    - "Webpage_Visit_Tool"         # Serper Scrape + LLM extraction
+
+    # --- Visual tools ---
+    - "ZoomInImageByBBox_Tool"     # Crop / zoom into an image region
+
+    # --- Utility tools ---
+    - "Python_Executor_Tool"       # Run Python code on inputs
+    - "LLM_Direct_Generator_Tool"  # Call an external LLM for reasoning
+    - "Get_Tool_Schema"            # Agent introspection of tool schemas
+
+    # --- Legacy search tools (uncomment to run alongside v2) ---
+    # - "Gemini_Google_Search_Tool"   # Gemini grounded search (standalone)
+    # - "Serper_Google_Search_Tool"   # Old Serper text search (no routing)
+    # - "SerpApi_Google_Lens_Tool"    # Old SerpApi-based Lens
+    # - "Webpage_Visit_Tool_BK"       # Old Jina/Zhipu-based webpage visit
+
+  # ===== Prompt =====
+  prompt_version: "v3"   # v3 = text-based <tool_call> parsing
+  reasoning_effort: null
+
+  # ===== Memory =====
+  # Tracks runtime images. Supports HTTP URL auto-download: agents can
+  # pass image URLs from search results to visual tools.
+  persistent_state_memory:
+    name: "image"
+    emit_policy: "always"  # "always" or "on_change"
+
+  # ===== Generation =====
+  # enable_thinking=false disables Qwen3-VL's <think> reasoning for the
+  # agent itself (keeps context tight, faster inference).
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+  max_iterations: 15
+
+# ======================================================================
+# Search-tool environment variables (see tool_infra/.env.example.rui)
+# ======================================================================
+# Agents configured via this YAML behave the same regardless of which
+# search backend is selected at the tool layer. Common toggles:
+#
+#   SERPER_API_KEY              required
+#   SEARCH_LLM_SUMMARIZE        "false" (recommended) returns raw snippets
+#   SEARCH_LLM_ENABLE_THINKING  "false" disables Qwen3 think traces
+#   SEARCH_LLM_MAX_TOKENS       4096 (default)
+#   SEARCH_USE_GEMINI           "false" unless you want Gemini grounding
+#   WEBPAGE_VISIT_LLM_ENABLE_THINKING   "false"
+#
+# Our best non-Gemini MMSearch result (53.67%) uses all the defaults above.

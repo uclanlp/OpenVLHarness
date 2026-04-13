@@ -120,6 +120,7 @@ from .macbench import MaCBench
 from .sarena_mini import SArena_MINI
 from .uni_svg import UniSVG
 from .mmsearch import MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization
+from .realxbench import RealXBench
 
 
 class ConcatDataset(ImageBaseDataset):
@@ -257,6 +258,7 @@ IMAGE_DATASET = [
     ODinWBBoxDataset,
     LIVEVQADataset,
     BrowseCompVLDataset,
+    RealXBench,
 ]
 
 
