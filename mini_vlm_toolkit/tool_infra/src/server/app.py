@@ -9,7 +9,7 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-
+import re
 from tool_registry.loader import load_tools
 
 app = FastAPI()
@@ -309,50 +309,97 @@ def _build_success_payload(tool_name, tool_call_id, result, meta=None):
     }
 
 
+def _normalize_tool_lookup_name(name: str) -> str:
+    # Normalize a tool name into a compact comparison form used only for
+    # execute-time matching. We intentionally drop separators so common model
+    # variants like:
+    #   "Visual_Grounding_Tool"
+    #   "Visual Grounding Tool"
+    #   "Visual-Grounding-Tool"
+    # all compare as the same key: "visualgroundingtool".
+    text = str(name or "").casefold()
+    text = re.sub(r"[\s_-]+", "", text)
+    return text
+
+
+def _tool_lookup_keys(name: str) -> set[str]:
+    # Build the exact normalized keys accepted for a single registry/tool name.
+    #
+    # We always include the fully normalized key, e.g.:
+    #   Visual_Grounding_Tool -> {"visualgroundingtool"}
+    #
+    # If that normalized form ends with "tool", also add a suffix-stripped
+    # stem key so requests like "visualgrounding" can resolve without fuzzy
+    # matching:
+    #   Visual_Grounding_Tool -> {"visualgroundingtool", "visualgrounding"}
+    normalized = _normalize_tool_lookup_name(name)
+    keys = {normalized}
+    if normalized.endswith("tool"):
+        stem = normalized[: -len("tool")]
+        if stem:
+            keys.add(stem)
+    return {key for key in keys if key}
+
+
+def _canonical_registry_name(name: str) -> str:
+    # Resolve a matched registry entry back to the canonical registry name so
+    # aliases execute through the same underlying tool identity.
+    metadata = tool_metadata.get(name) or {}
+    return metadata.get("canonical_tool_name", name)
+
+
 def _resolve_execute_tool(requested_tool_name):
-    # Keep exact match semantics first for deterministic behavior.
+    # Resolution order is intentionally deterministic and gets progressively
+    # more tolerant:
+    # 1. exact raw-name lookup
+    # 2. exact case-insensitive lookup
+    # 3. exact normalized lookup (separator-insensitive, optional "tool" suffix)
+    # 4. otherwise not found
+    #
+    # We never do substring guessing or fuzzy scoring here.
+
+    # Stage 1: exact raw match.
+    # This preserves current behavior for canonical names and exact aliases.
     tool = tool_instances.get(requested_tool_name)
     if tool is not None:
         return tool, None
 
+    # Stage 2: exact case-insensitive match.
+    # This accepts variants like "visual_grounding_tool" when the registry
+    # contains "Visual_Grounding_Tool", but still requires the same characters
+    # and separators.
     requested_casefold = requested_tool_name.casefold()
     casefold_matches = [
         name for name in tool_instances if name.casefold() == requested_casefold
     ]
-    if not casefold_matches:
+    if casefold_matches:
+        # Use the first matched registry entry and resolve aliases back to the
+        # canonical registry name before dispatch.
+        resolved_name = _canonical_registry_name(casefold_matches[0])
+        return tool_instances.get(resolved_name), None
+
+    # Stage 3: normalized exact-key match.
+    # This is where we accept separator-insensitive forms such as:
+    #   "Visual Grounding Tool"
+    #   "visualgroundingtool"
+    #   "visualgrounding"
+    requested_lookup_keys = _tool_lookup_keys(requested_tool_name)
+    normalized_matches = {}
+    for name in tool_instances:
+        candidate_keys = _tool_lookup_keys(name)
+        shared_keys = requested_lookup_keys & candidate_keys
+        if not shared_keys:
+            continue
+        # Keep the matching key(s) for debugging and ambiguity reporting.
+        normalized_matches[name] = sorted(shared_keys)
+
+    # No match at all across exact, case-insensitive, or normalized lookup.
+    if not normalized_matches:
         return None, None
 
-    canonical_matches = {}
-    for matched_name in casefold_matches:
-        metadata = tool_metadata.get(matched_name) or {}
-        canonical_name = metadata.get("canonical_tool_name", matched_name)
-        canonical_matches.setdefault(canonical_name, []).append(matched_name)
-
-    if len(canonical_matches) > 1:
-        details = {
-            "requested_tool_name": requested_tool_name,
-            "case_insensitive_matches": sorted(casefold_matches),
-            "canonical_tool_names": sorted(canonical_matches),
-        }
-        return None, _build_error_payload(
-            tool_name=requested_tool_name,
-            tool_call_id=None,
-            code="tool_name_ambiguous_case",
-            message=(
-                "Tool name is ambiguous under case-insensitive matching: "
-                f"{requested_tool_name}"
-            ),
-            detail=details,
-        )
-
-    matched_names = next(iter(canonical_matches.values()))
-    resolved_name = sorted(matched_names)[0]
-    for matched_name in matched_names:
-        metadata = tool_metadata.get(matched_name) or {}
-        if metadata.get("is_alias") is False:
-            resolved_name = matched_name
-            break
-
+    # Pick the first normalized match and resolve aliases back to the canonical
+    # registry name before dispatch.
+    resolved_name = _canonical_registry_name(next(iter(normalized_matches)))
     return tool_instances.get(resolved_name), None
 
 
