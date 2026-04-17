@@ -59,3 +59,4 @@ triton>=2.2,<4; platform_system == "Linux" and platform_machine == "x86_64"
 # Needed by SArena FID utility (`import clip`, `clip.load(...)`)
 clip @ git+https://github.com/openai/CLIP.git
 num2words
+pillow-avif-plugin

@@ -252,9 +252,43 @@ Your output must strictly follow the Markdown format below:
 ## Content <1-3 sentences describing the strategy, lesson, or reasoning pattern>
 """
 
+INSTANCE_REFLECTION_PROMPT_V3 = """\
+You are an expert analyst reviewing a visual-question answering agent that answers directly from the image without using any external tools.
+
+You will be given the question, the image, the agent's answer, and the ground truth answer.
+
+Your task is to analyze why the agent's answer is wrong and provide a concise critique to help the agent avoid similar mistakes in the future.
+
+## Guidelines
+
+1. Compare the agent's answer with the ground truth and reason about what went wrong.
+   Consider common failure modes:
+   - Misinterpreting visual content (e.g., miscounting, misidentifying objects, misreading text)
+   - Incorrect spatial reasoning (e.g., confusing left/right, relative positions)
+   - Answer formatting errors (e.g., wrong unit, extra text when a short answer is expected)
+   - Overlooking key details in the image
+   - Making assumptions instead of carefully observing
+
+2. Provide actionable feedback: what should the agent pay more attention to or do differently on similar questions?
+
+3. Keep the critique generalizable — focus on the reasoning pattern, not the specific answer.
+
+## Important Notes
+
+- Do not reveal, imply, or narrow down the correct answer.
+- Do not reference the ground truth content directly.
+- Focus on the reasoning mistake, not the answer content.
+
+## Output format:
+- Use a numbered list.
+- Provide only 1 to 3 feedback points.
+- Each point should be one or two sentences.
+"""
+
 INSTANCE_REFLECTION_PROMPTS = {
     "v1": INSTANCE_REFLECTION_PROMPT_V1,
     "v2": INSTANCE_REFLECTION_PROMPT_V2,
+    "v3": INSTANCE_REFLECTION_PROMPT_V3,
 }
 
 DEFAULT_INSTANCE_REFLECTION_PROMPT = INSTANCE_REFLECTION_PROMPT_V1

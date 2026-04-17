@@ -1,8 +1,8 @@
 import base64
 import io
 from typing import Any, Dict, List, Tuple
-
 import numpy as np
+import torch
 import pycocotools.mask as mask_utils
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
@@ -140,8 +140,10 @@ def segment(
         pil_img = _pil_from_upload(image)
         orig_img_w, orig_img_h = pil_img.size
 
-        inference_state = processor.set_image(pil_img)
-        output = processor.set_text_prompt(state=inference_state, prompt=prompt)
+        # need to enable this on sam3.1 update
+        with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            inference_state = processor.set_image(pil_img)
+            output = processor.set_text_prompt(state=inference_state, prompt=prompt)
 
         masks = output.get("masks")
         boxes = output.get("boxes")
@@ -151,8 +153,7 @@ def segment(
         masks_np = None
         if masks is not None:
             try:
-                import torch  # optional
-                if "torch" in str(type(masks)):
+                if isinstance(masks, torch.Tensor):
                     masks_np = masks.detach().cpu().numpy()
                 else:
                     masks_np = np.array(masks)
@@ -164,8 +165,7 @@ def segment(
 
         if boxes is not None:
             try:
-                import torch
-                if "torch" in str(type(boxes)):
+                if isinstance(boxes, torch.Tensor):
                     boxes_list = boxes.detach().cpu().tolist()
                 else:
                     boxes_list = np.array(boxes).tolist()
@@ -174,8 +174,7 @@ def segment(
 
         if scores is not None:
             try:
-                import torch
-                if "torch" in str(type(scores)):
+                if isinstance(scores, torch.Tensor):
                     scores_list = scores.detach().cpu().tolist()
                 else:
                     scores_list = np.array(scores).tolist()
