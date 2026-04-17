@@ -75,7 +75,7 @@ def main():
         "--tool_name",
         type=str,
         nargs="+",
-        default=["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "ZoomInImageByBBox_Tool", "OCR_Tool", "SAM3_Segment_Tool", "Depth_Estimation_Tool", "Python_Coding_Agent_Tool"],
+        default=["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "Zoom_In_Tool", "OCR_Tool", "SAM3_Segment_Tool", "Depth_Estimation_Tool", "Python_Coding_Agent_Tool"],
         help="tool name(s) to count, e.g. Visual_Grounding_Tool OCR_Tool",
     )
     args = parser.parse_args()

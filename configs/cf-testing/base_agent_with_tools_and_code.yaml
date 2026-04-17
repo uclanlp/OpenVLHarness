@@ -26,7 +26,7 @@ agent_kwargs:
     - "Depth_Estimation_Tool"
     - "OCR_Tool"
     - "Python_Coding_Agent_Tool"
-    - "ZoomInImageByBBox_Tool"
+    - "Zoom_In_Tool"
   prompt_version: "v2"
   reasoning_effort: null
   persistent_state_memory:
