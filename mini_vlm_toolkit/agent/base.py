@@ -1139,49 +1139,18 @@ class BaseAgentWithTools(BaseAgent):
         count = self._count_tokens(msgs, tools)
         return count is not None and count <= token_budget
 
-    @staticmethod
-    def _strip_non_initial_images(msgs):
-        """Remove image_url blocks from all messages except the first user message.
-
-        This reclaims image token budget when the server rejects a request for
-        exceeding the context length — image tokens are invisible to the local
-        tokenizer so they can't be accounted for during compaction.
-        """
-        seen_first_user = False
-        for msg in msgs:
-            if msg.get("role") == "user" and not seen_first_user:
-                seen_first_user = True
-                continue  # preserve images in the initial user message
-            content = msg.get("content")
-            if isinstance(content, list):
-                msg["content"] = [
-                    item for item in content
-                    if not (isinstance(item, dict) and item.get("type") == "image_url")
-                ] or "[images removed to save context]"
-
     def _build_vanilla_fallback_msgs(self, msgs):
-        """Build a minimal [system, user] message list for vanilla QA fallback.
+        """Build a minimal user-only message list for base-agent-style fallback.
 
         Used when context length is exceeded — drops all tool conversation
-        and retries with just the original question + image.
+        and retries with just the original input and a direct-answer prompt.
         """
         fallback = []
-        # Keep system message
-        if msgs and msgs[0].get("role") == "system":
-            fallback.append(msgs[0])
-        # Keep initial user message (contains image + question)
+        # Do not keep the tool-agent system prompt; fallback should behave like BaseAgent, we only keep the original user question.
         for m in msgs:
             if m.get("role") == "user":
                 fallback.append(m)
                 break
-        # Ask for direct answer
-        fallback.append({
-            "role": "user",
-            "content": (
-                "The tool-based approach exceeded the context limit. "
-                "Please answer the question directly based on the image."
-            ),
-        })
         return fallback
 
     def _ensure_context_fits(self, msgs, model_tools, tool_choice):
@@ -1197,7 +1166,7 @@ class BaseAgentWithTools(BaseAgent):
         if tokenizer is None:
             return model_tools, tool_choice
 
-        token_budget = max_ctx - self.max_tokens - 1024  # leave room for generation and some buffer
+        token_budget = max_ctx - self.max_tokens - 512
         current_tokens = self._count_tokens(msgs, model_tools)
         if current_tokens is None or current_tokens <= token_budget:
             return model_tools, tool_choice
@@ -1759,14 +1728,31 @@ class BaseAgentWithTools(BaseAgent):
         kwargs.update(kwargs1)
         kwargs = filter_kwargs_for_endpoint(kwargs, "chat")
 
-        # Run the ReAct-style loop
-        answer, chat_history, messages, input_snapshot = self._run(
-            message,
-            return_messages=True,
-            return_snapshot=True,
-            system_prompt=active_system_prompt,
-            **kwargs,
-        )
+        # Run the ReAct-style loop. Catch RuntimeError per-sample so a single
+        # failed request does not crash the entire benchmark run.
+        try:
+            answer, chat_history, messages, input_snapshot = self._run(
+                message,
+                return_messages=True,
+                return_snapshot=True,
+                system_prompt=active_system_prompt,
+                **kwargs,
+            )
+        except RuntimeError as exc:
+            self.logger.warning(
+                f"[generate] Sample failed with RuntimeError, marking as failed: {exc}"
+            )
+            trajectory = {
+                "input_messages": raw_message,
+                "chat_history": [],
+                "messages": [],
+                "final_answer": self.fail_msg,
+                "error": str(exc),
+            }
+            return {
+                "prediction": self.fail_msg,
+                "extra_records": {"trajectory": trajectory},
+            }
 
         final_answer = self.fail_msg if answer in ['', None] else answer
         trajectory = {
