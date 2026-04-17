@@ -70,12 +70,12 @@ def get_json_files(folder):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--folder", type=str, help="trajectory folder path")
+    parser.add_argument("--folder", type=str, default="/data/<user>/mini-vlm-toolkit/outputs/Qwen3-VL-8B-Instruct/baseagentwithtools/agent_v1_0215_judge_v1_0215_20260328_000824_default/RealWorldQA/full_trajectories", help="trajectory folder path")
     parser.add_argument(
         "--tool_name",
         type=str,
         nargs="+",
-        default=["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "Zoom_In_Tool", "OCR_Tool", "SAM3_Segment_Tool"],
+        default=["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "ZoomInImageByBBox_Tool", "OCR_Tool", "SAM3_Segment_Tool", "Depth_Estimation_Tool", "Python_Coding_Agent_Tool"],
         help="tool name(s) to count, e.g. Visual_Grounding_Tool OCR_Tool",
     )
     args = parser.parse_args()

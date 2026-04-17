@@ -427,11 +427,11 @@ def chat_completion_request(
     if response_format:
         payload["response_format"] = response_format
     if extra_body:
-        if is_openai_native:
-            cleaned_extra_body = _sanitize_openai_extra_body(extra_body, is_gpt5=is_gpt5_model)
-        else:
-            # Internal orchestration field; vLLM logs a warning for unknown keys.
-            cleaned_extra_body = {k: v for k, v in extra_body.items() if k != "dataset"}
+        cleaned_extra_body = (
+            _sanitize_openai_extra_body(extra_body, is_gpt5=is_gpt5_model)
+            if is_openai_native
+            else extra_body
+        )
         if cleaned_extra_body:
             payload.update(cleaned_extra_body)
 

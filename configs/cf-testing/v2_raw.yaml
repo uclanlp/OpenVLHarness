@@ -17,7 +17,7 @@ agent_kwargs:
   debug_tool_loop: true
   tool_base: "http://localhost:8101"
   tool_choice: "auto"
-  tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "Zoom_In_Tool", "OCR_Tool"]
+  tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "ZoomInImageByBBox_Tool", "OCR_Tool"]
   prompt_version: "v3"
   reasoning_effort: null
   persistent_state_memory:

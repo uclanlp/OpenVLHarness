@@ -620,6 +620,7 @@ def _run_inference_trial(
     num_examples,
     api_nproc,
     experience_file,
+    save_trajectories,
     instance_critique_dir=None,
     carried_forward=None,
 ):
@@ -692,6 +693,12 @@ def _run_inference_trial(
     # With use_dataset_subdir=False, files live directly in trial_dir.
     # Pass dataset_name=None to prevent get_pred_file_path from adding a subdir.
     result_file = get_pred_file_path(trial_dir, model_name, dataset_name=None, use_env_format=True)
+
+    # Optionally clean up trajectories to save space
+    if not save_trajectories:
+        trajectories_jsonl = osp.join(trial_dir, "trajectories.jsonl")
+        if os.path.exists(trajectories_jsonl):
+            os.remove(trajectories_jsonl)
 
     return trajectory_dir, result_file, model_name, dataset_name, agent.__class__.__name__
 
@@ -996,6 +1003,7 @@ def main():
                 num_examples=args.num_examples,
                 api_nproc=args.num_proc,
                 experience_file=experience_file if passing_strategy == "experience_file" else None,
+                save_trajectories=save_trajectories,
                 instance_critique_dir=instance_critique_dir if passing_strategy == "instance_critique" else None,
                 carried_forward=carried_forward if skip_correct else None,
             )

@@ -37,11 +37,4 @@ def load_judge_config(config_path: str) -> dict:
         'nproc': config.get('nproc', 4),
         'retry': config.get('retry', 3),
     }
-    # Pass through any additional fields (e.g. enable_llm_judge) so dataset
-    # evaluators can read custom flags from the judge config without us
-    # having to whitelist each one here.
-    _RESERVED = {'judge_config_version', 'model_name', 'key', 'api_base', 'nproc', 'retry'}
-    for k, v in config.items():
-        if k not in _RESERVED and k not in judge_kwargs:
-            judge_kwargs[k] = v
     return judge_kwargs

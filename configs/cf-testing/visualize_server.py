@@ -24,7 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--trajectory-dir",
         type=str,
-        default="/Users/<user>/Downloads/htmls",
+        # default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260401_004439_default/RefSpatial/full_trajectories",
+        default="/Users/<user>/Downloads/agent_vqa/HallusionBench/full_trajectories",
         help="Path to a full_trajectories directory containing per-task JSON files.",
     )
     args, _ = parser.parse_known_args(sys.argv[1:])
@@ -58,6 +59,34 @@ def load_record(json_path: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"Expected a JSON object in {json_path}")
     return payload
+
+
+@st.cache_data(show_spinner=False)
+def extract_tools_used(json_path: str) -> list[str]:
+    """Return sorted unique tool names used in a trajectory."""
+    record = load_record(json_path)
+    tools = set()
+    for msg in record.get("messages", []):
+        for tc in msg.get("tool_calls", []):
+            fn = tc.get("function", {}) if isinstance(tc, dict) else {}
+            name = fn.get("name", "")
+            if name:
+                tools.add(name)
+    return sorted(tools)
+
+
+@st.cache_data(show_spinner=False)
+def build_tool_index(trajectory_dir: str) -> tuple[list[str], dict[str, list[str]]]:
+    """Scan all trajectories and return (all_tools, tool_to_files)."""
+    files = list_trajectory_files(trajectory_dir)
+    all_tools: set[str] = set()
+    tool_to_files: dict[str, list[str]] = {}
+    for path in files:
+        tools = extract_tools_used(path)
+        all_tools.update(tools)
+        for tool in tools:
+            tool_to_files.setdefault(tool, []).append(path)
+    return sorted(all_tools), tool_to_files
 
 
 def build_record_label(index: int, record: dict[str, Any], path: Path) -> str:
@@ -198,6 +227,11 @@ def build_html(record: dict[str, Any], max_chars: int = 2000) -> str:
     )
 
     body = []
+    ground_truth = record.get("ground_truth")
+    if ground_truth is not None:
+        body.append("<h2>Ground Truth</h2>")
+        body.append(_render_text_block("ground_truth", str(ground_truth), max_chars))
+
     prediction = record.get("prediction")
     if prediction is not None:
         body.append("<h2>Prediction</h2>")
@@ -347,9 +381,38 @@ def main() -> None:
         st.warning("No JSON files found in the trajectory directory.")
         return
 
+    all_tools, tool_to_files = build_tool_index(trajectory_dir)
+
+    # Tool filter
+    tool_options = ["All tools"] + all_tools
+    if "selected_tool" not in st.session_state:
+        st.session_state.selected_tool = "All tools"
+
+    def on_tool_change():
+        st.session_state.selected_index = 0
+        st.session_state.selected_option = 0
+
+    st.selectbox(
+        "Filter by tool",
+        options=tool_options,
+        key="selected_tool",
+        on_change=on_tool_change,
+    )
+
+    # Filter files based on selected tool
+    if st.session_state.selected_tool == "All tools":
+        filtered_files = files
+    else:
+        filtered_set = set(tool_to_files.get(st.session_state.selected_tool, []))
+        filtered_files = [f for f in files if f in filtered_set]
+
+    if not filtered_files:
+        st.info("No trajectories found for the selected tool.")
+        return
+
     if "selected_index" not in st.session_state:
         st.session_state.selected_index = 0
-    st.session_state.selected_index = max(0, min(st.session_state.selected_index, len(files) - 1))
+    st.session_state.selected_index = max(0, min(st.session_state.selected_index, len(filtered_files) - 1))
     st.session_state.selected_option = st.session_state.selected_index
 
     left, middle, right = st.columns([1, 1, 3])
@@ -359,26 +422,26 @@ def main() -> None:
             use_container_width=True,
             disabled=st.session_state.selected_index == 0,
             on_click=move_selection,
-            args=(-1, len(files)),
+            args=(-1, len(filtered_files)),
         )
     with middle:
         st.button(
             "Next",
             use_container_width=True,
-            disabled=st.session_state.selected_index >= len(files) - 1,
+            disabled=st.session_state.selected_index >= len(filtered_files) - 1,
             on_click=move_selection,
-            args=(1, len(files)),
+            args=(1, len(filtered_files)),
         )
     with right:
         st.selectbox(
             "Select trajectory",
-            options=list(range(len(files))),
+            options=list(range(len(filtered_files))),
             key="selected_option",
-            format_func=lambda idx: build_record_label(idx, load_record(files[idx]), Path(files[idx])),
+            format_func=lambda idx: build_record_label(idx, load_record(filtered_files[idx]), Path(filtered_files[idx])),
             on_change=sync_selected_index,
         )
 
-    selected_path = Path(files[st.session_state.selected_index])
+    selected_path = Path(filtered_files[st.session_state.selected_index])
     try:
         record = load_record(str(selected_path))
     except Exception as exc:
@@ -389,7 +452,7 @@ def main() -> None:
     with meta_left:
         st.write(
             f"Showing `{selected_path.name}` "
-            f"({st.session_state.selected_index + 1} / {len(files)})"
+            f"({st.session_state.selected_index + 1} / {len(filtered_files)})"
         )
     with meta_right:
         st.write(f"Messages: `{len(record.get('messages') or [])}`")

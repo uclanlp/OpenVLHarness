@@ -1129,12 +1129,60 @@ class BaseAgentWithTools(BaseAgent):
                     msgs[idx]["content"] = "[Truncated to save context]"
                 elif isinstance(content, list):
                     msgs[idx]["content"] = "[Truncated to save context]"
+                # Also strip tool_calls from compacted assistant messages
+                if role == "assistant":
+                    msgs[idx].pop("tool_calls", None)
                 count = self._count_tokens(msgs, tools)
                 if count is not None and count <= token_budget:
                     return True
 
         count = self._count_tokens(msgs, tools)
         return count is not None and count <= token_budget
+
+    @staticmethod
+    def _strip_non_initial_images(msgs):
+        """Remove image_url blocks from all messages except the first user message.
+
+        This reclaims image token budget when the server rejects a request for
+        exceeding the context length — image tokens are invisible to the local
+        tokenizer so they can't be accounted for during compaction.
+        """
+        seen_first_user = False
+        for msg in msgs:
+            if msg.get("role") == "user" and not seen_first_user:
+                seen_first_user = True
+                continue  # preserve images in the initial user message
+            content = msg.get("content")
+            if isinstance(content, list):
+                msg["content"] = [
+                    item for item in content
+                    if not (isinstance(item, dict) and item.get("type") == "image_url")
+                ] or "[images removed to save context]"
+
+    def _build_vanilla_fallback_msgs(self, msgs):
+        """Build a minimal [system, user] message list for vanilla QA fallback.
+
+        Used when context length is exceeded — drops all tool conversation
+        and retries with just the original question + image.
+        """
+        fallback = []
+        # Keep system message
+        if msgs and msgs[0].get("role") == "system":
+            fallback.append(msgs[0])
+        # Keep initial user message (contains image + question)
+        for m in msgs:
+            if m.get("role") == "user":
+                fallback.append(m)
+                break
+        # Ask for direct answer
+        fallback.append({
+            "role": "user",
+            "content": (
+                "The tool-based approach exceeded the context limit. "
+                "Please answer the question directly based on the image."
+            ),
+        })
+        return fallback
 
     def _ensure_context_fits(self, msgs, model_tools, tool_choice):
         """Check context length and compact/force final answer if needed.
@@ -1149,7 +1197,7 @@ class BaseAgentWithTools(BaseAgent):
         if tokenizer is None:
             return model_tools, tool_choice
 
-        token_budget = max_ctx - self.max_tokens - 256
+        token_budget = max_ctx - self.max_tokens - 1024  # leave room for generation and some buffer
         current_tokens = self._count_tokens(msgs, model_tools)
         if current_tokens is None or current_tokens <= token_budget:
             return model_tools, tool_choice
@@ -1161,17 +1209,13 @@ class BaseAgentWithTools(BaseAgent):
         if self._compact_history(msgs, token_budget, model_tools):
             return model_tools, tool_choice
 
-        # Still over limit — force a final answer without tools
+        # Still over limit — fall back to vanilla QA
         self.logger.warning(
-            "[ToolLoop] Still over limit after compaction, forcing final answer"
+            "[ToolLoop] Still over limit after compaction, falling back to vanilla QA"
         )
-        msgs.append({
-            "role": "user",
-            "content": (
-                "Context limit reached. Please provide your best final answer "
-                "now based on the information gathered so far."
-            ),
-        })
+        fallback_msgs = self._build_vanilla_fallback_msgs(msgs)
+        msgs.clear()
+        msgs.extend(fallback_msgs)
         return None, "none"
 
     @staticmethod
@@ -1316,20 +1360,12 @@ class BaseAgentWithTools(BaseAgent):
                 err_msg = str(e).lower()
                 if "context length" in err_msg or "maximum input length" in err_msg:
                     self.logger.warning(
-                        f"[ToolLoop] Context length error from server, forcing final answer: {e}"
+                        f"[ToolLoop] Context length error, falling back to vanilla QA: {e}"
                     )
-                    # Drop older turns aggressively and retry without tools
-                    self._compact_history(msgs, 0)  # compact everything possible
-                    msgs.append({
-                        "role": "user",
-                        "content": (
-                            "Context limit reached. Please provide your best final "
-                            "answer now based on the information gathered so far."
-                        ),
-                    })
+                    fallback_msgs = self._build_vanilla_fallback_msgs(msgs)
                     response = chat_completion_request(
                         model=self.model,
-                        messages=msgs,
+                        messages=fallback_msgs,
                         base_url=self.api_base,
                         api_key=self.key,
                         tools=None,
@@ -1723,32 +1759,14 @@ class BaseAgentWithTools(BaseAgent):
         kwargs.update(kwargs1)
         kwargs = filter_kwargs_for_endpoint(kwargs, "chat")
 
-        # Run the ReAct-style loop. Catch RuntimeError per-sample so a single
-        # failed request (e.g. malformed JSON from the model) does not crash
-        # the entire benchmark run.
-        try:
-            answer, chat_history, messages, input_snapshot = self._run(
-                message,
-                return_messages=True,
-                return_snapshot=True,
-                system_prompt=active_system_prompt,
-                **kwargs,
-            )
-        except RuntimeError as exc:
-            self.logger.warning(
-                f"[generate] Sample failed with RuntimeError, marking as failed: {exc}"
-            )
-            trajectory = {
-                "input_messages": raw_message,
-                "chat_history": [],
-                "messages": [],
-                "final_answer": self.fail_msg,
-                "error": str(exc),
-            }
-            return {
-                "prediction": self.fail_msg,
-                "extra_records": {"trajectory": trajectory},
-            }
+        # Run the ReAct-style loop
+        answer, chat_history, messages, input_snapshot = self._run(
+            message,
+            return_messages=True,
+            return_snapshot=True,
+            system_prompt=active_system_prompt,
+            **kwargs,
+        )
 
         final_answer = self.fail_msg if answer in ['', None] else answer
         trajectory = {
@@ -2026,19 +2044,12 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
                 err_msg = str(e).lower()
                 if "context length" in err_msg or "input tokens" in err_msg:
                     self.logger.warning(
-                        f"[ToolLoop] Context length error from server, forcing final answer: {e}"
+                        f"[ToolLoop] Context length error, falling back to vanilla QA: {e}"
                     )
-                    self._compact_history(msgs, 0)
-                    msgs.append({
-                        "role": "user",
-                        "content": (
-                            "Context limit reached. Please provide your best final "
-                            "answer now based on the information gathered so far."
-                        ),
-                    })
+                    fallback_msgs = self._build_vanilla_fallback_msgs(msgs)
                     response = chat_completion_request(
                         model=self.model,
-                        messages=msgs,
+                        messages=fallback_msgs,
                         base_url=self.api_base,
                         api_key=self.key,
                         tools=None,
