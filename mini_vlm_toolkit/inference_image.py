@@ -292,6 +292,9 @@ def infer_image_job(
         dist.barrier()
     pred_dataset = dataset_name if use_dataset_subdir else None
     result_file = get_pred_file_path(work_dir, model_name, pred_dataset, use_env_format=True)
+    # simplify the resume logic here
+    if osp.exists(result_file):                                                                                                                                                                                     
+        return model  # already done, skip entirely
 
     # ========== Pre-processing ==========
     prev_file = f'{work_dir}/{model_name}_PREV.pkl'
