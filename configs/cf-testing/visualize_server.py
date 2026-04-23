@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
         "--trajectory-dir",
         type=str,
         # default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260401_004439_default/RefSpatial/full_trajectories",
-        default="/Users/<user>/Downloads/agent_vqa/HallusionBench/full_trajectories",
+        default="/Users/<user>/Downloads/agent_spatial/MindCubeBench_tiny_raw_qa/full_trajectories",
         help="Path to a full_trajectories directory containing per-task JSON files.",
     )
     args, _ = parser.parse_known_args(sys.argv[1:])

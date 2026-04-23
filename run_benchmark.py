@@ -246,6 +246,11 @@ if __name__ == "__main__":
     parser.add_argument('--save-images', type=str, default='files', choices=['files', 'base64'],
                         help='How to store images in full_trajectories JSONs: "files" copies '
                              'them to a sibling images/ folder (default), "base64" inlines them as data URIs.')
+    parser.add_argument('--save-raw-trajectory', action='store_true',
+                        help='Also save raw tokenized trajectories under '
+                             '<work_dir>/<dataset>/raw_trajectories/ for SFT training. '
+                             'Requires the agent config to request '
+                             'extra_body.return_token_ids=true on a vLLM-compatible server.')
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
     parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
@@ -444,6 +449,7 @@ if __name__ == "__main__":
                     html_limit=html_limit,
                     enable_incremental_json=args.incremental_json,
                     save_images=args.save_images,
+                    save_raw_trajectory=args.save_raw_trajectory,
                 )
 
         

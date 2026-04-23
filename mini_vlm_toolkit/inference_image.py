@@ -10,6 +10,7 @@ from .utils.reporting_utils import (
     write_html_reports,
     write_full_trajectory_jsons,
     write_raw_response_jsons,
+    write_raw_trajectory_jsons,
 )
 from .utils import track_progress_rich
 from .smp import *
@@ -264,6 +265,7 @@ def infer_image_job(
     enable_incremental_json=False,
     use_dataset_subdir=True,
     save_images="files",
+    save_raw_trajectory=False,
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -374,6 +376,21 @@ def infer_image_job(
         write_full_trajectory_jsons(
             full_records, full_trajectory_dir, limit=-1, save_images=save_images
         )
+
+        if save_raw_trajectory:
+            raw_trajectory_dir = osp.join(work_dir, "raw_trajectories")
+            raw_summary = write_raw_trajectory_jsons(full_records, raw_trajectory_dir, limit=-1)
+            if raw_summary["exported_records"] == 0 and raw_summary["total_records"] > 0:
+                print(
+                    "[raw_trajectories] wrote 0 sample files. "
+                    f"See {raw_summary['summary_path']} for likely causes."
+                )
+            else:
+                print(
+                    "[raw_trajectories] wrote "
+                    f"{raw_summary['exported_records']}/{raw_summary['total_records']} sample files "
+                    f"under {raw_trajectory_dir}"
+                )
 
         if getattr(model, 'save_raw_response', False):
             raw_response_dir = osp.join(work_dir, "raw_response")

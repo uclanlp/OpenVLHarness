@@ -6,18 +6,7 @@ import time
 import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
-from .constant import (
-    DEFAULT_SYSTEM_PROMPT_V1,
-    DEFAULT_SYSTEM_PROMPT_V2,
-    DEFAULT_SYSTEM_PROMPT_V3,
-    DEFAULT_SYSTEM_PROMPT_V4,
-    DEFAULT_SYSTEM_PROMPT_V8,
-    DEFAULT_USER_PROMPT_PREFIX_V1,
-    DEFAULT_USER_PROMPT_PREFIX_V2,
-    DEFAULT_USER_PROMPT_PREFIX_V3,
-    DEFAULT_USER_PROMPT_PREFIX_V4,
-    DEFAULT_USER_PROMPT_PREFIX_V8,
-)
+from .constant import PROMPT_REGISTRY
 from ..memory import PersistentStateMemory, ImageStateMemory, ToolContextMemory
 from ..utils.api_utils import (
     chat_completion_request,
@@ -236,8 +225,8 @@ class BaseAgent:
         endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
         is_openai_official = "api.openai.com" in endpoint_hint
         # For OpenAI official endpoint, strip internal orchestration-only field.
-        if is_openai_official:
-            _ = kwargs.pop('dataset', None)
+        kwargs.pop('dataset', None)                                                                                                                                                                         
+        kwargs.pop('task_id', None)
 
         headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {self.key}'}
         payload = dict(
@@ -467,6 +456,12 @@ class BaseAgent:
                     extra_records = {"trajectory": trajectory}
                     if isinstance(log, dict):
                         extra_records.update(log)
+                    try:
+                        reasoning = json.loads(log.text)["choices"][0]["message"].get("reasoning")
+                        if reasoning:
+                            extra_records["reasoning"] = reasoning
+                    except Exception:
+                        pass
                     return {"prediction": answer, "extra_records": extra_records}
                 elif self.verbose:
                     if not isinstance(log, str):
@@ -494,7 +489,7 @@ class BaseAgent:
     
 
 class BaseAgentWithTools(BaseAgent):
-    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4")
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
     _SUPPORTED_MEMORY_NAMES = ("image", "tool_context")
 
@@ -581,11 +576,7 @@ class BaseAgentWithTools(BaseAgent):
 
     def _get_prompt_templates(self) -> tuple[str, str]:
         version = str(getattr(self, "prompt_version", "v1")).strip().lower()
-        if version == "v2":
-            return DEFAULT_SYSTEM_PROMPT_V2, DEFAULT_USER_PROMPT_PREFIX_V2
-        if version == "v3":
-            return DEFAULT_SYSTEM_PROMPT_V3, DEFAULT_USER_PROMPT_PREFIX_V3
-        return DEFAULT_SYSTEM_PROMPT_V1, DEFAULT_USER_PROMPT_PREFIX_V1
+        return PROMPT_REGISTRY[version]
 
     def _construct_system_message(self) -> str:
         system_prompt, _ = self._get_prompt_templates()
@@ -1041,6 +1032,13 @@ class BaseAgentWithTools(BaseAgent):
                 if fa_match:
                     return non_scaffold[fa_match.end():].strip()
 
+        # Strict <answer> extraction for prompts that use that tag.
+        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct"):
+            answer_match = re.search(r"<answer>(.*?)</answer>", content, flags=re.DOTALL | re.IGNORECASE)
+            if answer_match:
+                return answer_match.group(1).strip()
+            return ""
+
         cleaned = re.sub(r"<perception>.*?</perception>", "", content, flags=re.DOTALL | re.IGNORECASE)
         cleaned = re.sub(r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
         cleaned = cleaned.strip()
@@ -1212,6 +1210,99 @@ class BaseAgentWithTools(BaseAgent):
             return text
         return f"{text[:max_chars]}... (truncated)"
 
+    def _build_raw_sft_from_tokens(self, terminating_response, msgs, task_id):
+        """Build an SFT-ready trajectory from the terminating response's token ids.
+
+        Returns ``{"messages": [...], "images": [{"filename", "bytes_b64"}, ...]}``
+        or ``None`` when the response does not carry ``prompt_token_ids`` /
+        ``choices[0].token_ids`` (e.g. OpenAI endpoint, or user did not enable
+        ``extra_body.return_token_ids``).
+
+        Token ids cannot recover image bytes (vLLM replaces images with
+        ``<|image_pad|>``), so we walk ``msgs`` to collect the original data
+        URIs in order and map them to ``<|vision_start|>...<|vision_end|>``
+        matches by position. Mismatch raises ``ValueError`` — the run has a
+        token/message drift and is not safe for SFT.
+        """
+        import base64
+        from ..utils.reporting_utils import iter_data_uris
+
+        if not isinstance(terminating_response, dict):
+            return None
+        prompt_ids = terminating_response.get("prompt_token_ids")
+        choices = terminating_response.get("choices") or []
+        completion_ids = (choices[0] or {}).get("token_ids") if choices else None
+        if not isinstance(prompt_ids, list) or not isinstance(completion_ids, list):
+            return None
+
+        try:
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(self.model, trust_remote_code=True)
+        except Exception as e:
+            self.logger.warning(f"[raw_sft] could not load tokenizer for {self.model}: {e}")
+            return None
+
+        images = list(iter_data_uris(msgs))
+
+        im_end_id = tokenizer.convert_tokens_to_ids("<|im_end|>")
+        full_ids = list(prompt_ids) + list(completion_ids) + [im_end_id]
+        decoded = tokenizer.decode(full_ids, skip_special_tokens=False)
+
+        vision_re = re.compile(r"<\|vision_start\|>.*?<\|vision_end\|>", re.DOTALL)
+        vision_matches = vision_re.findall(decoded)
+        if len(vision_matches) != len(images):
+            raise ValueError(
+                f"[raw_sft] vision block/image count mismatch for task {task_id}: "
+                f"{len(vision_matches)} vision blocks vs {len(images)} images in msgs."
+            )
+
+        sentinel_text = vision_re.sub(
+            lambda m, _c=[0]: (_c.__setitem__(0, _c[0] + 1) or f"__IMAGE_SLOT_{_c[0] - 1}__"),
+            decoded,
+        )
+
+        image_entries = []
+        for idx, (data, ext) in enumerate(images):
+            image_entries.append({
+                "filename": f"{task_id}_{idx}{ext}",
+                "bytes_b64": base64.b64encode(data).decode("ascii"),
+            })
+
+        messages_out = []
+        slot_re = re.compile(r"__IMAGE_SLOT_(\d+)__")
+        for part in sentinel_text.split("<|im_start|>")[1:]:
+            head, _, body = part.partition("\n")
+            role = head.strip()
+            if role not in {"system", "user", "assistant"}:
+                raise ValueError(f"[raw_sft] unexpected role in raw trajectory: {role!r}")
+            body = body.split("<|im_end|>", 1)[0]
+
+            if not slot_re.search(body):
+                messages_out.append({
+                    "role": role,
+                    "content": [{"type": "text", "text": body.strip()}],
+                })
+                continue
+
+            content = []
+            cursor = 0
+            for m in slot_re.finditer(body):
+                pre = body[cursor:m.start()].strip()
+                if pre:
+                    content.append({"type": "text", "text": pre})
+                slot_idx = int(m.group(1))
+                content.append({
+                    "type": "image",
+                    "image": f"images/{image_entries[slot_idx]['filename']}",
+                })
+                cursor = m.end()
+            trailing = body[cursor:].strip()
+            if trailing:
+                content.append({"type": "text", "text": trailing})
+            messages_out.append({"role": role, "content": content})
+
+        return {"messages": messages_out, "images": image_entries}
+
     # ------------------------------------------------------------------ #
     # Main loop
     # ------------------------------------------------------------------ #
@@ -1219,7 +1310,6 @@ class BaseAgentWithTools(BaseAgent):
         self,
         question,
         return_messages: bool = False,
-        return_snapshot: bool = False,
         **kwargs,
     ) -> tuple:
         """
@@ -1234,6 +1324,7 @@ class BaseAgentWithTools(BaseAgent):
         chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         tool_choice = kwargs.pop("tool_choice", self.tool_choice)
         active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
+        task_id = kwargs.pop("task_id", None)
         endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
         is_openai_official = "api.openai.com" in endpoint_hint
         model_name = getattr(self, "model", "") or ""
@@ -1254,7 +1345,7 @@ class BaseAgentWithTools(BaseAgent):
         run_memory = self._new_persistent_state_memory()
         run_memory.reset()
         msgs = self.prepare_inputs(question, system_prompt=active_system_prompt)
-        # add available tools to user prompt
+
         msgs = self._add_user_prompt_prefix(msgs)
         self._append_messages_with_indices(
             msgs,
@@ -1268,37 +1359,9 @@ class BaseAgentWithTools(BaseAgent):
         # Use this for debugging the input messages
         # pretty_print_msgs(msgs)
         chat_history = []
-        input_snapshot = None
         final_answer = None
+        terminating_response = None
         for i in range(self.max_iterations):
-            if i == 0:
-                input_snapshot = {
-                    "system_prompt": next((m["content"] for m in msgs if m["role"] == "system"), None),
-                    "user_messages": [m for m in msgs if m["role"] == "user"],
-                    "tool_definitions": cp.deepcopy(model_tools),
-                    "rendered_prompt": None,
-                }
-                # Kept for backward compatibility/debug inspection, but the
-                # per-call local snapshot is what gets serialized to avoid
-                # cross-thread overwrite on shared-agent inference.
-                self._input_snapshot = input_snapshot
-                try:
-                    if not hasattr(self, '_tokenizer'):
-                        from transformers import AutoTokenizer
-                        self._tokenizer = AutoTokenizer.from_pretrained(
-                            self.model, trust_remote_code=True
-                        )
-                    if self._tokenizer is not None:
-                        sanitized_msgs = self._sanitize_msgs_for_template(msgs)
-                        template_kwargs = dict(tokenize=False, add_generation_prompt=True)
-                        if model_tools:
-                            template_kwargs["tools"] = model_tools
-                        input_snapshot["rendered_prompt"] = self._tokenizer.apply_chat_template(
-                            sanitized_msgs, **template_kwargs
-                        )
-                except Exception as e:
-                    self.logger.warning(f"Could not render chat template for snapshot: {e}")
-                    self._tokenizer = None
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
             if i == self.max_iterations - 1:
@@ -1309,19 +1372,14 @@ class BaseAgentWithTools(BaseAgent):
                     }
                 )
 
-            # Context-length protection: compact or force final answer
-            active_tools, active_tool_choice = self._ensure_context_fits(
-                msgs, model_tools, tool_choice
-            )
-
             try:
                 response = chat_completion_request(
                     model=self.model,
                     messages=msgs,
                     base_url=self.api_base,
                     api_key=self.key,
-                    tools=active_tools,
-                    tool_choice=active_tool_choice,
+                    tools=model_tools,
+                    tool_choice=tool_choice,
                     timeout_seconds=chat_timeout_seconds,
                     **kwargs,
                 )
@@ -1612,6 +1670,7 @@ class BaseAgentWithTools(BaseAgent):
                     )
                     final_parsed_response = self.parse_response(final_raw_response)
                     final_answer = self._extract_final_answer_from_content(final_raw_response)
+                    terminating_response = final_response
 
                     if final_tool_calls:
                         msgs.append(
@@ -1646,21 +1705,11 @@ class BaseAgentWithTools(BaseAgent):
                     }
                     chat_history.append(final_turn_info)
 
-                    if final_answer:
-                        if return_messages:
-                            if return_snapshot:
-                                return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
-                            return final_answer, chat_history, msgs
-                        if return_snapshot:
-                            return final_answer, chat_history, cp.deepcopy(input_snapshot)
-                        return final_answer, chat_history
+                    raw_sft = self._build_raw_sft_from_tokens(terminating_response, msgs, task_id)
+                    status = final_answer if final_answer else self.fail_msg
                     if return_messages:
-                        if return_snapshot:
-                            return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
-                        return self.fail_msg, chat_history, msgs
-                    if return_snapshot:
-                        return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
-                    return self.fail_msg, chat_history
+                        return status, chat_history, msgs, raw_sft
+                    return status, chat_history
                 continue
 
             final_answer = self._extract_final_answer_from_content(raw_response)
@@ -1671,22 +1720,16 @@ class BaseAgentWithTools(BaseAgent):
                     f"[ToolLoop] final_answer={self._truncate_for_debug(final_answer, max_chars=debug_char_limit)}"
                 )
             if final_answer:
+                terminating_response = response
+                raw_sft = self._build_raw_sft_from_tokens(terminating_response, msgs, task_id)
                 if return_messages:
-                    if return_snapshot:
-                        return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
-                    return final_answer, chat_history, msgs
-                if return_snapshot:
-                    return final_answer, chat_history, cp.deepcopy(input_snapshot)
+                    return final_answer, chat_history, msgs, raw_sft
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
 
         if return_messages:
-            if return_snapshot:
-                return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
-            return self.fail_msg, chat_history, msgs
-        if return_snapshot:
-            return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
+            return self.fail_msg, chat_history, msgs, None
         return self.fail_msg, chat_history
 
     def generate(self, message, **kwargs1):
@@ -1731,11 +1774,11 @@ class BaseAgentWithTools(BaseAgent):
         # Run the ReAct-style loop. Catch RuntimeError per-sample so a single
         # failed request does not crash the entire benchmark run.
         try:
-            answer, chat_history, messages, input_snapshot = self._run(
+            answer, chat_history, messages, raw_sft = self._run(
                 message,
                 return_messages=True,
-                return_snapshot=True,
                 system_prompt=active_system_prompt,
+                task_id=task_id,
                 **kwargs,
             )
         except RuntimeError as exc:
@@ -1761,8 +1804,8 @@ class BaseAgentWithTools(BaseAgent):
             "messages": messages,
             "final_answer": final_answer,
         }
-        if input_snapshot is not None:
-            trajectory["input_snapshot"] = input_snapshot
+        if raw_sft is not None:
+            trajectory["raw_sft"] = raw_sft
         return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}
 
 
@@ -1959,7 +2002,6 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
         self,
         question,
         return_messages: bool = False,
-        return_snapshot: bool = False,
         **kwargs,
     ) -> tuple:
         debug_tool_loop = bool(kwargs.pop("debug_tool_loop", False))
@@ -1988,19 +2030,9 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
         )
 
         chat_history = []
-        input_snapshot = None
         final_answer = None
 
         for i in range(self.max_iterations):
-            if i == 0:
-                input_snapshot = {
-                    "system_prompt": next((m["content"] for m in msgs if m["role"] == "system"), None),
-                    "user_messages": [m for m in msgs if m["role"] == "user"],
-                    "tool_definitions": cp.deepcopy(self.json_schema),
-                    "rendered_prompt": None,
-                }
-                self._input_snapshot = input_snapshot
-
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
 
@@ -2264,21 +2296,10 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
                     }
                     chat_history.append(final_turn_info)
 
-                    if final_answer:
-                        if return_messages:
-                            if return_snapshot:
-                                return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
-                            return final_answer, chat_history, msgs
-                        if return_snapshot:
-                            return final_answer, chat_history, cp.deepcopy(input_snapshot)
-                        return final_answer, chat_history
+                    status = final_answer if final_answer else self.fail_msg
                     if return_messages:
-                        if return_snapshot:
-                            return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
-                        return self.fail_msg, chat_history, msgs
-                    if return_snapshot:
-                        return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
-                    return self.fail_msg, chat_history
+                        return status, chat_history, msgs, None
+                    return status, chat_history
                 continue
 
             final_answer = self._extract_final_answer_from_content(raw_response)
@@ -2286,21 +2307,13 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
             chat_history.append(turn_info)
             if final_answer:
                 if return_messages:
-                    if return_snapshot:
-                        return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
-                    return final_answer, chat_history, msgs
-                if return_snapshot:
-                    return final_answer, chat_history, cp.deepcopy(input_snapshot)
+                    return final_answer, chat_history, msgs, None
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
 
         if return_messages:
-            if return_snapshot:
-                return self.fail_msg, chat_history, msgs, cp.deepcopy(input_snapshot)
-            return self.fail_msg, chat_history, msgs
-        if return_snapshot:
-            return self.fail_msg, chat_history, cp.deepcopy(input_snapshot)
+            return self.fail_msg, chat_history, msgs, None
         return self.fail_msg, chat_history
 
 class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
@@ -2315,10 +2328,10 @@ class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
     ``get_tool_schema`` intercept transparently.
     """
 
-    _ALLOWED_PROMPT_VERSIONS = ("v8",)
+    _ALLOWED_PROMPT_VERSIONS = ("v5",)
 
     def __init__(self, **kwargs):
-        kwargs.setdefault("prompt_version", "v8")
+        kwargs.setdefault("prompt_version", "v5")
         super().__init__(**kwargs)
         self.stop_tokens = ["</tool_call>"]  # matches post-training
         self.logger = get_logger("BaseAgentWithToolsV3")
@@ -2344,10 +2357,6 @@ class BaseAgentWithToolsV3(BaseAgentWithToolsV2):
     # -------------------------------------------------------------- #
     # Prompt construction overrides
     # -------------------------------------------------------------- #
-
-    def _get_prompt_templates(self) -> tuple:
-        version = str(getattr(self, "prompt_version", "v8")).strip().lower()
-        return DEFAULT_SYSTEM_PROMPT_V8, DEFAULT_USER_PROMPT_PREFIX_V8
 
     def _build_tools_directory(self) -> str:
         """Compact directory: one line per canonical tool (name + description)."""
