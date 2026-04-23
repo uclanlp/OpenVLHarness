@@ -44,6 +44,7 @@ from .robospatialbench import RoboSpatialBench
 from .mmsibench import MMSIBench
 from .livevqa import LIVEVQADataset
 from .browsecomp_vl import BrowseCompVLDataset
+from .visbrowse_bench import VisBrowseBenchDataset
 from .mindcubebench import MindCubeBench
 from .omnispatialbench import OmniSpatialBench
 from .sparbench import SparBench
@@ -260,6 +261,7 @@ IMAGE_DATASET = [
     ODinWBBoxDataset,
     LIVEVQADataset,
     BrowseCompVLDataset,
+    VisBrowseBenchDataset,
     RealXBench,
     MMSearchPlus,
     VDRBench,
