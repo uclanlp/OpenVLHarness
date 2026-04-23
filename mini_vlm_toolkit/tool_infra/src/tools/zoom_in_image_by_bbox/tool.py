@@ -40,8 +40,8 @@ class Zoom_In_Tool(BaseTool):
                 "[x1, y1, x2, y2] plus padding, and return the cropped image. Use this "
                 "tool for closer visual inspection after you already know the region. "
                 "All coords values must be normalized in [0, 1]. "
-                "Do not use it to find regions from text prompts; use "
-                "GroundingDINO_Tool or SAM tools for region discovery/segmentation first."
+                "When trying ti count or ground objects, please try different prompts using Visual_Grounding_Tool first "
+                "Only use this tool to ground objects when the Visual_Grounding_Tool does not work."
             ),
             tool_version="0.1.0",
             input_types={
