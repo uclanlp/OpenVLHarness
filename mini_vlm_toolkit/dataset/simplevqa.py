@@ -214,3 +214,28 @@ class SimpleVQA(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_acc", "csv")
         file.dump(score, score_file)
         return score
+
+
+class SimpleVQA_EN(SimpleVQA):
+    """SimpleVQA filtered to English-only rows (language == 'EN').
+
+    Use for English-subset comparison (1013 EN rows after filter). Downloads
+    the shared SimpleVQA TSV and filters; does not create a separate TSV file.
+    """
+
+    DATASET_URL = {
+        "SimpleVQA_EN": "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv",
+    }
+    DATASET_MD5 = {
+        "SimpleVQA_EN": "e3ce3c11df59a2a15d37489a8b245a87",
+    }
+
+    def load_data(self, dataset):
+        url = "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv"
+        file_md5 = self.DATASET_MD5.get(dataset, None)
+        data = self.prepare_tsv(url, file_md5)
+        if "language" in data.columns:
+            before = len(data)
+            data = data[data["language"] == "EN"].reset_index(drop=True)
+            print(f"SimpleVQA_EN: filtered {before} -> {len(data)} English rows")
+        return data
