@@ -299,6 +299,8 @@ def _sanitize_openai_extra_body(extra_body: Optional[Dict[str, Any]], *, is_gpt5
     sanitized.pop("repetition_penalty", None)
     # Internal orchestration field; OpenAI chat/completions rejects unknown args.
     sanitized.pop("dataset", None)
+    # vLLM-only: requesting raw token ids 400s on OpenAI.
+    sanitized.pop("return_token_ids", None)
     if is_gpt5:
         if "max_tokens" in sanitized and "max_completion_tokens" not in sanitized:
             sanitized["max_completion_tokens"] = sanitized.pop("max_tokens")
@@ -325,14 +327,13 @@ def filter_kwargs_for_endpoint(kwargs: Dict[str, Any], endpoint_type: str) -> Di
         "embeddings": set(),
     }
     allowed_keys = valid_keys.get(endpoint_type, set())
-    updated_kwargs = {}
-    for k, v in kwargs.items():
-        if k in allowed_keys:
-            updated_kwargs[k] = v
-        else:
-            if "extra_body" not in updated_kwargs:
-                updated_kwargs["extra_body"] = {}
-            updated_kwargs["extra_body"][k] = v
+    updated_kwargs = {k: v for k, v in kwargs.items() if k in allowed_keys}
+    extra_body = {k: v for k, v in kwargs.items() if k not in allowed_keys}
+    nested = updated_kwargs.get("extra_body")
+    if isinstance(nested, dict):
+        extra_body.update(nested)
+    if extra_body:
+        updated_kwargs["extra_body"] = extra_body
     return updated_kwargs
 
 # --------------------------------------------------------------------------- #

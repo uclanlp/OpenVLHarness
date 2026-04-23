@@ -609,6 +609,47 @@ def _decode_data_uri(url):
     return data, ext
 
 
+def _iter_image_url_dicts(messages):
+    """Yield every {"type": "image_url", "image_url": {...}} node in `messages`.
+
+    Shared walker so full_trajectories and raw_trajectories see images in the
+    same top-to-bottom order they were appended to `msgs` during inference.
+    """
+    if not isinstance(messages, list):
+        return
+
+    def _walk(node):
+        if isinstance(node, dict):
+            if (
+                node.get("type") == "image_url"
+                and isinstance(node.get("image_url"), dict)
+            ):
+                yield node["image_url"]
+                return
+            for v in node.values():
+                yield from _walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                yield from _walk(item)
+
+    for msg in messages:
+        yield from _walk(msg)
+
+
+def iter_data_uris(messages):
+    """Yield (bytes, ext) for every decodable data:image/... URI in `messages`.
+
+    Order matches the vLLM tokenizer's walk, so the N-th tuple corresponds to
+    the N-th `<|vision_start|>...<|vision_end|>` block in the server-rendered
+    prompt.
+    """
+    for image_url in _iter_image_url_dicts(messages):
+        decoded = _decode_data_uri(image_url.get("url", ""))
+        if decoded is None:
+            continue
+        yield decoded
+
+
 def _replace_data_uris_with_files(messages, task_id, images_subdir):
     """In-place: decode every data:image/... URI in messages to a file.
 
@@ -618,43 +659,21 @@ def _replace_data_uris_with_files(messages, task_id, images_subdir):
     rewrites the URL to the relative path ``images/<task_id>_<idx><ext>``.
     URIs that fail to decode are left unchanged.
     """
-    if not isinstance(messages, list):
-        return
-    counter = [0]
-
-    def _process_image_url_dict(image_url):
-        url = image_url.get("url", "")
-        decoded = _decode_data_uri(url)
+    idx = 0
+    for image_url in _iter_image_url_dicts(messages):
+        decoded = _decode_data_uri(image_url.get("url", ""))
         if decoded is None:
-            return
+            continue
         data, ext = decoded
-        idx = counter[0]
         rel_name = f"{task_id}_{idx}{ext}"
         dst = os.path.join(images_subdir, rel_name)
         try:
             with open(dst, "wb") as f:
                 f.write(data)
         except OSError:
-            return
+            continue
         image_url["url"] = f"images/{rel_name}"
-        counter[0] += 1
-
-    def _walk(node):
-        if isinstance(node, dict):
-            if (
-                node.get("type") == "image_url"
-                and isinstance(node.get("image_url"), dict)
-            ):
-                _process_image_url_dict(node["image_url"])
-                return
-            for v in node.values():
-                _walk(v)
-        elif isinstance(node, list):
-            for item in node:
-                _walk(item)
-
-    for msg in messages:
-        _walk(msg)
+        idx += 1
 
 
 def write_full_trajectory_jsons(records, out_dir, limit, save_images="base64"):
@@ -692,6 +711,9 @@ def write_full_trajectory_jsons(records, out_dir, limit, save_images="base64"):
         gt = record.get("ground_truth")
         if gt is not None:
             payload["ground_truth"] = copy.deepcopy(gt)
+        reasoning = (record.get("extra_records") or {}).get("reasoning")
+        if reasoning:
+            payload["reasoning"] = reasoning
         if complete_messages is not None:
             payload["messages"] = complete_messages
         elif isinstance(trajectory, dict) and isinstance(trajectory.get("messages"), list):
@@ -705,3 +727,78 @@ def write_full_trajectory_jsons(records, out_dir, limit, save_images="base64"):
 
         output_path = os.path.join(out_dir, f"{task_id}.json")
         dump(payload, output_path)
+
+
+def write_raw_trajectory_jsons(records, out_dir, limit=-1):
+    """Write per-sample SFT-ready raw trajectory JSONs under ``out_dir``.
+
+    Each record's agent has already tokenized + decoded its terminating
+    response into ``trajectory["raw_sft"] = {"messages": [...], "images":
+    [{"filename", "bytes_b64"}, ...]}``. Here we just base64-decode the
+    images to ``<out_dir>/images/<filename>`` and dump a JSON per task.
+
+    Records without ``raw_sft`` are skipped (typical when
+    ``extra_body.return_token_ids`` was not enabled in the agent config, or
+    when the endpoint is OpenAI).
+    """
+    if limit == 0:
+        return {
+            "total_records": 0,
+            "exported_records": 0,
+            "skipped_records": 0,
+            "summary_path": None,
+        }
+    os.makedirs(out_dir, exist_ok=True)
+    images_subdir = os.path.join(out_dir, "images")
+    os.makedirs(images_subdir, exist_ok=True)
+    selected_records = list(select_records_for_report_limit(records, limit))
+    exported_count = 0
+    skipped_task_ids = []
+    for record in selected_records:
+        trajectory = record.get("trajectory")
+        if not isinstance(trajectory, dict):
+            skipped_task_ids.append(record.get("task_id"))
+            continue
+        raw_sft = trajectory.get("raw_sft")
+        if not isinstance(raw_sft, dict):
+            skipped_task_ids.append(record.get("task_id"))
+            continue
+
+        for entry in raw_sft.get("images") or []:
+            filename = entry.get("filename")
+            b64 = entry.get("bytes_b64")
+            if not filename or not isinstance(b64, str):
+                continue
+            try:
+                data = base64.b64decode(b64)
+            except Exception:
+                continue
+            with open(os.path.join(images_subdir, filename), "wb") as f:
+                f.write(data)
+
+        payload = {
+            "task_id": copy.deepcopy(record.get("task_id")),
+            "model_name": copy.deepcopy(record.get("model_name")),
+            "messages": copy.deepcopy(raw_sft.get("messages")),
+        }
+        output_path = os.path.join(out_dir, f"{payload['task_id']}.json")
+        dump(payload, output_path)
+        exported_count += 1
+
+    summary = {
+        "total_records": len(selected_records),
+        "exported_records": exported_count,
+        "skipped_records": len(selected_records) - exported_count,
+        "skipped_task_ids": skipped_task_ids,
+        "notes": [],
+    }
+    if exported_count == 0 and selected_records:
+        summary["notes"] = [
+            "No records contained trajectory.raw_sft, so no per-sample raw trajectory JSONs were written.",
+            "Confirm the model endpoint returns prompt_token_ids and choices[0].token_ids when return_token_ids=true is requested.",
+            "Confirm the benchmark machine can load the serving model tokenizer locally; raw export uses AutoTokenizer.from_pretrained(model).",
+        ]
+    summary_path = os.path.join(out_dir, "_summary.json")
+    dump(summary, summary_path)
+    summary["summary_path"] = summary_path
+    return summary

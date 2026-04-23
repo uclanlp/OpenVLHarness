@@ -18,7 +18,7 @@ agent_kwargs:
   tool_base: "http://localhost:8101"
   tool_choice: "auto"  # default: "auto". Can be "none" or {"type":"function","function":{"name":"ToolName"}}
   tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "Zoom_In_Tool", "OCR_Tool"]
-  prompt_version: "v8"  # V8: natural language format with <tool_call> tags + auto-schema on first use.
+  prompt_version: "v5"  # V5: natural language format with <tool_call> tags + auto-schema on first use.
   reasoning_effort: null  # optional OpenAI GPT-5 knob: "minimal" | "low" | "medium" | "high"
   persistent_state_memory:  # default: {"name": "image", "emit_policy": "always"}
     name: "image"
