@@ -481,21 +481,21 @@ class RealXBench(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_realxbench_f1", "json")
         dump(summary, score_file)
 
-        # Optional LLM judge
-        if judge_kwargs.get("enable_llm_judge"):
-            try:
-                judge_summary, judge_verdicts = _run_llm_judge(
-                    eval_file=eval_file,
-                    data=data,
-                    judge_kwargs=judge_kwargs,
-                )
-                summary["llm_judge"] = judge_summary
-                data["is_correct"] = [
-                    judge_verdicts.get(idx, {}).get("verdict") == "correct"
-                    for idx in data["index"]
-                ]
-            except Exception as exc:
-                logger.warning(f"LLM judge evaluation failed: {exc}")
+        # LLM judge always runs alongside F1 (paper protocol). F1 above is
+        # retained in `*_realxbench_f1.json`.
+        try:
+            judge_summary, judge_verdicts = _run_llm_judge(
+                eval_file=eval_file,
+                data=data,
+                judge_kwargs=judge_kwargs,
+            )
+            summary["llm_judge"] = judge_summary
+            data["is_correct"] = [
+                judge_verdicts.get(idx, {}).get("verdict") == "correct"
+                for idx in data["index"]
+            ]
+        except Exception as exc:
+            logger.warning(f"LLM judge evaluation failed: {exc}")
 
         try:
             dump(data, eval_file)

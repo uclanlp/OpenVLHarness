@@ -591,25 +591,24 @@ class MMSearchEnd2End(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_mmsearch_f1", "json")
         dump(summary, score_file)
 
-        # Optional LLM judge evaluation. Only runs when explicitly enabled via
-        # `enable_llm_judge: true` in the judge config. Default behavior is
-        # unchanged — token-F1 only.
-        if judge_kwargs.get("enable_llm_judge"):
-            try:
-                judge_summary, judge_verdicts = _run_mmsearch_llm_judge(
-                    eval_file=eval_file,
-                    data=data,
-                    judge_kwargs=judge_kwargs,
-                )
-                summary["llm_judge"] = judge_summary
-                # Override per-instance is_correct with LLM judge verdicts
-                # (more reliable than token-F1 for semantic equivalence).
-                data["is_correct"] = [
-                    judge_verdicts.get(idx, {}).get("verdict") == "correct"
-                    for idx in data["index"]
-                ]
-            except Exception as exc:
-                logger.warning(f"LLM judge evaluation failed: {exc}")
+        # LLM judge evaluation always runs (in addition to token-F1) so the
+        # reported metric matches the MMSearch paper protocol. F1 above is
+        # also retained in `*_mmsearch_f1.json` for reference.
+        try:
+            judge_summary, judge_verdicts = _run_mmsearch_llm_judge(
+                eval_file=eval_file,
+                data=data,
+                judge_kwargs=judge_kwargs,
+            )
+            summary["llm_judge"] = judge_summary
+            # Override per-instance is_correct with LLM judge verdicts
+            # (more reliable than token-F1 for semantic equivalence).
+            data["is_correct"] = [
+                judge_verdicts.get(idx, {}).get("verdict") == "correct"
+                for idx in data["index"]
+            ]
+        except Exception as exc:
+            logger.warning(f"LLM judge evaluation failed: {exc}")
 
         # Persist updated data (with f1_score + is_correct columns) back to
         # the eval file so downstream consumers (e.g. experience learning
