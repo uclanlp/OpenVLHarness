@@ -551,18 +551,24 @@ class BaseAgentWithTools(BaseAgent):
             f"(name={self.persistent_state_memory.memory_name})"
         )
 
-        # Eagerly load tokenizer once so _count_tokens is thread-safe.
-        # HuggingFace tokenizers (Rust-backed) are safe for concurrent encode
-        # calls, but AutoTokenizer.from_pretrained is not meant to race.
+        # Eagerly load tokenizer once per agent instance so _count_tokens and
+        # _build_raw_sft_from_tokens share it. Prefer the local cache to avoid
+        # hammering the Hub API under concurrent workers (429s). Fall back to
+        # a network load on the first run (or when the cache is missing).
         self._tokenizer = None
-        if self.max_context_length and self.model:
+        if self.model:
+            from transformers import AutoTokenizer
             try:
-                from transformers import AutoTokenizer
                 self._tokenizer = AutoTokenizer.from_pretrained(
-                    self.model, trust_remote_code=True
+                    self.model, trust_remote_code=True, local_files_only=True
                 )
-            except Exception as e:
-                self.logger.warning(f"Could not load tokenizer for context-length protection: {e}")
+            except Exception:
+                try:
+                    self._tokenizer = AutoTokenizer.from_pretrained(
+                        self.model, trust_remote_code=True
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Could not load tokenizer for {self.model}: {e}")
 
     def _load_instance_critique(self, task_id: str) -> Optional[str]:
         """Load a per-instance critique file if it exists."""
@@ -1235,11 +1241,9 @@ class BaseAgentWithTools(BaseAgent):
         if not isinstance(prompt_ids, list) or not isinstance(completion_ids, list):
             return None
 
-        try:
-            from transformers import AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained(self.model, trust_remote_code=True)
-        except Exception as e:
-            self.logger.warning(f"[raw_sft] could not load tokenizer for {self.model}: {e}")
+        tokenizer = self._tokenizer
+        if tokenizer is None:
+            self.logger.warning(f"[raw_sft] no tokenizer available for {self.model}")
             return None
 
         images = list(iter_data_uris(msgs))

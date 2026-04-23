@@ -22,7 +22,8 @@ _SENSITIVE_KEY_EXACT = {
     "password",
     "authorization",
 }
-_SENSITIVE_KEY_SUBSTR = ("api_key", "token", "secret", "password", "auth")
+_SENSITIVE_KEY_SUBSTR = ("api_key", "secret", "password")
+_SENSITIVE_KEY_SUFFIX = ("_key", "_token", "_secret", "_password", "_auth")
 
 
 def parse_yaml_mapping(config_path: str, *, label: str) -> dict:
@@ -101,7 +102,7 @@ def _is_sensitive_key(key: str) -> bool:
     key_lower = str(key).strip().lower()
     if key_lower in _SENSITIVE_KEY_EXACT:
         return True
-    if key_lower.endswith("_key"):
+    if key_lower.endswith(_SENSITIVE_KEY_SUFFIX):
         return True
     return any(part in key_lower for part in _SENSITIVE_KEY_SUBSTR)
 
