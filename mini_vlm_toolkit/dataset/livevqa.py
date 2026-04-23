@@ -13,11 +13,18 @@ Evaluation follows the original LIVEVQA protocol:
        - strict:  A / (A + B + C)
        - lenient: A / (A + B)   (excluding NOT_ATTEMPTED)
 
-TSV files are produced by ``scripts/convert_livevqa.py`` and placed in
-``$LMUData/``.
+Data is auto-fetched from the LIVEVQA upstream GitHub repo on first use
+(sparse-checkout into ``$LMUData/LIVEVQA/``, ~340MB). Benchmark JSONs and
+images are converted to a flat TSV per sub-dataset on demand.  The
+``LIVEVQA_ROOT`` environment variable overrides the download location
+when you already have a local clone.
 """
 
+import json as _json
+import os
+import os.path as osp
 import string
+import subprocess
 from collections import defaultdict
 from functools import partial
 
@@ -26,8 +33,101 @@ import pandas as pd
 from .image_base import ImageBaseDataset
 from .utils import build_judge, DEBUG_MESSAGE
 from ..smp import *
-from ..smp.file import get_intermediate_file_path
+from ..smp.file import LMUDataRoot, get_intermediate_file_path
 from ..utils import track_progress_rich
+
+# ---------------------------------------------------------------------------
+# Source-data layout and auto-download
+# ---------------------------------------------------------------------------
+_LIVEVQA_GITHUB_URL = 'https://github.com/fumingyang2004/LIVEVQA.git'
+
+
+def _ensure_livevqa_data():
+    """Ensure LIVEVQA source data is available locally; auto-clone on first use.
+
+    Returns the path to ``liveVQA_benchmarks/`` containing News/Paper/Video
+    sub-directories. Honours the ``LIVEVQA_ROOT`` env var as an override for
+    users who already have a local clone (e.g. offline environments).
+    """
+    override = os.environ.get('LIVEVQA_ROOT')
+    if override:
+        if not osp.isdir(override):
+            raise RuntimeError(
+                f"LIVEVQA_ROOT={override!r} is set but is not a directory."
+            )
+        return override
+
+    root = osp.join(LMUDataRoot(), 'LIVEVQA')
+    data_dir = osp.join(root, 'liveVQA_benchmarks')
+    if osp.exists(data_dir):
+        return data_dir
+
+    os.makedirs(root, exist_ok=True)
+    print(
+        f"[LIVEVQA] first-run download (~340MB) from {_LIVEVQA_GITHUB_URL} "
+        f"into {root}"
+    )
+    subprocess.run(
+        [
+            'git', 'clone', '--depth', '1',
+            '--filter=blob:none', '--sparse',
+            _LIVEVQA_GITHUB_URL, root,
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ['git', '-C', root, 'sparse-checkout', 'set', 'liveVQA_benchmarks'],
+        check=True,
+    )
+    if not osp.exists(data_dir):
+        raise RuntimeError(
+            f"LIVEVQA auto-download completed but {data_dir} is missing. "
+            f"Set LIVEVQA_ROOT manually."
+        )
+    return data_dir
+
+
+# ---------------------------------------------------------------------------
+# Sub-benchmark variants
+# ---------------------------------------------------------------------------
+_BENCHMARK_CFG = {
+    #  dataset_name            → (sub-benchmark, levels_to_include, mcq_mode)
+    # --- open-ended (default LIVEVQA protocol, used by unified_benchmark.py) ---
+    'LIVEVQA_News':         ('News',  ('level1_qa', 'level2_qa'), False),
+    'LIVEVQA_Paper':        ('Paper', ('level1_qa', 'level2_qa'), False),
+    'LIVEVQA_Video':        ('Video', ('level1_qa', 'level2_qa'), False),
+    'LIVEVQA_News_L1':      ('News',  ('level1_qa',),             False),
+    'LIVEVQA_Paper_L1':     ('Paper', ('level1_qa',),             False),
+    'LIVEVQA_Video_L1':     ('Video', ('level1_qa',),             False),
+    # --- MCQ (options appended to question; aligns with VDR reporting) ---
+    'LIVEVQA_News_MCQ':     ('News',  ('level1_qa', 'level2_qa'), True),
+    'LIVEVQA_Paper_MCQ':    ('Paper', ('level1_qa', 'level2_qa'), True),
+    'LIVEVQA_Video_MCQ':    ('Video', ('level1_qa', 'level2_qa'), True),
+    'LIVEVQA_News_L1_MCQ':  ('News',  ('level1_qa',),             True),
+    'LIVEVQA_Paper_L1_MCQ': ('Paper', ('level1_qa',),             True),
+    'LIVEVQA_Video_L1_MCQ': ('Video', ('level1_qa',),             True),
+}
+
+# Combined pool: News + Paper + Video × (L1+L2). 2384 samples total.
+# Use ``LIVEVQA_All`` (open-ended) / ``LIVEVQA_All_MCQ`` (MCQ) with
+# ``--num-examples N --shuffle --seed 42`` for a reproducible random subset.
+_COMBINED_CFG = {
+    'LIVEVQA_All':     (('News', 'Paper', 'Video'), ('level1_qa', 'level2_qa'), False),
+    'LIVEVQA_All_MCQ': (('News', 'Paper', 'Video'), ('level1_qa', 'level2_qa'), True),
+    'LIVEVQA_All_L1':  (('News', 'Paper', 'Video'), ('level1_qa',),             False),
+}
+
+_IMG_DIR = {
+    'News':  'News/News_imgs',
+    'Paper': 'Paper/Paper_images',
+    'Video': 'Video/Video_images',
+}
+
+_JSON_PATH = {
+    'News':  'News/benchmark.json',
+    'Paper': 'Paper/benchmark.json',
+    'Video': 'Video/benchmark.json',
+}
 
 # ---------------------------------------------------------------------------
 # Grader prompt – faithfully ported from the original LIVEVQA
@@ -46,7 +146,8 @@ Please provide your best guess and a confidence score between \
 {{
 "answer": "Your answer here",
 "confidence_score": number
-}}"""
+}}
+For multiple-choice questions, write the full text of the selected option as your answer (not just the letter)."""
 
 
 GRADER_TEMPLATE = """\
@@ -245,17 +346,104 @@ class LIVEVQADataset(ImageBaseDataset):
 
     TYPE = 'VQA'
 
-    # Empty URL strings trigger local-TSV loading via ImageBaseDataset.load_data
-    DATASET_URL = {
-        'LIVEVQA_News': '',
-        'LIVEVQA_Paper': '',
-        'LIVEVQA_Video': '',
-    }
+    # Empty URL strings: no external TSV download. load_data() below produces
+    # the TSV on first use by converting from the upstream benchmark JSONs.
+    DATASET_URL = {k: '' for k in list(_BENCHMARK_CFG) + list(_COMBINED_CFG)}
     DATASET_MD5 = {}
 
     @classmethod
     def supported_datasets(cls):
-        return list(cls.DATASET_URL)
+        return list(_BENCHMARK_CFG) + list(_COMBINED_CFG)
+
+    # -- Data loading: auto-convert from benchmark JSON --------------------
+
+    def load_data(self, dataset):
+        """Load LIVEVQA data, auto-converting from benchmark JSON on first use.
+
+        The converted TSV is cached in ``$LMUData/`` so subsequent runs skip
+        conversion. ``LIVEVQA_All*`` keys produce a flat pool by concatenating
+        News + Paper + Video with a fresh contiguous index.
+        """
+        data_root = LMUDataRoot()
+        tsv_path = osp.join(data_root, f'{dataset}.tsv')
+
+        if not osp.exists(tsv_path):
+            if dataset in _COMBINED_CFG:
+                subs, levels, mcq = _COMBINED_CFG[dataset]
+                dfs = [self._convert_benchmark(s, levels, mcq=mcq) for s in subs]
+                df = pd.concat(dfs, ignore_index=True)
+                df['index'] = list(range(len(df)))
+            else:
+                cfg = _BENCHMARK_CFG.get(dataset)
+                if cfg is None:
+                    raise ValueError(f'Unknown LIVEVQA dataset: {dataset}')
+                benchmark, levels, mcq = cfg
+                df = self._convert_benchmark(benchmark, levels, mcq=mcq)
+            os.makedirs(data_root, exist_ok=True)
+            df.to_csv(tsv_path, sep='\t', index=False)
+
+        self.data_path = tsv_path
+        return load(tsv_path)
+
+    @staticmethod
+    def _convert_benchmark(benchmark, levels, mcq=False):
+        """Read a LIVEVQA benchmark JSON and return a flat DataFrame.
+
+        When ``mcq=True``, the multiple-choice ``options`` are appended to
+        the ``question`` field in the format::
+
+            <raw question>
+
+            Options:
+            A. ...
+            B. ...
+
+        This aligns the presentation with Vision-DeepResearch (VDR), which
+        presents LIVEVQA items as MCQ. When ``mcq=False`` the question is
+        left unchanged, matching the original ``unified_benchmark.py`` /
+        open-ended protocol.
+        """
+        root = _ensure_livevqa_data()
+        json_path = osp.join(root, _JSON_PATH[benchmark])
+        img_base = osp.join(root, _IMG_DIR[benchmark])
+
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = _json.load(f)
+
+        level_map = {'level1_qa': 'L1', 'level2_qa': 'L2'}
+        rows, idx = [], 0
+        for item in data:
+            for level_key in levels:
+                qa = item.get(level_key)
+                if qa is None:
+                    continue
+                img_rel = qa.get('img_path') or item.get('img_path', '')
+                img_abs = osp.join(img_base, img_rel)
+                qtype = qa.get('question_type', 'unspecified') or 'unspecified'
+                gt_list = qa.get('Ground_Truth_List', [])
+
+                question_text = qa['question']
+                if mcq:
+                    options = qa.get('options') or []
+                    if options:
+                        question_text = (
+                            question_text.rstrip()
+                            + "\n\nOptions:\n"
+                            + "\n".join(str(o) for o in options)
+                        )
+
+                rows.append({
+                    'index': idx,
+                    'question': question_text,
+                    'answer': qa.get('Ground_Truth', ''),
+                    'ground_truth_list': _json.dumps(gt_list),
+                    'image_path': img_abs,
+                    'category': level_map[level_key],
+                    'l2-category': qtype,
+                })
+                idx += 1
+
+        return pd.DataFrame(rows)
 
     # -- Prompt: open-ended VQA (no MCQ options) ----------------------------
 
