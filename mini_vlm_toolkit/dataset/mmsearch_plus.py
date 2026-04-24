@@ -179,8 +179,18 @@ def _extract_answer(prediction: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM judge
 # ---------------------------------------------------------------------------
+# Default judge: HLE-style prompt (extract_final_answer + binary correct
+# yes/no JSON). Same prompt used by hle / mmsearch / simplevqa / bcvl /
+# vdrbench so cross-benchmark numbers are directly comparable, and
+# WebWatcher-aligned for paper comparisons. See utils/hle_judge.py.
+#
+# The previous homebrew "lenient/strict CORRECT/INCORRECT" prompt is
+# retained as ``_LEGACY_JUDGE_PROMPT`` for reference but no longer
+# referenced by the active code path.
+from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 
-_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
+
+_LEGACY_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
 
 Given a question, the ground-truth answer(s), and a model's prediction, judge whether the prediction is **semantically correct** (i.e. it conveys the same answer as any of the ground truths, even if the wording differs).
 
@@ -208,7 +218,8 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     pred = str(row.get("prediction", "") or "")
     pred_extracted = _extract_answer(pred)
 
-    # Combine primary + alternatives for judge
+    # Combine primary + alternatives for judge — HLE prompt convention is
+    # to use a single ``correct_answer`` field, so we OR-join the variants.
     alt = row.get("alternative_gt_answers", [])
     if isinstance(alt, str):
         import ast
@@ -224,19 +235,21 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     all_answers = [gt] + (alt if isinstance(alt, list) else [])
     gt_combined = " OR ".join(str(a) for a in all_answers if a)
 
-    prompt = _JUDGE_PROMPT.format(
-        question=question, gt_answer=gt_combined,
-        prediction=pred_extracted or pred,
+    prompt = HLE_JUDGE_PROMPT.format(
+        question=question,
+        correct_answer=gt_combined,
+        response=pred_extracted or pred,
     )
 
     verdict = "error"
     raw_response = ""
     try:
         raw_response = judge.generate(prompt)
-        raw_upper = raw_response.strip().upper()
-        if "CORRECT" in raw_upper and "INCORRECT" not in raw_upper:
+        parsed = parse_hle_judgement(raw_response)
+        if parsed["correct"] == 1:
             verdict = "correct"
-        elif "INCORRECT" in raw_upper:
+        elif parsed["correct"] == 0 and parsed.get("reasoning") not in (
+                "judge failed to parse", "judge unreachable after retries"):
             verdict = "incorrect"
     except Exception as e:
         logger.warning("MMSearch-Plus judge error: %s", e)
