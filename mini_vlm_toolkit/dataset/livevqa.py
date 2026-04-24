@@ -257,6 +257,48 @@ Just return the letters "A", "B", or "C", with no text around it."""
 
 
 # ---------------------------------------------------------------------------
+# Auxiliary VDR-style grader (opt-in placeholder)
+#
+# Adapted from Vision-DeepResearch's ``rllm/rewards/deepresearch_reward.py``
+# judging_prompt — a contains-based binary judge (yes/no). This is *not*
+# the LIVEVQA paper protocol; it exists to enable cross-benchmark
+# consistency studies (VDR / BCVL / RealX use the same lenient style) and
+# is only invoked when the judge config sets ``enable_vdr_aux: true``.
+# Output is written to a separate ``_livevqa_vdr.json`` file and does NOT
+# override the primary original-protocol scores.
+#
+# This is a placeholder — exact prompt wording / routing may evolve.
+# ---------------------------------------------------------------------------
+_VDR_GRADER_TEMPLATE = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
+
+[Question]
+{question}
+
+[Correct Answer]
+{target}
+
+[Assistant's Answer]
+{predicted_answer}
+
+Task: Determine if the assistant's answer contains the correct answer anywhere in its content.
+
+Instructions:
+1. Read through the entire answer carefully.
+2. Look for the correct answer anywhere in the response (it may be embedded in paragraphs, reasoning, or explanations).
+3. Check if the information in the response is consistent with the correct answer.
+4. The answer does NOT need to be in a specific format or labeled as "final answer".
+5. The [Correct Answer] field may contain multiple acceptable variants joined by "OR" — matching any ONE of them counts as correct.
+6. Provide your reasoning.
+7. Answer "yes" if the response contains the correct answer (semantically equivalent is fine), "no" if it doesn't or contradicts it.
+
+Respond **strictly in a valid JSON object** matching this schema:
+{{
+  "reasoning": string,
+  "correct": "yes" | "no"
+}}"""
+
+
+# ---------------------------------------------------------------------------
 # Per-item grading helper
 # ---------------------------------------------------------------------------
 
@@ -336,6 +378,68 @@ def _grade_item(model, item):
         retry -= 1
 
     return dict(grade=None, status='Error')
+
+
+def _grade_item_vdr(model, item):
+    """Auxiliary VDR-style contains-based binary judge.
+
+    Returns dict with ``verdict`` ('correct' / 'incorrect' / 'error') and
+    ``reasoning``. Invoked only when ``enable_vdr_aux`` is set.
+    """
+    import re as _re
+
+    prediction = str(item.get('prediction', ''))  # pass raw, like VDR
+    gt_list = item.get('ground_truth_list', '')
+    question = item.get('question', '')
+
+    if isinstance(gt_list, str):
+        try:
+            gt_list = _json.loads(gt_list)
+        except Exception:
+            try:
+                gt_list = eval(gt_list)
+            except Exception:
+                gt_list = [gt_list]
+    if not gt_list:
+        return dict(verdict='error', reasoning='empty ground_truth_list')
+
+    formatted_target = ' OR '.join(f'"{gt}"' for gt in gt_list)
+    prompt = _VDR_GRADER_TEMPLATE.format(
+        question=question,
+        target=formatted_target,
+        predicted_answer=prediction,
+    )
+
+    retry = 3
+    while retry:
+        ans = model.generate(prompt)
+        if 'Failed to obtain answer via API' in ans:
+            retry -= 1
+            continue
+
+        m = _re.search(r'\{[\s\S]*\}', ans)
+        if m:
+            try:
+                obj = _json.loads(m.group(0))
+                verdict = str(obj.get('correct', '')).strip().lower()
+                if verdict in ('yes', 'y', 'true', 'positive'):
+                    return dict(verdict='correct',
+                                reasoning=str(obj.get('reasoning', '')))
+                if verdict in ('no', 'n', 'false', 'negative'):
+                    return dict(verdict='incorrect',
+                                reasoning=str(obj.get('reasoning', '')))
+            except (_json.JSONDecodeError, ValueError):
+                pass
+
+        raw = ans.strip().lower()
+        if 'correct: yes' in raw or raw in ('yes', 'y'):
+            return dict(verdict='correct', reasoning='')
+        if 'correct: no' in raw or raw in ('no', 'n'):
+            return dict(verdict='incorrect', reasoning='')
+
+        retry -= 1
+
+    return dict(verdict='error', reasoning='judge unreachable after retries')
 
 
 # ---------------------------------------------------------------------------
@@ -492,6 +596,10 @@ class LIVEVQADataset(ImageBaseDataset):
 
         # Build judge model
         nproc = judge_kwargs.pop('nproc', 4)
+        # ``enable_vdr_aux`` is a framework-level flag (not an OpenAI
+        # parameter). Pop it before passing kwargs to build_judge() so it
+        # doesn't leak into the OpenAI request payload and trigger 400.
+        enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
         model = build_judge(**judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -545,6 +653,54 @@ class LIVEVQADataset(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, '_livevqa_acc', 'csv')
         dump(acc, score_file)
         logger.info(f'LIVEVQA accuracy results saved to {score_file}')
+
+        # -- Auxiliary VDR judge pass (opt-in via enable_vdr_aux) ----------
+        # Does NOT override the primary original-protocol scores above.
+        # Produces a separate ``_livevqa_vdr.json`` side-output for
+        # cross-benchmark studies that want VDR-style contains-based grading.
+        if enable_vdr_aux:
+            vdr_cache_file = get_intermediate_file_path(
+                eval_file, '_livevqa_vdr_grade', 'pkl')
+            vdr_cache = load(vdr_cache_file) if osp.exists(vdr_cache_file) else {}
+            vdr_items = [
+                data.iloc[i] for i in range(len(data))
+                if str(data.iloc[i]['index']) not in vdr_cache
+            ]
+            if vdr_items:
+                vdr_tups = [dict(model=model, item=x) for x in vdr_items]
+                vdr_keys = [str(x['index']) for x in vdr_items]
+                vdr_res = track_progress_rich(
+                    _grade_item_vdr, vdr_tups, nproc=nproc, chunksize=nproc,
+                    save=vdr_cache_file, keys=vdr_keys,
+                )
+                vdr_cache = load(vdr_cache_file)
+                for k, v in zip(vdr_keys, vdr_res):
+                    if k not in vdr_cache:
+                        vdr_cache[k] = v
+
+            n_total = len(data)
+            n_correct = sum(
+                1 for idx in data['index']
+                if vdr_cache.get(str(idx), {}).get('verdict') == 'correct'
+            )
+            n_incorrect = sum(
+                1 for idx in data['index']
+                if vdr_cache.get(str(idx), {}).get('verdict') == 'incorrect'
+            )
+            vdr_summary = {
+                'total': n_total,
+                'correct': n_correct,
+                'incorrect': n_incorrect,
+                'error': n_total - n_correct - n_incorrect,
+                'accuracy': round(100 * n_correct / n_total, 2) if n_total else 0.0,
+            }
+            vdr_score_file = get_intermediate_file_path(
+                eval_file, '_livevqa_vdr', 'json')
+            dump(vdr_summary, vdr_score_file)
+            logger.info(
+                f'LIVEVQA VDR auxiliary judge results saved to {vdr_score_file}'
+            )
+
         return acc
 
     @staticmethod
