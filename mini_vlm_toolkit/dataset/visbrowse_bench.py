@@ -24,9 +24,11 @@ Record schema (encrypted):
 Decryption: per-item XOR with SHA-256-derived key using ``canary`` as the
 password (matches ``decrypt_data.py`` in the upstream repo).
 
-Evaluation: VDR contains-based LLM judge (aligned with our BrowseCompVL /
-LiveVQA ports). Official VisBrowse-Bench judge is kept commented below for
-reference.
+Evaluation: official VisBrowse-Bench LLM judge (upstream ``eval.py`` —
+simple semantic-yes/no) as default. A VDR-style contains-based judge is
+available as an opt-in auxiliary via ``enable_vdr_aux: true`` for cross-
+benchmark consistency studies; it produces a separate ``_vbb_vdr.json``
+side-output and does not override the primary paper-protocol score.
 """
 
 import base64
@@ -74,10 +76,28 @@ def _decrypt(ciphertext_b64: str, password: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Judge prompt — VDR contains-based (same style as browsecomp_vl.py /
-# livevqa.py). Kept consistent so cross-bench numbers are comparable.
+# Primary judge prompt — original VisBrowse-Bench protocol from upstream
+# ``eval.py``. Simple semantic-equivalence yes/no. Default grader so our
+# reported numbers align with the paper.
 # ---------------------------------------------------------------------------
-JUDGE_PROMPT = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
+JUDGE_PROMPT = """You are a rigorous question-and-answer quality assessment expert. Given a question, your task is to compare the "groud truth" and the "model answer", determine whether they are semantically equivalent, and output "yes" or "no".
+question: {question}
+ground truth: {correct_answer}
+model answer: {response}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Auxiliary VDR-style judge prompt (opt-in placeholder)
+#
+# Adapted from Vision-DeepResearch's ``rllm/rewards/deepresearch_reward.py``
+# judging_prompt — a lenient contains-based binary judge. Only invoked when
+# the judge config sets ``enable_vdr_aux: true``. Output goes to a separate
+# ``_vbb_vdr.json`` file and does NOT override the primary paper-protocol
+# scores. Exists for cross-benchmark consistency studies (VDR / LIVEVQA /
+# BCVL use the same style).
+# ---------------------------------------------------------------------------
+_VDR_JUDGE_PROMPT = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
 
 [Question]
 {question}
@@ -105,27 +125,22 @@ Respond **strictly in a valid JSON object** matching this schema:
   "correct": "yes" | "no"
 }}"""
 
-# ---------------------------------------------------------------------------
-# Original VisBrowse-Bench judge (simpler semantic-equivalence yes/no, from
-# upstream ``eval.py``). Kept here commented for reproducibility of the
-# paper's reported numbers.
-# ---------------------------------------------------------------------------
-# JUDGE_PROMPT = """
-# You are a rigorous question-and-answer quality assessment expert. Given a question, your task is to compare the "groud truth" and the "model answer", determine whether they are semantically equivalent, and output "yes" or "no".
-# question: {question}
-# ground truth: {correct_answer}
-# model answer: {response}
-# """
-
 
 # ---------------------------------------------------------------------------
 # Per-item grading helper
 # ---------------------------------------------------------------------------
 
 def _grade_item(model, item):
-    """Grade a single prediction using the VDR contains-based judge.
+    """Grade a single prediction using the ORIGINAL VisBrowse-Bench judge.
 
-    Returns a dict with keys: correct (1 or 0), extracted_answer, reasoning.
+    Follows the upstream ``eval.py`` protocol: the judge outputs a bare
+    ``yes`` or ``no`` indicating semantic equivalence between model
+    answer and ground truth. Multi-variant ground truths are checked
+    individually; if the judge says ``yes`` to any one variant, the
+    sample is counted correct.
+
+    Returns a dict with keys: correct (1 or 0), extracted_answer (''),
+    reasoning (trimmed judge response).
     """
     prediction = str(item.get('prediction', ''))
     gt_list = item.get('ground_truth_list', '')
@@ -139,10 +154,54 @@ def _grade_item(model, item):
     if not gt_list:
         return dict(correct=0, extracted_answer='', reasoning='Empty ground truth')
 
-    # Fold multi-variant ground truths into an OR-joined target so the
-    # contains-judge treats any variant as acceptable.
+    for gt in gt_list:
+        prompt = JUDGE_PROMPT.format(
+            question=question,
+            correct_answer=str(gt),
+            response=prediction,
+        )
+        retry = 3
+        while retry:
+            ans = model.generate(prompt)
+            if 'Failed to obtain answer via API' in ans:
+                retry -= 1
+                continue
+            raw = ans.strip().lower()
+            # Look for yes / no token anywhere in the response; take first.
+            m = re.search(r'\b(yes|no)\b', raw)
+            if m:
+                if m.group(1) == 'yes':
+                    return dict(correct=1, extracted_answer='', reasoning=ans.strip()[:500])
+                # 'no' for this variant — try next GT variant
+                break
+            retry -= 1
+        else:
+            # Exhausted retries without a parseable answer for this variant
+            continue
+
+    return dict(correct=0, extracted_answer='', reasoning='No matching GT variant')
+
+
+def _grade_item_vdr(model, item):
+    """Auxiliary VDR-style contains-based binary judge.
+
+    Returns dict with ``verdict`` ('correct' / 'incorrect' / 'error') and
+    ``reasoning``. Invoked only when ``enable_vdr_aux`` is set.
+    """
+    prediction = str(item.get('prediction', ''))
+    gt_list = item.get('ground_truth_list', '')
+    question = item.get('question', '')
+
+    if isinstance(gt_list, str):
+        try:
+            gt_list = json.loads(gt_list)
+        except Exception:
+            gt_list = [gt_list]
+    if not gt_list:
+        return dict(verdict='error', reasoning='empty ground_truth_list')
+
     formatted_target = ' OR '.join(f'"{str(gt)}"' for gt in gt_list)
-    prompt = JUDGE_PROMPT.format(
+    prompt = _VDR_JUDGE_PROMPT.format(
         question=question,
         correct_answer=formatted_target,
         response=prediction,
@@ -155,31 +214,29 @@ def _grade_item(model, item):
             retry -= 1
             continue
 
-        # Prefer JSON parse (VDR-style)
-        try:
-            m = re.search(r'\{[\s\S]*\}', ans)
-            if m:
+        m = re.search(r'\{[\s\S]*\}', ans)
+        if m:
+            try:
                 obj = json.loads(m.group(0))
-                verdict = str(obj.get('correct', 'no')).strip().lower()
-                acc = 1 if verdict in ('y', 'yes', 'true', 'positive') else 0
-                return dict(
-                    correct=acc,
-                    extracted_answer=obj.get('extracted_final_answer', ''),
-                    reasoning=obj.get('reasoning', ''),
-                )
-        except (json.JSONDecodeError, ValueError):
-            pass
+                verdict = str(obj.get('correct', '')).strip().lower()
+                if verdict in ('yes', 'y', 'true', 'positive'):
+                    return dict(verdict='correct',
+                                reasoning=str(obj.get('reasoning', '')))
+                if verdict in ('no', 'n', 'false', 'negative'):
+                    return dict(verdict='incorrect',
+                                reasoning=str(obj.get('reasoning', '')))
+            except (json.JSONDecodeError, ValueError):
+                pass
 
-        # Fallback: plain yes/no
         raw = ans.strip().lower()
         if 'correct: yes' in raw or raw in ('yes', 'y'):
-            return dict(correct=1, extracted_answer='', reasoning=ans.strip()[:500])
+            return dict(verdict='correct', reasoning='')
         if 'correct: no' in raw or raw in ('no', 'n'):
-            return dict(correct=0, extracted_answer='', reasoning=ans.strip()[:500])
+            return dict(verdict='incorrect', reasoning='')
 
         retry -= 1
 
-    return dict(correct=0, extracted_answer='', reasoning='Judge failed')
+    return dict(verdict='error', reasoning='judge unreachable after retries')
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +375,14 @@ class VisBrowseBenchDataset(ImageBaseDataset):
     # -- Evaluation: binary judge grading (yes/no contains-based) --------
 
     def evaluate(self, eval_file, **judge_kwargs):
-        """Evaluate predictions with the VDR contains-based LLM judge."""
+        """Evaluate predictions with the original VisBrowse-Bench judge.
+
+        The primary grader is the upstream ``eval.py`` semantic-yes/no
+        judge — reports align with the paper. Setting ``enable_vdr_aux:
+        true`` in the judge config additionally runs a VDR-style
+        contains-based grader and saves a separate ``_vbb_vdr.json``
+        side-output; the primary accuracy is not overridden.
+        """
         logger = get_logger('Evaluation')
         data = load(eval_file)
         assert 'prediction' in data, 'prediction column missing from eval file'
@@ -333,13 +397,15 @@ class VisBrowseBenchDataset(ImageBaseDataset):
             gt_map.get(str(idx), '') for idx in data['index']
         ]
 
-        # Build judge model. Pop MMSearch-specific keys that would otherwise
-        # be forwarded to OpenAIWrapper.generate_inner and into the request
-        # body, where OpenAI returns 400 on unrecognized fields.
+        # Build judge model. Pop framework-level keys so they don't leak
+        # into the OpenAI request payload (would trigger 400 on unknown
+        # fields). ``enable_vdr_aux`` gates the optional VDR aux grader
+        # below; other two are historical keys kept for back-compat.
         judge_kwargs = dict(judge_kwargs)
         nproc = judge_kwargs.pop('nproc', 4)
         judge_kwargs.pop('enable_llm_judge', None)
         max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
+        enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
         model = build_judge(max_tokens=max_tokens, **judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -397,6 +463,54 @@ class VisBrowseBenchDataset(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, '_vbb_acc', 'csv')
         dump(acc, score_file)
         logger.info(f'VisBrowseBench accuracy results saved to {score_file}')
+
+        # -- Auxiliary VDR judge pass (opt-in via enable_vdr_aux) ----------
+        # Does NOT override the primary original-protocol scores above.
+        # Produces a separate ``_vbb_vdr.json`` side-output for
+        # cross-benchmark studies that want VDR-style contains-based grading.
+        if enable_vdr_aux:
+            vdr_cache_file = get_intermediate_file_path(
+                eval_file, '_vbb_vdr_grade', 'pkl')
+            vdr_cache = load(vdr_cache_file) if osp.exists(vdr_cache_file) else {}
+            vdr_items = [
+                data.iloc[i] for i in range(len(data))
+                if str(data.iloc[i]['index']) not in vdr_cache
+            ]
+            if vdr_items:
+                vdr_tups = [dict(model=model, item=x) for x in vdr_items]
+                vdr_keys = [str(x['index']) for x in vdr_items]
+                vdr_res = track_progress_rich(
+                    _grade_item_vdr, vdr_tups, nproc=nproc, chunksize=nproc,
+                    save=vdr_cache_file, keys=vdr_keys,
+                )
+                vdr_cache = load(vdr_cache_file)
+                for k, v in zip(vdr_keys, vdr_res):
+                    if k not in vdr_cache:
+                        vdr_cache[k] = v
+
+            n_total = len(data)
+            n_correct = sum(
+                1 for idx in data['index']
+                if vdr_cache.get(str(idx), {}).get('verdict') == 'correct'
+            )
+            n_incorrect = sum(
+                1 for idx in data['index']
+                if vdr_cache.get(str(idx), {}).get('verdict') == 'incorrect'
+            )
+            vdr_summary = {
+                'total': n_total,
+                'correct': n_correct,
+                'incorrect': n_incorrect,
+                'error': n_total - n_correct - n_incorrect,
+                'accuracy': round(100 * n_correct / n_total, 2) if n_total else 0.0,
+            }
+            vdr_score_file = get_intermediate_file_path(
+                eval_file, '_vbb_vdr', 'json')
+            dump(vdr_summary, vdr_score_file)
+            logger.info(
+                f'VisBrowseBench VDR auxiliary judge results saved to {vdr_score_file}'
+            )
+
         return acc
 
     @staticmethod
