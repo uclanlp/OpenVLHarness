@@ -27,36 +27,12 @@ from ..smp.file import get_intermediate_file_path
 from ..utils import track_progress_rich
 
 # ---------------------------------------------------------------------------
-# Judge prompt – faithfully ported from the original BrowseComp-VL
-# ``evaluate_hle_official.py`` JUDGE_PROMPT.
+# Judge prompt — shared HLE-style protocol, imported from utils/hle_judge.py
+# (byte-identical to what the BrowseComp-VL upstream ``evaluate_hle_official.py``
+# uses, and the same prompt now applied to hle / mmsearch / mmsearch_plus /
+# simplevqa_en / vdrbench for cross-benchmark consistency).
 # ---------------------------------------------------------------------------
-JUDGE_PROMPT = """\
-Judge whether the following [response] to [question] is correct or not based on the precise and unambiguous [correct_answer] below.
-
-[question]: {question}
-
-[response]: {response}
-
-Your judgement must be in the format and criteria specified below:
-
-extracted_final_answer: The final exact answer extracted from the [response]. Put the extracted answer as 'None' if there is no exact, final answer to extract from the response.
-
-[correct_answer]: {correct_answer}
-
-reasoning: Explain why the extracted_final_answer is correct or incorrect based on [correct_answer], focusing only on if there are meaningful differences between [correct_answer] and the extracted_final_answer. Do not comment on any background to the problem, do not attempt to solve the problem, do not argue for any answer different than [correct_answer], focus only on whether the answers match.
-
-correct: Answer 'yes' if extracted_final_answer matches the [correct_answer] given above, or is within a small margin of error for numerical problems. Answer 'no' otherwise, i.e. if there if there is any inconsistency, ambiguity, non-equivalency, or if the extracted answer is incorrect.
-
-confidence: The extracted confidence score between 0|%| and 100|%| from [response]. Put 100 if there is no confidence score available.
-
-Respond **strictly in a valid JSON object** matching this schema:
-{{
-  "extracted_final_answer": string,
-  "reasoning": string,
-  "correct": "yes" | "no",
-  "confidence": integer,
-  "strict": true
-}}"""
+from .utils.hle_judge import HLE_JUDGE_PROMPT as JUDGE_PROMPT, parse_hle_judgement
 
 
 # ---------------------------------------------------------------------------
@@ -96,22 +72,16 @@ def _grade_item(model, item):
         if 'Failed to obtain answer via API' in ans:
             retry -= 1
             continue
-
-        # Parse JSON response from judge
-        try:
-            # Try to extract JSON from response
-            m = re.search(r'\{[\s\S]*\}', ans)
-            if m:
-                obj = json.loads(m.group(0))
-                is_correct = obj.get('correct', 'no').strip().lower()
-                acc = 1 if is_correct in ('y', 'yes', 'true', 'positive') else 0
-                return dict(
-                    correct=acc,
-                    extracted_answer=obj.get('extracted_final_answer', ''),
-                    reasoning=obj.get('reasoning', ''),
-                )
-        except (json.JSONDecodeError, ValueError):
-            pass
+        parsed = parse_hle_judgement(ans)
+        # parse_hle_judgement signals "couldn't parse" via this reasoning
+        # string; on that case, retry. Any other verdict (correct=0 or 1)
+        # is a legitimate judge answer.
+        if parsed.get('reasoning') != 'judge failed to parse':
+            return dict(
+                correct=parsed['correct'],
+                extracted_answer=parsed.get('extracted_answer', ''),
+                reasoning=parsed.get('reasoning', ''),
+            )
         retry -= 1
 
     return dict(correct=0, extracted_answer='', reasoning='Judge failed')
