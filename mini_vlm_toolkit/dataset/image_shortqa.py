@@ -1,7 +1,8 @@
 from mini_vlm_toolkit import *
 from ..smp import *
 from .image_base import ImageBaseDataset
-from .utils import build_judge
+from .utils import build_judge, DEBUG_MESSAGE
+from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
 from .utils.shortqa import ShortQA_prompt
 from .utils.webwatcher_subset import apply_webwatcher_subset
@@ -63,6 +64,46 @@ def Comprehensive_auxeval(model, data):
             return ShortQA_auxeval(model, item)
 
 
+def HLE_style_auxeval(model, item):
+    """HLE-style binary judge for short-answer datasets (default for hle).
+
+    Mirrors ShortQA_auxeval's interface (returns ``{hit: 0|1, log: str}``)
+    but uses the shared HLE judge prompt + JSON-extracting parser, so
+    the resulting accuracy is directly comparable to WebWatcher / BCVL /
+    other HLE-protocol scorers.
+    """
+    item = item.iloc[0] if isinstance(item, pd.DataFrame) else item
+    question = str(item.get('question', ''))
+    answer = item.get('answer', '')
+    if isinstance(answer, str) and answer.strip().startswith('[') and answer.strip().endswith(']'):
+        try:
+            answer = eval(answer)
+        except Exception:
+            answer = [answer]
+    if not isinstance(answer, list):
+        answer = [answer]
+    correct_answer = str(answer[0]) if answer else ''
+    response = str(item.get('prediction', ''))
+
+    prompt = HLE_JUDGE_PROMPT.format(
+        question=question,
+        correct_answer=correct_answer,
+        response=response,
+    )
+    retry = 3
+    last = None
+    for _ in range(retry):
+        out = model.generate(prompt)
+        if 'Failed to obtain answer via API' in (out or ''):
+            continue
+        last = out
+        parsed = parse_hle_judgement(out)
+        if parsed.get('reasoning') != 'judge failed to parse':
+            log = f"verdict={parsed['correct']} extracted={parsed.get('extracted_answer','')[:120]} reasoning={parsed.get('reasoning','')[:200]}"
+            return dict(hit=int(parsed['correct']), log=log)
+    return dict(hit=0, log=f'judge unparseable: {str(last)[:200]}' if last else 'judge unreachable')
+
+
 class ImageShortQADataset(ImageBaseDataset):
     TYPE = 'Short'
 
@@ -83,6 +124,14 @@ class ImageShortQADataset(ImageBaseDataset):
         assert msgs[-1]['type'] == 'text'
         msgs[-1]['value'] += '\nPlease directly provide a short answer to the question. '
         return msgs
+
+    def load_data(self, dataset):
+        # Default ImageBaseDataset loader; then auto-filter to the
+        # WebWatcher v2 subset where applicable (currently only ``hle``).
+        # No-op for datasets without a subset entry.
+        # Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass.
+        df = super().load_data(dataset)
+        return apply_webwatcher_subset(df, dataset)
 
     # It returns a DataFrame
     def evaluate(self, eval_file, **judge_kwargs):
@@ -130,8 +179,19 @@ class ImageShortQADataset(ImageBaseDataset):
                     data = main_data
 
                 if len(lines):
+                    # For ``hle``: use HLE-style binary judge (matches
+                    # WebWatcher / BCVL / paper protocol). All other
+                    # ImageShortQA datasets (LiveMMBench_*, PathVQA,
+                    # Infoseek_GDM_train, FVQA_train, ...) keep the
+                    # existing Comprehensive_auxeval path which handles
+                    # MCQ vs ShortQA dispatch.
+                    auxeval_fn = (
+                        HLE_style_auxeval
+                        if self.dataset_name == 'hle'
+                        else Comprehensive_auxeval
+                    )
                     res = track_progress_rich(
-                        Comprehensive_auxeval, tups, nproc=nproc, chunksize=nproc, keys=indices, save=tmp_file)
+                        auxeval_fn, tups, nproc=nproc, chunksize=nproc, keys=indices, save=tmp_file)
                     for k, v in zip(indices, res):
                         ans_map[k] = v
 
