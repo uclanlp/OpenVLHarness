@@ -500,6 +500,13 @@ class MMSearchEnd2End(ImageBaseDataset):
             f"MMSearchEnd2End.evaluate expects columns 'prediction' and 'answer' in {eval_file}"
         )
 
+        # Subset-aware re-eval: filter predictions down to the
+        # WebWatcher v2 subset (171/300) before judging, so `--mode eval`
+        # doesn't waste GPT-4o calls on the 129 non-subset rows.
+        # Bypass via MVT_DISABLE_WEBWATCHER_SUBSET=1.
+        from .utils.webwatcher_subset import apply_webwatcher_subset
+        data = apply_webwatcher_subset(data, "MMSearch")
+
         # Normalize alternative answers into list-of-str
         def _to_alt_list(val: Any) -> List[str]:
             if val is None or (isinstance(val, float) and np.isnan(val)):
