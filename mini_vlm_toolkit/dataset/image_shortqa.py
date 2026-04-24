@@ -117,6 +117,9 @@ class ImageShortQADataset(ImageBaseDataset):
         # `sft/data/download_train_datasets.py --action to_tsv --dataset infoseek`.
         # Empty URL = no auto-download; local TSV is authoritative.
         'Infoseek_GDM_train': '',
+        # FVQA training split (== MMSearch-R1 fvqa_train). TSV produced by
+        # `sft/data/download_train_datasets.py --action to_tsv --dataset fvqa`.
+        'FVQA_train': '',
     }
 
     DATASET_MD5 = {
