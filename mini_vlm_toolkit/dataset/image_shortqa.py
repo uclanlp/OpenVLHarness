@@ -113,6 +113,10 @@ class ImageShortQADataset(ImageBaseDataset):
         'LiveMMBench_Reasoning': '',
         'LiveMMBench_Reasoning_circular': '',
         'hle':'https://opencompass.openxlab.space/utils/VLMEval/hle.tsv',
+        # SFT distillation training source — TSV produced by
+        # `sft/data/download_train_datasets.py --action to_tsv --dataset infoseek`.
+        # Empty URL = no auto-download; local TSV is authoritative.
+        'Infoseek_GDM_train': '',
     }
 
     DATASET_MD5 = {
@@ -149,7 +153,14 @@ class ImageShortQADataset(ImageBaseDataset):
 
         storage = get_intermediate_file_path(eval_file, '_judge')
         tmp_file = get_intermediate_file_path(eval_file, '_tmp', 'pkl')
+        # Pop MMSearch-specific keys that would otherwise be forwarded to
+        # OpenAIWrapper.generate_inner and into the request body, where OpenAI
+        # returns 400 on unrecognized fields. Same bug as browsecomp_vl.py
+        # and livevqa.py had; fix mirrors those.
+        judge_kwargs = dict(judge_kwargs)
         nproc = judge_kwargs.pop('nproc', 4)
+        judge_kwargs.pop('enable_llm_judge', None)
+        max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
 
         if not osp.exists(storage):
             ans_map = {} if not osp.exists(tmp_file) else load(tmp_file)
@@ -158,7 +169,7 @@ class ImageShortQADataset(ImageBaseDataset):
             if model == 'exact_matching':
                 model = None
             else:
-                model = build_judge(model=model, **judge_kwargs)
+                model = build_judge(model=model, max_tokens=max_tokens, **judge_kwargs)
                 if not model.working():
                     warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
                     warnings.warn(DEBUG_MESSAGE)
