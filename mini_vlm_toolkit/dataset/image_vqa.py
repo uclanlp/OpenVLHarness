@@ -2824,7 +2824,7 @@ class TDBenchGrounding(ImageVQADataset):
         if isinstance(line, int):
             line = self.data.iloc[line]
         obj = line['question']
-        question = f'\nPlease output the coordinates of the {obj} in the image in the format [x1, y1, x2, y2]. Do not include any additional text. Respond with relative coordinates between 0 and 1, with top left corner (0, 0), top right (1, 0) and bottom right (1, 1).'  # noqa: E501
+        question = f'\nPlease output the coordinates of the {obj} in the image in the format [x1, y1, x2, y2]. Do not include any additional text. Respond with relative coordinates on a 0-1000 scale, with top left corner (0, 0), top right (1000, 0) and bottom right (1000, 1000).'  # noqa: E501
         tgt_path = self.dump_image(line)
 
         msgs = []

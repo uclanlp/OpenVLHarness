@@ -144,6 +144,10 @@ class RefCOCODataset(ImageBaseDataset):
                 f'RefCOCO TSV {source_path} must contain a `question` column.'
             )
 
+        data['question'] = data['question'].astype(str).map(
+            self._rewrite_question_to_0_1000_scale
+        )
+
         if 'split' not in data:
             data['split'] = [dataset] * len(data)
 
@@ -454,6 +458,39 @@ class RefCOCODataset(ImageBaseDataset):
             suffix = remainder.replace(' ', '_').replace('-', '_')
 
         return f'{dataset_label}_{suffix}'
+
+    _QUESTION_REWRITE_PATTERNS = [
+        # "between 0 and 1" / "from 0 to 1" → on a 0-1000 scale
+        (re.compile(r'\bbetween\s*0\s*(?:and|to)\s*1\b', re.IGNORECASE),
+         'on a 0-1000 scale'),
+        (re.compile(r'\bfrom\s*0\s*to\s*1\b', re.IGNORECASE),
+         'on a 0-1000 scale'),
+        # "in [0, 1]" / "in (0, 1)" → on a 0-1000 scale
+        (re.compile(r'\bin\s*[\[\(]\s*0\s*,\s*1\s*[\]\)]', re.IGNORECASE),
+         'on a 0-1000 scale'),
+        # "normalized/normalised to 0-1" → "normalized on a 0-1000 scale"
+        (re.compile(r'normali[sz]ed\s+to\s*0\s*[-–]\s*1\b', re.IGNORECASE),
+         'normalized on a 0-1000 scale'),
+        # "(1, 1)" corner reference (common in RefCOCO prompts) → (1000, 1000)
+        (re.compile(r'\(\s*1\s*,\s*1\s*\)'), '(1000, 1000)'),
+        (re.compile(r'\(\s*1\s*,\s*0\s*\)'), '(1000, 0)'),
+        (re.compile(r'\(\s*0\s*,\s*1\s*\)'), '(0, 1000)'),
+    ]
+
+    @classmethod
+    def _rewrite_question_to_0_1000_scale(cls, question: str) -> str:
+        """Rewrite RefCOCO TSV questions to use the 0-1000 coordinate scale.
+
+        The upstream RefCOCO TSV is downloaded pre-built and may instruct the
+        model to emit 0-1 normalised coordinates. Qwen-series models are
+        trained on the 0-1000 scale, so the prompt is rewritten in-memory.
+        """
+        if not isinstance(question, str) or not question:
+            return question
+        rewritten = question
+        for pattern, replacement in cls._QUESTION_REWRITE_PATTERNS:
+            rewritten = pattern.sub(replacement, rewritten)
+        return rewritten
 
     @staticmethod
     def _extract_gt_bbox(meta_row: pd.Series) -> Optional[np.ndarray]:

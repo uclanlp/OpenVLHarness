@@ -72,13 +72,13 @@ class ZoomInSubfigure_Tool(BaseTool):
 def _select_subfigure_boxes(description):
     text = (description or "").lower()
     if any(token in text for token in ["full", "whole", "entire", "all"]):
-        return [[0.0, 0.0, 1.0, 1.0]]
+        return [[0.0, 0.0, 1000.0, 1000.0]]
 
     grid = {
-        "top_left": [0.0, 0.0, 0.5, 0.5],
-        "top_right": [0.5, 0.0, 0.5, 0.5],
-        "bottom_left": [0.0, 0.5, 0.5, 0.5],
-        "bottom_right": [0.5, 0.5, 0.5, 0.5],
+        "top_left": [0.0, 0.0, 500.0, 500.0],
+        "top_right": [500.0, 0.0, 500.0, 500.0],
+        "bottom_left": [0.0, 500.0, 500.0, 500.0],
+        "bottom_right": [500.0, 500.0, 500.0, 500.0],
     }
 
     match = re.search(r"subplot\s*(\d+)", text)
@@ -94,7 +94,7 @@ def _select_subfigure_boxes(description):
             return [grid[mapping[idx]]]
 
     if any(token in text for token in ["center", "centre", "middle"]):
-        return [[0.25, 0.25, 0.5, 0.5]]
+        return [[250.0, 250.0, 500.0, 500.0]]
 
     want_top = any(token in text for token in ["top", "upper"])
     want_bottom = any(token in text for token in ["bottom", "lower"])
@@ -121,4 +121,4 @@ def _select_subfigure_boxes(description):
         elif want_right:
             selected.extend([grid["top_right"], grid["bottom_right"]])
 
-    return selected or [[0.0, 0.0, 1.0, 1.0]]
+    return selected or [[0.0, 0.0, 1000.0, 1000.0]]

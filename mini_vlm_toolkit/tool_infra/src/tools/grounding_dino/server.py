@@ -62,6 +62,7 @@ def _build_inputs(processor, image, labels, device):
 
 
 def _normalize_boxes(boxes, width, height):
+    # Boxes are returned on a 0-1000 scale (Qwen-style) with 2-decimal precision.
     normalized = []
     if not width or not height:
         return normalized
@@ -69,10 +70,10 @@ def _normalize_boxes(boxes, width, height):
         x1, y1, x2, y2 = [float(value) for value in box]
         normalized.append(
             [
-                round(x1 / width, 4),
-                round(y1 / height, 4),
-                round(x2 / width, 4),
-                round(y2 / height, 4),
+                round(x1 / width * 1000.0, 2),
+                round(y1 / height * 1000.0, 2),
+                round(x2 / width * 1000.0, 2),
+                round(y2 / height * 1000.0, 2),
             ]
         )
     return normalized

@@ -30,7 +30,7 @@ What this script does:
 
      Each row represents a unique (image, category) pair.  The "answer"
      column stores ground-truth annotations in JSON:
-       • bbox TSV  →  [[x1, y1, x2, y2], ...]   (normalised 0-1)
+       • bbox TSV  →  [[x1, y1, x2, y2], ...]   (normalised on a 0-1000 scale)
        • mask TSV  →  [[[poly_x1,poly_y1,...], ...], ...]   (polygon coords,
                        one list-of-polygons per instance, absolute pixel coords)
 
@@ -56,7 +56,7 @@ Notes on the generated TSV columns
   areas           : JSON list of instance areas (in pixels²)
 
 For mask TSVs only:
-  answer_bbox     : bounding boxes in normalised coords (same format as bbox TSV)
+  answer_bbox     : bounding boxes on a 0-1000 scale (same format as bbox TSV)
                     Kept here so mask evaluation can also report box metrics.
 
 Resumability
@@ -190,16 +190,16 @@ def image_id_to_filename(image_id):
 
 
 def bbox_xywh_to_normalised_xyxy(bbox, img_w, img_h):
-    """Convert LVIS bbox [x, y, w, h] (absolute) to [x1, y1, x2, y2] (normalised 0-1).
+    """Convert LVIS bbox [x, y, w, h] (absolute) to [x1, y1, x2, y2] on a 0-1000 scale.
 
-    Returns a list of four floats rounded to 6 decimal places.
+    Returns a list of four floats rounded to 2 decimal places.
     """
     x, y, w, h = bbox
-    x1 = x / img_w
-    y1 = y / img_h
-    x2 = (x + w) / img_w
-    y2 = (y + h) / img_h
-    return [round(x1, 6), round(y1, 6), round(x2, 6), round(y2, 6)]
+    x1 = x / img_w * 1000.0
+    y1 = y / img_h * 1000.0
+    x2 = (x + w) / img_w * 1000.0
+    y2 = (y + h) / img_h * 1000.0
+    return [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
 
 
 def group_annotations_by_image_category(annotations):
@@ -219,8 +219,8 @@ def build_bbox_question(category_name):
     return (
         f'Locate all instances of \'{category_name}\' in this image. '
         f'For each instance, output a bounding box as [x1, y1, x2, y2] '
-        f'where coordinates are normalised between 0 and 1 '
-        f'(x1,y1 is top-left corner, x2,y2 is bottom-right corner). '
+        f'where coordinates are normalised on a 0-1000 scale '
+        f'(with (0,0) as the top-left corner and (1000,1000) as the bottom-right corner). '
         f'Output a JSON array of arrays.'
     )
 

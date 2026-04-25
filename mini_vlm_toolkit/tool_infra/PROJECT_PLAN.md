@@ -72,7 +72,7 @@ Key decisions (recorded so new contributors do not need prior context):
 - GroundingDINO: run a Hugging Face GroundingDINO model server (default `IDEA-Research/grounding-dino-base`) and wrap it from the toolkit; return data-first boxes/scores/labels (no VisualSketchpad wrapper).
 - OCR: run an EasyOCR model server (CPU by default) and wrap it from the toolkit; EasyOCR downloads weights on first run.
 - Depth: run a Depth-Anything model server (CPU default) and wrap it from the toolkit; server returns a depth colormap image.
-- Crop: normalized coordinates are the primary interface (better composition with DINO outputs); pixel coords are optional via an explicit flag/enum.
+- Crop: 0-1000 normalized coordinates (Qwen-style) are the primary interface (better composition with DINO outputs); pixel coords are optional via an explicit flag/enum.
 - Zoom tools: keep both variants as separate tools.
   - `ZoomInSubfigure`: OpenThinkIMG behavior (subplot selection by description).
   - `ZoomInImageByBBox`: VisualSketchpad behavior (bbox-based crop with padding).

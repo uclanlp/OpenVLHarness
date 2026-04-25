@@ -17,15 +17,15 @@ INPUT_SCHEMA = {
         "coords": {
             "type": "array",
             "description": (
-                "Crop box as [x1, y1, x2, y2]. Prefer normalized values in [0, 1] "
-                "with x1 < x2 and y1 < y2."
+                "Crop box as [x1, y1, x2, y2]. Prefer normalized values on the 0-1000 "
+                "scale (each value in [0, 1000]) with x1 < x2 and y1 < y2."
             ),
             "items": {"type": "number"},
         },
         "coords_type": {
             "type": "string",
             "description": (
-                "Coordinate mode. Use normalized_xyxy by default so coords are in [0, 1]. "
+                "Coordinate mode. Use normalized_xyxy by default so coords are on the 0-1000 scale. "
                 "Use pixel_xyxy only when you intentionally provide pixel coordinates."
             ),
             "enum": ["normalized_xyxy", "pixel_xyxy"],
@@ -44,21 +44,21 @@ class Crop_Tool(BaseTool):
                 "you already know the target box and need the cropped region only. "
                 "Do not use it to discover objects from text; use Visual_Grounding_Tool "
                 "for region discovery first. By default, provide "
-                "normalized coordinates in [0, 1]."
+                "normalized coordinates on the 0-1000 scale (each value in [0, 1000])."
             ),
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "coords": "list[float] - [x1, y1, x2, y2]; use normalized [0, 1] by default",
+                "coords": "list[float] - [x1, y1, x2, y2]; use normalized 0-1000 scale by default",
                 "coords_type": "str - normalized_xyxy (default) or pixel_xyxy",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": "Crop_Tool(image_path=\"/path/to/image.jpg\", coords=[0.1, 0.2, 0.6, 0.7])",
-                    "description": "Crop with normalized coordinates.",
+                    "command": "Crop_Tool(image_path=\"/path/to/image.jpg\", coords=[100, 200, 600, 700])",
+                    "description": "Crop with 0-1000 normalized coordinates.",
                 }
             ],
             user_metadata={

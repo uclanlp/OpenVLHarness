@@ -48,7 +48,7 @@ class GroundingDINO_Tool(BaseTool):
             },
             input_schema=INPUT_SCHEMA,
             output_type=(
-                "dict - boxes (pixel xyxy), boxes_normalized, scores, labels, size [H, W]"
+                "dict - boxes (pixel xyxy), boxes_normalized (0-1000 scale), scores, labels, size [H, W]"
             ),
             demo_commands=[
                 {
