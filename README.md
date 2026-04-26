@@ -8,7 +8,7 @@
 
 | Tool | Description |
 | --- | --- |
-| `Crop_Tool` | Crop an image using normalized or pixel coordinates. |
+| `Crop_Tool` | Crop an image using 0-1000 normalized or pixel coordinates. |
 | `Depth_Tool` | Estimate depth from an image using a Depth-Anything server. |
 | `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
 | `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
@@ -20,7 +20,7 @@
 | `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
 | `OCR_Tool` | Extract text strings from an image using an OCR server. |
 | `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
-| `Point_Tool` | Extract point coordinates from text or provided points and return normalized coordinates. |
+| `Point_Tool` | Extract point coordinates from text or provided points and return 0-1000 normalized coordinates. |
 | `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
 | `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
 | `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
@@ -33,7 +33,7 @@
 | `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
 | `Webpage_Visit_Tool` | Visit URLs via Reader APIs (Zhipu/Jina) and extract content relevant to a goal. |
 | `SlidingWindowDetection_Tool` | Run detection on overlapping crops to find small objects. |
-| `Zoom_In_Tool` | Crop an image around a normalized bbox with optional padding. |
+| `Zoom_In_Tool` | Crop an image around a 0-1000 normalized bbox with optional padding. |
 | `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
 
 ## VLM Evaluation Usage

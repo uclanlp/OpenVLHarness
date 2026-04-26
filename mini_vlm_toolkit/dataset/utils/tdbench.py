@@ -9,12 +9,20 @@ rotations_all = ['rot0', 'rot90', 'rot180', 'rot270']
 
 def extract_bbox_from_string(bbox_str):
     bbox_str = bbox_str.replace('\n', '')
-    parsed = re.findall(r'(\d?(?:\.\d+)?),\s?(\d?(?:\.\d+)?),\s?(\d?(?:\.\d+)?),\s?(\d?(?:\.\d+)?)', bbox_str)
+    parsed = re.findall(
+        r'(\d+(?:\.\d+)?),\s?(\d+(?:\.\d+)?),\s?(\d+(?:\.\d+)?),\s?(\d+(?:\.\d+)?)',
+        bbox_str,
+    )
     if len(parsed) == 1:
-        return float(parsed[0][0]), float(parsed[0][1]), float(parsed[0][2]), float(parsed[0][3])
+        coords = [float(v) for v in parsed[0]]
+        # Auto-detect scale: 0-1000 (Qwen-style) coords are normalised to 0-1
+        # so pred and GT are compared on the same scale.
+        if max(coords) > 1.5:
+            coords = [c / 1000.0 for c in coords]
+        return tuple(coords)
     else:
         raise RuntimeError(f'Invalid VLM output: {bbox_str}. '
-                           f'Correct coordinate should be [a, b, c, d], where each number is 0, 0.*, or 1. ')
+                           f'Correct coordinate should be [a, b, c, d] on a 0-1000 scale.')
 
 
 def calculate_bbox_iou(pred_bbox, gt_bbox):

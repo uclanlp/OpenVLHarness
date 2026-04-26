@@ -20,7 +20,7 @@ INPUT_SCHEMA = {
         "y": {"type": "number", "description": "y coordinate"},
         "coord_type": {
             "type": "string",
-            "description": "Coordinate mode: normalized or pixel",
+            "description": "Coordinate mode: normalized (0-1000 scale) or pixel",
             "enum": ["normalized", "pixel"],
         },
     },
@@ -46,15 +46,15 @@ class DrawHorizontalLineByY_Tool(BaseTool):
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "y": "float - y coordinate (normalized or pixel)",
-                "coord_type": "str - normalized or pixel",
+                "y": "float - y coordinate (normalized 0-1000 scale, or pixel)",
+                "coord_type": "str - normalized (0-1000 scale) or pixel",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "DrawHorizontalLineByY_Tool(image_path=\"/path/to/image.jpg\", y=0.5)",
-                    "description": "Draw a horizontal line at y=0.5.",
+                    "command": "DrawHorizontalLineByY_Tool(image_path=\"/path/to/image.jpg\", y=500)",
+                    "description": "Draw a horizontal line at the vertical midpoint (y=500 on 0-1000 scale).",
                 }
             ],
             user_metadata={
@@ -71,7 +71,7 @@ class DrawHorizontalLineByY_Tool(BaseTool):
         width, height = image.size
         y_value = float(y)
         if coord_type == "normalized":
-            y_value = clamp(y_value, 0.0, 1.0) * height
+            y_value = clamp(y_value, 0.0, 1000.0) / 1000.0 * height
         elif coord_type == "pixel":
             y_value = clamp(y_value, 0.0, float(height))
         else:

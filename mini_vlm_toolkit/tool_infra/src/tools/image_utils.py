@@ -102,14 +102,16 @@ def pil_to_base64(image, image_format="PNG"):
 
 
 def coerce_xyxy(coords, width, height, coords_type):
+    # "normalized_xyxy" inputs are on a 0-1000 scale (Qwen-style); each
+    # coord is divided by 1000 before being mapped to pixel space.
     if coords is None or len(coords) != 4:
         raise ValueError("coords must be a list of four values")
     x1, y1, x2, y2 = [float(value) for value in coords]
     if coords_type == "normalized_xyxy":
-        x1 = clamp(x1, 0.0, 1.0) * width
-        x2 = clamp(x2, 0.0, 1.0) * width
-        y1 = clamp(y1, 0.0, 1.0) * height
-        y2 = clamp(y2, 0.0, 1.0) * height
+        x1 = clamp(x1, 0.0, 1000.0) / 1000.0 * width
+        x2 = clamp(x2, 0.0, 1000.0) / 1000.0 * width
+        y1 = clamp(y1, 0.0, 1000.0) / 1000.0 * height
+        y2 = clamp(y2, 0.0, 1000.0) / 1000.0 * height
     elif coords_type == "pixel_xyxy":
         x1 = clamp(x1, 0.0, float(width))
         x2 = clamp(x2, 0.0, float(width))
@@ -130,19 +132,21 @@ def coerce_xyxy(coords, width, height, coords_type):
 
 
 def normalized_xywh_to_pixels(bbox, width, height):
+    # bbox is expected on the 0-1000 scale (Qwen-style); divide by 1000
+    # before mapping to pixel coordinates.
     if bbox is None or len(bbox) != 4:
         raise ValueError("bbox must be a list of four values")
     x, y, w, h = [float(value) for value in bbox]
-    x = clamp(x, 0.0, 1.0)
-    y = clamp(y, 0.0, 1.0)
-    w = clamp(w, 0.0, 1.0)
-    h = clamp(h, 0.0, 1.0)
-    x2 = clamp(x + w, 0.0, 1.0)
-    y2 = clamp(y + h, 0.0, 1.0)
-    left = int(round(x * width))
-    top = int(round(y * height))
-    right = int(round(x2 * width))
-    bottom = int(round(y2 * height))
+    x = clamp(x, 0.0, 1000.0)
+    y = clamp(y, 0.0, 1000.0)
+    w = clamp(w, 0.0, 1000.0)
+    h = clamp(h, 0.0, 1000.0)
+    x2 = clamp(x + w, 0.0, 1000.0)
+    y2 = clamp(y + h, 0.0, 1000.0)
+    left = int(round(x / 1000.0 * width))
+    top = int(round(y / 1000.0 * height))
+    right = int(round(x2 / 1000.0 * width))
+    bottom = int(round(y2 / 1000.0 * height))
     if right <= left or bottom <= top:
         raise ValueError("bbox results in empty crop")
     return left, top, right, bottom

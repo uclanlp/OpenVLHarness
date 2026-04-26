@@ -276,13 +276,13 @@ def move_all_images(all_domains, output_dir):
 # ── Annotation processing ────────────────────────────────────────────────────
 
 def bbox_xywh_to_normalised_xyxy(bbox, img_w, img_h):
-    """Convert COCO bbox [x, y, w, h] (abs pixels) → [x1, y1, x2, y2] (normalised 0-1)."""
+    """Convert COCO bbox [x, y, w, h] (abs pixels) → [x1, y1, x2, y2] on a 0-1000 scale."""
     x, y, w, h = bbox
     return [
-        round(x / img_w, 6),
-        round(y / img_h, 6),
-        round((x + w) / img_w, 6),
-        round((y + h) / img_h, 6),
+        round(x / img_w * 1000.0, 2),
+        round(y / img_h * 1000.0, 2),
+        round((x + w) / img_w * 1000.0, 2),
+        round((y + h) / img_h * 1000.0, 2),
     ]
 
 
@@ -291,8 +291,8 @@ def build_bbox_question(category_name):
     return (
         f"Locate all instances of '{category_name}' in this image. "
         f"For each instance, output a bounding box as [x1, y1, x2, y2] "
-        f"where coordinates are normalised between 0 and 1 "
-        f"(x1,y1 is top-left corner, x2,y2 is bottom-right corner). "
+        f"where coordinates are normalised on a 0-1000 scale "
+        f"(with (0,0) as the top-left corner and (1000,1000) as the bottom-right corner). "
         f"Output a JSON array of arrays."
     )
 

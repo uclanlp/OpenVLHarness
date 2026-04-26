@@ -33,7 +33,7 @@ INPUT_SCHEMA = {
         },
         "bounding_box": {
             "type": "array",
-            "description": "Normalized overlay box [x, y, w, h]",
+            "description": "Normalized overlay box [x, y, w, h] on the 0-1000 scale",
             "minItems": 4,
             "maxItems": 4,
             "items": {"type": "number"},
@@ -74,7 +74,7 @@ class OverlayImages_Tool(BaseTool):
                 "overlay_image_path": "str - local path to the overlay image",
                 "overlay_image_base64": "str - base64-encoded overlay image (use instead of overlay_image_path)",
                 "alpha": "float - overlay transparency (default 0.6)",
-                "bounding_box": "list[float] - normalized bbox [x, y, w, h] in [0, 1]",
+                "bounding_box": "list[float] - normalized bbox [x, y, w, h] on the 0-1000 scale",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - blended_image_base64",
@@ -111,7 +111,7 @@ class OverlayImages_Tool(BaseTool):
         )
 
         if bounding_box is None:
-            bounding_box = [0.0, 0.0, 1.0, 1.0]
+            bounding_box = [0.0, 0.0, 1000.0, 1000.0]
 
         width, height = base_image.size
         left, top, right, bottom = normalized_xywh_to_pixels(

@@ -394,11 +394,15 @@ class BaseAgent:
             return new_message, resolved_system_prompt
         return new_message
 
-    def _build_trajectory_record(self, input_messages, answer):
+    def _build_trajectory_record(self, input_messages, answer, processed_input_msgs=None):
         record = {
             "input_messages": input_messages,
             "final_answer": answer,
         }
+        if processed_input_msgs is not None:
+            record["messages"] = list(processed_input_msgs) + [
+                {"role": "assistant", "content": answer}
+            ]
         return record
 
     def generate(self, message, **kwargs1):
@@ -428,6 +432,11 @@ class BaseAgent:
         kwargs = cp.deepcopy(self.default_kwargs)
         kwargs.update(kwargs1)
 
+        processed_input_msgs = self.prepare_inputs(
+            cp.deepcopy(message),
+            system_prompt=active_system_prompt,
+        )
+
         answer = None
         last_log = None
         last_ret_code = None
@@ -452,6 +461,7 @@ class BaseAgent:
                     trajectory = self._build_trajectory_record(
                         raw_message,
                         answer,
+                        processed_input_msgs,
                     )
                     extra_records = {"trajectory": trajectory}
                     if isinstance(log, dict):
@@ -482,6 +492,7 @@ class BaseAgent:
         trajectory = self._build_trajectory_record(
             raw_message,
             final_answer,
+            processed_input_msgs,
         )
         if last_ret_code is not None:
             trajectory["ret_code"] = last_ret_code

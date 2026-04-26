@@ -203,7 +203,7 @@ No LLM judge is used. Returns a dict: `{'Bleu': [b1,b2,b3,b4], 'ROUGE_L': score,
 
 ### Grounding — `RefCOCODataset` (`refcoco.py`)
 
-**Data loading**: parses bounding box coordinates from the `answer` column. Auto-detects whether coordinates are normalized (0-1 range) or pixel-absolute, and converts accordingly.
+**Data loading**: parses bounding box coordinates from the `answer` column. Auto-detects whether coordinates are on the 0-1000 scale (Qwen-style), legacy 0-1 normalized, or pixel-absolute, and converts accordingly.
 
 **Answer parsing** (`_parse_prediction(pred_text)`): extracts `[x1, y1, x2, y2]` from the model output. Handles JSON arrays, tuples, and various text formats.
 
@@ -223,7 +223,7 @@ No LLM judge is used. Returns a dict: `{'Bleu': [b1,b2,b3,b4], 'ROUGE_L': score,
 
 These datasets evaluate open-vocabulary object detection. The model receives an image and a category name, and must output a list of bounding boxes.
 
-**Answer parsing**: robust extraction of bbox arrays from model text. Supports JSON arrays, markdown code blocks, and regex fallback for 4-number tuples. Auto-normalizes coordinates (detects absolute vs. normalized).
+**Answer parsing**: robust extraction of bbox arrays from model text. Supports JSON arrays, markdown code blocks, and regex fallback for 4-number tuples. Auto-normalises coordinates to the 0-1000 scale (detects legacy 0-1, 0-1000, or pixel-absolute inputs).
 
 **Evaluation**: greedy IoU matching between predicted and ground-truth boxes at IoU threshold 0.5.
 

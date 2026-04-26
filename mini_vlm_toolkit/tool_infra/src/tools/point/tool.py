@@ -41,7 +41,7 @@ INPUT_SCHEMA = {
         },
         "coord_type": {
             "type": "string",
-            "description": "Coordinate mode for points: normalized or pixel",
+            "description": "Coordinate mode for points: normalized (0-1000 scale) or pixel",
             "enum": ["normalized", "pixel"],
         },
     },
@@ -68,7 +68,7 @@ class Point_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Normalize point coordinates and return both normalized and pixel "
+                "Normalize point coordinates and return both normalized (0-1000 scale) and pixel "
                 "outputs. Use this tool when points are already provided (or written "
                 "as x/y values in text) and you need canonical coordinates. Do not "
                 "use it for vision-based point detection from image content."
@@ -79,10 +79,10 @@ class Point_Tool(BaseTool):
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "target": "str - optional text containing explicit x/y coordinates",
                 "points": "list[list[float]] | list[dict] - optional point list",
-                "coord_type": "str - normalized or pixel (used with points)",
+                "coord_type": "str - normalized (0-1000 scale) or pixel (used with points)",
             },
             input_schema=INPUT_SCHEMA,
-            output_type="dict - points (normalized x,y)",
+            output_type="dict - points (normalized x,y on 0-1000 scale)",
             demo_commands=[
                 {
                     "command": "Point_Tool(image_path=\"/path/to/image.jpg\", target=\"leftmost cup\")",
@@ -121,14 +121,14 @@ class Point_Tool(BaseTool):
                 x_value = float(x_value)
                 y_value = float(y_value)
                 if coord_type == "normalized":
-                    x_norm = clamp(x_value, 0.0, 1.0)
-                    y_norm = clamp(y_value, 0.0, 1.0)
+                    x_norm = clamp(x_value, 0.0, 1000.0)
+                    y_norm = clamp(y_value, 0.0, 1000.0)
                 elif coord_type == "pixel":
-                    x_norm = clamp(x_value / float(width), 0.0, 1.0)
-                    y_norm = clamp(y_value / float(height), 0.0, 1.0)
+                    x_norm = clamp(x_value / float(width) * 1000.0, 0.0, 1000.0)
+                    y_norm = clamp(y_value / float(height) * 1000.0, 0.0, 1000.0)
                 else:
                     raise ValueError("coord_type must be normalized or pixel")
-                normalized_points.append([x_norm, y_norm])
+                normalized_points.append([round(x_norm, 2), round(y_norm, 2)])
 
         if not normalized_points and target:
             normalized_points = _extract_points_from_text(target)
@@ -139,7 +139,7 @@ class Point_Tool(BaseTool):
             )
 
         points_pixel = [
-            [int(round(x * width)), int(round(y * height))]
+            [int(round(x / 1000.0 * width)), int(round(y / 1000.0 * height))]
             for x, y in normalized_points
         ]
         return {"points": normalized_points, "points_pixel": points_pixel}
@@ -174,10 +174,12 @@ def _extract_points_from_text(text):
             continue
         x_value = values[x_key]
         y_value = values[y_key]
-        if max(x_value, y_value) > 100:
+        if max(x_value, y_value) > 1000:
             continue
-        if max(x_value, y_value) > 1:
-            x_value /= 100.0
-            y_value /= 100.0
-        points.append([clamp(x_value, 0.0, 1.0), clamp(y_value, 0.0, 1.0)])
+        points.append(
+            [
+                round(clamp(x_value, 0.0, 1000.0), 2),
+                round(clamp(y_value, 0.0, 1000.0), 2),
+            ]
+        )
     return points

@@ -20,7 +20,7 @@ INPUT_SCHEMA = {
         "x": {"type": "number", "description": "x coordinate"},
         "coord_type": {
             "type": "string",
-            "description": "Coordinate mode: normalized or pixel",
+            "description": "Coordinate mode: normalized (0-1000 scale) or pixel",
             "enum": ["normalized", "pixel"],
         },
     },
@@ -46,15 +46,15 @@ class DrawVerticalLineByX_Tool(BaseTool):
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
-                "x": "float - x coordinate (normalized or pixel)",
-                "coord_type": "str - normalized or pixel",
+                "x": "float - x coordinate (normalized 0-1000 scale, or pixel)",
+                "coord_type": "str - normalized (0-1000 scale) or pixel",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "DrawVerticalLineByX_Tool(image_path=\"/path/to/image.jpg\", x=0.5)",
-                    "description": "Draw a vertical line at x=0.5.",
+                    "command": "DrawVerticalLineByX_Tool(image_path=\"/path/to/image.jpg\", x=500)",
+                    "description": "Draw a vertical line at the horizontal midpoint (x=500 on 0-1000 scale).",
                 }
             ],
             user_metadata={
@@ -71,7 +71,7 @@ class DrawVerticalLineByX_Tool(BaseTool):
         width, height = image.size
         x_value = float(x)
         if coord_type == "normalized":
-            x_value = clamp(x_value, 0.0, 1.0) * width
+            x_value = clamp(x_value, 0.0, 1000.0) / 1000.0 * width
         elif coord_type == "pixel":
             x_value = clamp(x_value, 0.0, float(width))
         else:

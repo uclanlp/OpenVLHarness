@@ -45,11 +45,12 @@ def _parse_bbox_array_from_text(text: str) -> List[List[float]]:
     """Extract bounding boxes from model output text.
 
     Supports multiple formats:
-      1. JSON array:   [[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8]]
-      2. Single box:   [0.1, 0.2, 0.3, 0.4]
+      1. JSON array:   [[100, 200, 300, 400], [500, 600, 700, 800]]
+      2. Single box:   [100, 200, 300, 400]
       3. Loose numbers: fall back to grouping every 4 numbers as a box
 
-    Returns a list of [x1, y1, x2, y2] lists (normalised 0-1).
+    Returns a list of [x1, y1, x2, y2] lists in raw model-emitted units.
+    Use _normalise_boxes() to canonicalise the scale.
     """
     if not isinstance(text, str) or not text.strip():
         return []
@@ -112,11 +113,13 @@ def _parse_bbox_array_from_text(text: str) -> List[List[float]]:
 
 
 def _normalise_boxes(boxes: List[List[float]], img_w: float, img_h: float) -> List[List[float]]:
-    """Ensure boxes are in normalised [0,1] coordinate space.
+    """Ensure boxes are on a 0-1000 normalised coordinate scale (Qwen-style).
 
-    Heuristic: if max coordinate > 1.5, assume absolute pixel coords and
-    normalise; if max > 1.5 but <= 1000 and image dims unknown, assume
-    0-1000 scale.
+    Heuristic:
+      • max <= 1.5            → legacy 0-1 normalised input; rescale to 0-1000.
+      • max <= 1000           → already on the 0-1000 scale; pass through.
+      • otherwise             → absolute pixel coordinates; divide by image
+                                dimensions and rescale to 0-1000.
     """
     if not boxes:
         return boxes
@@ -124,18 +127,18 @@ def _normalise_boxes(boxes: List[List[float]], img_w: float, img_h: float) -> Li
     max_val = max(max(abs(v) for v in box) for box in boxes)
 
     if max_val <= 1.5:
-        # Already normalised
-        return boxes
-    elif max_val <= 1000 and img_w <= 1 and img_h <= 1:
-        # 0-1000 scale (e.g. Qwen models)
-        return [[v / 1000.0 for v in box] for box in boxes]
+        # Legacy 0-1 normalised; rescale to 0-1000
+        return [[v * 1000.0 for v in box] for box in boxes]
+    elif max_val <= 1000:
+        # Already on the 0-1000 scale (e.g. Qwen models)
+        return [[float(v) for v in box] for box in boxes]
     else:
-        # Absolute pixel coordinates
+        # Absolute pixel coordinates → 0-1000
         normalised = []
         for box in boxes:
             normalised.append([
-                box[0] / img_w, box[1] / img_h,
-                box[2] / img_w, box[3] / img_h,
+                box[0] / img_w * 1000.0, box[1] / img_h * 1000.0,
+                box[2] / img_w * 1000.0, box[3] / img_h * 1000.0,
             ])
         return normalised
 
@@ -800,13 +803,13 @@ class LVISMaskDataset(ImageBaseDataset):
 
                 if rle is not None:
                     masks.append(rle)
-                    # Derive bbox from mask
+                    # Derive bbox from mask (on the 0-1000 scale)
                     try:
                         bbox = mask_util.toBbox(rle).tolist()  # [x, y, w, h]
-                        x1 = bbox[0] / img_w
-                        y1 = bbox[1] / img_h
-                        x2 = (bbox[0] + bbox[2]) / img_w
-                        y2 = (bbox[1] + bbox[3]) / img_h
+                        x1 = bbox[0] / img_w * 1000.0
+                        y1 = bbox[1] / img_h * 1000.0
+                        x2 = (bbox[0] + bbox[2]) / img_w * 1000.0
+                        y2 = (bbox[1] + bbox[3]) / img_h * 1000.0
                         bboxes.append([x1, y1, x2, y2])
                     except Exception:
                         pass

@@ -53,17 +53,17 @@ def process_tool_output(payload, memory, tool_metadata=None):
         orig_h = result.get("orig_img_h", 1)
         box_mapping = {
             f"object {i + 1}": [
-                min(max(round(box[0] / orig_w, 4), 0), 1),
-                min(max(round(box[1] / orig_h, 4), 0), 1),
-                min(max(round(box[2] / orig_w, 4), 0), 1),
-                min(max(round(box[3] / orig_h, 4), 0), 1),
+                min(max(round(box[0] / orig_w * 1000, 2), 0), 1000),
+                min(max(round(box[1] / orig_h * 1000, 2), 0), 1000),
+                min(max(round(box[2] / orig_w * 1000, 2), 0), 1000),
+                min(max(round(box[3] / orig_h * 1000, 2), 0), 1000),
             ]
             for i, box in enumerate(pred_boxes)
             if len(box) == 4
         }
         text = (
             f"{tool_name} grounded {mask_count} objects for the prompt {prompt!r}. "
-            f"Their corresponding bounding boxes are: {box_mapping}. "
+            f"Their corresponding bounding boxes (on a 0-1000 scale, [x1, y1, x2, y2]) are: {box_mapping}. "
             f"The object numbers correspond to the labeled masks rendered in the following image, which you can refer to as {image_ref}."
         )
     else:

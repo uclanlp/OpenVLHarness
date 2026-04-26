@@ -92,7 +92,7 @@ class ToolContextMemory(ImageStateMemory):
     _FIELD_DESCRIPTIONS: Dict[Tuple[str, str], str] = {
         # GroundingDINO
         ("GroundingDINO_Tool", "boxes"): "bounding boxes [x1,y1,x2,y2] in pixels",
-        ("GroundingDINO_Tool", "boxes_normalized"): "bounding boxes [x1,y1,x2,y2] normalized 0-1",
+        ("GroundingDINO_Tool", "boxes_normalized"): "bounding boxes [x1,y1,x2,y2] on 0-1000 scale",
         ("GroundingDINO_Tool", "scores"): "detection confidence scores",
         ("GroundingDINO_Tool", "labels"): "detected object labels",
         ("GroundingDINO_Tool", "size"): "[width, height] of source image",
