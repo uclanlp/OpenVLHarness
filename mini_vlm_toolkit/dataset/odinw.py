@@ -248,6 +248,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
             ) from exc
 
         from .eval_bridge import (
+            _resolve_score_modes,
             build_coco_predictions,
             build_sam3_score_lookup,
             drop_incomplete_images,
@@ -256,19 +257,13 @@ class ODinWBBoxDataset(ImageBaseDataset):
             write_json,
         )
 
-        # Phase 2: auto-detect score_mode from sidecar presence; allow env override.
+        # Phase 2: decide which score_mode(s) to run.  When SCORE_MODE is
+        # NOT explicitly set and sidecars are present, we run BOTH modes
+        # in a single evaluate() call and emit two sets of metrics files
+        # (primary + alternate) so the score-utility ablation needs no
+        # second invocation.
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
-        override = os.environ.get('SCORE_MODE', '').strip().lower()
-        if override in ('constant', 'original'):
-            score_mode = override
-        elif osp.isdir(tool_detections_dir) and any(os.scandir(tool_detections_dir)):
-            score_mode = 'original'
-        else:
-            score_mode = 'constant'
-
-        score_lookup = None
-        if score_mode == 'original':
-            score_lookup = build_sam3_score_lookup(tool_detections_dir)
+        modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
 
         # Phase 1.5: derive eval_scope from dataset name. Names ending in
         # ``_full`` (e.g. ``ODinW13_bbox_val_full``) trigger the full-
@@ -338,253 +333,269 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 if iid is not None:
                     expected_pairs_by_ds[(d, s)].add((iid, cid))
 
-        per_domain: Dict[str, Dict] = {}
-        all_preds: List[Dict] = []
-        domain_splits_evaluated: List[str] = []
+        # ── Per-mode loop ───────────────────────────────────────────────
+        primary_summary = None
+        for score_mode in modes_to_run:
+            is_primary = (score_mode == primary_mode)
+            file_suffix = '' if is_primary else f'_{score_mode}'
 
-        for (domain, split), rows in sorted(rows_by_domain_split.items()):
-            gt_path = gt_path_map.get((domain, split))
-            if gt_path is None:
-                logger.warning(
-                    'No GT JSON for ODinW (%s, %s); skipping %d rows.',
-                    domain, split, len(rows),
-                )
-                continue
+            score_lookup = None
+            if score_mode == 'original':
+                score_lookup = build_sam3_score_lookup(tool_detections_dir)
 
-            preds = build_coco_predictions(
-                rows, score_mode=score_mode, score_lookup=score_lookup,
-            )
-            all_preds.extend(preds)
+            per_domain: Dict[str, Dict] = {}
+            all_preds: List[Dict] = []
+            domain_splits_evaluated: List[str] = []
 
-            # Per-domain category-conditioned restriction.
-            kept_pairs = set()
-            for r in rows:
-                iid = parse_image_id_from_index(r['index'])
-                try:
-                    cid = int(r['category_id'])
-                except (TypeError, ValueError):
+            for (domain, split), rows in sorted(rows_by_domain_split.items()):
+                gt_path = gt_path_map.get((domain, split))
+                if gt_path is None:
+                    logger.warning(
+                        'No GT JSON for ODinW (%s, %s); skipping %d rows.',
+                        domain, split, len(rows),
+                    )
                     continue
-                if iid is not None:
-                    kept_pairs.add((iid, cid))
 
-            with open(gt_path) as f:
-                gt = json.load(f)
-
-            if eval_scope == 'category_conditioned':
-                eval_pairs = kept_pairs
-                keep_cats = False
-            else:
-                # Full-detection: keep all annotations the GT JSON has.
-                eval_pairs = {
-                    (int(a['image_id']), int(a['category_id']))
-                    for a in gt['annotations']
-                }
-                keep_cats = True
-            # remap_ann_ids=True is essential for ODinW because some COCO
-            # JSONs (e.g. AerialMaritimeDrone) start annotation ids at 0,
-            # which COCOeval interprets as the unmatched sentinel.
-            filtered_gt = filter_coco_gt_to_pairs(
-                gt, eval_pairs,
-                keep_all_categories=keep_cats,
-                remap_ann_ids=True,
-            )
-            # Drop GT annotations with zero/negative width or height — a
-            # handful of ODinW JSONs (Aquarium, pistols, pothole) carry
-            # degenerate boxes that COCOeval can't match against, dragging
-            # AP down to ~0.99 even on perfect predictions.
-            n_before = len(filtered_gt['annotations'])
-            filtered_gt['annotations'] = [
-                a for a in filtered_gt['annotations']
-                if len(a.get('bbox', [])) >= 4
-                and a['bbox'][2] > 0 and a['bbox'][3] > 0
-            ]
-            n_dropped = n_before - len(filtered_gt['annotations'])
-            if n_dropped:
-                logger.info(
-                    'ODinW [%s/%s]: dropped %d degenerate (zero-area) GT annotations.',
-                    domain, split, n_dropped,
+                preds = build_coco_predictions(
+                    rows, score_mode=score_mode, score_lookup=score_lookup,
                 )
-                # Re-id sequentially again after the drop.
-                for new_id, ann in enumerate(filtered_gt['annotations'], start=1):
-                    ann['id'] = new_id
+                all_preds.extend(preds)
 
-            # Phase 1.5: completeness filter. In full-detection mode, drop
-            # any (image_id) whose full set of expected category queries
-            # wasn't completed (i.e. inference was killed mid-image).
-            completion_summary: Dict = {
-                'images_total': len(filtered_gt['images']),
-                'images_completed': len(filtered_gt['images']),
-                'images_dropped': 0,
-                'dropped_image_ids': [],
-            }
-            if eval_scope == 'full_detection':
-                expected_pairs = expected_pairs_by_ds.get((domain, split), set())
-                completed_pairs = set()
+                # Per-domain category-conditioned restriction.
+                kept_pairs = set()
                 for r in rows:
-                    pv = r.get('prediction', None)
-                    # Treat NaN / None / empty string as "not completed".
-                    # Empty CSV cells round-trip as NaN through pandas.
-                    if pv is None or (isinstance(pv, float) and pd.isna(pv)):
-                        continue
-                    if not str(pv).strip():
-                        continue
                     iid = parse_image_id_from_index(r['index'])
                     try:
                         cid = int(r['category_id'])
                     except (TypeError, ValueError):
                         continue
                     if iid is not None:
-                        completed_pairs.add((iid, cid))
-                preds, filtered_gt, completion_summary = drop_incomplete_images(
-                    preds, filtered_gt, expected_pairs, completed_pairs,
+                        kept_pairs.add((iid, cid))
+
+                with open(gt_path) as f:
+                    gt = json.load(f)
+
+                if eval_scope == 'category_conditioned':
+                    eval_pairs = kept_pairs
+                    keep_cats = False
+                else:
+                    # Full-detection: keep all annotations the GT JSON has.
+                    eval_pairs = {
+                        (int(a['image_id']), int(a['category_id']))
+                        for a in gt['annotations']
+                    }
+                    keep_cats = True
+                # remap_ann_ids=True is essential for ODinW because some COCO
+                # JSONs (e.g. AerialMaritimeDrone) start annotation ids at 0,
+                # which COCOeval interprets as the unmatched sentinel.
+                filtered_gt = filter_coco_gt_to_pairs(
+                    gt, eval_pairs,
+                    keep_all_categories=keep_cats,
+                    remap_ann_ids=True,
                 )
-                if completion_summary['images_dropped']:
-                    logger.warning(
-                        'ODinW [%s/%s]: dropped %d/%d images for incomplete '
-                        'category coverage (full-detection partial-run safety net).',
-                        domain, split,
-                        completion_summary['images_dropped'],
-                        completion_summary['images_total'],
+                # Drop GT annotations with zero/negative width or height — a
+                # handful of ODinW JSONs (Aquarium, pistols, pothole) carry
+                # degenerate boxes that COCOeval can't match against, dragging
+                # AP down to ~0.99 even on perfect predictions.
+                n_before = len(filtered_gt['annotations'])
+                filtered_gt['annotations'] = [
+                    a for a in filtered_gt['annotations']
+                    if len(a.get('bbox', [])) >= 4
+                    and a['bbox'][2] > 0 and a['bbox'][3] > 0
+                ]
+                n_dropped = n_before - len(filtered_gt['annotations'])
+                if n_dropped:
+                    logger.info(
+                        'ODinW [%s/%s]: dropped %d degenerate (zero-area) GT annotations.',
+                        domain, split, n_dropped,
                     )
+                    # Re-id sequentially again after the drop.
+                    for new_id, ann in enumerate(filtered_gt['annotations'], start=1):
+                        ann['id'] = new_id
 
-            filtered_gt_path = get_intermediate_file_path(
-                eval_file, f'_odinw_gt_{domain}_{split}', target_format='json'
+                # Phase 1.5: completeness filter. In full-detection mode, drop
+                # any (image_id) whose full set of expected category queries
+                # wasn't completed (i.e. inference was killed mid-image).
+                completion_summary: Dict = {
+                    'images_total': len(filtered_gt['images']),
+                    'images_completed': len(filtered_gt['images']),
+                    'images_dropped': 0,
+                    'dropped_image_ids': [],
+                }
+                if eval_scope == 'full_detection':
+                    expected_pairs = expected_pairs_by_ds.get((domain, split), set())
+                    completed_pairs = set()
+                    for r in rows:
+                        pv = r.get('prediction', None)
+                        # Treat NaN / None / empty string as "not completed".
+                        # Empty CSV cells round-trip as NaN through pandas.
+                        if pv is None or (isinstance(pv, float) and pd.isna(pv)):
+                            continue
+                        if not str(pv).strip():
+                            continue
+                        iid = parse_image_id_from_index(r['index'])
+                        try:
+                            cid = int(r['category_id'])
+                        except (TypeError, ValueError):
+                            continue
+                        if iid is not None:
+                            completed_pairs.add((iid, cid))
+                    preds, filtered_gt, completion_summary = drop_incomplete_images(
+                        preds, filtered_gt, expected_pairs, completed_pairs,
+                    )
+                    if completion_summary['images_dropped']:
+                        logger.warning(
+                            'ODinW [%s/%s]: dropped %d/%d images for incomplete '
+                            'category coverage (full-detection partial-run safety net).',
+                            domain, split,
+                            completion_summary['images_dropped'],
+                            completion_summary['images_total'],
+                        )
+
+                # The filtered GT JSON content is mode-invariant; write
+                # without a mode suffix so a single file is shared across
+                # both modes' COCOeval calls.
+                filtered_gt_path = get_intermediate_file_path(
+                    eval_file, f'_odinw_gt_{domain}_{split}', target_format='json'
+                )
+                write_json(filtered_gt, filtered_gt_path)
+
+                logger.info(
+                    'ODinW [%s/%s] mode=%s: %d rows → %d predictions, GT %d images / %d ann.',
+                    domain, split, score_mode, len(rows), len(preds),
+                    len(filtered_gt['images']), len(filtered_gt['annotations']),
+                )
+
+                metrics = _evaluate_coco_bbox(filtered_gt_path, preds)
+                per_domain[f'{domain}/{split}'] = {
+                    **metrics,
+                    'num_predictions': len(preds),
+                    'num_rows': len(rows),
+                    'num_kept_pairs': len(kept_pairs),
+                    'num_images': len(filtered_gt['images']),
+                    'num_annotations': len(filtered_gt['annotations']),
+                    'images_total': completion_summary['images_total'],
+                    'images_completed': completion_summary['images_completed'],
+                    'images_dropped': completion_summary['images_dropped'],
+                }
+                domain_splits_evaluated.append(f'{domain}/{split}')
+
+            # Average across domains using the **test** split only.  This matches
+            # the ODinW-13 reporting convention used by GLIP / Grounding DINO.
+            # The val TSV bundles both val and test rows (per prepare_odinw.py);
+            # both are reported per-domain but only test feeds the average.
+            # Skip -1 ("no data") entries when averaging so APs/APm/APl don't
+            # get pulled down by domains that have no small/medium/large boxes.
+            metric_keys = ['AP', 'AP50', 'AP75', 'APs', 'APm', 'APl']
+            avg_source = (
+                [d for d in per_domain if d.endswith('/test')]
+                or list(per_domain.keys())
             )
-            write_json(filtered_gt, filtered_gt_path)
 
-            logger.info(
-                'ODinW [%s/%s]: %d rows → %d predictions, GT %d images / %d ann.',
-                domain, split, len(rows), len(preds),
-                len(filtered_gt['images']), len(filtered_gt['annotations']),
+            def _mean_skip_missing(vals):
+                valid = [float(v) for v in vals if v is not None and float(v) >= 0]
+                if not valid:
+                    return -1.0
+                return float(np.mean(valid))
+
+            if avg_source:
+                avg = {
+                    k: _mean_skip_missing([per_domain[d][k] for d in avg_source])
+                    for k in metric_keys
+                }
+            else:
+                avg = {k: 0.0 for k in metric_keys}
+            test_keys = [d for d in per_domain if d.endswith('/test')]
+
+            avg_label = (
+                'ODinW13_average' if 'ODinW13' in self.dataset_name
+                else 'ODinW35_average' if 'ODinW35' in self.dataset_name
+                else 'ODinW_average'
             )
 
-            metrics = _evaluate_coco_bbox(filtered_gt_path, preds)
-            per_domain[f'{domain}/{split}'] = {
-                **metrics,
-                'num_predictions': len(preds),
-                'num_rows': len(rows),
-                'num_kept_pairs': len(kept_pairs),
-                'num_images': len(filtered_gt['images']),
-                'num_annotations': len(filtered_gt['annotations']),
-                'images_total': completion_summary['images_total'],
-                'images_completed': completion_summary['images_completed'],
-                'images_dropped': completion_summary['images_dropped'],
+            # Phase 2: emit sidecar diagnostics if we used real SAM3 scores.
+            sidecar_diag = None
+            if score_lookup is not None and hasattr(score_lookup, 'counters'):
+                c = score_lookup.counters
+                total = c['hits'] + c['misses']
+                sidecar_diag = {
+                    'sidecar_hits': c['hits'],
+                    'sidecar_misses': c['misses'],
+                    'sidecar_hit_rate': (c['hits'] / total) if total else 0.0,
+                    'rows_with_sidecar': c['rows_with_sidecar'],
+                    'rows_without_sidecar': c['rows_without_sidecar'],
+                }
+
+            # Save full metrics JSON (per mode).
+            metrics_blob = {
+                'dataset': self.dataset_name,
+                'evaluator': 'pycocotools.COCOeval',
+                'iou_type': 'bbox',
+                'score_mode': score_mode,
+                'eval_scope': eval_scope,
+                'num_predictions_total': len(all_preds),
+                'domain_splits_evaluated': domain_splits_evaluated,
+                'average_split': 'test' if test_keys else (
+                    domain_splits_evaluated[0].split('/', 1)[1] if domain_splits_evaluated else None
+                ),
+                'per_domain': per_domain,
+                avg_label: avg,
             }
-            domain_splits_evaluated.append(f'{domain}/{split}')
+            if sidecar_diag is not None:
+                metrics_blob['sidecar'] = sidecar_diag
+            metrics_file = get_intermediate_file_path(
+                eval_file, f'_metrics{file_suffix}', target_format='json'
+            )
+            dump(metrics_blob, metrics_file)
 
-        # Average across domains using the **test** split only.  This matches
-        # the ODinW-13 reporting convention used by GLIP / Grounding DINO.
-        # The val TSV bundles both val and test rows (per prepare_odinw.py);
-        # both are reported per-domain but only test feeds the average.
-        # Skip -1 ("no data") entries when averaging so APs/APm/APl don't
-        # get pulled down by domains that have no small/medium/large boxes.
-        metric_keys = ['AP', 'AP50', 'AP75', 'APs', 'APm', 'APl']
-        avg_source = (
-            [d for d in per_domain if d.endswith('/test')]
-            or list(per_domain.keys())
-        )
+            # Combined predictions JSON for offline re-runs (per mode).
+            combined_pred_path = get_intermediate_file_path(
+                eval_file, f'_odinw_pred{file_suffix}', target_format='json'
+            )
+            write_json(all_preds, combined_pred_path)
 
-        def _mean_skip_missing(vals):
-            valid = [float(v) for v in vals if v is not None and float(v) >= 0]
-            if not valid:
-                return -1.0
-            return float(np.mean(valid))
+            # Slim summary DataFrame (per mode).
+            def _pct(v):
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    return 'N/A'
+                if fv < 0:
+                    return 'N/A'
+                return round(fv * 100, 2)
 
-        if avg_source:
-            avg = {
-                k: _mean_skip_missing([per_domain[d][k] for d in avg_source])
-                for k in metric_keys
-            }
-        else:
-            avg = {k: 0.0 for k in metric_keys}
-        test_keys = [d for d in per_domain if d.endswith('/test')]
-
-        avg_label = (
-            'ODinW13_average' if 'ODinW13' in self.dataset_name
-            else 'ODinW35_average' if 'ODinW35' in self.dataset_name
-            else 'ODinW_average'
-        )
-
-        # Phase 2: emit sidecar diagnostics if we used real SAM3 scores.
-        sidecar_diag = None
-        if score_lookup is not None and hasattr(score_lookup, 'counters'):
-            c = score_lookup.counters
-            total = c['hits'] + c['misses']
-            sidecar_diag = {
-                'sidecar_hits': c['hits'],
-                'sidecar_misses': c['misses'],
-                'sidecar_hit_rate': (c['hits'] / total) if total else 0.0,
-                'rows_with_sidecar': c['rows_with_sidecar'],
-                'rows_without_sidecar': c['rows_without_sidecar'],
-            }
-
-        # Save full metrics JSON.
-        metrics_blob = {
-            'dataset': self.dataset_name,
-            'evaluator': 'pycocotools.COCOeval',
-            'iou_type': 'bbox',
-            'score_mode': score_mode,
-            'eval_scope': eval_scope,
-            'num_predictions_total': len(all_preds),
-            'domain_splits_evaluated': domain_splits_evaluated,
-            'average_split': 'test' if test_keys else (
-                domain_splits_evaluated[0].split('/', 1)[1] if domain_splits_evaluated else None
-            ),
-            'per_domain': per_domain,
-            avg_label: avg,
-        }
-        if sidecar_diag is not None:
-            metrics_blob['sidecar'] = sidecar_diag
-        metrics_file = get_intermediate_file_path(
-            eval_file, '_metrics', target_format='json'
-        )
-        dump(metrics_blob, metrics_file)
-
-        # Combined predictions JSON for offline re-runs.
-        combined_pred_path = get_intermediate_file_path(
-            eval_file, '_odinw_pred', target_format='json'
-        )
-        write_json(all_preds, combined_pred_path)
-
-        # Slim summary DataFrame.  COCOeval emits -1 for empty area buckets
-        # (e.g., a domain with only large boxes has APs=-1); render those as
-        # 'N/A' rather than the misleading -100.0.  Raw -1.0 values stay in
-        # the full metrics JSON for machine-readable consumers.
-        def _pct(v):
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                return 'N/A'
-            if fv < 0:
-                return 'N/A'
-            return round(fv * 100, 2)
-
-        rows_out: List[Dict] = []
-        for d in sorted(per_domain.keys()):
-            m = per_domain[d]
+            rows_out: List[Dict] = []
+            for d in sorted(per_domain.keys()):
+                m = per_domain[d]
+                rows_out.append({
+                    'Domain': d,
+                    'score_mode': score_mode,
+                    'AP':   _pct(m['AP']),
+                    'AP50': _pct(m['AP50']),
+                    'AP75': _pct(m['AP75']),
+                    'APs':  _pct(m['APs']),
+                    'APm':  _pct(m['APm']),
+                    'APl':  _pct(m['APl']),
+                    'Samples': m['num_rows'],
+                })
             rows_out.append({
-                'Domain': d,
-                'AP':   _pct(m['AP']),
-                'AP50': _pct(m['AP50']),
-                'AP75': _pct(m['AP75']),
-                'APs':  _pct(m['APs']),
-                'APm':  _pct(m['APm']),
-                'APl':  _pct(m['APl']),
-                'Samples': m['num_rows'],
+                'Domain': avg_label,
+                'score_mode': score_mode,
+                'AP':   _pct(avg['AP']),
+                'AP50': _pct(avg['AP50']),
+                'AP75': _pct(avg['AP75']),
+                'APs':  _pct(avg['APs']),
+                'APm':  _pct(avg['APm']),
+                'APl':  _pct(avg['APl']),
+                'Samples': sum(per_domain[d]['num_rows'] for d in per_domain) if per_domain else 0,
             })
-        rows_out.append({
-            'Domain': avg_label,
-            'AP':   _pct(avg['AP']),
-            'AP50': _pct(avg['AP50']),
-            'AP75': _pct(avg['AP75']),
-            'APs':  _pct(avg['APs']),
-            'APm':  _pct(avg['APm']),
-            'APl':  _pct(avg['APl']),
-            'Samples': sum(per_domain[d]['num_rows'] for d in per_domain) if per_domain else 0,
-        })
-        summary_df = pd.DataFrame(rows_out)
-        score_file = get_intermediate_file_path(eval_file, '_acc')
-        dump(summary_df, score_file)
+            summary_df = pd.DataFrame(rows_out)
+            score_file = get_intermediate_file_path(eval_file, f'_acc{file_suffix}')
+            dump(summary_df, score_file)
 
-        logger.info('ODinW bbox evaluation complete: %s = %s', avg_label, avg)
-        return summary_df
+            logger.info('[ODinW %s] complete: %s = %s', score_mode, avg_label, avg)
+
+            if is_primary:
+                primary_summary = summary_df
+
+        return primary_summary

@@ -319,6 +319,35 @@ def write_json(obj, path) -> None:
         json.dump(obj, f)
 
 
+def _resolve_score_modes(tool_detections_dir: str) -> Tuple[List[str], str]:
+    """Decide which score_mode(s) to run for one ``evaluate()`` call.
+
+    Resolution order:
+
+    1. ``$SCORE_MODE`` env var, if set to ``constant`` or ``original`` →
+       run that single mode.
+    2. Sidecars present (``tool_detections/`` dir with at least one entry)
+       → run BOTH ``original`` (primary) and ``constant`` (alternate) so
+       the score-utility ablation is produced in one shot.
+    3. Else → run ``constant`` only.
+
+    Returns ``(modes, primary)`` where ``modes`` is the ordered list of
+    modes to evaluate (primary first) and ``primary`` is the mode whose
+    output files are the un-suffixed ``_metrics.json`` / ``_acc.csv``;
+    other modes are written as ``_metrics_<mode>.json`` / ``_acc_<mode>.csv``.
+    """
+    override = os.environ.get("SCORE_MODE", "").strip().lower()
+    if override in ("constant", "original"):
+        return [override], override
+    has_sidecars = (
+        os.path.isdir(tool_detections_dir)
+        and any(os.scandir(tool_detections_dir))
+    )
+    if has_sidecars:
+        return ["original", "constant"], "original"
+    return ["constant"], "constant"
+
+
 def _iou_xyxy(box_a: Sequence[float], box_b: Sequence[float]) -> float:
     """IoU of two boxes in [x1, y1, x2, y2] format. 0 for degenerate boxes."""
     ax1, ay1, ax2, ay2 = box_a[:4]
