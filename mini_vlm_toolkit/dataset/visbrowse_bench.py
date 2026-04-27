@@ -5,10 +5,10 @@ Visual-native web browsing benchmark (169 VQA instances across 7 domains and
 reasoning + web search to answer; dataset is distributed in an encrypted
 canary format and must be decrypted on load.
 
-Source layout (cloned from https://github.com/ZhengboZhang/VisBrowse-Bench):
-  $VISBROWSE_ROOT/
-    data/VisBrowse-Bench.jsonl        — encrypted JSONL, 169 records
-    VisBrowse_Bench_images/           — local copy of images (1-3 per item)
+Source: HuggingFace dataset ``Zhengbo-Zhang/VisBrowse-Bench`` (169 rows
+of encrypted metadata + image URL pointers to GitHub raw). Images are
+fetched on first build into ``$LMUData/images/VisBrowseBench/<basename>``
+and cached for reuse.
 
 Record schema (encrypted):
   {
@@ -37,6 +37,8 @@ import json
 import os
 import os.path as osp
 import re
+import urllib.error
+import urllib.request
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -50,11 +52,57 @@ from ..utils import track_progress_rich
 
 
 # ---------------------------------------------------------------------------
-# Source-data layout
+# Source-data: HuggingFace dataset (jsonl) + GitHub raw image fetch
 # ---------------------------------------------------------------------------
-_VISBROWSE_ROOT_DEFAULT = '/home/<user>/code/VisBrowse-Bench'
-_JSONL_REL = 'data/VisBrowse-Bench.jsonl'
-_IMG_DIR_REL = 'VisBrowse_Bench_images'
+_HF_DATASET_ID = 'Zhengbo-Zhang/VisBrowse-Bench'
+
+
+def _load_hf_dataset():
+    """Load VisBrowse-Bench from HuggingFace, with a cache fallback.
+
+    Mirrors the MMSearch loader's defensive pattern — if the user's HF
+    datasets cache is in an incompatible state, retry with a fresh
+    cache_dir under ``LMUDataRoot()``.
+    """
+    try:
+        from datasets import load_dataset
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "The `datasets` library is required to use VisBrowse-Bench.\n"
+            "Install via `pip install datasets`."
+        ) from exc
+
+    env_cache_dir = os.environ.get('HF_DATASETS_CACHE_DIR')
+    if env_cache_dir:
+        os.makedirs(env_cache_dir, exist_ok=True)
+        return load_dataset(_HF_DATASET_ID, split='train', cache_dir=env_cache_dir)
+
+    try:
+        return load_dataset(_HF_DATASET_ID, split='train')
+    except TypeError as e:
+        if 'must be called with a dataclass type or instance' not in str(e):
+            raise
+        fallback_cache_dir = osp.join(LMUDataRoot(), 'hf_cache', 'datasets')
+        os.makedirs(fallback_cache_dir, exist_ok=True)
+        return load_dataset(_HF_DATASET_ID, split='train', cache_dir=fallback_cache_dir)
+
+
+def _download_image(url: str, target: str) -> None:
+    """Download a single image URL to target path; idempotent (skips cached)."""
+    if osp.isfile(target):
+        return
+    os.makedirs(osp.dirname(target), exist_ok=True)
+    try:
+        urllib.request.urlretrieve(url, target)
+    except urllib.error.URLError as e:
+        if osp.exists(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+        raise RuntimeError(
+            f"Failed to download VisBrowse-Bench image from {url}: {e}"
+        ) from e
 
 
 # ---------------------------------------------------------------------------
@@ -278,73 +326,67 @@ class VisBrowseBenchDataset(ImageBaseDataset):
 
     @staticmethod
     def _convert_benchmark():
-        """Read the encrypted JSONL, decrypt per-item, and return a flat DataFrame.
+        """Load HF rows, decrypt per-item, fetch images, return a DataFrame.
 
+        Images are downloaded from each row's ``image`` URL list into
+        ``$LMUData/images/VisBrowseBench/<basename>`` and cached for reuse.
         image_path is stored as:
           - a single absolute path (str) when the item has exactly one image
           - a JSON-encoded list when the item has multiple images
-
-        Local images under ``$VISBROWSE_ROOT/VisBrowse_Bench_images/`` are
-        preferred; if a file is missing, the original URL is stored instead.
         """
-        root = os.environ.get('VISBROWSE_ROOT', _VISBROWSE_ROOT_DEFAULT)
-        jsonl_path = osp.join(root, _JSONL_REL)
-        img_base = osp.join(root, _IMG_DIR_REL)
+        img_cache_root = osp.join(LMUDataRoot(), 'images', 'VisBrowseBench')
+        hf_ds = _load_hf_dataset()
 
         rows = []
-        with open(jsonl_path, 'r', encoding='utf-8') as f:
-            for idx, line in enumerate(f):
-                line = line.strip()
-                if not line:
-                    continue
-                obj = json.loads(line)
-                canary = obj.get('canary', '')
+        for idx, obj in enumerate(hf_ds):
+            canary = obj.get('canary', '')
 
-                # Decrypt question + answers
-                q_cipher = obj.get('question', '')
-                answers_cipher = obj.get('answer', []) or []
+            # Decrypt question + answers
+            q_cipher = obj.get('question', '')
+            answers_cipher = obj.get('answer', []) or []
+            try:
+                question = _decrypt(q_cipher, canary) if canary else q_cipher
+            except Exception:
+                question = q_cipher  # keep as-is if decryption fails
+            answers = []
+            for a in answers_cipher:
                 try:
-                    question = _decrypt(q_cipher, canary) if canary else q_cipher
+                    answers.append(_decrypt(a, canary) if canary else a)
                 except Exception:
-                    question = q_cipher  # keep as-is if decryption fails
-                answers = []
-                for a in answers_cipher:
-                    try:
-                        answers.append(_decrypt(a, canary) if canary else a)
-                    except Exception:
-                        answers.append(a)
-                if not answers:
-                    answers = ['']
+                    answers.append(a)
+            if not answers:
+                answers = ['']
 
-                # Resolve image paths (prefer local)
-                img_urls = obj.get('image', []) or []
-                if isinstance(img_urls, str):
-                    img_urls = [img_urls]
-                resolved = []
-                for u in img_urls:
-                    u = str(u)
-                    parsed = urlparse(u)
-                    basename = os.path.basename(parsed.path) if parsed.scheme else os.path.basename(u)
-                    local = osp.join(img_base, basename) if basename else ''
-                    if local and osp.isfile(local):
-                        resolved.append(local)
-                    else:
-                        resolved.append(u)
+            # Download images (cached) and resolve to local paths.
+            img_urls = obj.get('image', []) or []
+            if isinstance(img_urls, str):
+                img_urls = [img_urls]
+            resolved = []
+            for u in img_urls:
+                u = str(u)
+                parsed = urlparse(u)
+                basename = os.path.basename(parsed.path) if parsed.scheme else os.path.basename(u)
+                if not basename:
+                    resolved.append(u)
+                    continue
+                local = osp.join(img_cache_root, basename)
+                _download_image(u, local)
+                resolved.append(local)
 
-                if len(resolved) == 1:
-                    image_path_field = resolved[0]
-                else:
-                    image_path_field = json.dumps(resolved)
+            if len(resolved) == 1:
+                image_path_field = resolved[0]
+            else:
+                image_path_field = json.dumps(resolved)
 
-                rows.append({
-                    'index': idx,
-                    'question': question,
-                    'answer': answers[0],
-                    'ground_truth_list': json.dumps(answers),
-                    'image_path': image_path_field,
-                    'category': obj.get('domain', 'unknown') or 'unknown',
-                    'l2-category': obj.get('sub_domain', 'unknown') or 'unknown',
-                })
+            rows.append({
+                'index': idx,
+                'question': question,
+                'answer': answers[0],
+                'ground_truth_list': json.dumps(answers),
+                'image_path': image_path_field,
+                'category': obj.get('domain', 'unknown') or 'unknown',
+                'l2-category': obj.get('sub_domain', 'unknown') or 'unknown',
+            })
 
         return pd.DataFrame(rows)
 
