@@ -250,7 +250,18 @@ def generate_full_tsv(
         )
     all_rows.sort(key=_sort_key)
 
-    out_path = os.path.join(output_dir, f'{benchmark_label}_bbox_val_full.tsv')
+    # Output filename:
+    #   <benchmark>_bbox_<split_label>_full<size_suffix>.tsv
+    # split_label: 'train' if --splits == ['train'] only, else 'val' (the val
+    #              TSV bundles val + test rows by Phase 1 convention).
+    # size_suffix: '_n<N>' when --num-images-per-domain is set, else '_all'.
+    if list(splits) == ['train']:
+        split_label = 'train'
+    else:
+        split_label = 'val'
+    size_suffix = f'_n{num_images_per_domain}' if num_images_per_domain else '_all'
+    out_filename = f'{benchmark_label}_bbox_{split_label}_full{size_suffix}.tsv'
+    out_path = os.path.join(output_dir, out_filename)
     df = pd.DataFrame(all_rows)
     df.to_csv(out_path, sep='\t', index=False)
     size_mb = os.path.getsize(out_path) / (1024 * 1024)

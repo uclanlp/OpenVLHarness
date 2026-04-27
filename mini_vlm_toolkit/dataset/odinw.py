@@ -204,8 +204,29 @@ class ODinWBBoxDataset(ImageBaseDataset):
     DATASET_URL = {
         'ODinW13_bbox_train': '',
         'ODinW13_bbox_val': '',
+        # Legacy un-suffixed full-detection names (kept for backwards compat).
         'ODinW13_bbox_train_full': '',
         'ODinW13_bbox_val_full': '',
+        # Phase 1.5+ canonical naming: ``_n<N>`` for capped, ``_all`` for
+        # unbounded.  Registered speculatively so a user can prepare a new
+        # variant via ``prepare_odinw_full.py --num-images-per-domain N``
+        # and run with ``--data <name>`` without touching this file.
+        'ODinW13_bbox_val_full_n5':     '',
+        'ODinW13_bbox_val_full_n10':    '',
+        'ODinW13_bbox_val_full_n20':    '',
+        'ODinW13_bbox_val_full_n50':    '',
+        'ODinW13_bbox_val_full_n100':   '',
+        'ODinW13_bbox_val_full_n200':   '',
+        'ODinW13_bbox_val_full_all':    '',
+        'ODinW13_bbox_train_full_n5':   '',
+        'ODinW13_bbox_train_full_n10':  '',
+        'ODinW13_bbox_train_full_n20':  '',
+        'ODinW13_bbox_train_full_n50':  '',
+        'ODinW13_bbox_train_full_n100': '',
+        'ODinW13_bbox_train_full_n200': '',
+        'ODinW13_bbox_train_full_n500': '',
+        'ODinW13_bbox_train_full_all':  '',
+        # ODinW-35 (legacy, untouched).
         'ODinW35_bbox_train': '',
         'ODinW35_bbox_val': '',
     }
@@ -265,14 +286,16 @@ class ODinWBBoxDataset(ImageBaseDataset):
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
         modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
 
-        # Phase 1.5: derive eval_scope from dataset name. Names ending in
-        # ``_full`` (e.g. ``ODinW13_bbox_val_full``) trigger the full-
-        # detection path: GT is NOT filtered to the prediction's
-        # (image, cat) pairs, and a per-image completeness filter drops
-        # incomplete images so partial runs don't artificially deflate AP.
+        # Phase 1.5: derive eval_scope from dataset name.  Names containing
+        # the ``full`` token (matches ``..._bbox_val_full``,
+        # ``..._bbox_val_full_n50``, ``..._bbox_val_full_all``, etc.)
+        # trigger the full-detection path: GT is NOT filtered to the
+        # prediction's (image, cat) pairs, and a per-image completeness
+        # filter drops incomplete images so partial runs don't artificially
+        # deflate AP.
         eval_scope = (
             'full_detection'
-            if self.dataset_name.endswith('_full')
+            if 'full' in self.dataset_name.split('_')
             else 'category_conditioned'
         )
 
