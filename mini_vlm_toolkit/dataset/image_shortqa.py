@@ -4,6 +4,7 @@ from .image_base import ImageBaseDataset
 from .utils import build_judge
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
 from .utils.shortqa import ShortQA_prompt
+from .utils.webwatcher_subset import apply_webwatcher_subset
 from ..utils import track_progress_rich
 from ..smp.file import get_intermediate_file_path
 
