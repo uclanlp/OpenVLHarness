@@ -214,3 +214,120 @@ class SimpleVQA(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_acc", "csv")
         file.dump(score, score_file)
         return score
+
+
+class SimpleVQA_EN(SimpleVQA):
+    """SimpleVQA filtered to English-only rows (language == 'EN').
+
+    Loads the shared SimpleVQA TSV, filters to English-only samples, then
+    auto-filters to the WebWatcher evaluation subset (300 samples) by
+    default so reported numbers stay aligned with WebWatcher / cross-paper
+    comparisons. Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass the subset
+    filter for one-off full-EN-set runs (~2025 rows).
+
+    Scoring uses the HLE-style binary judge (extract_final_answer +
+    correct yes/no JSON) instead of the parent class's Chinese-style
+    "正确/错误/未尝试" ternary judge — keeps the EN subset comparable to
+    other LLM-judge benchmarks (hle, mmsearch, mmsearch_plus, vdrbench,
+    bcvl) and to WebWatcher's pipeline.
+    """
+
+    DATASET_URL = {
+        "SimpleVQA_EN": "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv",
+    }
+    DATASET_MD5 = {
+        "SimpleVQA_EN": "e3ce3c11df59a2a15d37489a8b245a87",
+    }
+
+    def load_data(self, dataset):
+        url = "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv"
+        file_md5 = self.DATASET_MD5.get(dataset, None)
+        data = self.prepare_tsv(url, file_md5)
+        if "language" in data.columns:
+            before = len(data)
+            data = data[data["language"] == "EN"].reset_index(drop=True)
+            print(f"SimpleVQA_EN: filtered {before} -> {len(data)} English rows")
+
+        # Auto-filter to WebWatcher subset (300 samples) by default.
+        from mini_vlm_toolkit.dataset.utils.webwatcher_subset import apply_webwatcher_subset
+        data = apply_webwatcher_subset(data, dataset)
+        return data
+
+    def get_scores(self, result_file: str, **judge_kwargs: Any) -> pd.DataFrame:
+        """Score predictions using the shared HLE-style judge.
+
+        Replaces the parent class's Chinese ternary judge with a binary
+        yes/no judge (HLE protocol). Output JSON file at
+        ``<result_file_dir>/gpt_eval.json`` keeps the same shape but
+        ``judge_res`` field uses HLE schema (correct/extracted/reasoning
+        instead of the Chinese conclusion). Returned DataFrame has the
+        same single-column ``[metric, value]`` shape SimpleVQAEval used.
+        """
+        from mini_vlm_toolkit.dataset.utils.hle_judge import (
+            HLE_JUDGE_PROMPT, parse_hle_judgement,
+        )
+
+        data = file.load(result_file)
+        fout = open(str(Path(result_file).parent) + '/gpt_eval.json', 'w', encoding='utf-8')
+
+        api_key = judge_kwargs.get('key', None)
+        api_base = judge_kwargs.get('api_base', None)
+        if api_base and "/chat/completions" in api_base:
+            api_base = api_base.replace("/chat/completions", "")
+        model_name = judge_kwargs.get('model', 'gpt-4o')
+        nproc = judge_kwargs.get('nproc', 16)
+        max_tokens = judge_kwargs.get('judge_max_tokens', 1024)
+
+        client = OpenAI(api_key=api_key, base_url=api_base)
+
+        def process_one(idx):
+            question = data['question'][idx]
+            answer = data['answer'][idx]
+            model_response = data['prediction'][idx]
+            line = {'question': question, 'answer': answer, 'model_response': model_response}
+            res_json = line.copy()
+            prompt = HLE_JUDGE_PROMPT.format(
+                question=str(question),
+                correct_answer=str(answer),
+                response=str(model_response),
+            )
+            try:
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                    max_tokens=max_tokens,
+                )
+                raw = response.choices[0].message.content or ""
+                parsed = parse_hle_judgement(raw)
+            except Exception:
+                parsed = {"correct": 0, "extracted_answer": "", "reasoning": "judge api exception", "confidence": 0}
+            res_json["judge_res"] = parsed
+            return idx, res_json
+
+        results = [None] * len(data)
+        with ThreadPoolExecutor(max_workers=nproc) as executor:
+            futures = {executor.submit(process_one, i): i for i in range(len(data))}
+            for future in tqdm(as_completed(futures), total=len(data)):
+                idx, res_json = future.result()
+                results[idx] = res_json
+
+        json.dump(results, fout, ensure_ascii=False, indent=4)
+        fout.close()
+
+        # Compute simple binary accuracy from the parsed judgements.
+        n = len(results)
+        n_correct = sum(1 for r in results if r["judge_res"].get("correct") == 1)
+        n_unparsed = sum(
+            1 for r in results
+            if r["judge_res"].get("reasoning") in
+                ("judge failed to parse", "judge unreachable after retries", "judge api exception")
+        )
+        scores = {
+            "accuracy": round(100 * n_correct / n, 2) if n else 0.0,
+            "correct": n_correct,
+            "incorrect": n - n_correct - n_unparsed,
+            "judge_unparsed": n_unparsed,
+            "total": n,
+        }
+        return pd.DataFrame(list(scores.items()))
