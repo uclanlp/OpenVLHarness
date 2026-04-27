@@ -2,9 +2,12 @@
 
 Two dataset classes are provided:
 
-  LVISBBoxDataset  — evaluates predicted bounding boxes against LVIS ground truth.
-  LVISMaskDataset  — evaluates predicted segmentation masks against LVIS ground truth.
-                     Accepts both polygon-coordinate and RLE-encoded predictions.
+  LVISBBoxDataset  — evaluates predicted bounding boxes against LVIS ground truth
+                     using the **official lvis-api LVISEval** (AP, AP50, AP75,
+                     APr, APc, APf with max_dets=300).
+  LVISMaskDataset  — evaluates predicted segmentation masks against LVIS ground
+                     truth via a custom IoU-based matcher.  (Mask AP migration
+                     to LVISEval is future work.)
 
 Both classes expect pre-generated TSV files produced by:
     python -m mini_vlm_toolkit.dataset.scripts.prepare_lvis
@@ -16,6 +19,11 @@ TSV naming convention:
 Each row represents a unique (image, category) pair.  The 'answer' column
 holds the ground-truth annotations in JSON format.
 
+Bbox evaluation is **category-conditioned ("Restricted LVIS")**: the GT JSON
+is filtered to the (image_id, category_id) pairs in our TSV before LVISEval
+runs.  Paper text should describe this as category-conditioned LVIS grounding,
+not full LVIS detection.
+
 Usage:
     python run_benchmark.py --data LVIS_bbox_val ...
     python run_benchmark.py --data LVIS_mask_val ...
@@ -23,6 +31,8 @@ Usage:
 
 import json
 import logging
+import os
+import os.path as osp
 import re
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
@@ -117,7 +127,10 @@ def _normalise_boxes(boxes: List[List[float]], img_w: float, img_h: float) -> Li
 
     Heuristic:
       • max <= 1.5            → legacy 0-1 normalised input; rescale to 0-1000.
-      • max <= 1000           → already on the 0-1000 scale; pass through.
+      • max <= 1024           → already on the 0-1000 scale; pass through.
+                                The 24-unit slop covers floating-point overshoot
+                                from prepare scripts that compute v/dim*1000 and
+                                land at 1000.0+epsilon.
       • otherwise             → absolute pixel coordinates; divide by image
                                 dimensions and rescale to 0-1000.
     """
@@ -129,7 +142,7 @@ def _normalise_boxes(boxes: List[List[float]], img_w: float, img_h: float) -> Li
     if max_val <= 1.5:
         # Legacy 0-1 normalised; rescale to 0-1000
         return [[v * 1000.0 for v in box] for box in boxes]
-    elif max_val <= 1000:
+    elif max_val <= 1024:
         # Already on the 0-1000 scale (e.g. Qwen models)
         return [[float(v) for v in box] for box in boxes]
     else:
@@ -216,13 +229,66 @@ def _greedy_match(pred_boxes, gt_boxes, iou_threshold=0.5):
 # LVISBBoxDataset
 # ---------------------------------------------------------------------------
 
+def _resolve_lvis_gt_path(dataset_name: str) -> str:
+    """Locate the LVIS annotation JSON (lvis_v1_<split>.json).
+
+    Resolution order:
+      1. Env var ``LVIS_GT_PATH`` — full path to the JSON file.
+      2. Env var ``LVIS_DATA_ROOT`` — directory containing
+         ``lvis_v1_<split>.json``.
+      3. ``${LMUData}/lvis-api/data/lvis_v1_<split>.json``.
+      4. ``${LMUData}/lvis_v1_<split>.json``.
+
+    The split is inferred from the dataset name (``LVIS_bbox_val`` → ``val``,
+    ``LVIS_bbox_train`` → ``train``).
+    """
+    split = 'val'
+    if dataset_name.endswith('_train'):
+        split = 'train'
+    elif dataset_name.endswith('_val'):
+        split = 'val'
+
+    env_gt = os.environ.get('LVIS_GT_PATH')
+    if env_gt and osp.isfile(env_gt):
+        return env_gt
+
+    fname = f'lvis_v1_{split}.json'
+    candidates = []
+    env_root = os.environ.get('LVIS_DATA_ROOT')
+    if env_root:
+        candidates.append(osp.join(env_root, fname))
+    try:
+        lmu_root = LMUDataRoot()
+        candidates.append(osp.join(lmu_root, 'lvis-api', 'data', fname))
+        candidates.append(osp.join(lmu_root, fname))
+    except EnvironmentError:
+        pass
+
+    for cand in candidates:
+        if osp.isfile(cand):
+            return cand
+
+    raise FileNotFoundError(
+        f'Could not locate LVIS annotation JSON ({fname}). '
+        f'Set LVIS_GT_PATH or LVIS_DATA_ROOT, or place the file under '
+        f'$LMUData/lvis-api/data/.  Tried: {candidates + ([env_gt] if env_gt else [])}'
+    )
+
+
 class LVISBBoxDataset(ImageBaseDataset):
     """LVIS v1 bounding-box evaluation dataset.
 
-    Each row is a unique (image, category) pair.  The model is asked to locate
-    all instances of a named category and return bounding boxes.
+    Each TSV row is a unique (image, category) pair.  The model is asked to
+    locate all instances of a named category and return bounding boxes.
 
-    Evaluation uses greedy IoU matching with per-frequency-group breakdowns.
+    Evaluation uses the official ``lvis.LVISEval`` and reports
+    ``AP, AP50, AP75, APr, APc, APf`` with ``max_dets=300``.  This is
+    category-conditioned LVIS grounding: the GT JSON is filtered to the
+    (image_id, category_id) pairs present in the TSV before LVISEval runs.
+
+    Phase 1 sets every prediction's score to 1.0; Phase 2 will plumb real
+    SAM3 confidence scores via a sidecar JSON and switch ``score_mode`` to
+    ``original`` for the BaseAgentWithTools path.
 
     Supported dataset names:
         LVIS_bbox_train, LVIS_bbox_val
@@ -237,12 +303,10 @@ class LVISBBoxDataset(ImageBaseDataset):
     }
     DATASET_MD5 = {}
 
-    # IoU threshold for considering a detection as correct
-    IOU_THRESHOLD = 0.5
-
-    # Frequency group display order
-    FREQ_ORDER = ['f', 'c', 'r']
-    FREQ_LABELS = {'f': 'Frequent', 'c': 'Common', 'r': 'Rare'}
+    # Phase 1 score handling.  Phase 2 will introduce a config switch.
+    SCORE_MODE = 'constant'      # 'constant' | 'original'
+    EVAL_SCOPE = 'category_conditioned'  # 'category_conditioned' | 'full_detection'
+    LVIS_MAX_DETS = 300
 
     def build_prompt(self, line):
         """Build the inference prompt: image + question text from TSV."""
@@ -255,149 +319,187 @@ class LVISBBoxDataset(ImageBaseDataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
-        """Evaluate bounding-box predictions against LVIS ground truth.
+        """Evaluate bounding-box predictions with the official LVIS API.
 
-        Metrics computed:
-          - Precision@50: fraction of predictions that match a GT (IoU >= 0.5)
-          - Recall@50:    fraction of GTs matched by a prediction
-          - F1@50:        harmonic mean of precision and recall
-          - Mean IoU:     average IoU of matched pairs
-          - Count Acc:    fraction of rows where predicted count == GT count
-          Broken down by: overall, and per frequency group (frequent/common/rare).
+        Reports AP, AP50, AP75, APr, APc, APf following the LVIS detection
+        benchmark, restricted to the (image_id, category_id) pairs present
+        in this TSV (category-conditioned LVIS grounding).
 
-        Parameters
-        ----------
-        eval_file : str
-            Path to the prediction TSV (must have 'prediction' column).
-        judge_kwargs : dict
-            Optional; currently unused but kept for API compatibility.
-
-        Returns
-        -------
-        summary_df : pd.DataFrame
-            Summary metrics table.
+        Outputs (alongside ``eval_file``):
+          * ``..._metrics.json`` — full metrics blob (all LVISEval keys + meta).
+          * ``..._acc.<fmt>``    — slim summary table (one row of metrics).
+          * ``..._lvis_gt.json`` — the filtered GT used by LVISEval (kept for
+                                    debugging / re-running the eval offline).
+          * ``..._lvis_pred.json`` — the COCO-format prediction list submitted.
         """
+        # lvis-api 0.5.3 still uses np.float (removed in NumPy 1.20+); patch
+        # before import. Safe because lvis only uses it as a dtype alias for
+        # builtin float.
+        if not hasattr(np, 'float'):
+            np.float = float  # type: ignore[attr-defined]
+        try:
+            from lvis import LVIS, LVISEval, LVISResults
+        except ImportError as exc:
+            raise ImportError(
+                'lvis-api is required for LVIS bbox evaluation. '
+                'Install it with `pip install lvis`.'
+            ) from exc
+
+        from .eval_bridge import (
+            build_coco_predictions,
+            filter_coco_gt_to_pairs,
+            parse_image_id_from_index,
+            write_json,
+        )
+
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
             data = pd.DataFrame(data)
-
         if 'prediction' not in data:
             raise KeyError('Prediction file must contain a `prediction` column.')
 
-        # Build metadata lookup from the dataset's own data
+        # Join predictions with TSV metadata to recover image dims and category_id.
         meta = self.data.copy()
         meta['index'] = meta['index'].astype(str)
         meta = meta.set_index('index')
 
-        # --- Per-row evaluation ---
-        detail_rows = []
-        # Accumulators for aggregation
-        group_stats = defaultdict(lambda: {
-            'tp': 0, 'fp': 0, 'fn': 0,
-            'iou_sum': 0.0, 'iou_count': 0,
-            'count_correct': 0, 'total': 0,
-        })
-
-        for _, row in data.iterrows():
-            idx = str(row['index'])
-            pred_text = str(row.get('prediction', ''))
-
+        rows = []
+        skipped = 0
+        for _, p_row in data.iterrows():
+            idx = str(p_row['index'])
             if idx not in meta.index:
-                logger.warning(f'Prediction index {idx} not found in LVIS metadata, skipping.')
+                skipped += 1
                 continue
-
-            meta_row = meta.loc[idx]
-            img_w = float(meta_row.get('image_width', 1))
-            img_h = float(meta_row.get('image_height', 1))
-            freq = str(meta_row.get('frequency', ''))
-
-            # Parse ground truth bboxes (normalised [x1,y1,x2,y2])
-            try:
-                gt_boxes = json.loads(str(meta_row['answer']))
-            except (json.JSONDecodeError, KeyError):
-                gt_boxes = []
-
-            # Parse predicted bboxes from model output
-            pred_boxes = _parse_bbox_array_from_text(pred_text)
-            pred_boxes = _normalise_boxes(pred_boxes, img_w, img_h)
-
-            # Greedy match
-            matches, unmatched_p, unmatched_g = _greedy_match(
-                pred_boxes, gt_boxes, self.IOU_THRESHOLD
+            m_row = meta.loc[idx]
+            rows.append({
+                'index': idx,
+                'image_width': m_row.get('image_width'),
+                'image_height': m_row.get('image_height'),
+                'category_id': m_row.get('category_id'),
+                'prediction': p_row.get('prediction', ''),
+            })
+        if skipped:
+            logger.warning(
+                'Skipped %d prediction rows whose index is not in the LVIS TSV.',
+                skipped,
             )
 
-            tp = len(matches)
-            fp = len(unmatched_p)
-            fn = len(unmatched_g)
-            match_ious = [m[2] for m in matches]
-            mean_iou = float(np.mean(match_ious)) if match_ious else 0.0
-            count_correct = int(len(pred_boxes) == len(gt_boxes))
+        # Build the COCO-format prediction list.
+        coco_preds = build_coco_predictions(rows, score_mode=self.SCORE_MODE)
+        logger.info(
+            'Built %d LVIS predictions across %d evaluated rows (score_mode=%s).',
+            len(coco_preds), len(rows), self.SCORE_MODE,
+        )
 
-            detail_rows.append({
-                'index': idx,
-                'frequency': freq,
-                'gt_count': len(gt_boxes),
-                'pred_count': len(pred_boxes),
-                'tp': tp, 'fp': fp, 'fn': fn,
-                'mean_iou': round(mean_iou, 4),
-                'count_correct': count_correct,
-                'prediction': pred_text[:500],  # truncate for readability
-            })
+        # Compute the (image_id, category_id) pairs the model was asked about.
+        kept_pairs = set()
+        for r in rows:
+            iid = parse_image_id_from_index(r['index'])
+            try:
+                cid = int(r['category_id'])
+            except (TypeError, ValueError):
+                continue
+            if iid is not None:
+                kept_pairs.add((iid, cid))
 
-            # Accumulate for 'overall' and per-frequency groups
-            for group_key in ['overall', freq]:
-                if not group_key:
-                    continue
-                s = group_stats[group_key]
-                s['tp'] += tp
-                s['fp'] += fp
-                s['fn'] += fn
-                s['iou_sum'] += sum(match_ious)
-                s['iou_count'] += len(match_ious)
-                s['count_correct'] += count_correct
-                s['total'] += 1
+        gt_path = _resolve_lvis_gt_path(self.dataset_name)
+        logger.info('Loading LVIS GT from %s ...', gt_path)
+        with open(gt_path) as f:
+            gt = json.load(f)
 
-        # --- Build summary ---
-        summary_rows = []
+        if self.EVAL_SCOPE == 'category_conditioned':
+            filtered_gt = filter_coco_gt_to_pairs(
+                gt, kept_pairs, keep_all_categories=True
+            )
+            logger.info(
+                'Restricted LVIS GT to %d images / %d annotations '
+                '(was %d / %d).',
+                len(filtered_gt['images']), len(filtered_gt['annotations']),
+                len(gt['images']), len(gt['annotations']),
+            )
+        else:
+            filtered_gt = gt
 
-        def _build_summary_row(label, stats):
-            tp, fp, fn = stats['tp'], stats['fp'], stats['fn']
-            prec = tp / (tp + fp) * 100 if (tp + fp) > 0 else 0.0
-            rec = tp / (tp + fn) * 100 if (tp + fn) > 0 else 0.0
-            f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
-            m_iou = stats['iou_sum'] / stats['iou_count'] if stats['iou_count'] > 0 else 0.0
-            count_acc = stats['count_correct'] / stats['total'] * 100 if stats['total'] > 0 else 0.0
-            return {
-                'Split': label,
-                'Precision@50': round(prec, 2),
-                'Recall@50': round(rec, 2),
-                'F1@50': round(f1, 2),
-                'Mean IoU': round(m_iou, 4),
-                'Count Acc (%)': round(count_acc, 2),
-                'Samples': stats['total'],
+        filtered_gt_path = get_intermediate_file_path(
+            eval_file, '_lvis_gt', target_format='json'
+        )
+        pred_path = get_intermediate_file_path(
+            eval_file, '_lvis_pred', target_format='json'
+        )
+        write_json(filtered_gt, filtered_gt_path)
+        write_json(coco_preds, pred_path)
+
+        if not coco_preds:
+            logger.warning('No valid LVIS predictions to evaluate.')
+            results_dict = {
+                'AP': 0.0, 'AP50': 0.0, 'AP75': 0.0,
+                'APr': 0.0, 'APc': 0.0, 'APf': 0.0,
+                'APs': 0.0, 'APm': 0.0, 'APl': 0.0,
             }
+        else:
+            lvis_gt = LVIS(filtered_gt_path)
+            lvis_dt = LVISResults(lvis_gt, pred_path, max_dets=self.LVIS_MAX_DETS)
+            evaluator = LVISEval(lvis_gt, lvis_dt, iou_type='bbox')
+            evaluator.run()
+            evaluator.print_results()
+            raw = evaluator.get_results()
+            # LVISEval may emit NaN for empty splits (e.g., no rare categories);
+            # coerce to 0.0 for stable JSON.
+            def _coerce(v):
+                try:
+                    fv = float(v)
+                    if np.isnan(fv) or np.isinf(fv):
+                        return 0.0
+                    return fv
+                except (TypeError, ValueError):
+                    return 0.0
+            results_dict = {k: _coerce(v) for k, v in raw.items()}
 
-        # Per-frequency rows (in order: frequent, common, rare)
-        for fkey in self.FREQ_ORDER:
-            if fkey in group_stats:
-                label = self.FREQ_LABELS.get(fkey, fkey)
-                summary_rows.append(_build_summary_row(label, group_stats[fkey]))
+        metrics_blob = {
+            'dataset': self.dataset_name,
+            'evaluator': 'lvis.LVISEval',
+            'iou_type': 'bbox',
+            'max_dets': self.LVIS_MAX_DETS,
+            'score_mode': self.SCORE_MODE,
+            'eval_scope': self.EVAL_SCOPE,
+            'num_predictions': len(coco_preds),
+            'num_rows_evaluated': len(rows),
+            'num_kept_pairs': len(kept_pairs),
+            'metrics': results_dict,
+        }
+        metrics_file = get_intermediate_file_path(
+            eval_file, '_metrics', target_format='json'
+        )
+        dump(metrics_blob, metrics_file)
 
-        # Overall row
-        if 'overall' in group_stats:
-            summary_rows.append(_build_summary_row('Overall', group_stats['overall']))
+        # Slim summary DataFrame for caller / dashboard use.
+        # LVISEval / COCOeval emit -1 for empty splits (e.g., a 40-row sample
+        # with no rare categories); render those as 'N/A' in the slim CSV
+        # rather than the misleading -100.0.  Raw -1.0 values stay in the
+        # full metrics JSON for machine-readable consumers.
+        def _pct(v):
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                return 'N/A'
+            if fv < 0:
+                return 'N/A'
+            return round(fv * 100, 2)
 
-        summary_df = pd.DataFrame(summary_rows)
-
-        # Save outputs
-        detail_df = pd.DataFrame(detail_rows)
-        detail_file = get_intermediate_file_path(eval_file, '_detail')
-        dump(detail_df, detail_file)
-
+        summary_df = pd.DataFrame([{
+            'Split': 'Overall',
+            'AP': _pct(results_dict.get('AP', 0.0)),
+            'AP50': _pct(results_dict.get('AP50', 0.0)),
+            'AP75': _pct(results_dict.get('AP75', 0.0)),
+            'APr': _pct(results_dict.get('APr', 0.0)),
+            'APc': _pct(results_dict.get('APc', 0.0)),
+            'APf': _pct(results_dict.get('APf', 0.0)),
+            'Samples': len(rows),
+        }])
         score_file = get_intermediate_file_path(eval_file, '_acc')
         dump(summary_df, score_file)
 
-        logger.info(f'LVIS bbox evaluation complete. {len(detail_rows)} rows evaluated.')
+        logger.info('LVIS bbox evaluation complete: %s', results_dict)
         return summary_df
 
 
