@@ -87,7 +87,7 @@ class ImageShortQADataset(ImageBaseDataset):
     def evaluate(self, eval_file, **judge_kwargs):
         data = load(eval_file)
         _ = self.dataset_name
-        # Subset-aware re-eval: if the dataset has a WebWatcher v2 subset
+        # Subset-aware re-eval: if the dataset has a WebWatcher subset
         # entry, filter the predictions to ONLY those indices before
         # judging. Without this, `--mode eval` on a full prediction xlsx
         # would re-judge every row (waste). Applies to ``hle``; no-op for

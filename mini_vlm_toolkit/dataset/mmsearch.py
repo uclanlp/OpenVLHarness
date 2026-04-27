@@ -404,7 +404,7 @@ class MMSearchEnd2End(ImageBaseDataset):
             # Ensure DataFrame for downstream usage.
             if not isinstance(data, pd.DataFrame):
                 data = pd.DataFrame(data)
-            # Auto-filter to the WebWatcher v2 subset by default so reported
+            # Auto-filter to the WebWatcher subset by default so reported
             # numbers stay aligned with WebWatcher / cross-paper comparisons.
             # Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass for full runs.
             from .utils.webwatcher_subset import apply_webwatcher_subset
@@ -449,7 +449,7 @@ class MMSearchEnd2End(ImageBaseDataset):
         # Persist processed annotations to LMUData root for reuse.
         dump(data, ann_path)
 
-        # Apply WebWatcher v2 subset filter (default-on; bypass with
+        # Apply WebWatcher subset filter (default-on; bypass with
         # MVT_DISABLE_WEBWATCHER_SUBSET=1).
         from .utils.webwatcher_subset import apply_webwatcher_subset
         data = apply_webwatcher_subset(data, dataset)
@@ -501,7 +501,7 @@ class MMSearchEnd2End(ImageBaseDataset):
         )
 
         # Subset-aware re-eval: filter predictions down to the
-        # WebWatcher v2 subset (171/300) before judging, so `--mode eval`
+        # WebWatcher subset (171/300) before judging, so `--mode eval`
         # doesn't waste GPT-4o calls on the 129 non-subset rows.
         # Bypass via MVT_DISABLE_WEBWATCHER_SUBSET=1.
         from .utils.webwatcher_subset import apply_webwatcher_subset

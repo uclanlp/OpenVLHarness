@@ -43,7 +43,7 @@ def get_webwatcher_subset_indices(dataset_name: str) -> Optional[list]:
 
 
 def apply_webwatcher_subset(df: pd.DataFrame, dataset_name: str) -> pd.DataFrame:
-    """Filter `df` to the WebWatcher v2 subset for `dataset_name`.
+    """Filter `df` to the WebWatcher subset for `dataset_name`.
 
     Returns a new DataFrame with rows whose ``index`` column matches one
     of the subset indices. When the env var
