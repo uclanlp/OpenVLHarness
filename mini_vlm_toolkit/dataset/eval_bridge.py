@@ -238,6 +238,54 @@ def filter_coco_gt_to_pairs(
     return new
 
 
+def filter_coco_gt_to_image_ids(
+    gt_dict: Dict,
+    image_ids: Iterable[int],
+    remap_ann_ids: bool = False,
+) -> Dict:
+    """Filter a COCO/LVIS-format GT dict to a set of ``image_id``s.
+
+    Unlike :func:`filter_coco_gt_to_pairs`, this keeps **all images** in
+    the requested set, even if they have **zero annotations**.  That's
+    essential for ODinW full-detection eval: the model is asked about
+    every (image, category) pair in the chosen image set, including
+    images with no GT annotations ("negative" images), and a hallucinated
+    prediction on such an image must be counted as a false positive by
+    COCOeval — which means its image_id has to exist in the GT.
+
+    Parameters
+    ----------
+    gt_dict
+        Source COCO/LVIS GT dict.
+    image_ids
+        Iterable of image_ids to keep.  Images present in ``gt_dict``
+        whose ``id`` is in this set survive (with all their annotations);
+        everything else is dropped.
+    remap_ann_ids
+        If True, renumber kept annotations 1..N (avoids the COCOeval
+        ``id=0`` "no-match sentinel" bug — see ``filter_coco_gt_to_pairs``
+        for context).
+    """
+    iid_set = {int(i) for i in image_ids}
+    new = dict(gt_dict)
+    new["images"] = [
+        img for img in gt_dict.get("images", [])
+        if int(img["id"]) in iid_set
+    ]
+    kept_anns = [
+        ann for ann in gt_dict.get("annotations", [])
+        if int(ann["image_id"]) in iid_set
+    ]
+    if remap_ann_ids:
+        new["annotations"] = [
+            {**ann, "id": i + 1} for i, ann in enumerate(kept_anns)
+        ]
+    else:
+        new["annotations"] = kept_anns
+    new["categories"] = list(gt_dict.get("categories", []))
+    return new
+
+
 def drop_incomplete_images(
     predictions: List[Dict],
     gt_dict: Dict,
@@ -288,9 +336,6 @@ def drop_incomplete_images(
         else:
             dropped_image_ids.append(image_id)
 
-    filtered_preds = [
-        p for p in predictions if int(p["image_id"]) in completed_image_ids
-    ]
     new_gt = dict(gt_dict)
     new_gt["images"] = [
         img for img in gt_dict.get("images", [])
@@ -303,6 +348,16 @@ def drop_incomplete_images(
     ]
     if "categories" in gt_dict:
         new_gt["categories"] = list(gt_dict["categories"])
+    # Defensive: filter predictions by the actual surviving GT image_ids
+    # (``kept_image_ids``), not by the abstract ``completed_image_ids``.
+    # If something upstream pre-filtered ``gt_dict`` and dropped images,
+    # ``completed_image_ids`` may include image_ids no longer in GT —
+    # passing predictions for those to COCOeval triggers an assertion
+    # ``Results do not correspond to current coco set``.  Using
+    # ``kept_image_ids`` guarantees ``pred_image_ids ⊆ gt_image_ids``.
+    filtered_preds = [
+        p for p in predictions if int(p["image_id"]) in kept_image_ids
+    ]
 
     summary = {
         "images_total": len(expected_by_image),

@@ -273,6 +273,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
             build_coco_predictions,
             build_sam3_score_lookup,
             drop_incomplete_images,
+            filter_coco_gt_to_image_ids,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
             write_json,
@@ -398,24 +399,36 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 with open(gt_path) as f:
                     gt = json.load(f)
 
-                if eval_scope == 'category_conditioned':
-                    eval_pairs = kept_pairs
-                    keep_cats = False
-                else:
-                    # Full-detection: keep all annotations the GT JSON has.
-                    eval_pairs = {
-                        (int(a['image_id']), int(a['category_id']))
-                        for a in gt['annotations']
-                    }
-                    keep_cats = True
                 # remap_ann_ids=True is essential for ODinW because some COCO
                 # JSONs (e.g. AerialMaritimeDrone) start annotation ids at 0,
                 # which COCOeval interprets as the unmatched sentinel.
-                filtered_gt = filter_coco_gt_to_pairs(
-                    gt, eval_pairs,
-                    keep_all_categories=keep_cats,
-                    remap_ann_ids=True,
-                )
+                if eval_scope == 'category_conditioned':
+                    # Phase 1 path: restrict GT to the (image, cat) pairs
+                    # the model was asked about. Negative pairs aren't part
+                    # of the eval task; their absence from GT is correct.
+                    filtered_gt = filter_coco_gt_to_pairs(
+                        gt, kept_pairs,
+                        keep_all_categories=False,
+                        remap_ann_ids=True,
+                    )
+                else:
+                    # Phase 1.5 full detection: restrict GT by **image_id**
+                    # (not by (image, cat) pair).  This preserves images
+                    # that have zero annotations (negative-only images) so
+                    # the model's hallucinated boxes on those images get
+                    # counted as FPs by COCOeval — the correct full-
+                    # detection semantics.  Filtering by pair would drop
+                    # those images and trigger the
+                    # ``Results do not correspond to current coco set``
+                    # assertion when the model emitted any prediction
+                    # there.
+                    tsv_image_ids_for_ds = {
+                        iid for (iid, _cid)
+                        in expected_pairs_by_ds.get((domain, split), set())
+                    }
+                    filtered_gt = filter_coco_gt_to_image_ids(
+                        gt, tsv_image_ids_for_ds, remap_ann_ids=True,
+                    )
                 # Drop GT annotations with zero/negative width or height — a
                 # handful of ODinW JSONs (Aquarium, pistols, pothole) carry
                 # degenerate boxes that COCOeval can't match against, dragging
