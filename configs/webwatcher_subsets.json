@@ -1,6 +1,6 @@
 {
-  "version": "2026-04-23-webwatcher-v2",
-  "description": "Indices into our local TSV datasets that align with WebWatcher's evaluation subsets at /home/<user>/code/DeepResearch/WebAgent/WebWatcher/infer/vl_search_r1/eval_data/{hle,mmsearch,simplevqa}.jsonl. Match by (question, answer) tuple with greedy assignment (each local row claimed at most once) so that ambiguous duplicate-question groups (5 groups in MMSearch's art/astronomy) are correctly disambiguated. When the corresponding dataset class is loaded, it auto-filters self.data to ONLY these indices BY DEFAULT (no opt-in flag). To use the full local dataset (skip subset), set env var MVT_DISABLE_WEBWATCHER_SUBSET=1.",
+  "version": "2026-04-23",
+  "description": "Indices into our local TSV datasets that align with WebWatcher's evaluation subsets, sourced from the WebWatcher repo's `infer/vl_search_r1/eval_data/{hle,mmsearch,simplevqa}.jsonl`. Match by (question, answer) tuple with greedy assignment (each local row claimed at most once) so that ambiguous duplicate-question groups (5 groups in MMSearch's art/astronomy) are correctly disambiguated. When the corresponding dataset class is loaded, it auto-filters self.data to ONLY these indices BY DEFAULT (no opt-in flag). To use the full local dataset (skip subset), set env var MVT_DISABLE_WEBWATCHER_SUBSET=1.",
   "subsets": {
     "hle": {
       "source_jsonl": "WebWatcher/infer/vl_search_r1/eval_data/hle.jsonl",

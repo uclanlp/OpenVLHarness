@@ -1,6 +1,6 @@
-"""WebWatcher v2 subset loader.
+"""WebWatcher subset loader.
 
-Reads ``configs/webwatcher_v2_subsets.json`` and exposes a single helper
+Reads ``configs/webwatcher_subsets.json`` and exposes a single helper
 ``apply_webwatcher_subset(df, dataset_name)`` that filters a DataFrame
 to the indices listed in the subset config for the given dataset.
 
@@ -22,7 +22,7 @@ import pandas as pd
 
 
 _CFG_PATH_DEFAULT = osp.normpath(osp.join(
-    osp.dirname(__file__), "..", "..", "..", "configs", "webwatcher_v2_subsets.json"
+    osp.dirname(__file__), "..", "..", "..", "configs", "webwatcher_subsets.json"
 ))
 
 
