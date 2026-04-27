@@ -127,7 +127,14 @@ def build_coco_predictions(
             logger.debug("Invalid image dims for index %r, skipping.", index)
             continue
 
-        pred_text = str(row.get("prediction", "") or "")
+        pv = row.get("prediction", "")
+        # Empty CSV cells round-trip through pandas as NaN (a float).
+        # Treat NaN / None / empty string as "no prediction".
+        if pv is None or (isinstance(pv, float) and pv != pv):
+            continue
+        pred_text = str(pv)
+        if not pred_text.strip():
+            continue
         boxes = _parse_bbox_array_from_text(pred_text)
         if not boxes:
             continue
@@ -228,6 +235,81 @@ def filter_coco_gt_to_pairs(
             if int(c["id"]) in cat_ids
         ]
     return new
+
+
+def drop_incomplete_images(
+    predictions: List[Dict],
+    gt_dict: Dict,
+    expected_pairs: Iterable[Tuple[int, int]],
+    completed_pairs: Iterable[Tuple[int, int]],
+) -> Tuple[List[Dict], Dict, Dict]:
+    """Phase 1.5 partial-run safety net for full-detection evaluation.
+
+    Drops every ``(image_id)`` group whose **full** set of expected category
+    queries wasn't completed.  Removes those images from BOTH the predictions
+    list and the GT dict (images + annotations) so COCOeval's recall isn't
+    penalised by un-queried (image, cat) pairs.
+
+    Parameters
+    ----------
+    predictions
+        COCO-format predictions for one domain (each dict has ``image_id``,
+        ``category_id``, ``bbox``, ``score``).
+    gt_dict
+        The (already category-filtered / id-remapped) per-domain GT dict.
+        Modified in a fresh shallow copy; the caller's dict is untouched.
+    expected_pairs
+        ``(image_id, category_id)`` tuples that the source TSV asked the
+        model about (i.e. that should have a prediction row).
+    completed_pairs
+        ``(image_id, category_id)`` tuples for which inference actually
+        produced a row (the model emitted something — empty string answers
+        count as missing, ``"[]"`` counts as completed).
+
+    Returns
+    -------
+    filtered_preds : list[dict]
+    filtered_gt : dict
+    summary : dict with keys
+        images_total, images_completed, images_dropped, dropped_image_ids
+    """
+    expected_by_image: Dict[int, set] = {}
+    for iid, cid in expected_pairs:
+        expected_by_image.setdefault(int(iid), set()).add(int(cid))
+
+    completed_set = {(int(i), int(c)) for i, c in completed_pairs}
+
+    completed_image_ids = set()
+    dropped_image_ids = []
+    for image_id, expected_cats in expected_by_image.items():
+        if all((image_id, c) in completed_set for c in expected_cats):
+            completed_image_ids.add(image_id)
+        else:
+            dropped_image_ids.append(image_id)
+
+    filtered_preds = [
+        p for p in predictions if int(p["image_id"]) in completed_image_ids
+    ]
+    new_gt = dict(gt_dict)
+    new_gt["images"] = [
+        img for img in gt_dict.get("images", [])
+        if int(img["id"]) in completed_image_ids
+    ]
+    kept_image_ids = {int(img["id"]) for img in new_gt["images"]}
+    new_gt["annotations"] = [
+        ann for ann in gt_dict.get("annotations", [])
+        if int(ann["image_id"]) in kept_image_ids
+    ]
+    if "categories" in gt_dict:
+        new_gt["categories"] = list(gt_dict["categories"])
+
+    summary = {
+        "images_total": len(expected_by_image),
+        "images_completed": len(completed_image_ids),
+        "images_dropped": len(dropped_image_ids),
+        "dropped_image_ids": sorted(dropped_image_ids),
+    }
+    return filtered_preds, new_gt, summary
 
 
 def write_json(obj, path) -> None:

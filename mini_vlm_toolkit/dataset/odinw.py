@@ -204,13 +204,18 @@ class ODinWBBoxDataset(ImageBaseDataset):
     DATASET_URL = {
         'ODinW13_bbox_train': '',
         'ODinW13_bbox_val': '',
+        'ODinW13_bbox_train_full': '',
+        'ODinW13_bbox_val_full': '',
         'ODinW35_bbox_train': '',
         'ODinW35_bbox_val': '',
     }
     DATASET_MD5 = {}
 
     SCORE_MODE = 'constant'              # 'constant' | 'original'
-    EVAL_SCOPE = 'category_conditioned'  # 'category_conditioned' | 'full_detection'
+    # EVAL_SCOPE is auto-detected per evaluate() call from the dataset name.
+    # ``ODinW13_bbox_val_full`` (and any name ending in ``_full``) means
+    # full-detection (Phase 1.5); everything else is category_conditioned.
+    EVAL_SCOPE = 'category_conditioned'  # legacy class default; superseded at runtime
 
     def build_prompt(self, line):
         """Build the inference prompt: image + question text from TSV."""
@@ -244,9 +249,21 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
         from .eval_bridge import (
             build_coco_predictions,
+            drop_incomplete_images,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
             write_json,
+        )
+
+        # Phase 1.5: derive eval_scope from dataset name. Names ending in
+        # ``_full`` (e.g. ``ODinW13_bbox_val_full``) trigger the full-
+        # detection path: GT is NOT filtered to the prediction's
+        # (image, cat) pairs, and a per-image completeness filter drops
+        # incomplete images so partial runs don't artificially deflate AP.
+        eval_scope = (
+            'full_detection'
+            if self.dataset_name.endswith('_full')
+            else 'category_conditioned'
         )
 
         data = load(eval_file)
@@ -289,6 +306,23 @@ class ODinWBBoxDataset(ImageBaseDataset):
         domains_seen = sorted({d for d, _ in rows_by_domain_split.keys()})
         gt_path_map = _build_odinw_gt_path_map(domains_seen)
 
+        # Phase 1.5: build expected-pair sets from the SOURCE TSV per
+        # (domain, split). These are the (image_id, category_id) pairs the
+        # model was supposed to be queried about, regardless of whether
+        # inference completed each one. Used by the completeness filter.
+        expected_pairs_by_ds: Dict[Tuple[str, str], set] = defaultdict(set)
+        if eval_scope == 'full_detection':
+            for idx, m_row in meta.iterrows():
+                d = str(m_row.get('domain', 'unknown'))
+                s = str(m_row.get('split', 'test'))
+                iid = parse_image_id_from_index(str(idx))
+                try:
+                    cid = int(m_row['category_id'])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if iid is not None:
+                    expected_pairs_by_ds[(d, s)].add((iid, cid))
+
         per_domain: Dict[str, Dict] = {}
         all_preds: List[Dict] = []
         domain_splits_evaluated: List[str] = []
@@ -319,7 +353,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
             with open(gt_path) as f:
                 gt = json.load(f)
 
-            if self.EVAL_SCOPE == 'category_conditioned':
+            if eval_scope == 'category_conditioned':
                 eval_pairs = kept_pairs
                 keep_cats = False
             else:
@@ -357,6 +391,45 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 for new_id, ann in enumerate(filtered_gt['annotations'], start=1):
                     ann['id'] = new_id
 
+            # Phase 1.5: completeness filter. In full-detection mode, drop
+            # any (image_id) whose full set of expected category queries
+            # wasn't completed (i.e. inference was killed mid-image).
+            completion_summary: Dict = {
+                'images_total': len(filtered_gt['images']),
+                'images_completed': len(filtered_gt['images']),
+                'images_dropped': 0,
+                'dropped_image_ids': [],
+            }
+            if eval_scope == 'full_detection':
+                expected_pairs = expected_pairs_by_ds.get((domain, split), set())
+                completed_pairs = set()
+                for r in rows:
+                    pv = r.get('prediction', None)
+                    # Treat NaN / None / empty string as "not completed".
+                    # Empty CSV cells round-trip as NaN through pandas.
+                    if pv is None or (isinstance(pv, float) and pd.isna(pv)):
+                        continue
+                    if not str(pv).strip():
+                        continue
+                    iid = parse_image_id_from_index(r['index'])
+                    try:
+                        cid = int(r['category_id'])
+                    except (TypeError, ValueError):
+                        continue
+                    if iid is not None:
+                        completed_pairs.add((iid, cid))
+                preds, filtered_gt, completion_summary = drop_incomplete_images(
+                    preds, filtered_gt, expected_pairs, completed_pairs,
+                )
+                if completion_summary['images_dropped']:
+                    logger.warning(
+                        'ODinW [%s/%s]: dropped %d/%d images for incomplete '
+                        'category coverage (full-detection partial-run safety net).',
+                        domain, split,
+                        completion_summary['images_dropped'],
+                        completion_summary['images_total'],
+                    )
+
             filtered_gt_path = get_intermediate_file_path(
                 eval_file, f'_odinw_gt_{domain}_{split}', target_format='json'
             )
@@ -376,6 +449,9 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 'num_kept_pairs': len(kept_pairs),
                 'num_images': len(filtered_gt['images']),
                 'num_annotations': len(filtered_gt['annotations']),
+                'images_total': completion_summary['images_total'],
+                'images_completed': completion_summary['images_completed'],
+                'images_dropped': completion_summary['images_dropped'],
             }
             domain_splits_evaluated.append(f'{domain}/{split}')
 
@@ -418,7 +494,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
             'evaluator': 'pycocotools.COCOeval',
             'iou_type': 'bbox',
             'score_mode': self.SCORE_MODE,
-            'eval_scope': self.EVAL_SCOPE,
+            'eval_scope': eval_scope,
             'num_predictions_total': len(all_preds),
             'domain_splits_evaluated': domain_splits_evaluated,
             'average_split': 'test' if test_keys else (
