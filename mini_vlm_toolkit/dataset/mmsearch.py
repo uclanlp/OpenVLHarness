@@ -404,6 +404,11 @@ class MMSearchEnd2End(ImageBaseDataset):
             # Ensure DataFrame for downstream usage.
             if not isinstance(data, pd.DataFrame):
                 data = pd.DataFrame(data)
+            # Auto-filter to the WebWatcher subset by default so reported
+            # numbers stay aligned with WebWatcher / cross-paper comparisons.
+            # Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass for full runs.
+            from .utils.webwatcher_subset import apply_webwatcher_subset
+            data = apply_webwatcher_subset(data, dataset)
             return data
 
         if dataset != "MMSearch":
@@ -443,6 +448,11 @@ class MMSearchEnd2End(ImageBaseDataset):
 
         # Persist processed annotations to LMUData root for reuse.
         dump(data, ann_path)
+
+        # Apply WebWatcher subset filter (default-on; bypass with
+        # MVT_DISABLE_WEBWATCHER_SUBSET=1).
+        from .utils.webwatcher_subset import apply_webwatcher_subset
+        data = apply_webwatcher_subset(data, dataset)
         return data
 
     def build_prompt(self, line: Any) -> List[Dict[str, Any]]:
@@ -489,6 +499,13 @@ class MMSearchEnd2End(ImageBaseDataset):
         assert "prediction" in data and "answer" in data, (
             f"MMSearchEnd2End.evaluate expects columns 'prediction' and 'answer' in {eval_file}"
         )
+
+        # Subset-aware re-eval: filter predictions down to the
+        # WebWatcher subset (171/300) before judging, so `--mode eval`
+        # doesn't waste GPT-4o calls on the 129 non-subset rows.
+        # Bypass via MVT_DISABLE_WEBWATCHER_SUBSET=1.
+        from .utils.webwatcher_subset import apply_webwatcher_subset
+        data = apply_webwatcher_subset(data, "MMSearch")
 
         # Normalize alternative answers into list-of-str
         def _to_alt_list(val: Any) -> List[str]:
@@ -591,25 +608,24 @@ class MMSearchEnd2End(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_mmsearch_f1", "json")
         dump(summary, score_file)
 
-        # Optional LLM judge evaluation. Only runs when explicitly enabled via
-        # `enable_llm_judge: true` in the judge config. Default behavior is
-        # unchanged — token-F1 only.
-        if judge_kwargs.get("enable_llm_judge"):
-            try:
-                judge_summary, judge_verdicts = _run_mmsearch_llm_judge(
-                    eval_file=eval_file,
-                    data=data,
-                    judge_kwargs=judge_kwargs,
-                )
-                summary["llm_judge"] = judge_summary
-                # Override per-instance is_correct with LLM judge verdicts
-                # (more reliable than token-F1 for semantic equivalence).
-                data["is_correct"] = [
-                    judge_verdicts.get(idx, {}).get("verdict") == "correct"
-                    for idx in data["index"]
-                ]
-            except Exception as exc:
-                logger.warning(f"LLM judge evaluation failed: {exc}")
+        # LLM judge evaluation always runs (in addition to token-F1) so the
+        # reported metric matches the MMSearch paper protocol. F1 above is
+        # also retained in `*_mmsearch_f1.json` for reference.
+        try:
+            judge_summary, judge_verdicts = _run_mmsearch_llm_judge(
+                eval_file=eval_file,
+                data=data,
+                judge_kwargs=judge_kwargs,
+            )
+            summary["llm_judge"] = judge_summary
+            # Override per-instance is_correct with LLM judge verdicts
+            # (more reliable than token-F1 for semantic equivalence).
+            data["is_correct"] = [
+                judge_verdicts.get(idx, {}).get("verdict") == "correct"
+                for idx in data["index"]
+            ]
+        except Exception as exc:
+            logger.warning(f"LLM judge evaluation failed: {exc}")
 
         # Persist updated data (with f1_score + is_correct columns) back to
         # the eval file so downstream consumers (e.g. experience learning
@@ -725,7 +741,23 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     return judge_summary, verdicts
 
 
-_MMSEARCH_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
+# ---------------------------------------------------------------------------
+# MMSearch end2end LLM judge
+# ---------------------------------------------------------------------------
+# Default judge: shared HLE-style prompt (extract_final_answer + binary
+# correct yes/no JSON, see ``utils/hle_judge.py``). Same prompt as the
+# other LLM-judge benchmarks in this project (mmsearch_plus, vdrbench,
+# hle, simplevqa_en, bcvl) so cross-benchmark numbers are directly
+# comparable, and matches WebWatcher's pipeline convention.
+#
+# The previous homebrew "evaluator for QA systems... lenient/strict
+# CORRECT/INCORRECT" prompt is preserved verbatim as
+# ``_LEGACY_MMSEARCH_JUDGE_PROMPT`` for reference but no longer
+# referenced by the active code path.
+from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
+
+
+_LEGACY_MMSEARCH_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
 
 Given a question, the ground-truth answer, and a model's prediction, judge whether the prediction is **semantically correct** (i.e. it conveys the same answer as the ground truth, even if the wording differs).
 
@@ -756,7 +788,8 @@ def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
     # Extract the parsed answer using existing helper
     pred_extracted = _extract_mmsearch_answer(pred)
 
-    # Include alternative GTs
+    # Include alternative GTs — HLE prompt convention is a single
+    # ``correct_answer`` field, so we OR-join the variants.
     alts_raw = row.get("alternative_gt_answers", [])
     alts: List[str] = []
     if isinstance(alts_raw, list):
@@ -774,19 +807,19 @@ def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
         else:
             alts = [s]
 
-    gt_str = gt
+    gt_combined = gt
     if alts:
-        gt_str = f'"{gt}" (also acceptable: {", ".join(repr(a) for a in alts)})'
+        gt_combined = " OR ".join([gt] + alts)
 
     if not pred_extracted.strip():
         return {"verdict": "incorrect", "raw_response": ""}
 
     msgs = [{
         "type": "text",
-        "value": _MMSEARCH_JUDGE_PROMPT.format(
+        "value": HLE_JUDGE_PROMPT.format(
             question=question[:1000],
-            gt_answer=gt_str[:500],
-            prediction=pred_extracted[:2000],
+            correct_answer=gt_combined[:500],
+            response=pred_extracted[:2000],
         ),
     }]
 
@@ -794,11 +827,12 @@ def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
         code, answer, _ = judge.generate_inner(msgs)
         if code != 0:
             return {"verdict": "error", "raw_response": str(answer)[:200]}
-        ans_upper = str(answer).strip().upper()
-        if "INCORRECT" in ans_upper:
-            return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
-        if "CORRECT" in ans_upper:
+        parsed = parse_hle_judgement(str(answer))
+        if parsed["correct"] == 1:
             return {"verdict": "correct", "raw_response": str(answer)[:200]}
+        if parsed.get("reasoning") not in (
+                "judge failed to parse", "judge unreachable after retries"):
+            return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
         return {"verdict": "error", "raw_response": str(answer)[:200]}
     except Exception as exc:
         return {"verdict": "error", "raw_response": f"exception: {exc}"}

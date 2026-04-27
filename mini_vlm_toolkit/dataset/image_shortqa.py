@@ -4,6 +4,7 @@ from .image_base import ImageBaseDataset
 from .utils import build_judge
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
 from .utils.shortqa import ShortQA_prompt
+from .utils.webwatcher_subset import apply_webwatcher_subset
 from ..utils import track_progress_rich
 from ..smp.file import get_intermediate_file_path
 
@@ -87,6 +88,12 @@ class ImageShortQADataset(ImageBaseDataset):
     def evaluate(self, eval_file, **judge_kwargs):
         data = load(eval_file)
         _ = self.dataset_name
+        # Subset-aware re-eval: if the dataset has a WebWatcher subset
+        # entry, filter the predictions to ONLY those indices before
+        # judging. Without this, `--mode eval` on a full prediction xlsx
+        # would re-judge every row (waste). Applies to ``hle``; no-op for
+        # datasets without a subset entry.
+        data = apply_webwatcher_subset(data, self.dataset_name)
         assert 'answer' in data and 'prediction' in data
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
