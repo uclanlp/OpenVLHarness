@@ -25,6 +25,8 @@ import os
 import os.path as osp
 import string
 import subprocess
+import urllib.error
+import urllib.request
 from collections import defaultdict
 from functools import partial
 
@@ -98,6 +100,50 @@ def _ensure_livevqa_data():
 # 1500 items × 2 QA levels = 3000 QAs) recovers all 300 WebWatcher samples
 # without needing WebWatcher's OSS bucket.
 _LIVEVQA_V2_PIN_COMMIT = '4274316a5cfa23be1eefd8f85e91635e93a3980d'  # 2025-08-12 "update video code" — last pre-trim state
+
+# WebWatcher's eval_data jsonl files (Apache 2.0, hosted in
+# Alibaba-NLP/DeepResearch). Used to specify which 300 LIVEVQA samples
+# constitute the LIVEVQA_v2 (WebWatcher-aligned) subset. Auto-downloaded
+# into $LMUData/webwatcher_eval_data/ on first build.
+_WEBWATCHER_EVAL_DATA_BASE = (
+    'https://raw.githubusercontent.com/Alibaba-NLP/DeepResearch/main/'
+    'WebAgent/WebWatcher/infer/vl_search_r1/eval_data'
+)
+
+
+def _download_webwatcher_eval_jsonl(name: str) -> str:
+    """Download a WebWatcher eval_data jsonl into the LMUData cache.
+
+    ``name`` should be one of ``hle | mmsearch | simplevqa | livevqa``
+    (without the ``.jsonl`` suffix). Returns the local cache path. If the
+    file is already cached, returns the existing path without
+    re-downloading.
+
+    Used by LIVEVQA_v2 first-build to (q, a)-match against the upstream
+    spec. Cache survives across runs.
+    """
+    cache_dir = osp.join(LMUDataRoot(), 'webwatcher_eval_data')
+    target = osp.join(cache_dir, f'{name}.jsonl')
+    if osp.isfile(target):
+        return target
+    os.makedirs(cache_dir, exist_ok=True)
+    url = f'{_WEBWATCHER_EVAL_DATA_BASE}/{name}.jsonl'
+    print(f"[LIVEVQA_v2] downloading WebWatcher eval_data/{name}.jsonl from {url}")
+    try:
+        urllib.request.urlretrieve(url, target)
+    except urllib.error.URLError as e:
+        # Clean up partial file before re-raising.
+        if osp.exists(target):
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+        raise RuntimeError(
+            f"Failed to download WebWatcher {name}.jsonl from {url}: {e}. "
+            f"Verify network access, or set LIVEVQA_V2_WW_JSONL to point at "
+            f"a local copy of the file."
+        ) from e
+    return target
 
 
 def _ensure_livevqa_v2_data():
@@ -839,13 +885,6 @@ class LIVEVQA_v2(ImageBaseDataset):
     DATASET_URL = {'LIVEVQA_v2': ''}
     DATASET_MD5 = {}
 
-    # Path to WebWatcher's subset spec. Absolute to Rui's workstation; can be
-    # overridden via ``LIVEVQA_V2_WW_JSONL`` env for portability.
-    _WW_JSONL_DEFAULT = (
-        '/home/<user>/code/DeepResearch/WebAgent/WebWatcher/'
-        'infer/vl_search_r1/eval_data/livevqa.jsonl'
-    )
-
     @classmethod
     def supported_datasets(cls):
         return ['LIVEVQA_v2']
@@ -862,11 +901,13 @@ class LIVEVQA_v2(ImageBaseDataset):
             return load(tsv_path)
 
         # First-build path: ensure upstream data + WebWatcher spec are both
-        # available, then match and flatten.
+        # available, then match and flatten. WebWatcher's livevqa.jsonl is
+        # auto-downloaded from the public Alibaba-NLP/DeepResearch repo
+        # (Apache 2.0). Set LIVEVQA_V2_WW_JSONL to override with a local file.
         snapshot_root = _ensure_livevqa_v2_data()
-        ww_jsonl_path = os.environ.get(
-            'LIVEVQA_V2_WW_JSONL', self._WW_JSONL_DEFAULT
-        )
+        ww_jsonl_path = os.environ.get('LIVEVQA_V2_WW_JSONL')
+        if not ww_jsonl_path:
+            ww_jsonl_path = _download_webwatcher_eval_jsonl('livevqa')
         if not osp.isfile(ww_jsonl_path):
             raise RuntimeError(
                 f"LIVEVQA_v2: WebWatcher subset spec not found at "
