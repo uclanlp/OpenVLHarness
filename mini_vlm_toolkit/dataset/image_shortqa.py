@@ -134,7 +134,7 @@ class ImageShortQADataset(ImageBaseDataset):
 
     def load_data(self, dataset):
         # Default ImageBaseDataset loader; then auto-filter to the
-        # WebWatcher v2 subset where applicable (currently only ``hle``).
+        # WebWatcher subset where applicable (currently only ``hle``).
         # No-op for datasets without a subset entry.
         # Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass.
         df = super().load_data(dataset)
