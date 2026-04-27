@@ -220,7 +220,7 @@ class SimpleVQA_EN(SimpleVQA):
     """SimpleVQA filtered to English-only rows (language == 'EN').
 
     Loads the shared SimpleVQA TSV, filters to English-only samples, then
-    auto-filters to the WebWatcher v2 evaluation subset (300 samples) by
+    auto-filters to the WebWatcher evaluation subset (300 samples) by
     default so reported numbers stay aligned with WebWatcher / cross-paper
     comparisons. Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass the subset
     filter for one-off full-EN-set runs (~2025 rows).
@@ -248,7 +248,7 @@ class SimpleVQA_EN(SimpleVQA):
             data = data[data["language"] == "EN"].reset_index(drop=True)
             print(f"SimpleVQA_EN: filtered {before} -> {len(data)} English rows")
 
-        # Auto-filter to WebWatcher v2 subset (300 samples) by default.
+        # Auto-filter to WebWatcher subset (300 samples) by default.
         from mini_vlm_toolkit.dataset.utils.webwatcher_subset import apply_webwatcher_subset
         data = apply_webwatcher_subset(data, dataset)
         return data
