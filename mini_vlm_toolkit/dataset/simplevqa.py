@@ -266,8 +266,16 @@ class SimpleVQA_EN(SimpleVQA):
         from mini_vlm_toolkit.dataset.utils.hle_judge import (
             HLE_JUDGE_PROMPT, parse_hle_judgement,
         )
+        from mini_vlm_toolkit.dataset.utils.webwatcher_subset import (
+            apply_webwatcher_subset,
+        )
 
         data = file.load(result_file)
+        # Subset-aware re-eval: filter predictions to the WebWatcher subset
+        # (300/1013) before judging, so --mode eval doesn't waste judge
+        # calls on the 713 non-subset rows. Bypass with
+        # MVT_DISABLE_WEBWATCHER_SUBSET=1.
+        data = apply_webwatcher_subset(data, "SimpleVQA_EN")
         fout = open(str(Path(result_file).parent) + '/gpt_eval.json', 'w', encoding='utf-8')
 
         api_key = judge_kwargs.get('key', None)
