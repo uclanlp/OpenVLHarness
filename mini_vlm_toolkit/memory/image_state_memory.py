@@ -51,6 +51,11 @@ class ImageStateMemory(PersistentStateMemory):
         self._tool_output_processor_cache: Dict[str, Dict[str, Any]] = {}
         self._tool_infra_src_path_bootstrapped = False
         self._tool_generated_image_counter = 0
+        # Phase 2: per-row sidecar accumulator for SAM3 (and potentially other
+        # detection-tool) confidence scores.  Reset by reset_for_row().
+        self.task_id: Optional[str] = None
+        self.tool_detections: List[Dict[str, Any]] = []
+        self._tool_call_counter: int = 0
 
     def reset(self) -> None:
         self._last_snapshot = None
@@ -60,6 +65,54 @@ class ImageStateMemory(PersistentStateMemory):
         self._tool_output_processor_cache = {}
         self._tool_infra_src_path_bootstrapped = False
         self._tool_generated_image_counter = 0
+        self.task_id = None
+        self.tool_detections = []
+        self._tool_call_counter = 0
+
+    # ------------------------------------------------------------------
+    # Phase 2: per-row sidecar bookkeeping for detection-tool confidence
+    # scores.  Populated by tool post-processors (e.g. SAM3) and read by
+    # the inference loop after each agent.generate() call to write
+    # tool_detections/<task_id>.json next to full_trajectories/.
+    # ------------------------------------------------------------------
+
+    def reset_for_row(self, task_id: Optional[str]) -> None:
+        """Clear per-row sidecar state and stamp the current task_id."""
+        self.task_id = task_id
+        self.tool_detections = []
+        self._tool_call_counter = 0
+
+    def record_tool_detection(
+        self,
+        *,
+        tool_name: str,
+        category_query: str,
+        boxes_xyxy_pixels: List[List[float]],
+        scores: List[float],
+        image_width: int,
+        image_height: int,
+    ) -> None:
+        """Append one detection-tool call's (boxes, scores) candidate set.
+
+        Boxes are stored in **absolute pixel xyxy** so the eval-time
+        score-lookup IoU match doesn't have to know image dimensions on
+        the candidate side.
+        """
+        try:
+            self.tool_detections.append({
+                "tool_call_idx": self._tool_call_counter,
+                "tool_name": str(tool_name),
+                "category_query": str(category_query),
+                "boxes_xyxy_pixels": [list(map(float, b[:4])) for b in boxes_xyxy_pixels if len(b) >= 4],
+                "scores": [float(s) for s in scores],
+                "image_width": int(image_width),
+                "image_height": int(image_height),
+            })
+            self._tool_call_counter += 1
+        except Exception:
+            # Defensive: if anything in the conversion fails, silently
+            # skip this call's sidecar entry rather than break inference.
+            pass
 
     def configure_tool_schema(self, json_schema: Any) -> None:
         if not isinstance(json_schema, list):

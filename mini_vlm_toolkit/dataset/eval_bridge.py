@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .lvis import _normalise_boxes, _parse_bbox_array_from_text
@@ -316,3 +317,125 @@ def write_json(obj, path) -> None:
     """Write ``obj`` to ``path`` as JSON.  Convenience wrapper."""
     with open(path, "w") as f:
         json.dump(obj, f)
+
+
+def _iou_xyxy(box_a: Sequence[float], box_b: Sequence[float]) -> float:
+    """IoU of two boxes in [x1, y1, x2, y2] format. 0 for degenerate boxes."""
+    ax1, ay1, ax2, ay2 = box_a[:4]
+    bx1, by1, bx2, by2 = box_b[:4]
+    ix = max(0.0, min(ax2, bx2) - max(ax1, bx1))
+    iy = max(0.0, min(ay2, by2) - max(ay1, by1))
+    inter = ix * iy
+    a_area = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    b_area = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+    union = a_area + b_area - inter
+    if union <= 0:
+        return 0.0
+    return inter / union
+
+
+def build_sam3_score_lookup(
+    tool_detections_dir: str,
+    iou_threshold: float = 0.5,
+):
+    """Phase 2 score recovery for ``score_mode='original'``.
+
+    Returns a callable ``score_lookup(row, parsed_box_xyxy_norm1k) -> float | None``
+    suitable for ``build_coco_predictions``.  Uses the per-row sidecar
+    JSONs written by the inference loop at
+    ``tool_detections_dir/<row_index>.json`` (Phase 2 spec).
+
+    For each row:
+      1. Lazily load the sidecar (cached per row).
+      2. Pool every (box_xyxy_pixel, score) candidate across all tool
+         calls in the row.
+      3. Convert the agent's parsed box (still in 0-1000 xyxy) to
+         absolute pixel xyxy using the row's image dimensions.
+      4. Match against the candidate pool by IoU.  If max IoU >= the
+         threshold, return that candidate's score; else return None
+         (the caller falls back to 1.0).
+
+    The returned callable also exposes a ``counters`` dict with
+    ``hits`` / ``misses`` / ``rows_with_sidecar`` / ``rows_without_sidecar``
+    so the evaluator can report a hit rate in the metrics blob.
+    """
+    sidecar_cache: Dict[str, List[Dict]] = {}
+    counters = {
+        "hits": 0,
+        "misses": 0,
+        "rows_with_sidecar": 0,
+        "rows_without_sidecar": 0,
+        "rows_seen": set(),
+    }
+
+    def _load_sidecar(task_id: str) -> List[Dict]:
+        if task_id in sidecar_cache:
+            return sidecar_cache[task_id]
+        path = os.path.join(tool_detections_dir, f"{task_id}.json")
+        if not os.path.isfile(path):
+            sidecar_cache[task_id] = []
+            return []
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            data = []
+        if not isinstance(data, list):
+            data = []
+        sidecar_cache[task_id] = data
+        return data
+
+    def score_lookup(row, parsed_box_xyxy_norm1k):
+        task_id = str(row["index"])
+        if task_id not in counters["rows_seen"]:
+            counters["rows_seen"].add(task_id)
+            sc = _load_sidecar(task_id)
+            if sc:
+                counters["rows_with_sidecar"] += 1
+            else:
+                counters["rows_without_sidecar"] += 1
+
+        sidecar = _load_sidecar(task_id)
+        if not sidecar:
+            counters["misses"] += 1
+            return None
+
+        try:
+            image_w = float(row.get("image_width") or 0)
+            image_h = float(row.get("image_height") or 0)
+        except (TypeError, ValueError):
+            image_w = image_h = 0.0
+        if image_w <= 0 or image_h <= 0:
+            counters["misses"] += 1
+            return None
+
+        # Convert agent box from 0-1000 xyxy to absolute pixel xyxy.
+        x1 = parsed_box_xyxy_norm1k[0] / 1000.0 * image_w
+        y1 = parsed_box_xyxy_norm1k[1] / 1000.0 * image_h
+        x2 = parsed_box_xyxy_norm1k[2] / 1000.0 * image_w
+        y2 = parsed_box_xyxy_norm1k[3] / 1000.0 * image_h
+        agent_box = [
+            min(x1, x2), min(y1, y2),
+            max(x1, x2), max(y1, y2),
+        ]
+
+        best_score = None
+        best_iou = -1.0
+        for entry in sidecar:
+            boxes = entry.get("boxes_xyxy_pixels") or []
+            scores = entry.get("scores") or []
+            for cand_box, cand_score in zip(boxes, scores):
+                if len(cand_box) < 4:
+                    continue
+                iou = _iou_xyxy(agent_box, cand_box)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_score = float(cand_score)
+        if best_iou >= iou_threshold and best_score is not None:
+            counters["hits"] += 1
+            return best_score
+        counters["misses"] += 1
+        return None
+
+    score_lookup.counters = counters  # type: ignore[attr-defined]
+    return score_lookup

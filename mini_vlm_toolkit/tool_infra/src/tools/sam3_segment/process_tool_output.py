@@ -51,6 +51,34 @@ def process_tool_output(payload, memory, tool_metadata=None):
         pred_boxes = result.get("pred_boxes", [])
         orig_w = result.get("orig_img_w", 1)
         orig_h = result.get("orig_img_h", 1)
+
+        # Phase 2: stash the per-tool-call (boxes, scores) candidate set on
+        # the memory object as a sidecar entry. The LLM-visible text below
+        # is unchanged (scores still scrubbed from the prompt).  At eval
+        # time the inference loop persists memory.tool_detections to
+        # tool_detections/<task_id>.json and the eval bridge IoU-matches
+        # agent boxes against these candidates to recover real scores.
+        if (
+            isinstance(pred_scores, list)
+            and pred_scores
+            and isinstance(pred_boxes, list)
+            and hasattr(memory, "record_tool_detection")
+        ):
+            try:
+                memory.record_tool_detection(
+                    tool_name=tool_name,
+                    category_query=prompt,
+                    boxes_xyxy_pixels=[
+                        list(b) for b in pred_boxes if isinstance(b, (list, tuple)) and len(b) >= 4
+                    ],
+                    scores=list(pred_scores),
+                    image_width=_safe_int(orig_w, default=0),
+                    image_height=_safe_int(orig_h, default=0),
+                )
+            except Exception:
+                # Don't let sidecar bookkeeping break the agent path.
+                pass
+
         box_mapping = {
             f"object {i + 1}": [
                 min(max(round(box[0] / orig_w * 1000, 2), 0), 1000),

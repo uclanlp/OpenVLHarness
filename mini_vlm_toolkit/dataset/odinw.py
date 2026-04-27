@@ -249,11 +249,26 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
         from .eval_bridge import (
             build_coco_predictions,
+            build_sam3_score_lookup,
             drop_incomplete_images,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
             write_json,
         )
+
+        # Phase 2: auto-detect score_mode from sidecar presence; allow env override.
+        tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
+        override = os.environ.get('SCORE_MODE', '').strip().lower()
+        if override in ('constant', 'original'):
+            score_mode = override
+        elif osp.isdir(tool_detections_dir) and any(os.scandir(tool_detections_dir)):
+            score_mode = 'original'
+        else:
+            score_mode = 'constant'
+
+        score_lookup = None
+        if score_mode == 'original':
+            score_lookup = build_sam3_score_lookup(tool_detections_dir)
 
         # Phase 1.5: derive eval_scope from dataset name. Names ending in
         # ``_full`` (e.g. ``ODinW13_bbox_val_full``) trigger the full-
@@ -336,7 +351,9 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 )
                 continue
 
-            preds = build_coco_predictions(rows, score_mode=self.SCORE_MODE)
+            preds = build_coco_predictions(
+                rows, score_mode=score_mode, score_lookup=score_lookup,
+            )
             all_preds.extend(preds)
 
             # Per-domain category-conditioned restriction.
@@ -488,12 +505,25 @@ class ODinWBBoxDataset(ImageBaseDataset):
             else 'ODinW_average'
         )
 
+        # Phase 2: emit sidecar diagnostics if we used real SAM3 scores.
+        sidecar_diag = None
+        if score_lookup is not None and hasattr(score_lookup, 'counters'):
+            c = score_lookup.counters
+            total = c['hits'] + c['misses']
+            sidecar_diag = {
+                'sidecar_hits': c['hits'],
+                'sidecar_misses': c['misses'],
+                'sidecar_hit_rate': (c['hits'] / total) if total else 0.0,
+                'rows_with_sidecar': c['rows_with_sidecar'],
+                'rows_without_sidecar': c['rows_without_sidecar'],
+            }
+
         # Save full metrics JSON.
         metrics_blob = {
             'dataset': self.dataset_name,
             'evaluator': 'pycocotools.COCOeval',
             'iou_type': 'bbox',
-            'score_mode': self.SCORE_MODE,
+            'score_mode': score_mode,
             'eval_scope': eval_scope,
             'num_predictions_total': len(all_preds),
             'domain_splits_evaluated': domain_splits_evaluated,
@@ -503,6 +533,8 @@ class ODinWBBoxDataset(ImageBaseDataset):
             'per_domain': per_domain,
             avg_label: avg,
         }
+        if sidecar_diag is not None:
+            metrics_blob['sidecar'] = sidecar_diag
         metrics_file = get_intermediate_file_path(
             eval_file, '_metrics', target_format='json'
         )

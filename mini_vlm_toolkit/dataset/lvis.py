@@ -347,10 +347,26 @@ class LVISBBoxDataset(ImageBaseDataset):
 
         from .eval_bridge import (
             build_coco_predictions,
+            build_sam3_score_lookup,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
             write_json,
         )
+
+        # Phase 2: auto-detect score_mode from sidecar presence; allow env override.
+        # tool_detections/ lives in the same dataset dir as the predictions xlsx.
+        tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
+        override = os.environ.get('SCORE_MODE', '').strip().lower()
+        if override in ('constant', 'original'):
+            score_mode = override
+        elif osp.isdir(tool_detections_dir) and any(os.scandir(tool_detections_dir)):
+            score_mode = 'original'
+        else:
+            score_mode = 'constant'
+
+        score_lookup = None
+        if score_mode == 'original':
+            score_lookup = build_sam3_score_lookup(tool_detections_dir)
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
@@ -385,10 +401,14 @@ class LVISBBoxDataset(ImageBaseDataset):
             )
 
         # Build the COCO-format prediction list.
-        coco_preds = build_coco_predictions(rows, score_mode=self.SCORE_MODE)
+        coco_preds = build_coco_predictions(
+            rows,
+            score_mode=score_mode,
+            score_lookup=score_lookup,
+        )
         logger.info(
             'Built %d LVIS predictions across %d evaluated rows (score_mode=%s).',
-            len(coco_preds), len(rows), self.SCORE_MODE,
+            len(coco_preds), len(rows), score_mode,
         )
 
         # Compute the (image_id, category_id) pairs the model was asked about.
@@ -455,18 +475,33 @@ class LVISBBoxDataset(ImageBaseDataset):
                     return 0.0
             results_dict = {k: _coerce(v) for k, v in raw.items()}
 
+        # Phase 2: emit sidecar diagnostics if we used real SAM3 scores.
+        sidecar_diag = None
+        if score_lookup is not None and hasattr(score_lookup, 'counters'):
+            c = score_lookup.counters
+            total = c['hits'] + c['misses']
+            sidecar_diag = {
+                'sidecar_hits': c['hits'],
+                'sidecar_misses': c['misses'],
+                'sidecar_hit_rate': (c['hits'] / total) if total else 0.0,
+                'rows_with_sidecar': c['rows_with_sidecar'],
+                'rows_without_sidecar': c['rows_without_sidecar'],
+            }
+
         metrics_blob = {
             'dataset': self.dataset_name,
             'evaluator': 'lvis.LVISEval',
             'iou_type': 'bbox',
             'max_dets': self.LVIS_MAX_DETS,
-            'score_mode': self.SCORE_MODE,
+            'score_mode': score_mode,
             'eval_scope': self.EVAL_SCOPE,
             'num_predictions': len(coco_preds),
             'num_rows_evaluated': len(rows),
             'num_kept_pairs': len(kept_pairs),
             'metrics': results_dict,
         }
+        if sidecar_diag is not None:
+            metrics_blob['sidecar'] = sidecar_diag
         metrics_file = get_intermediate_file_path(
             eval_file, '_metrics', target_format='json'
         )
