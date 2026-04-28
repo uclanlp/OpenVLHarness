@@ -374,6 +374,174 @@ def write_json(obj, path) -> None:
         json.dump(obj, f)
 
 
+def extract_per_row_diagnostics(
+    evaluator,
+    *,
+    iou_threshold: float = 0.5,
+    area_label: str = "all",
+) -> List[Dict]:
+    """Extract per-(image, category) eval diagnostics from a populated
+    ``pycocotools.cocoeval.COCOeval`` or ``lvis.LVISEval`` instance.
+
+    Must be called **after** ``evaluator.evaluate()`` has populated
+    ``evalImgs`` / ``eval_imgs``. Both wrappers do this as part of
+    ``run()`` (LVIS) or as a step inside their normal eval flow (COCO).
+
+    Returns a list of dicts (one per non-trivial (image_id, category_id)
+    pair the evaluator considered, at area=``area_label``):
+
+    .. code-block:: python
+
+        {
+            "image_id":     int,
+            "category_id":  int,
+            "num_pred":     int,   # detections (excluding ignored)
+            "num_gt":       int,   # GT (excluding ignored)
+            "tp":           int,   # at the chosen IoU threshold
+            "fp":           int,
+            "fn":           int,
+            "mean_match_iou": float | None,  # mean IoU of matched pairs
+        }
+
+    Pairs the evaluator returned ``None`` for (no GT and no detections)
+    are skipped.
+    """
+    import numpy as np
+
+    p = evaluator.params
+    # Detect evaluator flavour by attribute naming convention.
+    is_lvis = hasattr(p, "iou_thrs")
+    if is_lvis:
+        eval_imgs = evaluator.eval_imgs
+        iou_thrs = p.iou_thrs
+        area_rng = p.area_rng
+        area_rng_lbl = p.area_rng_lbl
+        K_DT_MATCHES = "dt_matches"
+        K_GT_MATCHES = "gt_matches"
+        K_DT_IDS = "dt_ids"
+        K_GT_IDS = "gt_ids"
+        K_DT_IGNORE = "dt_ignore"
+        K_GT_IGNORE = "gt_ignore"
+        K_ARNG = "area_rng"
+    else:
+        eval_imgs = evaluator.evalImgs
+        iou_thrs = p.iouThrs
+        area_rng = p.areaRng
+        area_rng_lbl = p.areaRngLbl
+        K_DT_MATCHES = "dtMatches"
+        K_GT_MATCHES = "gtMatches"
+        K_DT_IDS = "dtIds"
+        K_GT_IDS = "gtIds"
+        K_DT_IGNORE = "dtIgnore"
+        K_GT_IGNORE = "gtIgnore"
+        K_ARNG = "aRng"
+
+    # Closest IoU threshold index.
+    iou_arr = np.asarray(iou_thrs, dtype=float)
+    iou_idx = int(np.argmin(np.abs(iou_arr - float(iou_threshold))))
+
+    # Area-label index.
+    try:
+        area_idx = list(area_rng_lbl).index(area_label)
+    except ValueError:
+        area_idx = 0
+    target_arng = list(area_rng[area_idx])
+
+    # IoU matrix lookup: evaluator.ious is keyed by (image_id, category_id)
+    # with shape (D_sorted, G).  We use it to recover per-match IoU.
+    ious_map = getattr(evaluator, "ious", {}) or {}
+
+    rows: List[Dict] = []
+    for entry in eval_imgs:
+        if entry is None:
+            continue
+        # Filter to area=all (or whatever the caller asked for).
+        if list(entry.get(K_ARNG, [])) != target_arng:
+            continue
+
+        dt_ids = list(entry.get(K_DT_IDS, []))
+        gt_ids = list(entry.get(K_GT_IDS, []))
+        dt_matches = np.asarray(entry.get(K_DT_MATCHES, []))
+        gt_matches = np.asarray(entry.get(K_GT_MATCHES, []))
+        dt_ignore = np.asarray(entry.get(K_DT_IGNORE, []))
+        gt_ignore = np.asarray(entry.get(K_GT_IGNORE, []))
+
+        # GT count (non-ignored)
+        if gt_ignore.size:
+            num_gt = int(np.count_nonzero(~gt_ignore.astype(bool)))
+        else:
+            num_gt = 0
+
+        # Pull the chosen IoU threshold's slice (or empty if dt is empty).
+        def _slice(mat):
+            if mat.ndim == 2 and mat.shape[0] > iou_idx:
+                return mat[iou_idx]
+            return np.zeros(0)
+
+        dt_m_thr = _slice(dt_matches)
+        dt_ig_thr = _slice(dt_ignore)
+        gt_m_thr = _slice(gt_matches)
+
+        # DT count (non-ignored at this IoU)
+        if dt_ig_thr.size:
+            num_pred = int(np.count_nonzero(~dt_ig_thr.astype(bool)))
+        else:
+            num_pred = len(dt_ids)
+
+        # TP / FP / FN
+        if dt_m_thr.size:
+            matched = (dt_m_thr != 0) & (~dt_ig_thr.astype(bool))
+            tp = int(np.count_nonzero(matched))
+            fp = int(num_pred - tp)
+        else:
+            tp = 0
+            fp = num_pred
+        if gt_m_thr.size:
+            gt_matched = (gt_m_thr != 0) & (~gt_ignore.astype(bool))
+            fn = int(num_gt - int(np.count_nonzero(gt_matched)))
+        else:
+            fn = num_gt
+
+        # Mean IoU of matched pairs (best-effort; NaN if recovery fails).
+        mean_match_iou: Optional[float] = None
+        if tp > 0:
+            try:
+                key = (int(entry["image_id"]), int(entry["category_id"]))
+                ious_mat = ious_map.get(key)
+                if ious_mat is not None and hasattr(ious_mat, "shape"):
+                    ious_mat = np.asarray(ious_mat)
+                    if ious_mat.ndim == 2 and ious_mat.size > 0:
+                        gt_id_to_idx = {int(g): i for i, g in enumerate(gt_ids)}
+                        matched_ious: List[float] = []
+                        for d_idx in range(len(dt_m_thr)):
+                            if dt_m_thr[d_idx] == 0:
+                                continue
+                            if d_idx < len(dt_ig_thr) and dt_ig_thr[d_idx]:
+                                continue
+                            g_idx = gt_id_to_idx.get(int(dt_m_thr[d_idx]))
+                            if g_idx is None:
+                                continue
+                            if d_idx < ious_mat.shape[0] and g_idx < ious_mat.shape[1]:
+                                matched_ious.append(float(ious_mat[d_idx, g_idx]))
+                        if matched_ious:
+                            mean_match_iou = float(np.mean(matched_ious))
+            except Exception:
+                mean_match_iou = None
+
+        rows.append({
+            "image_id":       int(entry["image_id"]),
+            "category_id":    int(entry["category_id"]),
+            "num_pred":       num_pred,
+            "num_gt":         num_gt,
+            "tp":             tp,
+            "fp":             fp,
+            "fn":             fn,
+            "mean_match_iou": mean_match_iou,
+        })
+
+    return rows
+
+
 def _resolve_score_modes(tool_detections_dir: str) -> Tuple[List[str], str]:
     """Decide which score_mode(s) to run for one ``evaluate()`` call.
 

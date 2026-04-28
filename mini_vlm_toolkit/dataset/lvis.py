@@ -348,6 +348,7 @@ class LVISBBoxDataset(ImageBaseDataset):
         from .eval_bridge import (
             build_coco_predictions,
             build_sam3_score_lookup,
+            extract_per_row_diagnostics,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
             write_json,
@@ -461,6 +462,7 @@ class LVISBBoxDataset(ImageBaseDataset):
                     'APr': 0.0, 'APc': 0.0, 'APf': 0.0,
                     'APs': 0.0, 'APm': 0.0, 'APl': 0.0,
                 }
+                evaluator_obj = None
             else:
                 lvis_gt = LVIS(filtered_gt_path)
                 lvis_dt = LVISResults(lvis_gt, pred_path, max_dets=self.LVIS_MAX_DETS)
@@ -478,6 +480,42 @@ class LVISBBoxDataset(ImageBaseDataset):
                     except (TypeError, ValueError):
                         return 0.0
                 results_dict = {k: _coerce(v) for k, v in raw.items()}
+                evaluator_obj = evaluator
+
+            # Per-row instance-level diagnostics CSV.
+            # Walks evaluator.eval_imgs at IoU=0.5 / area=all and dumps
+            # one CSV row per (image_id, category_id) the evaluator
+            # considered, with TP/FP/FN counts and mean matched IoU.
+            if evaluator_obj is not None:
+                per_row_records = extract_per_row_diagnostics(
+                    evaluator_obj, iou_threshold=0.5, area_label='all',
+                )
+                # Attach LVIS frequency bucket so downstream analysis can
+                # group by f/c/r without re-joining against the GT JSON.
+                freq_by_cat = {
+                    int(c['id']): c.get('frequency')
+                    for c in filtered_gt.get('categories', [])
+                }
+                for r in per_row_records:
+                    r['frequency'] = freq_by_cat.get(int(r['category_id']))
+                per_row_df = pd.DataFrame(per_row_records)
+                # Reorder columns for readability.
+                preferred_cols = [
+                    'image_id', 'category_id', 'frequency',
+                    'num_pred', 'num_gt', 'tp', 'fp', 'fn', 'mean_match_iou',
+                ]
+                per_row_df = per_row_df[
+                    [c for c in preferred_cols if c in per_row_df.columns]
+                    + [c for c in per_row_df.columns if c not in preferred_cols]
+                ]
+                per_row_path = get_intermediate_file_path(
+                    eval_file, f'_per_row{file_suffix}', target_format='csv'
+                )
+                dump(per_row_df, per_row_path)
+                logger.info(
+                    '[LVIS %s] wrote %d-row per-instance CSV to %s',
+                    score_mode, len(per_row_df), per_row_path,
+                )
 
             sidecar_diag = None
             if score_lookup is not None and hasattr(score_lookup, 'counters'):

@@ -146,14 +146,22 @@ def _build_odinw_gt_path_map(
     return out
 
 
-def _evaluate_coco_bbox(annotation_json: str, predictions: List[Dict]) -> Dict:
-    """Run pycocotools.COCOeval for one domain.  Returns the 6 AP metrics."""
+def _evaluate_coco_bbox(
+    annotation_json: str, predictions: List[Dict],
+) -> Tuple[Dict, Optional['COCOeval']]:
+    """Run pycocotools.COCOeval for one domain.
+
+    Returns a 2-tuple ``(stats_dict, evaluator)``.  ``evaluator`` is the
+    populated ``COCOeval`` instance (so callers can inspect ``evalImgs``
+    / ``ious`` for per-row diagnostics) — or ``None`` if no predictions
+    were submitted.
+    """
     from pycocotools.coco import COCO
     from pycocotools.cocoeval import COCOeval
 
     coco_gt = COCO(annotation_json)
     if not predictions:
-        return {k: 0.0 for k in ('AP', 'AP50', 'AP75', 'APs', 'APm', 'APl')}
+        return ({k: 0.0 for k in ('AP', 'AP50', 'AP75', 'APs', 'APm', 'APl')}, None)
 
     coco_dt = coco_gt.loadRes(predictions)
     evaluator = COCOeval(coco_gt, coco_dt, iouType='bbox')
@@ -170,7 +178,7 @@ def _evaluate_coco_bbox(annotation_json: str, predictions: List[Dict]) -> Dict:
         except (TypeError, ValueError):
             return 0.0
 
-    return {
+    stats = {
         'AP':   _coerce(evaluator.stats[0]),
         'AP50': _coerce(evaluator.stats[1]),
         'AP75': _coerce(evaluator.stats[2]),
@@ -178,6 +186,7 @@ def _evaluate_coco_bbox(annotation_json: str, predictions: List[Dict]) -> Dict:
         'APm':  _coerce(evaluator.stats[4]),
         'APl':  _coerce(evaluator.stats[5]),
     }
+    return stats, evaluator
 
 
 class ODinWBBoxDataset(ImageBaseDataset):
@@ -273,6 +282,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
             build_coco_predictions,
             build_sam3_score_lookup,
             drop_incomplete_images,
+            extract_per_row_diagnostics,
             filter_coco_gt_to_image_ids,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
@@ -366,6 +376,10 @@ class ODinWBBoxDataset(ImageBaseDataset):
             score_lookup = None
             if score_mode == 'original':
                 score_lookup = build_sam3_score_lookup(tool_detections_dir)
+
+            # Per-row instance-level diagnostics, accumulated across all
+            # (domain, split) entries for this mode.
+            all_per_row: List[Dict] = []
 
             per_domain: Dict[str, Dict] = {}
             all_preds: List[Dict] = []
@@ -502,7 +516,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     len(filtered_gt['images']), len(filtered_gt['annotations']),
                 )
 
-                metrics = _evaluate_coco_bbox(filtered_gt_path, preds)
+                metrics, evaluator_obj = _evaluate_coco_bbox(filtered_gt_path, preds)
                 per_domain[f'{domain}/{split}'] = {
                     **metrics,
                     'num_predictions': len(preds),
@@ -515,6 +529,16 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     'images_dropped': completion_summary['images_dropped'],
                 }
                 domain_splits_evaluated.append(f'{domain}/{split}')
+
+                # Per-row instance diagnostics for this (domain, split).
+                if evaluator_obj is not None:
+                    domain_per_row = extract_per_row_diagnostics(
+                        evaluator_obj, iou_threshold=0.5, area_label='all',
+                    )
+                    for r in domain_per_row:
+                        r['domain'] = domain
+                        r['split'] = split
+                    all_per_row.extend(domain_per_row)
 
             # Average across domains using the **test** split only.  This matches
             # the ODinW-13 reporting convention used by GLIP / Grounding DINO.
@@ -589,6 +613,28 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 eval_file, f'_odinw_pred{file_suffix}', target_format='json'
             )
             write_json(all_preds, combined_pred_path)
+
+            # Combined per-row instance-level diagnostics CSV (per mode).
+            # One row per (domain, split, image_id, category_id) the
+            # evaluator considered, with TP/FP/FN counts at IoU=0.5.
+            if all_per_row:
+                per_row_df = pd.DataFrame(all_per_row)
+                preferred_cols = [
+                    'domain', 'split', 'image_id', 'category_id',
+                    'num_pred', 'num_gt', 'tp', 'fp', 'fn', 'mean_match_iou',
+                ]
+                per_row_df = per_row_df[
+                    [c for c in preferred_cols if c in per_row_df.columns]
+                    + [c for c in per_row_df.columns if c not in preferred_cols]
+                ]
+                per_row_path = get_intermediate_file_path(
+                    eval_file, f'_per_row{file_suffix}', target_format='csv'
+                )
+                dump(per_row_df, per_row_path)
+                logger.info(
+                    '[ODinW %s] wrote %d-row per-instance CSV to %s',
+                    score_mode, len(per_row_df), per_row_path,
+                )
 
             # Slim summary DataFrame (per mode).
             def _pct(v):
