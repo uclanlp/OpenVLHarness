@@ -2981,6 +2981,73 @@ class FSC147Dataset(ImageVQADataset):
         return result
 
 
+class PixmoCountDataset(ImageVQADataset):
+    """PixmoCount counting benchmark.
+
+    Dataset has the same shape as FSC-147 (counting-style VQA where the
+    GT is an integer ``answer``); evaluation reuses FSC-147's parser
+    (``extract_integer_from_prediction`` — no upper-bound cap, since
+    PixmoCount counts can be arbitrarily large) and reports the same
+    triple of metrics: ``mae``, ``rmse``, ``acc``.
+    """
+    TYPE = 'VQA'
+    DATASET_URL = {'PixmoCount_val': '', 'PixmoCount_train': ''}
+    DATASET_MD5 = {}
+
+    def _get_eval_method(self):
+        return 'accuracy'
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+        # Always go through ``dump_image`` so basename-only TSVs (no
+        # ``image`` column with base64) resolve against ``self.img_root``
+        # — the same pattern FSC147Dataset uses.
+        tgt_path = self.dump_image(line)
+        msgs = []
+        msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        msgs.append(dict(type='text', value=line['question']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        import numpy as np
+        from .utils.fsc147 import extract_integer_from_prediction
+
+        data = load(eval_file)
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        model_name = judge_kwargs.get('model', None)
+        if model_name:
+            method = self._get_eval_method()
+            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
+            predictions = data['extracted_answer'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                if extract_integer_from_prediction(x) is not None else 0
+            )
+        else:
+            predictions = data['prediction'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                if extract_integer_from_prediction(x) is not None else 0
+            )
+
+        answers = data['answer'].astype(int)
+
+        mae = (predictions - answers).abs().mean()
+        rmse = np.sqrt(((predictions - answers) ** 2).mean())
+        acc = (predictions == answers).mean() * 100
+
+        result = {
+            'mae': round(float(mae), 4),
+            'rmse': round(float(rmse), 4),
+            'acc': round(float(acc), 4),
+        }
+
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(d2df(result), result_file)
+        return result
+
+
 class FREAKVQADataset(ImageVQADataset):
     TYPE = 'VQA'
     DATASET_URL = {'FREAK_VQA': ''}
