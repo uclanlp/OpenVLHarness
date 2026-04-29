@@ -1242,7 +1242,6 @@ class BaseAgentWithTools(BaseAgent):
         token/message drift and is not safe for SFT.
         """
         import base64
-        from ..utils.reporting_utils import iter_data_uris
 
         if not isinstance(terminating_response, dict):
             return None
@@ -1256,6 +1255,8 @@ class BaseAgentWithTools(BaseAgent):
         if tokenizer is None:
             self.logger.warning(f"[raw_sft] no tokenizer available for {self.model}")
             return None
+
+        from ..utils.reporting_utils import iter_data_uris
 
         images = list(iter_data_uris(msgs))
 
