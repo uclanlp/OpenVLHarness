@@ -57,7 +57,7 @@ class SerpApi_Image_Search_Tool(BaseTool):
                 "image_base64": "str - base64-encoded image (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
-            tool_aliases=["image_search"],
+            tool_aliases=["serpapi_reverse_image"],
             output_type=(
                 "list[dict] - top 5 similar image matches with image/source URLs and metadata"
             ),
