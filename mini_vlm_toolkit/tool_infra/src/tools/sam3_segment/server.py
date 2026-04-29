@@ -1,5 +1,6 @@
 import base64
 import io
+import types
 from typing import Any, Dict, List, Tuple
 import numpy as np
 import torch
@@ -10,16 +11,64 @@ from PIL import Image
 
 from sam3.model_builder import build_sam3_image_model
 from sam3.model.sam3_image_processor import Sam3Processor
+from sam3.model import box_ops
+from sam3.model.data_misc import interpolate
+from sam3.agent.helpers.mask_overlap_removal import remove_overlapping_masks
 
 from tools.viz.visualizer import Visualizer
 
 MODEL_NAME = "sam3-image"
+IOM_THRESH = 0.3  # post-hoc IoM mask-overlap removal threshold
 
 app = FastAPI(title="SAM3 Segmentation Server", version="0.1")
 
 # Load once at startup (important for performance)
 model = build_sam3_image_model()
 processor = Sam3Processor(model)
+
+
+# Disable presence token: replace _forward_grounding with a copy of
+# sam3/model/sam3_image_processor.py:182-222 minus the presence multiply.
+# Mirrors the canonical `use_presence=False` switch in sam3/eval/postprocessors.py:45.
+@torch.inference_mode()
+def _forward_grounding_no_presence(self, state):
+    outputs = self.model.forward_grounding(
+        backbone_out=state["backbone_out"],
+        find_input=self.find_stage,
+        geometric_prompt=state["geometric_prompt"],
+        find_target=None,
+    )
+    out_bbox = outputs["pred_boxes"]
+    out_masks = outputs["pred_masks"]
+    out_probs = outputs["pred_logits"].sigmoid().squeeze(-1)
+
+    keep = out_probs > self.confidence_threshold
+    out_probs = out_probs[keep]
+    out_masks = out_masks[keep]
+    out_bbox = out_bbox[keep]
+
+    boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
+    img_h, img_w = state["original_height"], state["original_width"]
+    scale = torch.tensor([img_w, img_h, img_w, img_h], device=self.device)
+    boxes = boxes * scale[None, :]
+
+    out_masks = interpolate(
+        out_masks.unsqueeze(1),
+        (img_h, img_w),
+        mode="bilinear",
+        align_corners=False,
+    ).sigmoid()
+
+    state["masks_logits"] = out_masks
+    state["masks"] = out_masks > 0.5
+    state["boxes"] = boxes
+    state["scores"] = out_probs
+    return state
+
+
+processor._forward_grounding = types.MethodType(
+    _forward_grounding_no_presence, processor
+)
 
 
 def _pil_from_upload(upload: UploadFile) -> Image.Image:
@@ -194,6 +243,23 @@ def segment(
                 rle_masks.append(_mask_to_rle(masks_np))
 
         num_masks = len(rle_masks)
+
+        # Post-hoc IoM mask-overlap removal (greedy keep by score)
+        if num_masks >= 2:
+            filtered = remove_overlapping_masks(
+                {
+                    "orig_img_h": orig_img_h,
+                    "orig_img_w": orig_img_w,
+                    "pred_masks": rle_masks,
+                    "pred_boxes": boxes_list,
+                    "pred_scores": scores_list,
+                },
+                iom_thresh=IOM_THRESH,
+            )
+            rle_masks = filtered["pred_masks"]
+            boxes_list = filtered["pred_boxes"]
+            scores_list = filtered["pred_scores"]
+            num_masks = len(rle_masks)
 
         # Sort left-to-right by box x1
         boxes_list, rle_masks, scores_list = _sort_left_to_right(
