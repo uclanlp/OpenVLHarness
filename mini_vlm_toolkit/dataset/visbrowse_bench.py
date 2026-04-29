@@ -124,15 +124,14 @@ def _decrypt(ciphertext_b64: str, password: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Primary judge prompt — original VisBrowse-Bench protocol from upstream
-# ``eval.py``. Simple semantic-equivalence yes/no. Default grader so our
-# reported numbers align with the paper.
+# Primary judge — original VisBrowse-Bench paper protocol (yes/no semantic
+# equivalence). Default grader so reported numbers align with the paper.
+# Prompt + parser live in utils/visbrowse_bench_judge.py.
 # ---------------------------------------------------------------------------
-JUDGE_PROMPT = """You are a rigorous question-and-answer quality assessment expert. Given a question, your task is to compare the "groud truth" and the "model answer", determine whether they are semantically equivalent, and output "yes" or "no".
-question: {question}
-ground truth: {correct_answer}
-model answer: {response}
-"""
+from .utils.visbrowse_bench_judge import (
+    VISBROWSE_BENCH_JUDGE_PROMPT,
+    parse_visbrowse_bench_verdict,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +202,7 @@ def _grade_item(model, item):
         return dict(correct=0, extracted_answer='', reasoning='Empty ground truth')
 
     for gt in gt_list:
-        prompt = JUDGE_PROMPT.format(
+        prompt = VISBROWSE_BENCH_JUDGE_PROMPT.format(
             question=question,
             correct_answer=str(gt),
             response=prediction,
@@ -214,12 +213,10 @@ def _grade_item(model, item):
             if 'Failed to obtain answer via API' in ans:
                 retry -= 1
                 continue
-            raw = ans.strip().lower()
-            # Look for yes / no token anywhere in the response; take first.
-            m = re.search(r'\b(yes|no)\b', raw)
-            if m:
-                if m.group(1) == 'yes':
-                    return dict(correct=1, extracted_answer='', reasoning=ans.strip()[:500])
+            verdict = parse_visbrowse_bench_verdict(ans)
+            if verdict == 'yes':
+                return dict(correct=1, extracted_answer='', reasoning=ans.strip()[:500])
+            if verdict == 'no':
                 # 'no' for this variant — try next GT variant
                 break
             retry -= 1

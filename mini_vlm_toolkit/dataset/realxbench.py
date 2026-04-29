@@ -172,29 +172,16 @@ def _task_type_label(row) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LLM judge (reuse MMSearch pattern)
+# LLM judge — RealXBench lenient protocol (utils/realxbench_judge.py).
+# Note: this is NOT the HLE judge protocol; for cross-paper alignment with
+# HLE / WebWatcher / BrowseComp-VL paper numbers, switch to
+# utils/hle_judge.py.
 # ---------------------------------------------------------------------------
 
-_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
-
-Given a question, the ground-truth answer, and a model's prediction, judge whether the prediction is **semantically correct** (i.e. it conveys the same answer as the ground truth, even if the wording differs).
-
-Be lenient about:
-- Synonyms (e.g. "England" vs "United Kingdom")
-- Number formats (e.g. "1" vs "One")
-- Date formats (e.g. "September 29 to October 4, 2024" vs "2024-09-29 to 2024-10-04")
-- Verbose answers that contain the correct answer plus extra explanation
-- Capitalization and punctuation
-
-Be strict about:
-- Wrong facts (e.g. wrong color, wrong name, wrong number)
-- Refusal or "I don't know" responses
-
-Question: {question}
-Ground Truth: {gt_answer}
-Prediction: {prediction}
-
-Respond with EXACTLY one word: either "CORRECT" or "INCORRECT". No explanation."""
+from .utils.realxbench_judge import (
+    REALXBENCH_JUDGE_PROMPT,
+    parse_realxbench_verdict,
+)
 
 
 def _judge_one(judge, row) -> Dict[str, Any]:
@@ -210,7 +197,7 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     all_answers = [gt] + (alt_answers if isinstance(alt_answers, list) else [])
     gt_combined = " or ".join(all_answers)
 
-    prompt = _JUDGE_PROMPT.format(
+    prompt = REALXBENCH_JUDGE_PROMPT.format(
         question=question,
         gt_answer=gt_combined,
         prediction=pred_extracted or pred,
@@ -220,11 +207,7 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     raw_response = ""
     try:
         raw_response = judge.generate(prompt)
-        raw_upper = raw_response.strip().upper()
-        if "CORRECT" in raw_upper and "INCORRECT" not in raw_upper:
-            verdict = "correct"
-        elif "INCORRECT" in raw_upper:
-            verdict = "incorrect"
+        verdict = parse_realxbench_verdict(raw_response)
     except Exception as e:
         logger.warning("RealXBench judge error: %s", e)
 
