@@ -28,6 +28,8 @@ def img_root_map(dataset):
         return 'LVIS'
     if 'ODinW' in dataset:
         return 'ODinW'
+    if 'PixmoCount' in dataset:
+        return 'PixmoCount'
 
     mmbench_root_map = {
         'MMBench_DEV_EN': 'MMBench', 'MMBench_TEST_EN': 'MMBench',
@@ -202,6 +204,17 @@ class ImageBaseDataset:
 
         if self.meta_only:
             tgt_path = toliststr(line['image_path'])
+            # If ``image_path`` is a bare basename / relative path that
+            # doesn't resolve from cwd, fall back to ``self.img_root``
+            # (mirrors ``dump_image``'s line 167-171 logic).  Without this,
+            # TSVs that store only basenames (e.g. PixmoCount_val) hit the
+            # downstream ``preproc_content`` assertion in ``BaseAgent``
+            # because ``parse_file`` returns ``mime=None`` for paths that
+            # don't exist on disk.
+            if not all(read_ok(p) for p in tgt_path):
+                tgt_path_abs = [osp.join(self.img_root, p) for p in tgt_path]
+                if all(read_ok(p) for p in tgt_path_abs):
+                    tgt_path = tgt_path_abs
         else:
             tgt_path = self.dump_image(line)
 
