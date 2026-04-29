@@ -1242,7 +1242,6 @@ class BaseAgentWithTools(BaseAgent):
         token/message drift and is not safe for SFT.
         """
         import base64
-        from ..utils.reporting_utils import iter_data_uris
 
         if not isinstance(terminating_response, dict):
             return None
@@ -1256,6 +1255,8 @@ class BaseAgentWithTools(BaseAgent):
         if tokenizer is None:
             self.logger.warning(f"[raw_sft] no tokenizer available for {self.model}")
             return None
+
+        from ..utils.reporting_utils import iter_data_uris
 
         images = list(iter_data_uris(msgs))
 
@@ -1386,6 +1387,10 @@ class BaseAgentWithTools(BaseAgent):
                         "content": "Please provide your best final answer now if enough information is available.",
                     }
                 )
+
+            model_tools, tool_choice = self._ensure_context_fits(
+                msgs, model_tools, tool_choice
+            )
 
             try:
                 response = chat_completion_request(
@@ -1649,13 +1654,16 @@ class BaseAgentWithTools(BaseAgent):
                         self.logger.info(
                             "[ToolLoop] last iteration ended with tool calls; requesting one final text-only answer."
                         )
+                    final_model_tools, final_tool_choice = self._ensure_context_fits(
+                        msgs, model_tools, "none"
+                    )
                     final_response = chat_completion_request(
                         model=self.model,
                         messages=msgs,
                         base_url=self.api_base,
                         api_key=self.key,
-                        tools=model_tools,
-                        tool_choice="none",
+                        tools=final_model_tools,
+                        tool_choice=final_tool_choice,
                         timeout_seconds=chat_timeout_seconds,
                         **kwargs,
                     )

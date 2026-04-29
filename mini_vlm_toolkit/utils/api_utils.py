@@ -417,7 +417,7 @@ def chat_completion_request(
         payload["repetition_penalty"] = repetition_penalty
     if reasoning_effort is not None and is_gpt5_model:
         payload["reasoning_effort"] = reasoning_effort
-    if top_p is not None and not is_openai_native:
+    if top_p is not None:
         payload["top_p"] = top_p
     if stop is not None:
         payload["stop"] = stop
