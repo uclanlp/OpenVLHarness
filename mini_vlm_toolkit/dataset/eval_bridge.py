@@ -374,6 +374,36 @@ def write_json(obj, path) -> None:
         json.dump(obj, f)
 
 
+def resolve_trajectory_path(eval_file: str, basename: str) -> str:
+    """Resolve a per-row trajectory ``basename`` (e.g.
+    ``val_294_253.json``) to its absolute path on disk.
+
+    Preference order, taking the first that actually exists:
+
+    1. ``<eval_dir>/raw_trajectories/<basename>``  — written when the
+       inference run used ``--save-raw-trajectory`` (intended for SFT).
+    2. ``<eval_dir>/full_trajectories/<basename>``  — always written
+       during inference; full agent messages / reasoning / predictions.
+    3. Empty string when neither exists.  This happens for LVIS
+       auto-extended rows where the evaluator considered an (image,
+       cat) slot the TSV never asked about, so no trajectory was
+       produced.
+
+    ``eval_file`` is the predictions xlsx path (the same arg
+    ``dataset.evaluate(...)`` receives); its parent directory is the
+    dataset run dir that contains ``raw_trajectories/`` and
+    ``full_trajectories/``.
+    """
+    eval_dir = os.path.dirname(os.path.abspath(eval_file))
+    raw = os.path.join(eval_dir, "raw_trajectories", basename)
+    if os.path.isfile(raw):
+        return raw
+    full = os.path.join(eval_dir, "full_trajectories", basename)
+    if os.path.isfile(full):
+        return full
+    return ""
+
+
 def extract_per_row_diagnostics(
     evaluator,
     *,

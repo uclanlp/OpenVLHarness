@@ -351,6 +351,7 @@ class LVISBBoxDataset(ImageBaseDataset):
             extract_per_row_diagnostics,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
+            resolve_trajectory_path,
             write_json,
             _resolve_score_modes,
         )
@@ -512,8 +513,16 @@ class LVISBBoxDataset(ImageBaseDataset):
                     else 'val'
                 )
                 for r in per_row_records:
-                    r['trajectory_file'] = (
+                    basename = (
                         f"{lvis_split}_{r['image_id']}_{r['category_id']}.json"
+                    )
+                    # Absolute path (preferring raw_trajectories/ when
+                    # --save-raw-trajectory was set during inference,
+                    # falling back to full_trajectories/, and empty
+                    # string when neither exists — the LVIS auto-
+                    # extended-row case).
+                    r['trajectory_file'] = resolve_trajectory_path(
+                        eval_file, basename
                     )
                     r['frequency'] = freq_by_cat.get(int(r['category_id']))
                     r.pop('image_id', None)

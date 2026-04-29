@@ -286,6 +286,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
             filter_coco_gt_to_image_ids,
             filter_coco_gt_to_pairs,
             parse_image_id_from_index,
+            resolve_trajectory_path,
             write_json,
         )
 
@@ -542,8 +543,11 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         evaluator_obj, iou_threshold=0.5, area_label='all',
                     )
                     for r in domain_per_row:
-                        r['trajectory_file'] = (
+                        basename = (
                             f"{domain}_{split}_{r['image_id']}_{r['category_id']}.json"
+                        )
+                        r['trajectory_file'] = resolve_trajectory_path(
+                            eval_file, basename
                         )
                         r.pop('image_id', None)
                         r.pop('category_id', None)
