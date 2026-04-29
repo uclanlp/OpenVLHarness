@@ -531,13 +531,22 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 domain_splits_evaluated.append(f'{domain}/{split}')
 
                 # Per-row instance diagnostics for this (domain, split).
+                # Collapse (domain, split, image_id, category_id) into a
+                # single ``trajectory_file`` matching prepare_odinw_full's
+                # row index format: ``<domain>_<split>_<image_id>_<category_id>.json``.
+                # That string is the basename used by full_trajectories/
+                # and raw_trajectories/, so users can cross-reference
+                # straight from this CSV to the agent's per-row JSON.
                 if evaluator_obj is not None:
                     domain_per_row = extract_per_row_diagnostics(
                         evaluator_obj, iou_threshold=0.5, area_label='all',
                     )
                     for r in domain_per_row:
-                        r['domain'] = domain
-                        r['split'] = split
+                        r['trajectory_file'] = (
+                            f"{domain}_{split}_{r['image_id']}_{r['category_id']}.json"
+                        )
+                        r.pop('image_id', None)
+                        r.pop('category_id', None)
                     all_per_row.extend(domain_per_row)
 
             # Average across domains using the **test** split only.  This matches
@@ -617,10 +626,12 @@ class ODinWBBoxDataset(ImageBaseDataset):
             # Combined per-row instance-level diagnostics CSV (per mode).
             # One row per (domain, split, image_id, category_id) the
             # evaluator considered, with TP/FP/FN counts at IoU=0.5.
+            # The identity is encoded as ``trajectory_file`` (matches
+            # the row's TSV index + ``.json``).
             if all_per_row:
                 per_row_df = pd.DataFrame(all_per_row)
                 preferred_cols = [
-                    'domain', 'split', 'image_id', 'category_id',
+                    'trajectory_file',
                     'num_pred', 'num_gt', 'tp', 'fp', 'fn', 'mean_match_iou',
                 ]
                 per_row_df = per_row_df[

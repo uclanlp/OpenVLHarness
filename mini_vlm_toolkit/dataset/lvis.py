@@ -486,6 +486,10 @@ class LVISBBoxDataset(ImageBaseDataset):
             # Walks evaluator.eval_imgs at IoU=0.5 / area=all and dumps
             # one CSV row per (image_id, category_id) the evaluator
             # considered, with TP/FP/FN counts and mean matched IoU.
+            # The per-row identity is captured as ``trajectory_file``
+            # (matches the row's TSV index + ``.json``), so users can
+            # cross-reference straight to ``full_trajectories/<file>``
+            # or ``raw_trajectories/<file>`` without parsing columns.
             if evaluator_obj is not None:
                 per_row_records = extract_per_row_diagnostics(
                     evaluator_obj, iou_threshold=0.5, area_label='all',
@@ -496,12 +500,27 @@ class LVISBBoxDataset(ImageBaseDataset):
                     int(c['id']): c.get('frequency')
                     for c in filtered_gt.get('categories', [])
                 }
+                # Collapse (image_id, category_id) into a single
+                # trajectory filename, matching the prepare_lvis row
+                # index format ``<split>_<image_id>_<category_id>``.
+                # Note: for LVIS, rows the evaluator auto-added (positive
+                # categories not in the TSV) will reference filenames
+                # that do not exist on disk; that's a clear signal that
+                # the model never ran that (image, cat) pair.
+                lvis_split = (
+                    'train' if self.dataset_name.endswith('_train')
+                    else 'val'
+                )
                 for r in per_row_records:
+                    r['trajectory_file'] = (
+                        f"{lvis_split}_{r['image_id']}_{r['category_id']}.json"
+                    )
                     r['frequency'] = freq_by_cat.get(int(r['category_id']))
+                    r.pop('image_id', None)
+                    r.pop('category_id', None)
                 per_row_df = pd.DataFrame(per_row_records)
-                # Reorder columns for readability.
                 preferred_cols = [
-                    'image_id', 'category_id', 'frequency',
+                    'trajectory_file', 'frequency',
                     'num_pred', 'num_gt', 'tp', 'fp', 'fn', 'mean_match_iou',
                 ]
                 per_row_df = per_row_df[
