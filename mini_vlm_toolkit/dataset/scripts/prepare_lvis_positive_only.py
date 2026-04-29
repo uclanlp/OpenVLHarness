@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
-"""Prepare LVIS v1 dataset for mini-vlm-toolkit evaluation.
+"""Prepare LVIS v1 dataset for mini-vlm-toolkit evaluation (positive-only).
 
 This script converts the LVIS v1 annotation files into the TSV format expected
 by mini-vlm-toolkit, and moves images into $LMUData/images/LVIS/.
 
+It emits **positive-only** QA rows: one row per (image_id, category_id) pair
+that has at least one annotation in the LVIS JSON.  Every row therefore has a
+non-empty ``answer`` and ``num_instances >= 1``.  For the federated variant
+(positive + negative rows where ``answer == []``), see
+``prepare_lvis_federated.py``.
+
 Usage (run in tmux — image moving can take a long time on slow disks):
 
-    python -m mini_vlm_toolkit.dataset.scripts.prepare_lvis \
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_lvis_positive_only \
         --lvis-dir /path/to/lvis-api \
         [--output-dir $LMUData] \
         [--skip-test] \
@@ -21,12 +27,12 @@ What this script does:
   2. Generates four TSV files (two evaluation modes × two annotated splits):
 
      Bounding-box evaluation:
-       - LVIS_bbox_train.tsv   (from lvis_v1_train.json)
-       - LVIS_bbox_val.tsv     (from lvis_v1_val.json)
+       - LVIS_bbox_train_positive_only.tsv   (from lvis_v1_train.json)
+       - LVIS_bbox_val_positive_only.tsv     (from lvis_v1_val.json)
 
      Segmentation-mask evaluation:
-       - LVIS_mask_train.tsv   (from lvis_v1_train.json)
-       - LVIS_mask_val.tsv     (from lvis_v1_val.json)
+       - LVIS_mask_train_positive_only.tsv   (from lvis_v1_train.json)
+       - LVIS_mask_val_positive_only.tsv     (from lvis_v1_val.json)
 
      Each row represents a unique (image, category) pair.  The "answer"
      column stores ground-truth annotations in JSON:
@@ -263,7 +269,10 @@ def generate_tsv_rows(grouped_anns, images_by_id, categories_by_id, split_name):
     bbox_rows = []
     mask_rows = []
 
-    for (image_id, category_id), anns in grouped_anns.items():
+    # Iterate in deterministic (image_id, category_id) order so the TSV is
+    # reproducible across runs regardless of dict iteration order.
+    for (image_id, category_id) in sorted(grouped_anns.keys()):
+        anns = grouped_anns[(image_id, category_id)]
         img = images_by_id.get(image_id)
         cat = categories_by_id.get(category_id)
         if img is None or cat is None:
@@ -411,6 +420,10 @@ def main():
         'val':   os.path.join(lvis_dir, 'data', 'lvis_v1_val.json'),
     }
 
+    # Hard-coded expected positive-only row counts.  Loud signal if the source
+    # JSON ever changes — kept in sync with prepare_lvis_federated.py.
+    EXPECTED_POSITIVE_ROWS = {'train': 360_952, 'val': 70_139}
+
     for split_name in args.splits:
         ann_file = annotation_files[split_name]
         if not os.path.isfile(ann_file):
@@ -423,9 +436,10 @@ def main():
         # Group annotations by (image_id, category_id)
         log.info('  Grouping annotations by (image_id, category_id) ...')
         grouped = group_annotations_by_image_category(annotations)
-        log.info(f'  Unique (image, category) pairs: {len(grouped)}')
+        positive_pairs = len(grouped)
+        log.info(f'  Unique (image, category) pairs: {positive_pairs}')
 
-        # Generate rows
+        # Generate rows (sorted deterministically by (image_id, category_id))
         log.info('  Generating TSV rows ...')
         bbox_rows, mask_rows = generate_tsv_rows(
             grouped, images_by_id, categories_by_id, split_name
@@ -433,16 +447,56 @@ def main():
         log.info(f'  Generated {len(bbox_rows)} bbox rows, {len(mask_rows)} mask rows')
 
         # Write bbox TSV
-        bbox_tsv_path = os.path.join(output_dir, f'LVIS_bbox_{split_name}.tsv')
+        bbox_tsv_path = os.path.join(output_dir, f'LVIS_bbox_{split_name}_positive_only.tsv')
         bbox_df = pd.DataFrame(bbox_rows)
         bbox_df.to_csv(bbox_tsv_path, sep='\t', index=False)
         log.info(f'  Wrote {bbox_tsv_path} ({len(bbox_df)} rows)')
 
         # Write mask TSV
-        mask_tsv_path = os.path.join(output_dir, f'LVIS_mask_{split_name}.tsv')
+        mask_tsv_path = os.path.join(output_dir, f'LVIS_mask_{split_name}_positive_only.tsv')
         mask_df = pd.DataFrame(mask_rows)
         mask_df.to_csv(mask_tsv_path, sep='\t', index=False)
         log.info(f'  Wrote {mask_tsv_path} ({len(mask_df)} rows)')
+
+        # ------------------------------------------------------------------
+        # Validation — printed and asserted
+        # ------------------------------------------------------------------
+        empty_answer_rows = sum(1 for r in bbox_rows if json.loads(r['answer']) == [])
+        malformed_box_rows = 0
+        for r in bbox_rows:
+            boxes = json.loads(r['answer'])
+            if (not isinstance(boxes, list)) or len(boxes) == 0:
+                malformed_box_rows += 1
+                continue
+            for b in boxes:
+                if (not isinstance(b, list)) or len(b) != 4 \
+                        or not all(isinstance(x, (int, float)) for x in b):
+                    malformed_box_rows += 1
+                    break
+
+        log.info(f'  [{split_name}] num_images={len(images_by_id)}  '
+                 f'num_categories={len(categories_by_id)}  '
+                 f'num_annotations={len(annotations)}')
+        log.info(f'  [{split_name}] positive_pairs={positive_pairs}  '
+                 f'output_rows={len(bbox_rows)}  '
+                 f'num_positive_rows={len(bbox_rows)}  '
+                 f'empty_answer_rows={empty_answer_rows}  '
+                 f'malformed_box_rows={malformed_box_rows}')
+
+        assert empty_answer_rows == 0, \
+            f'[{split_name}] expected 0 empty-answer rows, got {empty_answer_rows}'
+        assert malformed_box_rows == 0, \
+            f'[{split_name}] expected 0 malformed boxes, got {malformed_box_rows}'
+        assert len(bbox_rows) == positive_pairs, \
+            f'[{split_name}] output_rows ({len(bbox_rows)}) != positive_pairs ({positive_pairs})'
+
+        expected = EXPECTED_POSITIVE_ROWS.get(split_name)
+        if expected is not None and len(bbox_rows) != expected:
+            log.warning(
+                f'[{split_name}] row count {len(bbox_rows)} differs from expected '
+                f'{expected}.  This is non-fatal but may indicate the LVIS JSON has '
+                f'changed.  Update EXPECTED_POSITIVE_ROWS if intentional.'
+            )
 
     # -----------------------------------------------------------------------
     # Summary
@@ -458,7 +512,7 @@ def main():
     log.info('Generated TSV files:')
     for split_name in args.splits:
         for mode in ['bbox', 'mask']:
-            p = os.path.join(output_dir, f'LVIS_{mode}_{split_name}.tsv')
+            p = os.path.join(output_dir, f'LVIS_{mode}_{split_name}_positive_only.tsv')
             if os.path.exists(p):
                 size_mb = os.path.getsize(p) / (1024 * 1024)
                 log.info(f'  {p}  ({size_mb:.1f} MB)')

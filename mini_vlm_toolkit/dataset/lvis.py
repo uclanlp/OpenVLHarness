@@ -9,12 +9,16 @@ Two dataset classes are provided:
                      truth via a custom IoU-based matcher.  (Mask AP migration
                      to LVISEval is future work.)
 
-Both classes expect pre-generated TSV files produced by:
-    python -m mini_vlm_toolkit.dataset.scripts.prepare_lvis
+Both classes expect pre-generated TSV files produced by one of:
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_lvis_positive_only
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_lvis_federated   # bbox only
 
-TSV naming convention:
-    LVIS_bbox_train.tsv / LVIS_bbox_val.tsv   (bounding-box evaluation)
-    LVIS_mask_train.tsv / LVIS_mask_val.tsv   (segmentation-mask evaluation)
+TSV naming convention (positive-only — every row has >=1 GT instance):
+    LVIS_bbox_{train,val}_positive_only.tsv   (bounding-box evaluation)
+    LVIS_mask_{train,val}_positive_only.tsv   (segmentation-mask evaluation)
+
+TSV naming convention (federated — adds negative rows with answer=[]):
+    LVIS_bbox_{train,val}_federated.tsv       (bounding-box evaluation)
 
 Each row represents a unique (image, category) pair.  The 'answer' column
 holds the ground-truth annotations in JSON format.
@@ -239,13 +243,14 @@ def _resolve_lvis_gt_path(dataset_name: str) -> str:
       3. ``${LMUData}/lvis-api/data/lvis_v1_<split>.json``.
       4. ``${LMUData}/lvis_v1_<split>.json``.
 
-    The split is inferred from the dataset name (``LVIS_bbox_val`` → ``val``,
-    ``LVIS_bbox_train`` → ``train``).
+    The split is inferred from the dataset name.  ``_train`` or ``_val``
+    may appear at the end (``LVIS_bbox_train``) or as an internal segment
+    (``LVIS_bbox_train_positive_only``, ``LVIS_bbox_val_federated``).
     """
     split = 'val'
-    if dataset_name.endswith('_train'):
+    if '_train' in dataset_name:
         split = 'train'
-    elif dataset_name.endswith('_val'):
+    elif '_val' in dataset_name:
         split = 'val'
 
     env_gt = os.environ.get('LVIS_GT_PATH')
@@ -292,6 +297,15 @@ class LVISBBoxDataset(ImageBaseDataset):
 
     Supported dataset names:
         LVIS_bbox_train, LVIS_bbox_val
+            Legacy positive-only TSVs (every row has >=1 GT box).
+        LVIS_bbox_train_positive_only, LVIS_bbox_val_positive_only
+            Same content as above but produced by prepare_lvis_positive_only.py.
+        LVIS_bbox_train_federated, LVIS_bbox_val_federated
+            Federated TSVs from prepare_lvis_federated.py: positive rows plus
+            negative rows (answer=[], num_instances=0) for every (image_id,
+            category_id) in image['neg_category_ids'].  Predictions on
+            negative pairs count as false positives in LVISEval, which is the
+            point of federated evaluation.
     """
 
     TYPE = 'GROUNDING'
@@ -300,6 +314,10 @@ class LVISBBoxDataset(ImageBaseDataset):
     DATASET_URL = {
         'LVIS_bbox_train': '',
         'LVIS_bbox_val': '',
+        'LVIS_bbox_train_positive_only': '',
+        'LVIS_bbox_val_positive_only': '',
+        'LVIS_bbox_train_federated': '',
+        'LVIS_bbox_val_federated': '',
     }
     DATASET_MD5 = {}
 
@@ -502,14 +520,15 @@ class LVISBBoxDataset(ImageBaseDataset):
                     for c in filtered_gt.get('categories', [])
                 }
                 # Collapse (image_id, category_id) into a single
-                # trajectory filename, matching the prepare_lvis row
-                # index format ``<split>_<image_id>_<category_id>``.
+                # trajectory filename, matching the prepare_lvis_positive_only
+                # / prepare_lvis_federated row index format
+                # ``<split>_<image_id>_<category_id>``.
                 # Note: for LVIS, rows the evaluator auto-added (positive
                 # categories not in the TSV) will reference filenames
                 # that do not exist on disk; that's a clear signal that
                 # the model never ran that (image, cat) pair.
                 lvis_split = (
-                    'train' if self.dataset_name.endswith('_train')
+                    'train' if '_train' in self.dataset_name
                     else 'val'
                 )
                 for r in per_row_records:
@@ -633,6 +652,9 @@ class LVISMaskDataset(ImageBaseDataset):
 
     Supported dataset names:
         LVIS_mask_train, LVIS_mask_val
+            Legacy positive-only TSVs.
+        LVIS_mask_train_positive_only, LVIS_mask_val_positive_only
+            Same content, produced by prepare_lvis_positive_only.py.
     """
 
     TYPE = 'GROUNDING'
@@ -641,6 +663,8 @@ class LVISMaskDataset(ImageBaseDataset):
     DATASET_URL = {
         'LVIS_mask_train': '',
         'LVIS_mask_val': '',
+        'LVIS_mask_train_positive_only': '',
+        'LVIS_mask_val_positive_only': '',
     }
     DATASET_MD5 = {}
 
