@@ -1388,6 +1388,10 @@ class BaseAgentWithTools(BaseAgent):
                     }
                 )
 
+            model_tools, tool_choice = self._ensure_context_fits(
+                msgs, model_tools, tool_choice
+            )
+
             try:
                 response = chat_completion_request(
                     model=self.model,
@@ -1650,13 +1654,16 @@ class BaseAgentWithTools(BaseAgent):
                         self.logger.info(
                             "[ToolLoop] last iteration ended with tool calls; requesting one final text-only answer."
                         )
+                    final_model_tools, final_tool_choice = self._ensure_context_fits(
+                        msgs, model_tools, "none"
+                    )
                     final_response = chat_completion_request(
                         model=self.model,
                         messages=msgs,
                         base_url=self.api_base,
                         api_key=self.key,
-                        tools=model_tools,
-                        tool_choice="none",
+                        tools=final_model_tools,
+                        tool_choice=final_tool_choice,
                         timeout_seconds=chat_timeout_seconds,
                         **kwargs,
                     )
