@@ -19,10 +19,11 @@ import re
 from typing import Optional
 
 
-# Upstream eval.py preserves a typo ("groud truth") in the prompt body.
-# DO NOT correct it — fixing the typo drifts our scores away from the
-# VisBrowse-Bench paper baseline.
-VISBROWSE_BENCH_JUDGE_PROMPT = """You are a rigorous question-and-answer quality assessment expert. Given a question, your task is to compare the "groud truth" and the "model answer", determine whether they are semantically equivalent, and output "yes" or "no".
+# Note: the upstream VisBrowse-Bench eval.py contains a typo
+# ("groud truth") in the prompt body. We correct it here to "ground truth";
+# any pre-existing judge cache from before this fix should be re-graded
+# if exact paper-baseline reproduction is required.
+VISBROWSE_BENCH_JUDGE_PROMPT = """You are a rigorous question-and-answer quality assessment expert. Given a question, your task is to compare the "ground truth" and the "model answer", determine whether they are semantically equivalent, and output "yes" or "no".
 question: {question}
 ground truth: {correct_answer}
 model answer: {response}
