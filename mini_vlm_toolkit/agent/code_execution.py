@@ -11,7 +11,9 @@ import keyword
 import math
 import re
 import signal
+import sys
 import threading
+import time
 from dataclasses import dataclass
 from io import StringIO
 
@@ -31,13 +33,38 @@ class PreparedExecutionContext:
 
 
 @contextlib.contextmanager
+def _trace_timeout(seconds):
+    """Current-thread timeout fallback for worker-thread code execution.
+
+    Benchmark inference runs model.generate in ThreadPoolExecutor workers.
+    SIGALRM cannot be installed there, so use a per-thread trace hook to keep
+    generated Python loops from hanging collection forever. This only traces
+    the current worker thread and is restored immediately after execution.
+    """
+    deadline = time.monotonic() + seconds
+    previous_trace = sys.gettrace()
+
+    def trace(frame, event, arg):
+        if time.monotonic() >= deadline:
+            raise CodeExecutionTimeoutError("Execution timed out")
+        return trace
+
+    sys.settrace(trace)
+    try:
+        yield
+    finally:
+        sys.settrace(previous_trace)
+
+
+@contextlib.contextmanager
 def _timeout(seconds):
-    """Signal-based timeout context manager (main thread only, Unix only)."""
+    """Timeout context manager for generated code execution."""
     if not seconds or seconds <= 0:
         yield
         return
     if threading.current_thread() is not threading.main_thread():
-        yield
+        with _trace_timeout(seconds):
+            yield
         return
     if not hasattr(signal, "SIGALRM"):
         yield
