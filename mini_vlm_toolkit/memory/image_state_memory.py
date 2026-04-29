@@ -34,6 +34,12 @@ class ImageStateMemory(PersistentStateMemory):
         "subplot_images_base64",
     )
     _RAW_DATA_HINTS = ("raw", "meters")
+    # Defensive fallback for stale/manual tool metadata. The public tool name
+    # predates the SAM3 implementation directory, so name-based inference would
+    # look for tools.visual_grounding instead of the actual sam3_segment module.
+    _TOOL_OUTPUT_PROCESSOR_MODULE_OVERRIDES = {
+        "Visual_Grounding_Tool": "tools.sam3_segment.process_tool_output",
+    }
 
     def __init__(self, emit_policy: str = "always", **kwargs):
         super().__init__(**kwargs)
@@ -150,6 +156,9 @@ class ImageStateMemory(PersistentStateMemory):
         name = str(tool_name or "").strip()
         if not name:
             return ""
+        override = self._TOOL_OUTPUT_PROCESSOR_MODULE_OVERRIDES.get(name)
+        if override:
+            return override
         if name.endswith("_Tool"):
             name = name[: -len("_Tool")]
         name = name.replace("-", "_")

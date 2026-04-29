@@ -4,6 +4,7 @@ import os
 import warnings
 import torch
 import torch.distributed as dist
+import pandas as pd
 from .utils.reporting_utils import (
     build_trajectory_records,
     write_input_snapshot_json,
@@ -295,7 +296,7 @@ def infer_image_job(
     pred_dataset = dataset_name if use_dataset_subdir else None
     result_file = get_pred_file_path(work_dir, model_name, pred_dataset, use_env_format=True)
     # simplify the resume logic here
-    if osp.exists(result_file):                                                                                                                                                                                     
+    if osp.exists(result_file) and not ignore_failed:
         return model  # already done, skip entirely
 
     # ========== Pre-processing ==========
@@ -303,9 +304,20 @@ def infer_image_job(
     if osp.exists(result_file):
         if rank == 0:
             data = load(result_file)
-            results = {k: v for k, v in zip(data['index'], data['prediction'])}
-            if not ignore_failed:
-                results = {k: v for k, v in results.items() if FAIL_MSG not in str(v)}
+            if isinstance(data, list):
+                data = pd.DataFrame(data)
+            if 'extra_records' in data:
+                results = {
+                    k: {'prediction': p, 'extra_records': e}
+                    for k, p, e in zip(data['index'], data['prediction'], data['extra_records'])
+                }
+            else:
+                results = {k: v for k, v in zip(data['index'], data['prediction'])}
+            if ignore_failed:
+                results = {
+                    k: v for k, v in results.items()
+                    if FAIL_MSG not in str(v['prediction'] if _is_structured_record(v) else v)
+                }
             dump(results, prev_file)
         if world_size > 1:
             dist.barrier()

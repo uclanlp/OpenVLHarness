@@ -67,6 +67,7 @@ fi
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8101}"
+export HOST PORT
 
 if [[ -n "$PRE_TOOL_MODULES" || -n "${TOOL_MODULES:-}" ]]; then
   echo "TOOL_MODULES is not read by scripts/run_server.sh. Use LIGHT_TOOL_MODULES/HEAVY_TOOL_MODULES instead." >&2

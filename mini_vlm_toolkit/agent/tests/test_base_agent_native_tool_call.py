@@ -885,13 +885,13 @@ def test_native_tool_call_sam3_custom_processor_summarizes_output():
                 for m in messages
                 if m.get("role") == "user"
                 and isinstance(m.get("content"), list)
-                and "Visual_Grounding_Tool generated" in _extract_user_text_content(m)
+                and "Visual_Grounding_Tool grounded" in _extract_user_text_content(m)
             ]
             assert tool_msgs
             tool_msg = tool_msgs[-1]
             assert isinstance(tool_msg.get("content"), list)
             text = _extract_user_text_content(tool_msg)
-            assert "Visual_Grounding_Tool generated 2 masks" in text
+            assert "Visual_Grounding_Tool grounded 2 objects" in text
             assert "tool_generated_image_1" in text
             assert "pred_boxes" not in text
             assert "pred_scores" not in text

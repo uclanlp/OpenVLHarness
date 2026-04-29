@@ -34,7 +34,7 @@ INPUT_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "minItems": 1,
-            "maxItems": MAX_URLS,
+            "maxItems": 5,
             "description": (
                 "List of webpage URLs to visit and extract content from (max 5)."
             ),

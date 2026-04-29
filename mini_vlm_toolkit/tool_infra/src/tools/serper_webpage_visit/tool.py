@@ -75,7 +75,8 @@ INPUT_SCHEMA = {
             "maxItems": MAX_URLS,
             "description": (
                 "List of webpage URLs to visit and extract content from. "
-                "Accepts 1 to 5 URLs. Each URL should be a valid HTTP(S) link. "
+                "Accepts URLs up to the configured maximum. "
+                "Each URL should be a valid HTTP(S) link. "
                 "If a URL lacks a scheme, 'https://' is automatically prepended."
             ),
         },
@@ -126,7 +127,7 @@ class Webpage_Visit_Tool(BaseTool):
             ),
             tool_version="1.0.0",
             input_types={
-                "urls": "list[str] - webpage URL(s) to visit (1 to 5)",
+                "urls": "list[str] - webpage URL(s) to visit (1 to configured max)",
                 "goal": "str - goal or query guiding content extraction",
             },
             input_schema=INPUT_SCHEMA,
@@ -401,7 +402,7 @@ class Webpage_Visit_Tool(BaseTool):
         """Visit webpages and extract content relevant to the goal.
 
         Args:
-            urls: List of webpage URLs to visit (1-5).
+            urls: List of webpage URLs to visit.
             goal: Goal or query guiding content extraction.
             llm_model: Optional LLM model override for extraction.
             llm_base_url: Optional LLM base URL override.

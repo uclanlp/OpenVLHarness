@@ -1,5 +1,8 @@
+import base64
 import json
 import os
+
+import numpy as np
 
 from client.client import ToolClient, ToolClientError
 from client.json_tool_call_parser import parse_json_tool_call_args
@@ -99,6 +102,34 @@ def test_direct_invocation_with_context_bindings():
     assert result["printed_output"] == "30", "Expected printed output to be 30"
     assert result["variables"]["result"] == "30", "Expected result variable to be 30"
     assert result["variables"]["x"] == "3", "Expected injected binding to survive"
+
+
+def test_direct_invocation_decodes_transport_ndarray_context_binding():
+    log_step("Direct invocation decodes transported ndarray context binding")
+    tool = Python_Executor_Tool()
+    depth = np.array([[1.25, 2.5], [3.75, 4.0]], dtype=np.float32)
+    encoded_depth = {
+        "__toolvision_type__": "ndarray",
+        "dtype": str(depth.dtype),
+        "shape": list(depth.shape),
+        "data_b64": base64.b64encode(np.ascontiguousarray(depth).tobytes()).decode("ascii"),
+    }
+
+    result = tool.execute(
+        code=(
+            "print(depth_scene['depth_meters'].shape)\n"
+            "value = float(depth_scene['depth_meters'][1, 1])"
+        ),
+        context_bindings={
+            "depth_scene": {
+                "depth_meters": encoded_depth,
+            }
+        },
+    )
+
+    log_output("Result", result)
+    assert result["printed_output"] == "(2, 2)", "Expected ndarray shape"
+    assert result["variables"]["value"] == "4.0", "Expected decoded ndarray value"
 
 
 def test_direct_invocation_with_mutated_context_binding():
@@ -385,6 +416,7 @@ def main():
     test_direct_invocation()
     test_direct_invocation_nonstandard_outputs()
     test_direct_invocation_with_context_bindings()
+    test_direct_invocation_decodes_transport_ndarray_context_binding()
     test_direct_invocation_with_mutated_context_binding()
     test_direct_invocation_returns_full_stdout_and_variable_values()
     test_direct_invocation_rejects_system_exit_in_main_code()

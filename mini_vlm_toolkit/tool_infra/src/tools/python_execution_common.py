@@ -1,3 +1,4 @@
+import base64
 import copy
 import contextlib
 import keyword
@@ -15,6 +16,8 @@ import numpy as np
 RESERVED_CONTEXT_NAMES = {"__builtins__"}
 BASE64_LIKE_PATTERN = re.compile(r"^[A-Za-z0-9+/=\s]+$")
 DATA_URL_PATTERN = re.compile(r"^data:([^;,]+)?(?:;base64)?,", re.IGNORECASE)
+TRANSPORT_TYPE_KEY = "__toolvision_type__"
+TRANSPORT_NDARRAY_TYPE = "ndarray"
 
 
 class TimeoutError(Exception):
@@ -116,6 +119,24 @@ def _validate_json_compatible(value, path):
     )
 
 
+def _decode_transport_value(value):
+    if isinstance(value, dict):
+        if value.get(TRANSPORT_TYPE_KEY) == TRANSPORT_NDARRAY_TYPE:
+            raw = base64.b64decode(value["data_b64"])
+            dtype = np.dtype(value["dtype"])
+            shape = tuple(int(dim) for dim in value["shape"])
+            return np.frombuffer(raw, dtype=dtype).reshape(shape).copy()
+        return {
+            key: _decode_transport_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_decode_transport_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_decode_transport_value(item) for item in value)
+    return value
+
+
 def validate_context_bindings(context_bindings):
     if context_bindings is None:
         return {}
@@ -139,7 +160,11 @@ def validate_context_bindings(context_bindings):
                 f"context_bindings key {key!r} is reserved and cannot be used"
             )
         _validate_json_compatible(value, f"context_bindings.{key}")
-        validated[key] = value
+        # Tagged ndarray payloads are a private coding-tool transport detail
+        # for agent-injected context_bindings over /execute. They are decoded
+        # here so Python_Executor_Tool and Python_Code_Generator_Tool receive
+        # normal ndarray values; this is not a general format for other tools.
+        validated[key] = _decode_transport_value(value)
     return validated
 
 

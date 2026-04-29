@@ -17,6 +17,62 @@ tool_instances = {}
 tool_metadata = {}
 logger = logging.getLogger("uvicorn.error")
 
+ENV_SNAPSHOT_KEYS = (
+    "HOST",
+    "PORT",
+    "TOOL_MODULES",
+    "LIGHT_TOOL_MODULES",
+    "HEAVY_TOOL_MODULES",
+    "SAM3_SERVER_URL",
+    "GROUNDING_DINO_SERVER_URL",
+    "OCR_SERVER_URL",
+    "OCR_LANGS",
+    "DEPTH_ANYTHING_SERVER_URL",
+    "DEPTH_ANYTHING_COLORMAP",
+    "SUBAGENT_CONFIG_DIR",
+    "STRICT_TOOL_LOADING",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "LLM_API_KEY",
+    "LLM_DIRECT_MODEL_BASE_URLS",
+    "LLM_DIRECT_MODEL_API_KEYS",
+    "LLM_DIRECT_API_KEY",
+    "WEBPAGE_VISIT_LLM_MODEL",
+    "WEBPAGE_VISIT_LLM_BASE_URL",
+    "WEBPAGE_VISIT_LLM_API_KEY",
+    "TOOL_SERVER_URL",
+)
+SENSITIVE_ENV_PATTERNS = (
+    "KEY",
+    "SECRET",
+    "TOKEN",
+    "PASSWORD",
+    "CREDENTIAL",
+)
+
+
+def _is_sensitive_env_key(key):
+    key_upper = str(key).upper()
+    return any(pattern in key_upper for pattern in SENSITIVE_ENV_PATTERNS)
+
+
+def _redact_env_value(key, value):
+    if _is_sensitive_env_key(key):
+        return "<REDACTED>"
+    return value
+
+
+def get_runtime_env_snapshot():
+    """Return an allowlisted runtime env snapshot for run reproducibility."""
+    snapshot = {
+        key: _redact_env_value(key, value)
+        for key in ENV_SNAPSHOT_KEYS
+        if (value := os.environ.get(key)) is not None
+    }
+    snapshot["_SOURCE"] = "tool_server_runtime"
+    snapshot["_REDACTION"] = "allowlisted keys only; sensitive values redacted"
+    return snapshot
+
 
 def _format_input_types(input_types):
     if isinstance(input_types, dict):
@@ -461,6 +517,11 @@ def health_check():
         "alias_tool_count": alias_count,
         "tools": sorted(tool_metadata),
     }
+
+
+@app.get("/env")
+def env_snapshot():
+    return get_runtime_env_snapshot()
 
 
 @app.get("/jsonschema")
