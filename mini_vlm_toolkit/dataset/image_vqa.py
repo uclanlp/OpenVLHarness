@@ -3347,7 +3347,11 @@ class PhyX(ImageBaseDataset):
 
 class TallyQA(ImageBaseDataset):
     TYPE = 'VQA'
-    DATASET_URL = {'TallyQA': ''}
+    DATASET_URL = {
+        'TallyQA': '',
+        'TallyQA_simple': '',
+        'TallyQA_complex': '',
+    }
     DATASET_MD5 = {}
 
     def evaluate(self, eval_file, **judge_kwargs):
