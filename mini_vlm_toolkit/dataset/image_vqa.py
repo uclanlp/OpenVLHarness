@@ -2907,20 +2907,34 @@ class CountBenchQA(ImageVQADataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
+        from .eval_bridge import emit_counting_per_row
+
         data = load(eval_file).sort_values(by='index')
         predictions = [str(x) for x in data['prediction']]
         answers = [str(x) for x in data['answer']]
         correct_count = 0
         total_count = len(predictions)
 
-        for pred, ans in zip(predictions, answers):
-            if ans in pred:
-                correct_count += 1
+        # Per-row "exact_match" here is the dataset's own correctness rule
+        # (substring containment of the answer in the prediction), not strict
+        # string equality — matches the aggregate at line below.
+        per_row_correct = [int(a in p) for p, a in zip(predictions, answers)]
+        for c in per_row_correct:
+            correct_count += c
         accuracy = correct_count / total_count if total_count > 0 else 0
 
         result = {'accuracy': accuracy * 100}
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
+
+        emit_counting_per_row(
+            eval_file, data['index'], data['image_path'],
+            extra_cols={
+                'gt': answers,
+                'pred': predictions,
+                'exact_match': per_row_correct,
+            },
+        )
         return result
 
 
@@ -2965,14 +2979,27 @@ class FSC147Dataset(ImageVQADataset):
 
         answers = data['answer'].astype(int)
 
-        mae = (predictions - answers).abs().mean()
-        rmse = np.sqrt(((predictions - answers) ** 2).mean())
+        diff = (predictions - answers)
+        mae = diff.abs().mean()
+        rmse = np.sqrt((diff ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
         result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
+
+        from .eval_bridge import emit_counting_per_row
+        emit_counting_per_row(
+            eval_file, data['index'], data['image_path'],
+            extra_cols={
+                'gt': answers.astype(int).tolist(),
+                'pred': predictions.astype(int).tolist(),
+                'exact_match': (predictions == answers).astype(int).tolist(),
+                'abs_error': diff.abs().astype(int).tolist(),
+                'sq_error': (diff ** 2).astype(int).tolist(),
+            },
+        )
         return result
 
 
@@ -3017,14 +3044,27 @@ class PixmoCount(ImageVQADataset):
 
         answers = data['answer'].astype(int)
 
-        mae = (predictions - answers).abs().mean()
-        rmse = np.sqrt(((predictions - answers) ** 2).mean())
+        diff = (predictions - answers)
+        mae = diff.abs().mean()
+        rmse = np.sqrt((diff ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
         result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
+
+        from .eval_bridge import emit_counting_per_row
+        emit_counting_per_row(
+            eval_file, data['index'], data['image_path'],
+            extra_cols={
+                'gt': answers.astype(int).tolist(),
+                'pred': predictions.astype(int).tolist(),
+                'exact_match': (predictions == answers).astype(int).tolist(),
+                'abs_error': diff.abs().astype(int).tolist(),
+                'sq_error': (diff ** 2).astype(int).tolist(),
+            },
+        )
         return result
 
 
@@ -3074,9 +3114,12 @@ class CountQA(ImageVQADataset):
         predictions = predictions.astype(int)
 
         diff = (predictions - answers).abs()
-        acc = (predictions == answers).mean() * 100
-        ra5 = (diff <= 0.05 * answers).mean() * 100
-        ra10 = (diff <= 0.10 * answers).mean() * 100
+        acc_per_row = (predictions == answers).astype(int)
+        ra5_per_row = (diff <= 0.05 * answers).astype(int)
+        ra10_per_row = (diff <= 0.10 * answers).astype(int)
+        acc = acc_per_row.mean() * 100
+        ra5 = ra5_per_row.mean() * 100
+        ra10 = ra10_per_row.mean() * 100
 
         result = {
             'acc': round(float(acc), 4),
@@ -3086,6 +3129,25 @@ class CountQA(ImageVQADataset):
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
+
+        from .eval_bridge import emit_counting_per_row
+        # CountQA carries an is_focused flag the user may want to slice on.
+        is_focused = (
+            data['is_focused'].tolist()
+            if 'is_focused' in data.columns
+            else [None] * len(data)
+        )
+        emit_counting_per_row(
+            eval_file, data['index'], data['image_path'],
+            extra_cols={
+                'gt': answers.tolist(),
+                'pred': predictions.tolist(),
+                'exact_match': acc_per_row.tolist(),
+                'ra5': ra5_per_row.tolist(),
+                'ra10': ra10_per_row.tolist(),
+                'is_focused': is_focused,
+            },
+        )
         return result
 
 
@@ -3424,13 +3486,24 @@ class TallyQA(ImageBaseDataset):
         pred_ints = data["prediction"].apply(extract_count_from_prediction)
         answer_ints = data["answer"].astype(int)
 
-        correct = (pred_ints == answer_ints).sum()
+        exact_match = (pred_ints == answer_ints).astype(int)
+        correct = exact_match.sum()
         total = len(data)
         accuracy = correct / total * 100
 
         result_df = pd.DataFrame([{"acc": round(float(accuracy), 4)}])
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(result_df, result_file)
+
+        from .eval_bridge import emit_counting_per_row
+        emit_counting_per_row(
+            eval_file, data['index'], data['image_path'],
+            extra_cols={
+                'gt': answer_ints.astype(int).tolist(),
+                'pred': pred_ints.astype(int).tolist(),
+                'exact_match': exact_match.tolist(),
+            },
+        )
         return result_df
 
 

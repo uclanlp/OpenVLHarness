@@ -572,6 +572,80 @@ def extract_per_row_diagnostics(
     return rows
 
 
+def emit_counting_per_row(
+    eval_file: str,
+    indices: Iterable,
+    image_paths: Iterable,
+    *,
+    extra_cols: Optional[Dict[str, Iterable]] = None,
+    file_suffix: str = "_per_row",
+) -> str:
+    """Build and dump a per-row CSV for counting-style evaluators.
+
+    Counterpart to :func:`extract_per_row_diagnostics` for grounding tasks,
+    but much simpler: there is no IoU matcher to walk — each TSV row already
+    has a single (gt, pred) pair the caller has computed.  This helper just
+    resolves the per-row trajectory path, lays out the columns in a
+    reviewer-friendly order, and writes the CSV next to ``eval_file``.
+
+    Parameters
+    ----------
+    eval_file
+        The predictions xlsx path (same arg ``dataset.evaluate(...)`` gets).
+        Used only to resolve the trajectory dir and the output path.
+    indices
+        Per-row TSV index values (e.g. ``data['index']``).  Trajectory
+        basenames are ``f'{idx}.json'``.
+    image_paths
+        Per-row image paths from the TSV.
+    extra_cols
+        Ordered dict of additional columns (e.g. ``gt``, ``pred``,
+        ``exact_match``, ``ra5``, ``is_focused``).  Insertion order is
+        preserved in the output CSV.
+    file_suffix
+        Suffix passed to :func:`get_intermediate_file_path` (default
+        ``_per_row``, matching the grounding evaluators).
+
+    Returns
+    -------
+    str
+        The absolute path of the CSV written.
+    """
+    import pandas as pd
+    from ..smp.file import get_intermediate_file_path, dump
+
+    indices = list(indices)
+    image_paths = list(image_paths)
+    n = len(indices)
+    assert len(image_paths) == n, (
+        f"image_paths length {len(image_paths)} != indices length {n}"
+    )
+
+    rows = []
+    for i in range(n):
+        idx = indices[i]
+        rows.append({
+            "trajectory_file": resolve_trajectory_path(eval_file, f"{idx}.json"),
+            "index": idx,
+            "image_path": image_paths[i],
+        })
+
+    if extra_cols:
+        for col_name, values in extra_cols.items():
+            values = list(values)
+            assert len(values) == n, (
+                f"extra_cols[{col_name!r}] length {len(values)} != {n}"
+            )
+            for i, v in enumerate(values):
+                rows[i][col_name] = v
+
+    df = pd.DataFrame(rows)
+    out_path = get_intermediate_file_path(eval_file, file_suffix, target_format="csv")
+    dump(df, out_path)
+    logger.info("[per-row] wrote %d-row CSV to %s", n, out_path)
+    return out_path
+
+
 def _resolve_score_modes(tool_detections_dir: str) -> Tuple[List[str], str]:
     """Decide which score_mode(s) to run for one ``evaluate()`` call.
 
