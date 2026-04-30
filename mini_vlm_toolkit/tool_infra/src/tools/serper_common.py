@@ -186,6 +186,11 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
     kg = data.get("knowledgeGraph")
     if kg:
         lines.append(f"[Knowledge Graph] {kg.get('title', '')}: {kg.get('description', '')}")
+        kg_image_url = kg.get("imageUrl")
+        if kg_image_url:
+            # ImageStateMemory routes URLs trailed by ` <img>` directly
+            # into the image registry as ``tool_generated_image_N``.
+            lines.append(f"  Image: {kg_image_url} <img>")
         for k, v in (kg.get("attributes") or {}).items():
             lines.append(f"  {k}: {v}")
         lines.append("")
@@ -229,7 +234,10 @@ def _format_images(data: Dict[str, Any], max_results: int) -> str:
         w = item.get("imageWidth", "")
         h = item.get("imageHeight", "")
         lines.append(f"{i}. {title}")
-        lines.append(f"   Image: {img_url}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if img_url:
+            lines.append(f"   Image: {img_url} <img>")
         if source:
             lines.append(f"   Source: {source}")
         if w and h:
@@ -246,8 +254,13 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
         source = item.get("source", "")
         date = item.get("date", "")
         snippet = item.get("snippet", "")
+        thumbnail = item.get("imageUrl") or item.get("thumbnail", "")
         lines.append(f"{i}. {title}")
         lines.append(f"   URL: {link}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if thumbnail:
+            lines.append(f"   Image: {thumbnail} <img>")
         meta = " | ".join(filter(None, [source, date]))
         if meta:
             lines.append(f"   {meta}")

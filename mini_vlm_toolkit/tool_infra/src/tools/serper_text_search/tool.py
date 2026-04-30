@@ -4,9 +4,9 @@ Supports all Serper text-search endpoints (search, images, news, scholar,
 maps, places, shopping, patents). The agent selects the endpoint via the
 ``search_type`` parameter (default ``"search"``).
 
-When ``SEARCH_LLM_SUMMARIZE=true``, search results are passed through an
-LLM that generates a coherent summary with inline citations. When
-``false`` (recommended), raw formatted snippets are returned directly.
+When ``SEARCH_LLM_SUMMARIZE=true`` (opt-in), search results are passed
+through an LLM that generates a coherent summary with inline citations.
+When ``false`` (default), raw formatted snippets are returned directly.
 """
 
 import json
@@ -97,7 +97,7 @@ SEARCH_SUMMARIZE_PROMPT = """You are a research assistant. Summarize the followi
 
 ### Type-Specific Rules
 - **search / scholar / patents / news**: Citations should list page title + page URL.
-- **images**: You MUST preserve the direct image URLs (not just source page URLs) in the Citations section, because downstream tools (e.g., Image_Search_Tool) may need these image URLs as input for reverse image search. Use the format: [N] <title> | Image: <image_url> | Source: <source_page_url>
+- **images**: You MUST preserve the direct image URLs (not just source page URLs) in the Citations section, because downstream tools (e.g., Image_Search_Tool) may need these image URLs as input for reverse image search. Use the format EXACTLY (preserving the trailing ` <img>` marker after each image URL — it is a framework signal): [N] <title> | Image: <image_url> <img> | Source: <source_page_url>
 - **maps**: Include place name, address, rating, and phone number in the summary. No URL citation needed.
 - **places**: Include name, address, rating in the summary. No URL citation needed.
 - **shopping**: Include product name, price, and source URL in citations.
@@ -212,7 +212,12 @@ class Text_Search_Tool(BaseTool):
             enable_thinking=_enable_thinking,
         )
 
-        self._llm_summarize = os.getenv("SEARCH_LLM_SUMMARIZE", "true").strip().lower() in ("true", "1", "yes")
+        # Default off: ImageStateMemory's URL routing relies on the
+        # tool-emitted ``<img>`` sentinel propagating verbatim, and an
+        # LLM summarizer between raw_results and the agent risks
+        # dropping the marker. Set SEARCH_LLM_SUMMARIZE=true explicitly
+        # to opt back in.
+        self._llm_summarize = os.getenv("SEARCH_LLM_SUMMARIZE", "false").strip().lower() in ("true", "1", "yes")
         self._llm_max_tokens = int(os.getenv("SEARCH_LLM_MAX_TOKENS", "4096"))
         self._num_results = int(os.getenv("SEARCH_NUM_RESULTS", "10"))
         self._client: Optional[SerperClient] = None
