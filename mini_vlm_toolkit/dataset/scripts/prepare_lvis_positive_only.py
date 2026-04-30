@@ -84,6 +84,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from mini_vlm_toolkit.dataset.scripts.prepare_odinw import build_bbox_question
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -218,17 +220,6 @@ def group_annotations_by_image_category(annotations):
         key = (ann['image_id'], ann['category_id'])
         groups[key].append(ann)
     return groups
-
-
-def build_bbox_question(category_name):
-    """Build the question prompt for bounding-box evaluation."""
-    return (
-        f'Locate all instances of \'{category_name}\' in this image. '
-        f'For each instance, output a bounding box as [x1, y1, x2, y2] '
-        f'where coordinates are normalised on a 0-1000 scale '
-        f'(with (0,0) as the top-left corner and (1000,1000) as the bottom-right corner). '
-        f'Output a JSON array of arrays.'
-    )
 
 
 def build_mask_question(category_name):

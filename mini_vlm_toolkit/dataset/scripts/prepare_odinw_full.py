@@ -61,6 +61,7 @@ import pandas as pd
 from mini_vlm_toolkit.dataset.scripts.prepare_odinw import (
     ODINW_13_CONFIGS,
     bbox_xywh_to_normalised_xyxy,
+    build_bbox_question,
     load_all_configs,
 )
 
@@ -70,25 +71,6 @@ logging.basicConfig(
     datefmt='%H:%M:%S',
 )
 log = logging.getLogger(__name__)
-
-
-def build_bbox_question_full(category_name: str) -> str:
-    """Question template used by the full-detection TSV.
-
-    Differs from ``prepare_odinw.build_bbox_question`` only by the explicit
-    "if none, output []" instruction.  Most rows in the full TSV are
-    negatives (no annotations of this category in this image), so the model
-    needs to know that an empty array is the correct answer.
-    """
-    return (
-        f"Locate all instances of '{category_name}' in this image. "
-        f"For each instance, output a bounding box as [x1, y1, x2, y2] "
-        f"where coordinates are normalised on a 0-1000 scale "
-        f"(with (0,0) as the top-left corner and (1000,1000) as the "
-        f"bottom-right corner). Output a JSON array of arrays. "
-        f"If there are no instances of '{category_name}' in the image, "
-        f"output an empty array []."
-    )
 
 
 def _select_image_ids(
@@ -181,7 +163,7 @@ def process_domain_split_full(
             rows.append({
                 'index': f'{domain_name}_{split_key}_{image_id}_{cat_id}',
                 'image_path': image_path,
-                'question': build_bbox_question_full(cat_name),
+                'question': build_bbox_question(cat_name),
                 'answer': answer_str,
                 'category_id': cat_id,
                 'category_name': cat_name,
