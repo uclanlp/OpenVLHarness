@@ -15,7 +15,7 @@ from .image_vqa import (
     TableVQABench, CustomVQADataset, CRPE, MathVerse, OlympiadBench, SeePhys, QSpatial, VizWiz, MMNIAH, LogicVista,
     MME_CoT, MMSci_Captioning, Physics_yale, TDBenchGrounding, WildDocBenchmark, OCR_Reasoning, PhyX, CountBenchQA,
     ZEROBench, Omni3DBench, TallyQA, MMEReasoning, MMVMBench, BMMR, OCRBench_v2, AyaVisionBench, MathCanvas, MMReason,
-    FSC147Dataset, FREAKVQADataset, PixmoCount
+    FSC147Dataset, FREAKVQADataset, PixmoCount, CountQA
 )
 
 from .image_ccocr import CCOCRDataset
@@ -256,7 +256,7 @@ IMAGE_DATASET = [
     olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, SimpleVQA_EN, HiPhODataset, MaCBench,
     UniSVG, SArena_MINI, MMSIVideoBench, MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization,
     MMBrowseCompDataset, OSWorldG,
-    FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, PixmoCount, RefSpatialDataset,
+    FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, PixmoCount, CountQA, RefSpatialDataset,
     LVISBBoxDataset, LVISMaskDataset,
     ODinWBBoxDataset,
     LIVEVQADataset,

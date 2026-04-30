@@ -3028,6 +3028,67 @@ class PixmoCount(ImageVQADataset):
         return result
 
 
+class CountQA(ImageVQADataset):
+    TYPE = 'VQA'
+    DATASET_URL = {'CountQA': ''}
+    DATASET_MD5 = {}
+
+    def _get_eval_method(self):
+        return 'accuracy'
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+        tgt_path = self.dump_image(line)
+        msgs = []
+        msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        msgs.append(dict(type='text', value=line['question']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        import numpy as np
+        from .utils.fsc147 import extract_integer_from_prediction
+
+        data = load(eval_file)
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        model_name = judge_kwargs.get('model', None)
+        if model_name:
+            method = self._get_eval_method()
+            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
+            predictions = data['extracted_answer'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+        else:
+            predictions = data['prediction'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+
+        answers = data['answer'].apply(
+            lambda x: extract_integer_from_prediction(x)
+                      if extract_integer_from_prediction(x) is not None else 0
+        ).astype(int)
+        predictions = predictions.astype(int)
+
+        diff = (predictions - answers).abs()
+        acc = (predictions == answers).mean() * 100
+        ra5 = (diff <= 0.05 * answers).mean() * 100
+        ra10 = (diff <= 0.10 * answers).mean() * 100
+
+        result = {
+            'acc': round(float(acc), 4),
+            'RA@5': round(float(ra5), 4),
+            'RA@10': round(float(ra10), 4),
+        }
+
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(d2df(result), result_file)
+        return result
+
+
 class FREAKVQADataset(ImageVQADataset):
     TYPE = 'VQA'
     DATASET_URL = {'FREAK_VQA': ''}
