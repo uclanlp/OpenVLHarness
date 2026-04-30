@@ -3426,10 +3426,10 @@ class TallyQA(ImageBaseDataset):
 
         correct = (pred_ints == answer_ints).sum()
         total = len(data)
-        accuracy = correct / total
+        accuracy = correct / total * 100
 
-        result_df = pd.DataFrame([{"TallyQA": accuracy}])
-        result_file = eval_file.replace(f".{eval_file.split('.')[-1]}", "_acc.csv")
+        result_df = pd.DataFrame([{"acc": round(float(accuracy), 4)}])
+        result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(result_df, result_file)
         return result_df
 
