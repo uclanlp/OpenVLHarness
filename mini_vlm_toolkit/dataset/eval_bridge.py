@@ -162,7 +162,7 @@ def build_coco_predictions(
                         )
                         score = None
                 if score is None:
-                    score = 1.0
+                    score = 0.5
 
             preds.append(
                 {
