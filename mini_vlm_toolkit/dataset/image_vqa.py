@@ -2894,11 +2894,8 @@ class ZEROBench(ImageVQADataset):
 
 class CountBenchQA(ImageVQADataset):
     TYPE = "VQA"
-    DATASET_URL = {
-        "CountBenchQA":
-        "https://opencompass.openxlab.space/utils/VLMEval/CountBenchQA.tsv"
-    }
-    DATASET_MD5 = {"CountBenchQA": "fc73c8d4ffa665431448753f094d56ff"}
+    DATASET_URL = {"CountBenchQA": ""}
+    DATASET_MD5 = {}
 
     def build_prompt(self, line):
         if isinstance(line, int):
@@ -2906,9 +2903,7 @@ class CountBenchQA(ImageVQADataset):
         tgt_path = self.dump_image(line)
         msgs = []
         msgs.extend([dict(type='image', value=p) for p in tgt_path])
-        ques = line['question']
-        question = f'{ques} Note that: answer with a number directly e.g. 3. Do not include any additional text.'
-        msgs.append(dict(type='text', value=question))
+        msgs.append(dict(type='text', value=line['question']))
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
@@ -2981,17 +2976,9 @@ class FSC147Dataset(ImageVQADataset):
         return result
 
 
-class PixmoCountDataset(ImageVQADataset):
-    """PixmoCount counting benchmark.
-
-    Dataset has the same shape as FSC-147 (counting-style VQA where the
-    GT is an integer ``answer``); evaluation reuses FSC-147's parser
-    (``extract_integer_from_prediction`` — no upper-bound cap, since
-    PixmoCount counts can be arbitrarily large) and reports the same
-    triple of metrics: ``mae``, ``rmse``, ``acc``.
-    """
+class PixmoCount(ImageVQADataset):
     TYPE = 'VQA'
-    DATASET_URL = {'PixmoCount_val': '', 'PixmoCount_train': ''}
+    DATASET_URL = {'PixmoCount_train': '', 'PixmoCount_val': '', 'PixmoCount_test': ''}
     DATASET_MD5 = {}
 
     def _get_eval_method(self):
@@ -3000,9 +2987,6 @@ class PixmoCountDataset(ImageVQADataset):
     def build_prompt(self, line):
         if isinstance(line, int):
             line = self.data.iloc[line]
-        # Always go through ``dump_image`` so basename-only TSVs (no
-        # ``image`` column with base64) resolve against ``self.img_root``
-        # — the same pattern FSC147Dataset uses.
         tgt_path = self.dump_image(line)
         msgs = []
         msgs.extend([dict(type='image', value=p) for p in tgt_path])
@@ -3023,12 +3007,12 @@ class PixmoCountDataset(ImageVQADataset):
             data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
             predictions = data['extracted_answer'].apply(
                 lambda x: extract_integer_from_prediction(x)
-                if extract_integer_from_prediction(x) is not None else 0
+                          if extract_integer_from_prediction(x) is not None else 0
             )
         else:
             predictions = data['prediction'].apply(
                 lambda x: extract_integer_from_prediction(x)
-                if extract_integer_from_prediction(x) is not None else 0
+                          if extract_integer_from_prediction(x) is not None else 0
             )
 
         answers = data['answer'].astype(int)
@@ -3037,11 +3021,7 @@ class PixmoCountDataset(ImageVQADataset):
         rmse = np.sqrt(((predictions - answers) ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
-        result = {
-            'mae': round(float(mae), 4),
-            'rmse': round(float(rmse), 4),
-            'acc': round(float(acc), 4),
-        }
+        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
@@ -3367,10 +3347,8 @@ class PhyX(ImageBaseDataset):
 
 class TallyQA(ImageBaseDataset):
     TYPE = 'VQA'
-    DATASET_URL = {
-        'TallyQA': 'https://huggingface.co/datasets/moondream/TallyQA-VLMEvalKit/resolve/main/tallyqa_data.tsv'
-    }
-    DATASET_MD5 = {'TallyQA': '959df01cf1858e73a71efe5cd3b9bf19'}
+    DATASET_URL = {'TallyQA': ''}
+    DATASET_MD5 = {}
 
     def evaluate(self, eval_file, **judge_kwargs):
         import pandas as pd
@@ -3389,11 +3367,6 @@ class TallyQA(ImageBaseDataset):
         result_file = eval_file.replace(f".{eval_file.split('.')[-1]}", "_acc.csv")
         dump(result_df, result_file)
         return result_df
-
-    def build_prompt(self, line):
-        msgs = super().build_prompt(line)
-        msgs[-1]['value'] += '\nAnswer the question using a single number.'
-        return msgs
 
 
 class Omni3DBench(ImageBaseDataset):
