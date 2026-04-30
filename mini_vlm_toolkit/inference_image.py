@@ -389,6 +389,29 @@ def infer_image_job(
             full_records, full_trajectory_dir, limit=-1, save_images=save_images
         )
 
+        # Phase 2: persist per-row SAM3 (and other detection-tool) candidate
+        # (boxes, scores) sets that the agent's run_memory accumulated. The
+        # eval bridge later IoU-matches agent-emitted text boxes against
+        # these sidecars to recover real per-box confidence.  Mirrors the
+        # full_trajectories/<task_id>.json layout.
+        tool_detections_dir = osp.join(work_dir, "tool_detections")
+        sidecar_count = 0
+        for idx in data["index"]:
+            rec = data_all.get(idx)
+            if not isinstance(rec, dict):
+                continue
+            extra = rec.get("extra_records") or {}
+            detections = extra.get("tool_detections") if isinstance(extra, dict) else None
+            if not detections:
+                continue
+            os.makedirs(tool_detections_dir, exist_ok=True)
+            out_path = osp.join(tool_detections_dir, f"{idx}.json")
+            with open(out_path, "w") as f:
+                json.dump(detections, f)
+            sidecar_count += 1
+        if sidecar_count:
+            print(f"[tool_detections] wrote {sidecar_count} sidecar JSONs under {tool_detections_dir}")
+
         if save_raw_trajectory:
             raw_trajectory_dir = osp.join(work_dir, "raw_trajectories")
             raw_summary = write_raw_trajectory_jsons(full_records, raw_trajectory_dir, limit=-1)

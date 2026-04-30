@@ -24,6 +24,10 @@ def img_root_map(dataset):
         return 'FREAK'
     if 'FSC147' in dataset:
         return 'FSC147'
+    if 'PixmoCount' in dataset:
+        return 'PixmoCount'
+    if 'CountQA' in dataset:
+        return 'CountQA'
     if 'LVIS' in dataset:
         return 'LVIS'
     if 'ODinW' in dataset:

@@ -2894,11 +2894,8 @@ class ZEROBench(ImageVQADataset):
 
 class CountBenchQA(ImageVQADataset):
     TYPE = "VQA"
-    DATASET_URL = {
-        "CountBenchQA":
-        "https://opencompass.openxlab.space/utils/VLMEval/CountBenchQA.tsv"
-    }
-    DATASET_MD5 = {"CountBenchQA": "fc73c8d4ffa665431448753f094d56ff"}
+    DATASET_URL = {"CountBenchQA": ""}
+    DATASET_MD5 = {}
 
     def build_prompt(self, line):
         if isinstance(line, int):
@@ -2906,9 +2903,7 @@ class CountBenchQA(ImageVQADataset):
         tgt_path = self.dump_image(line)
         msgs = []
         msgs.extend([dict(type='image', value=p) for p in tgt_path])
-        ques = line['question']
-        question = f'{ques} Note that: answer with a number directly e.g. 3. Do not include any additional text.'
-        msgs.append(dict(type='text', value=question))
+        msgs.append(dict(type='text', value=line['question']))
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
@@ -2975,6 +2970,119 @@ class FSC147Dataset(ImageVQADataset):
         acc = (predictions == answers).mean() * 100
 
         result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(d2df(result), result_file)
+        return result
+
+
+class PixmoCount(ImageVQADataset):
+    TYPE = 'VQA'
+    DATASET_URL = {'PixmoCount_train': '', 'PixmoCount_val': '', 'PixmoCount_test': ''}
+    DATASET_MD5 = {}
+
+    def _get_eval_method(self):
+        return 'accuracy'
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+        tgt_path = self.dump_image(line)
+        msgs = []
+        msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        msgs.append(dict(type='text', value=line['question']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        import numpy as np
+        from .utils.fsc147 import extract_integer_from_prediction
+
+        data = load(eval_file)
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        model_name = judge_kwargs.get('model', None)
+        if model_name:
+            method = self._get_eval_method()
+            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
+            predictions = data['extracted_answer'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+        else:
+            predictions = data['prediction'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+
+        answers = data['answer'].astype(int)
+
+        mae = (predictions - answers).abs().mean()
+        rmse = np.sqrt(((predictions - answers) ** 2).mean())
+        acc = (predictions == answers).mean() * 100
+
+        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+
+        result_file = get_intermediate_file_path(eval_file, '_acc')
+        dump(d2df(result), result_file)
+        return result
+
+
+class CountQA(ImageVQADataset):
+    TYPE = 'VQA'
+    DATASET_URL = {'CountQA': ''}
+    DATASET_MD5 = {}
+
+    def _get_eval_method(self):
+        return 'accuracy'
+
+    def build_prompt(self, line):
+        if isinstance(line, int):
+            line = self.data.iloc[line]
+        tgt_path = self.dump_image(line)
+        msgs = []
+        msgs.extend([dict(type='image', value=p) for p in tgt_path])
+        msgs.append(dict(type='text', value=line['question']))
+        return msgs
+
+    def evaluate(self, eval_file, **judge_kwargs):
+        import numpy as np
+        from .utils.fsc147 import extract_integer_from_prediction
+
+        data = load(eval_file)
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        model_name = judge_kwargs.get('model', None)
+        if model_name:
+            method = self._get_eval_method()
+            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
+            predictions = data['extracted_answer'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+        else:
+            predictions = data['prediction'].apply(
+                lambda x: extract_integer_from_prediction(x)
+                          if extract_integer_from_prediction(x) is not None else 0
+            )
+
+        answers = data['answer'].apply(
+            lambda x: extract_integer_from_prediction(x)
+                      if extract_integer_from_prediction(x) is not None else 0
+        ).astype(int)
+        predictions = predictions.astype(int)
+
+        diff = (predictions - answers).abs()
+        acc = (predictions == answers).mean() * 100
+        ra5 = (diff <= 0.05 * answers).mean() * 100
+        ra10 = (diff <= 0.10 * answers).mean() * 100
+
+        result = {
+            'acc': round(float(acc), 4),
+            'RA@5': round(float(ra5), 4),
+            'RA@10': round(float(ra10), 4),
+        }
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
@@ -3301,9 +3409,11 @@ class PhyX(ImageBaseDataset):
 class TallyQA(ImageBaseDataset):
     TYPE = 'VQA'
     DATASET_URL = {
-        'TallyQA': 'https://huggingface.co/datasets/moondream/TallyQA-VLMEvalKit/resolve/main/tallyqa_data.tsv'
+        'TallyQA': '',
+        'TallyQA_simple': '',
+        'TallyQA_complex': '',
     }
-    DATASET_MD5 = {'TallyQA': '959df01cf1858e73a71efe5cd3b9bf19'}
+    DATASET_MD5 = {}
 
     def evaluate(self, eval_file, **judge_kwargs):
         import pandas as pd
@@ -3316,17 +3426,12 @@ class TallyQA(ImageBaseDataset):
 
         correct = (pred_ints == answer_ints).sum()
         total = len(data)
-        accuracy = correct / total
+        accuracy = correct / total * 100
 
-        result_df = pd.DataFrame([{"TallyQA": accuracy}])
-        result_file = eval_file.replace(f".{eval_file.split('.')[-1]}", "_acc.csv")
+        result_df = pd.DataFrame([{"acc": round(float(accuracy), 4)}])
+        result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(result_df, result_file)
         return result_df
-
-    def build_prompt(self, line):
-        msgs = super().build_prompt(line)
-        msgs[-1]['value'] += '\nAnswer the question using a single number.'
-        return msgs
 
 
 class Omni3DBench(ImageBaseDataset):

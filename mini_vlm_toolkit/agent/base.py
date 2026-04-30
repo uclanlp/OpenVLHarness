@@ -1360,6 +1360,11 @@ class BaseAgentWithTools(BaseAgent):
 
         run_memory = self._new_persistent_state_memory()
         run_memory.reset()
+        # Phase 2: stamp the row identity so detection-tool post-processors
+        # (e.g. SAM3) can attach (boxes, scores) sidecar entries that the
+        # inference loop will persist as tool_detections/<task_id>.json.
+        if hasattr(run_memory, "reset_for_row"):
+            run_memory.reset_for_row(str(task_id) if task_id is not None else None)
         msgs = self.prepare_inputs(question, system_prompt=active_system_prompt)
 
         msgs = self._add_user_prompt_prefix(msgs)
@@ -1745,12 +1750,14 @@ class BaseAgentWithTools(BaseAgent):
             if final_answer:
                 terminating_response = response
                 raw_sft = self._build_raw_sft_from_tokens(terminating_response, msgs, task_id)
+                self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
                 if return_messages:
                     return final_answer, chat_history, msgs, raw_sft
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
 
+        self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
         if return_messages:
             return self.fail_msg, chat_history, msgs, None
         return self.fail_msg, chat_history
@@ -1817,7 +1824,10 @@ class BaseAgentWithTools(BaseAgent):
             }
             return {
                 "prediction": self.fail_msg,
-                "extra_records": {"trajectory": trajectory},
+                "extra_records": {
+                    "trajectory": trajectory,
+                    "tool_detections": list(getattr(self, "_last_tool_detections", []) or []),
+                },
             }
 
         final_answer = self.fail_msg if answer in ['', None] else answer
@@ -1829,7 +1839,16 @@ class BaseAgentWithTools(BaseAgent):
         }
         if raw_sft is not None:
             trajectory["raw_sft"] = raw_sft
-        return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}
+        return {
+            "prediction": final_answer,
+            "extra_records": {
+                "trajectory": trajectory,
+                # Phase 2: SAM3 (and other detection-tool) per-call (boxes, scores)
+                # candidate sets, captured during the agent's tool loop. Empty for
+                # BaseAgent or for tool-use rows that didn't trigger a scoring tool.
+                "tool_detections": list(getattr(self, "_last_tool_detections", []) or []),
+            },
+        }
 
 
 class BaseAgentWithToolsV2(BaseAgentWithTools):
@@ -2032,6 +2051,7 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
         chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         _ = kwargs.pop("tool_choice", None)  # not used in V2
         active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
+        task_id = kwargs.pop("task_id", None)  # Phase 2: stamp on memory
         endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
         is_openai_official = "api.openai.com" in endpoint_hint
         model_name = getattr(self, "model", "") or ""
@@ -2044,6 +2064,9 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
 
         run_memory = self._new_persistent_state_memory()
         run_memory.reset()
+        # Phase 2: per-row sidecar bookkeeping (mirrors BaseAgentWithTools._run).
+        if hasattr(run_memory, "reset_for_row"):
+            run_memory.reset_for_row(str(task_id) if task_id is not None else None)
 
         msgs = self.prepare_inputs(question, system_prompt=active_system_prompt)
         msgs = self._add_user_prompt_prefix(msgs)
@@ -2320,6 +2343,7 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
                     chat_history.append(final_turn_info)
 
                     status = final_answer if final_answer else self.fail_msg
+                    self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
                     if return_messages:
                         return status, chat_history, msgs, None
                     return status, chat_history
@@ -2329,12 +2353,14 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
             turn_info["final_answer"] = final_answer
             chat_history.append(turn_info)
             if final_answer:
+                self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
                 if return_messages:
                     return final_answer, chat_history, msgs, None
                 return final_answer, chat_history
 
             msgs.append({"role": "assistant", "content": raw_response})
 
+        self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
         if return_messages:
             return self.fail_msg, chat_history, msgs, None
         return self.fail_msg, chat_history

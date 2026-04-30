@@ -293,7 +293,9 @@ def build_bbox_question(category_name):
         f"For each instance, output a bounding box as [x1, y1, x2, y2] "
         f"where coordinates are normalised on a 0-1000 scale "
         f"(with (0,0) as the top-left corner and (1000,1000) as the bottom-right corner). "
-        f"Output a JSON array of arrays."
+        f"Your answer should be a list of lists. "
+        f"If there are no instances of '{category_name}' in the image, "
+        f"output an empty list [] as your answer."
     )
 
 
