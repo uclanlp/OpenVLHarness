@@ -137,6 +137,24 @@ _SENSITIVE_ENV_PATTERNS = (
 )
 
 
+def _is_sensitive_env_key(key):
+    key_upper = str(key).upper()
+    return any(pattern in key_upper for pattern in _SENSITIVE_ENV_PATTERNS)
+
+
+def _redact_env_value(key, value):
+    if _is_sensitive_env_key(key):
+        return "<REDACTED>"
+    return value
+
+
+def _redact_env_map(env):
+    return {
+        k: _redact_env_value(k, v)
+        for k, v in env.items()
+    }
+
+
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
     """Save tool env snapshot and warn if .env file diverges from running server."""
     import requests as _requests
@@ -144,14 +162,16 @@ def _snapshot_tool_env(pred_root, logger, agent_config=None):
     tool_base = None
     if agent_config and isinstance(agent_config, dict):
         tool_base = (agent_config.get("agent_kwargs") or {}).get("tool_base")
-    tool_base = tool_base or "http://localhost:8102"
+    tool_base = tool_base or "http://localhost:8101"
 
     # 1. Read from running server
     server_env = None
     try:
         resp = _requests.get(f"{tool_base}/env", timeout=5)
         resp.raise_for_status()
-        server_env = resp.json()
+        parsed_env = resp.json()
+        if isinstance(parsed_env, dict):
+            server_env = _redact_env_map(parsed_env)
     except Exception:
         pass
 
@@ -173,25 +193,22 @@ def _snapshot_tool_env(pred_root, logger, agent_config=None):
     # 3. Compare and warn on mismatch
     mismatches = {}
     if server_env and file_env:
-        for key in server_env:
-            if key.startswith("_"):
+        for key, server_val in server_env.items():
+            if key.startswith("_") or _is_sensitive_env_key(key):
                 continue
             file_val = file_env.get(key)
-            if file_val is not None and file_val != server_env[key]:
-                mismatches[key] = {"server": server_env[key], "file": file_val}
+            if file_val is not None and file_val != server_val:
+                mismatches[key] = {"server": server_val, "file": file_val}
                 msg = (
                     f"⚠ Tool env MISMATCH: {key} — "
-                    f"server='{server_env[key]}' vs file='{file_val}'. "
+                    f"server='{server_val}' vs file='{file_val}'. "
                     f"Did you edit .env without restarting the tool server?"
                 )
                 logger.warning(msg)
                 print(f"\n{'='*60}\nWARNING: {msg}\n{'='*60}\n")
 
     # 4. Save server env (ground truth) or file env (fallback)
-    snapshot = server_env or {
-        k: ("<REDACTED>" if any(p in k.upper() for p in _SENSITIVE_ENV_PATTERNS) else v)
-        for k, v in file_env.items()
-    }
+    snapshot = server_env or _redact_env_map(file_env)
     if snapshot:
         if mismatches:
             snapshot["_MISMATCHES"] = mismatches
@@ -322,6 +339,11 @@ if __name__ == "__main__":
             config_path=args.config,
             judge_config_path=args.judge_config,
         )
+        run_manifest_path = os.path.join(pred_root, "run_manifest.json")
+        if not os.path.exists(run_manifest_path):
+            raise ValueError(f"--run-dir missing run_manifest.json: {pred_root}")
+        existing_manifest = _load_json(run_manifest_path)
+        validate_manifest_compatibility(existing_manifest, run_manifest)
         logger.info(f"Using specified run directory: {pred_root}")
     elif args.resume:
         # Build a temporary manifest for compatibility checking (run_id filled after finding dir)

@@ -1,4 +1,5 @@
 import ast
+import os
 from pathlib import Path
 
 import server.app as server_app
@@ -6,6 +7,14 @@ import server.app as server_app
 
 TOOL_INFRA_ROOT = Path(__file__).resolve().parents[1]
 TOOLS_ROOT = TOOL_INFRA_ROOT / "src" / "tools"
+
+# Keep dynamic schema values explicit and narrow: the static contract still
+# rejects arbitrary module constants and code execution in INPUT_SCHEMA.
+ALLOWED_ENV_INT_SCHEMA_CONSTANTS = {
+    "serper_webpage_visit/tool.py": {
+        "MAX_URLS": ("WEBPAGE_VISIT_MAX_URLS", "5"),
+    },
+}
 
 
 def _iter_tool_files():
@@ -21,16 +30,102 @@ def _is_base_tool_subclass(class_def):
     return False
 
 
-def _collect_schema_constants(module):
+def _single_assigned_name(node):
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        target = node.targets[0]
+    elif isinstance(node, ast.AnnAssign):
+        target = node.target
+    else:
+        return None
+    if isinstance(target, ast.Name):
+        return target.id
+    return None
+
+
+def _eval_allowed_env_int(node, env_name, default):
+    if (
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Name)
+        or node.func.id != "int"
+        or len(node.args) != 1
+        or node.keywords
+    ):
+        raise ValueError("expected int(os.getenv(...))")
+
+    getenv_call = node.args[0]
+    if (
+        not isinstance(getenv_call, ast.Call)
+        or not isinstance(getenv_call.func, ast.Attribute)
+        or not isinstance(getenv_call.func.value, ast.Name)
+        or getenv_call.func.value.id != "os"
+        or getenv_call.func.attr != "getenv"
+        or len(getenv_call.args) != 2
+        or getenv_call.keywords
+    ):
+        raise ValueError("expected os.getenv(env_name, default)")
+
+    env_arg, default_arg = getenv_call.args
+    if (
+        not isinstance(env_arg, ast.Constant)
+        or env_arg.value != env_name
+        or not isinstance(default_arg, ast.Constant)
+        or default_arg.value != default
+    ):
+        raise ValueError("unexpected env-backed schema constant")
+
+    return int(os.getenv(env_name, default))
+
+
+def _eval_schema_node(node, constants):
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Dict):
+        return {
+            _eval_schema_node(key, constants): _eval_schema_node(value, constants)
+            for key, value in zip(node.keys, node.values)
+        }
+    if isinstance(node, ast.List):
+        return [_eval_schema_node(item, constants) for item in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_eval_schema_node(item, constants) for item in node.elts)
+    if isinstance(node, ast.Name) and node.id in constants:
+        value = constants[node.id]
+        if value is None:
+            raise ValueError(f"unresolved schema constant: {node.id}")
+        return value
+    return ast.literal_eval(node)
+
+
+def _resolve_schema_expr(expr, constants):
+    try:
+        return ast.literal_eval(expr)
+    except Exception:
+        try:
+            return _eval_schema_node(expr, constants)
+        except Exception:
+            return None
+
+
+def _collect_schema_constants(module, tool_file):
     constants = {}
+    rel_tool_file = tool_file.relative_to(TOOLS_ROOT).as_posix()
+    allowed_env_ints = ALLOWED_ENV_INT_SCHEMA_CONSTANTS.get(rel_tool_file, {})
     for node in module.body:
+        assigned_name = _single_assigned_name(node)
+        if assigned_name in allowed_env_ints and node.value is not None:
+            try:
+                env_name, default = allowed_env_ints[assigned_name]
+                constants[assigned_name] = _eval_allowed_env_int(
+                    node.value, env_name, default
+                )
+            except Exception:
+                constants[assigned_name] = None
+            continue
+
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id.startswith("INPUT_SCHEMA"):
-                    try:
-                        constants[target.id] = ast.literal_eval(node.value)
-                    except Exception:
-                        constants[target.id] = None
+                    constants[target.id] = _resolve_schema_expr(node.value, constants)
         elif isinstance(node, ast.AnnAssign):
             target = node.target
             if (
@@ -38,10 +133,7 @@ def _collect_schema_constants(module):
                 and target.id.startswith("INPUT_SCHEMA")
                 and node.value is not None
             ):
-                try:
-                    constants[target.id] = ast.literal_eval(node.value)
-                except Exception:
-                    constants[target.id] = None
+                constants[target.id] = _resolve_schema_expr(node.value, constants)
     return constants
 
 
@@ -89,10 +181,7 @@ def _resolve_schema(expr, schema_constants):
         return None
     if isinstance(expr, ast.Name):
         return schema_constants.get(expr.id)
-    try:
-        return ast.literal_eval(expr)
-    except Exception:
-        return None
+    return _resolve_schema_expr(expr, schema_constants)
 
 
 def test_all_tool_classes_define_valid_input_schema():
@@ -102,7 +191,7 @@ def test_all_tool_classes_define_valid_input_schema():
     for tool_file in _iter_tool_files():
         source = tool_file.read_text(encoding="utf-8")
         module = ast.parse(source, filename=str(tool_file))
-        schema_constants = _collect_schema_constants(module)
+        schema_constants = _collect_schema_constants(module, tool_file)
 
         for class_def in module.body:
             if not isinstance(class_def, ast.ClassDef):
@@ -120,7 +209,8 @@ def test_all_tool_classes_define_valid_input_schema():
             schema = _resolve_schema(schema_expr, schema_constants)
             if not isinstance(schema, dict):
                 failures.append(
-                    f"{class_label}: input_schema must resolve to a dict literal or INPUT_SCHEMA* constant"
+                    f"{class_label}: input_schema must resolve to a dict literal, "
+                    "INPUT_SCHEMA* constant, or whitelisted env-backed constant"
                 )
                 continue
 

@@ -27,40 +27,55 @@ from ..smp.file import get_intermediate_file_path
 from ..utils import track_progress_rich
 
 # ---------------------------------------------------------------------------
-# Judge prompt – faithfully ported from the original BrowseComp-VL
-# ``evaluate_hle_official.py`` JUDGE_PROMPT.
+# Judge prompt — shared HLE-style protocol, imported from utils/hle_judge.py
+# (byte-identical to what the BrowseComp-VL upstream ``evaluate_hle_official.py``
+# uses, and the same prompt now applied to hle / mmsearch / mmsearch_plus /
+# simplevqa_en / vdrbench for cross-benchmark consistency).
 # ---------------------------------------------------------------------------
-JUDGE_PROMPT = """\
-Judge whether the following [response] to [question] is correct or not based on the precise and unambiguous [correct_answer] below.
+from .utils.hle_judge import HLE_JUDGE_PROMPT as JUDGE_PROMPT, parse_hle_judgement
 
-[question]: {question}
 
-[response]: {response}
+# ---------------------------------------------------------------------------
+# Auxiliary VDR-style judge prompt (opt-in placeholder)
+#
+# Adapted from Vision-DeepResearch's ``rllm/rewards/deepresearch_reward.py``
+# judging_prompt — a lenient contains-based binary judge. This is *not*
+# the BrowseComp-VL paper protocol; it exists to enable cross-benchmark
+# consistency studies (VDR / LIVEVQA / VisBrowseBench use the same style)
+# and is only invoked when the judge config sets ``enable_vdr_aux: true``.
+# Output is written to a separate ``_bcvl_vdr.json`` file and does NOT
+# override the primary original-protocol scores.
+# ---------------------------------------------------------------------------
+_VDR_JUDGE_PROMPT = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
 
-Your judgement must be in the format and criteria specified below:
+[Question]
+{question}
 
-extracted_final_answer: The final exact answer extracted from the [response]. Put the extracted answer as 'None' if there is no exact, final answer to extract from the response.
+[Correct Answer]
+{correct_answer}
 
-[correct_answer]: {correct_answer}
+[Assistant's Answer]
+{response}
 
-reasoning: Explain why the extracted_final_answer is correct or incorrect based on [correct_answer], focusing only on if there are meaningful differences between [correct_answer] and the extracted_final_answer. Do not comment on any background to the problem, do not attempt to solve the problem, do not argue for any answer different than [correct_answer], focus only on whether the answers match.
+Task: Determine if the assistant's answer contains the correct answer anywhere in its content.
 
-correct: Answer 'yes' if extracted_final_answer matches the [correct_answer] given above, or is within a small margin of error for numerical problems. Answer 'no' otherwise, i.e. if there if there is any inconsistency, ambiguity, non-equivalency, or if the extracted answer is incorrect.
-
-confidence: The extracted confidence score between 0|%| and 100|%| from [response]. Put 100 if there is no confidence score available.
+Instructions:
+1. Read through the entire answer carefully.
+2. Look for the correct answer anywhere in the response (it may be embedded in paragraphs, reasoning, or explanations).
+3. Check if the information in the response is consistent with the correct answer.
+4. The answer does NOT need to be in a specific format or labeled as "final answer".
+5. Provide your reasoning.
+6. Answer "yes" if the response contains the correct answer (semantically equivalent is fine), "no" if it doesn't or contradicts it.
 
 Respond **strictly in a valid JSON object** matching this schema:
 {{
-  "extracted_final_answer": string,
   "reasoning": string,
-  "correct": "yes" | "no",
-  "confidence": integer,
-  "strict": true
+  "correct": "yes" | "no"
 }}"""
 
 
 # ---------------------------------------------------------------------------
-# Per-item grading helper
+# Per-item grading helpers
 # ---------------------------------------------------------------------------
 
 def _grade_item(model, item):
@@ -96,25 +111,76 @@ def _grade_item(model, item):
         if 'Failed to obtain answer via API' in ans:
             retry -= 1
             continue
-
-        # Parse JSON response from judge
-        try:
-            # Try to extract JSON from response
-            m = re.search(r'\{[\s\S]*\}', ans)
-            if m:
-                obj = json.loads(m.group(0))
-                is_correct = obj.get('correct', 'no').strip().lower()
-                acc = 1 if is_correct in ('y', 'yes', 'true', 'positive') else 0
-                return dict(
-                    correct=acc,
-                    extracted_answer=obj.get('extracted_final_answer', ''),
-                    reasoning=obj.get('reasoning', ''),
-                )
-        except (json.JSONDecodeError, ValueError):
-            pass
+        parsed = parse_hle_judgement(ans)
+        # parse_hle_judgement signals "couldn't parse" via this reasoning
+        # string; on that case, retry. Any other verdict (correct=0 or 1)
+        # is a legitimate judge answer.
+        if parsed.get('reasoning') != 'judge failed to parse':
+            return dict(
+                correct=parsed['correct'],
+                extracted_answer=parsed.get('extracted_answer', ''),
+                reasoning=parsed.get('reasoning', ''),
+            )
         retry -= 1
 
     return dict(correct=0, extracted_answer='', reasoning='Judge failed')
+
+
+def _grade_item_vdr(model, item):
+    """Auxiliary VDR-style contains-based binary judge.
+
+    Returns dict with ``verdict`` ('correct' / 'incorrect' / 'error') and
+    ``reasoning``. Invoked only when ``enable_vdr_aux`` is set.
+    """
+    prediction = str(item.get('prediction', ''))
+    gt_list = item.get('ground_truth_list', '')
+    question = item.get('question', '')
+
+    if isinstance(gt_list, str):
+        try:
+            gt_list = json.loads(gt_list)
+        except Exception:
+            gt_list = [gt_list]
+    if not gt_list:
+        return dict(verdict='error', reasoning='empty ground_truth_list')
+
+    correct_answer = gt_list[0]
+    prompt = _VDR_JUDGE_PROMPT.format(
+        question=question,
+        correct_answer=correct_answer,
+        response=prediction,
+    )
+
+    retry = 3
+    while retry:
+        ans = model.generate(prompt)
+        if 'Failed to obtain answer via API' in ans:
+            retry -= 1
+            continue
+
+        m = re.search(r'\{[\s\S]*\}', ans)
+        if m:
+            try:
+                obj = json.loads(m.group(0))
+                verdict = str(obj.get('correct', '')).strip().lower()
+                if verdict in ('yes', 'y', 'true', 'positive'):
+                    return dict(verdict='correct',
+                                reasoning=str(obj.get('reasoning', '')))
+                if verdict in ('no', 'n', 'false', 'negative'):
+                    return dict(verdict='incorrect',
+                                reasoning=str(obj.get('reasoning', '')))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        raw = ans.strip().lower()
+        if 'correct: yes' in raw or raw in ('yes', 'y'):
+            return dict(verdict='correct', reasoning='')
+        if 'correct: no' in raw or raw in ('no', 'n'):
+            return dict(verdict='incorrect', reasoning='')
+
+        retry -= 1
+
+    return dict(verdict='error', reasoning='judge unreachable after retries')
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +242,10 @@ class BrowseCompVLDataset(ImageBaseDataset):
 
         # Build judge model
         nproc = judge_kwargs.pop('nproc', 4)
+        # ``enable_vdr_aux`` is a framework-level flag (not an OpenAI
+        # parameter). Pop it before passing kwargs to build_judge() so it
+        # doesn't leak into the OpenAI request payload and trigger 400.
+        enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
         model = build_judge(**judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -233,6 +303,54 @@ class BrowseCompVLDataset(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, '_bcvl_acc', 'csv')
         dump(acc, score_file)
         logger.info(f'BrowseComp-VL accuracy results saved to {score_file}')
+
+        # -- Auxiliary VDR judge pass (opt-in via enable_vdr_aux) ----------
+        # Does NOT override the primary original-protocol scores above.
+        # Produces a separate ``_bcvl_vdr.json`` side-output for
+        # cross-benchmark studies that want VDR-style contains-based grading.
+        if enable_vdr_aux:
+            vdr_cache_file = get_intermediate_file_path(
+                eval_file, '_bcvl_vdr_grade', 'pkl')
+            vdr_cache = load(vdr_cache_file) if osp.exists(vdr_cache_file) else {}
+            vdr_items = [
+                data.iloc[i] for i in range(len(data))
+                if str(data.iloc[i]['index']) not in vdr_cache
+            ]
+            if vdr_items:
+                vdr_tups = [dict(model=model, item=x) for x in vdr_items]
+                vdr_keys = [str(x['index']) for x in vdr_items]
+                vdr_res = track_progress_rich(
+                    _grade_item_vdr, vdr_tups, nproc=nproc, chunksize=nproc,
+                    save=vdr_cache_file, keys=vdr_keys,
+                )
+                vdr_cache = load(vdr_cache_file)
+                for k, v in zip(vdr_keys, vdr_res):
+                    if k not in vdr_cache:
+                        vdr_cache[k] = v
+
+            n_total = len(data)
+            n_correct = sum(
+                1 for idx in data['index']
+                if vdr_cache.get(str(idx), {}).get('verdict') == 'correct'
+            )
+            n_incorrect = sum(
+                1 for idx in data['index']
+                if vdr_cache.get(str(idx), {}).get('verdict') == 'incorrect'
+            )
+            vdr_summary = {
+                'total': n_total,
+                'correct': n_correct,
+                'incorrect': n_incorrect,
+                'error': n_total - n_correct - n_incorrect,
+                'accuracy': round(100 * n_correct / n_total, 2) if n_total else 0.0,
+            }
+            vdr_score_file = get_intermediate_file_path(
+                eval_file, '_bcvl_vdr', 'json')
+            dump(vdr_summary, vdr_score_file)
+            logger.info(
+                f'BrowseComp-VL VDR auxiliary judge results saved to {vdr_score_file}'
+            )
+
         return acc
 
     @staticmethod

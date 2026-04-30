@@ -37,13 +37,14 @@ from .refcoco import RefCOCODataset
 from .refspatial import RefSpatialDataset
 from .lvis import LVISBBoxDataset, LVISMaskDataset
 from .odinw import ODinWBBoxDataset
-from .simplevqa import SimpleVQA
+from .simplevqa import SimpleVQA, SimpleVQA_EN
 from .embspatialbench import EmbSpatialBench
 from .erqabench import ERQABench
 from .robospatialbench import RoboSpatialBench
 from .mmsibench import MMSIBench
-from .livevqa import LIVEVQADataset
+from .livevqa import LIVEVQADataset, LIVEVQA_v2
 from .browsecomp_vl import BrowseCompVLDataset
+from .visbrowse_bench import VisBrowseBenchDataset
 from .mindcubebench import MindCubeBench
 from .omnispatialbench import OmniSpatialBench
 from .sparbench import SparBench
@@ -252,14 +253,16 @@ IMAGE_DATASET = [
     OmniEarthMCQBench, VisFactor, OSTDataset, OCRBench_v2, TreeBench, CVQA, M4Bench,
     AyaVisionBench, TopViewRS, VLMBias, MMHELIX, MedqbenchMCQDataset, MathCanvas, MMReason,
     MedqbenchPairedDescriptionDataset, MedqbenchCaptionDataset, ChartMuseum, ChartQAPro, ReasonMap_Plus,
-    olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, HiPhODataset, MaCBench,
+    olmOCRBench, OceanOCRBench, MATBench, VLRMBench, RefCOCODataset, SimpleVQA, SimpleVQA_EN, HiPhODataset, MaCBench,
     UniSVG, SArena_MINI, MMSIVideoBench, MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization,
     MMBrowseCompDataset, OSWorldG,
     FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, PixmoCount, RefSpatialDataset,
     LVISBBoxDataset, LVISMaskDataset,
     ODinWBBoxDataset,
     LIVEVQADataset,
+    LIVEVQA_v2,
     BrowseCompVLDataset,
+    VisBrowseBenchDataset,
     RealXBench,
     MMSearchPlus,
     VDRBench,

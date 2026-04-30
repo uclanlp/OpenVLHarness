@@ -47,7 +47,16 @@ INPUT_SCHEMA = {
         },
         "search_type": {
             "type": "string",
-            "enum": ALL_SEARCH_TYPES,
+            "enum": [
+                "search",
+                "images",
+                "news",
+                "scholar",
+                "maps",
+                "places",
+                "shopping",
+                "patents",
+            ],
             "default": "search",
             "description": (
                 "Which search endpoint to use. Defaults to 'search' (general web). Options:\n"

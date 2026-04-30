@@ -160,8 +160,18 @@ def _extract_answer(prediction: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM judge
 # ---------------------------------------------------------------------------
+# Default judge: HLE-style prompt (extract_final_answer + binary correct
+# yes/no JSON, see ``utils/hle_judge.py``). Same prompt as hle / mmsearch
+# / mmsearch_plus / simplevqa / bcvl so cross-benchmark numbers are
+# directly comparable.
+#
+# The previous VDR-paper-style "deep research report contains the correct
+# answer" prompt is preserved verbatim as ``_LEGACY_JUDGE_PROMPT`` for
+# reference but no longer referenced by the active code path.
+from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 
-_JUDGE_PROMPT = """You are an impartial judge evaluating whether a deep research report contains the correct answer.
+
+_LEGACY_JUDGE_PROMPT = """You are an impartial judge evaluating whether a deep research report contains the correct answer.
 
 [Question]
 {question}
@@ -193,26 +203,21 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     pred = str(row.get("prediction", "") or "")
     pred_extracted = _extract_answer(pred)
 
-    prompt = _JUDGE_PROMPT.format(
+    prompt = HLE_JUDGE_PROMPT.format(
         question=question,
-        gt_answer=gt,
-        prediction=pred_extracted or pred,
+        correct_answer=gt,
+        response=pred_extracted or pred,
     )
 
     verdict = "error"
     raw_response = ""
     try:
         raw_response = judge.generate(prompt)
-        raw_lower = raw_response.strip().lower()
-        # Parse "correct: yes/no" format (VDR original format)
-        if "correct: yes" in raw_lower or "correct:yes" in raw_lower:
+        parsed = parse_hle_judgement(raw_response)
+        if parsed["correct"] == 1:
             verdict = "correct"
-        elif "correct: no" in raw_lower or "correct:no" in raw_lower:
-            verdict = "incorrect"
-        # Fallback: check for standalone CORRECT/INCORRECT
-        elif "incorrect" not in raw_lower and "correct" in raw_lower:
-            verdict = "correct"
-        elif "incorrect" in raw_lower:
+        elif parsed.get("reasoning") not in (
+                "judge failed to parse", "judge unreachable after retries"):
             verdict = "incorrect"
     except Exception as e:
         logger.warning("VDR-Bench judge error: %s", e)
@@ -440,18 +445,19 @@ class VDRBench(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, "_vdrbench_f1", "json")
         dump(summary, score_file)
 
-        if judge_kwargs.get("enable_llm_judge"):
-            try:
-                judge_summary, judge_verdicts = _run_llm_judge(
-                    eval_file=eval_file, data=data, judge_kwargs=judge_kwargs,
-                )
-                summary["llm_judge"] = judge_summary
-                data["is_correct"] = [
-                    judge_verdicts.get(idx, {}).get("verdict") == "correct"
-                    for idx in data["index"]
-                ]
-            except Exception as exc:
-                logger.warning(f"LLM judge evaluation failed: {exc}")
+        # LLM judge always runs alongside F1 (paper protocol). F1 above is
+        # retained in `*_vdrbench_f1.json`.
+        try:
+            judge_summary, judge_verdicts = _run_llm_judge(
+                eval_file=eval_file, data=data, judge_kwargs=judge_kwargs,
+            )
+            summary["llm_judge"] = judge_summary
+            data["is_correct"] = [
+                judge_verdicts.get(idx, {}).get("verdict") == "correct"
+                for idx in data["index"]
+            ]
+        except Exception as exc:
+            logger.warning(f"LLM judge evaluation failed: {exc}")
 
         try:
             dump(data, eval_file)

@@ -43,6 +43,8 @@ class ToolContextMemory(ImageStateMemory):
     """
 
     memory_name = "tool_context"
+    _TRANSPORT_TYPE_KEY = "__toolvision_type__"
+    _TRANSPORT_NDARRAY_TYPE = "ndarray"
 
     _CODING_TOOL_NAMES = frozenset({
         "Python_Code_Generator_Tool",
@@ -254,6 +256,29 @@ class ToolContextMemory(ImageStateMemory):
             fields=fields,
         )
 
+    @classmethod
+    def _serialize_coding_context_for_transport(cls, value: Any) -> Any:
+        """Convert coding context bindings to JSON-safe transport values."""
+        if isinstance(value, np.ndarray):
+            array = np.ascontiguousarray(value)
+            return {
+                cls._TRANSPORT_TYPE_KEY: cls._TRANSPORT_NDARRAY_TYPE,
+                "dtype": str(array.dtype),
+                "shape": list(array.shape),
+                "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+            }
+        if isinstance(value, dict):
+            return {
+                key: cls._serialize_coding_context_for_transport(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [
+                cls._serialize_coding_context_for_transport(item)
+                for item in value
+            ]
+        return value
+
     def get_binding_descriptors_payload(self) -> Dict[str, Any]:
         """Serialize all descriptors to a JSON-safe dict for transport."""
         payload: Dict[str, Any] = {}
@@ -369,7 +394,12 @@ class ToolContextMemory(ImageStateMemory):
                 existing = {}
             merged = dict(self._tool_result_bindings)
             merged.update(existing)  # explicit overrides win
-            resolved["context_bindings"] = merged
+            # Direct Python coding tools cross the /execute JSON boundary.
+            # Encode ndarray bindings only for that coding-only transport path;
+            # other tools should keep using their normal request schemas.
+            resolved["context_bindings"] = self._serialize_coding_context_for_transport(
+                merged,
+            )
 
         # Coding agent tools receive lightweight descriptors (not raw values).
         # Actual values are injected orchestrator-side at execution time.
