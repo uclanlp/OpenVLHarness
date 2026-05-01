@@ -2934,6 +2934,8 @@ class CountBenchQA(ImageVQADataset):
                 'pred': predictions,
                 'exact_match': per_row_correct,
             },
+            # Single-metric dataset: sort silently by exact_match desc.
+            sort_score=per_row_correct,
         )
         return result
 
@@ -2990,6 +2992,14 @@ class FSC147Dataset(ImageVQADataset):
         dump(d2df(result), result_file)
 
         from .eval_bridge import emit_counting_per_row
+        # Graded sort score: 1.0 on exact, else clipped relative accuracy.
+        # Rows with smaller absolute miss rank above larger misses; gt<=0 with
+        # any nonzero pred is bottom (score = 0).
+        gt_safe = np.maximum(answers.to_numpy(), 1)
+        graded = 1.0 - diff.abs().to_numpy() / gt_safe
+        score_per_row = np.where(
+            (predictions == answers).to_numpy(), 1.0, np.clip(graded, 0.0, None)
+        )
         emit_counting_per_row(
             eval_file, data['index'], data['image_path'],
             extra_cols={
@@ -2999,6 +3009,7 @@ class FSC147Dataset(ImageVQADataset):
                 'abs_error': diff.abs().astype(int).tolist(),
                 'sq_error': (diff ** 2).astype(int).tolist(),
             },
+            sort_score=score_per_row.tolist(),
         )
         return result
 
@@ -3055,6 +3066,11 @@ class PixmoCount(ImageVQADataset):
         dump(d2df(result), result_file)
 
         from .eval_bridge import emit_counting_per_row
+        gt_safe = np.maximum(answers.to_numpy(), 1)
+        graded = 1.0 - diff.abs().to_numpy() / gt_safe
+        score_per_row = np.where(
+            (predictions == answers).to_numpy(), 1.0, np.clip(graded, 0.0, None)
+        )
         emit_counting_per_row(
             eval_file, data['index'], data['image_path'],
             extra_cols={
@@ -3064,6 +3080,7 @@ class PixmoCount(ImageVQADataset):
                 'abs_error': diff.abs().astype(int).tolist(),
                 'sq_error': (diff ** 2).astype(int).tolist(),
             },
+            sort_score=score_per_row.tolist(),
         )
         return result
 
@@ -3137,6 +3154,10 @@ class CountQA(ImageVQADataset):
             if 'is_focused' in data.columns
             else [None] * len(data)
         )
+        # Score: average of the three boolean metrics, in {0, 1/3, 2/3, 1}.
+        score_per_row = (
+            (acc_per_row + ra5_per_row + ra10_per_row) / 3.0
+        ).tolist()
         emit_counting_per_row(
             eval_file, data['index'], data['image_path'],
             extra_cols={
@@ -3147,6 +3168,7 @@ class CountQA(ImageVQADataset):
                 'ra10': ra10_per_row.tolist(),
                 'is_focused': is_focused,
             },
+            sort_score=score_per_row,
         )
         return result
 
@@ -3503,6 +3525,8 @@ class TallyQA(ImageBaseDataset):
                 'pred': pred_ints.astype(int).tolist(),
                 'exact_match': exact_match.tolist(),
             },
+            # Single-metric dataset: sort silently by exact_match desc.
+            sort_score=exact_match.tolist(),
         )
         return result_df
 

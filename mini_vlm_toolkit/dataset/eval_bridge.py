@@ -578,6 +578,7 @@ def emit_counting_per_row(
     image_paths: Iterable,
     *,
     extra_cols: Optional[Dict[str, Iterable]] = None,
+    sort_score: Optional[Iterable[float]] = None,
     file_suffix: str = "_per_row",
 ) -> str:
     """Build and dump a per-row CSV for counting-style evaluators.
@@ -602,6 +603,11 @@ def emit_counting_per_row(
         Ordered dict of additional columns (e.g. ``gt``, ``pred``,
         ``exact_match``, ``ra5``, ``is_focused``).  Insertion order is
         preserved in the output CSV.
+    sort_score
+        Optional per-row score (higher = better).  When provided, rows are
+        sorted by descending score before writing; the score column itself
+        is **not** included in the output (silent sort).  Original input
+        order is preserved within ties via mergesort.
     file_suffix
         Suffix passed to :func:`get_intermediate_file_path` (default
         ``_per_row``, matching the grounding evaluators).
@@ -640,10 +646,51 @@ def emit_counting_per_row(
                 rows[i][col_name] = v
 
     df = pd.DataFrame(rows)
+
+    if sort_score is not None:
+        scores = list(sort_score)
+        assert len(scores) == n, (
+            f"sort_score length {len(scores)} != {n}"
+        )
+        # Stable mergesort preserves original (TSV) order within tied scores.
+        df = (
+            df.assign(_sort_score=scores)
+              .sort_values("_sort_score", ascending=False, kind="mergesort")
+              .drop(columns="_sort_score")
+              .reset_index(drop=True)
+        )
+
     out_path = get_intermediate_file_path(eval_file, file_suffix, target_format="csv")
     dump(df, out_path)
     logger.info("[per-row] wrote %d-row CSV to %s", n, out_path)
     return out_path
+
+
+def _sort_grounding_per_row(rows: List[Dict]) -> List[Dict]:
+    """Sort grounding per-row records (output of
+    :func:`extract_per_row_diagnostics`) by F1 desc, with mean_match_iou desc
+    as tiebreaker.
+
+    F1 = 2*tp / (2*tp + fp + fn), with safe-zero denom.  The F1 column is
+    NOT added to the records — sort is silent.  Returns a new list (does not
+    mutate input).
+    """
+    def f1_score(r):
+        tp = float(r.get("tp") or 0)
+        fp = float(r.get("fp") or 0)
+        fn = float(r.get("fn") or 0)
+        denom = 2 * tp + fp + fn
+        return (2 * tp / denom) if denom > 0 else 0.0
+
+    def iou_key(r):
+        v = r.get("mean_match_iou")
+        try:
+            return float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    # Negative because Python sort is ascending; we want both keys descending.
+    return sorted(rows, key=lambda r: (-f1_score(r), -iou_key(r)))
 
 
 def _resolve_score_modes(tool_detections_dir: str) -> Tuple[List[str], str]:

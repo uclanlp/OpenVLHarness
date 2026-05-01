@@ -546,6 +546,10 @@ class LVISBBoxDataset(ImageBaseDataset):
                     r['frequency'] = freq_by_cat.get(int(r['category_id']))
                     r.pop('image_id', None)
                     r.pop('category_id', None)
+                # Sort silently by F1 desc (mean_match_iou desc as tiebreak)
+                # so the highest-scoring rows surface to the top of the CSV.
+                from .eval_bridge import _sort_grounding_per_row
+                per_row_records = _sort_grounding_per_row(per_row_records)
                 per_row_df = pd.DataFrame(per_row_records)
                 preferred_cols = [
                     'trajectory_file', 'frequency',
