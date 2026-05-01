@@ -633,6 +633,10 @@ class ODinWBBoxDataset(ImageBaseDataset):
             # The identity is encoded as ``trajectory_file`` (matches
             # the row's TSV index + ``.json``).
             if all_per_row:
+                # Sort silently by F1 desc (mean_match_iou desc as tiebreak)
+                # so the highest-scoring rows surface to the top of the CSV.
+                from .eval_bridge import _sort_grounding_per_row
+                all_per_row = _sort_grounding_per_row(all_per_row)
                 per_row_df = pd.DataFrame(all_per_row)
                 preferred_cols = [
                     'trajectory_file',
