@@ -1,0 +1,17 @@
+# Reference values for `python -m baselines.sam3.run`. Not auto-loaded;
+# the script reads CLI flags / env vars. Mirror these into your shell or
+# pass them explicitly.
+#
+# Note: this is NOT an agent config for run_benchmark.py — the SAM3 baseline
+# is a standalone script that bypasses the agent loop entirely.
+
+# Tool server URL (same endpoint the agent uses; see `tool_base` in
+# v3_instruct.yaml). The Visual_Grounding_Tool is registered there and
+# forwards SAM3 calls to whatever backend the tool server points at —
+# can be a remote/SSH-forwarded SAM3 server.
+tool_base: http://127.0.0.1:8102
+
+work_dir: ./outputs
+default_num_proc: 8
+default_timeout_seconds: 300
+default_retries: 3
