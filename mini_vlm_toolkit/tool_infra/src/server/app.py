@@ -219,7 +219,9 @@ def _auto_generate_skills(tool_name: str, metadata: Optional[dict]) -> str:
         return f"# {tool_name}\nNo schema information available for this tool."
 
     description = metadata.get("tool_description", "No description available.")
-    schema = _resolve_parameters_schema(metadata, tool_name)
+    schema = _project_parameters_for_llm(
+        _resolve_parameters_schema(metadata, tool_name)
+    )
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
 

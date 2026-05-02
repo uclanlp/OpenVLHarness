@@ -251,8 +251,41 @@ def test_all_tool_classes_define_valid_input_schema():
         raise AssertionError(f"Input schema contract failures:\n{formatted}")
 
 
+def test_auto_generated_skills_use_agent_facing_image_ids():
+    metadata = {
+        "tool_description": "Synthetic image tool.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "image_path": {"type": "string", "description": "Local image path"},
+                "image_base64": {
+                    "type": "string",
+                    "description": "Base64 image data",
+                },
+                "query": {"type": "string", "description": "Object query"},
+            },
+            "required": ["query"],
+            "oneOf": [
+                {"required": ["image_path"]},
+                {"required": ["image_base64"]},
+            ],
+            "additionalProperties": False,
+        },
+    }
+
+    doc = server_app._auto_generate_skills("Synthetic_Image_Tool", metadata)
+
+    assert "`image_id`" in doc
+    assert "`image_path`" not in doc
+    assert "`image_base64`" not in doc
+    assert '"image_id": "<image_id>"' in doc
+    assert '"image_path"' not in doc
+    assert '"image_base64"' not in doc
+
+
 def main():
     test_all_tool_classes_define_valid_input_schema()
+    test_auto_generated_skills_use_agent_facing_image_ids()
     print("Tool input schema contract tests completed.")
 
 
