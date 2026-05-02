@@ -17,11 +17,10 @@ Identify objects, landmarks, artwork, text, and more in an image using Google Le
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `image_url` | str | one of three | Public HTTP(S) image URL |
-| `image_path` | str | one of three | Local image path (auto-uploaded to cloud storage) |
-| `image_base64` | str | one of three | Base64-encoded image data (auto-uploaded) |
+| `image_url` | str | one of two | Public HTTP(S) image URL |
+| `image_id` | str | one of two | Runtime image ID from Environment Update messages (e.g. `input_image_1`); auto-uploaded to cloud storage |
 
-Provide exactly **one** of the three image input parameters.
+Provide exactly **one** of the two image input parameters.
 
 ## Output
 
@@ -41,8 +40,8 @@ Returns `list[dict]` with up to 10 visual matches. Each dict contains:
 # Identify a landmark from a public URL
 SerpApi_Google_Lens_Tool(image_url="https://example.com/building.jpg")
 
-# Identify content in a local image
-SerpApi_Google_Lens_Tool(image_path="input_image_1")
+# Identify content in a runtime image
+SerpApi_Google_Lens_Tool(image_id="input_image_1")
 ```
 
 ## API

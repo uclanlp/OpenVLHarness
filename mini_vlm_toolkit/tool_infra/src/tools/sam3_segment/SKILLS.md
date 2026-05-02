@@ -2,10 +2,10 @@
 
 ## Parameters
 - `query` (string, required): Short noun phrase describing what to find in the image. Use singular form and simple visual descriptors.
-- `image_path` (string, required): Runtime image ID from Environment Update messages (e.g., `input_image_1`, `tool_generated_image_1`).
+- `image_id` (string, required): Runtime image ID from Environment Update messages (e.g., `input_image_1`, `tool_generated_image_1`).
 
 ## Call Format
-{"type":"tool_call","name":"Visual_Grounding_Tool","arguments":{"query":"red car","image_path":"input_image_1"}}
+{"type":"tool_call","name":"Visual_Grounding_Tool","arguments":{"query":"red car","image_id":"input_image_1"}}
 
 ## Best Practices
 1. USE SINGULAR FORM: "tomato" not "tomatoes", "person" not "people"
@@ -17,9 +17,9 @@
 
 ## Examples
 ### Example: Locate a dog in an image
-{"type":"tool_call","name":"Visual_Grounding_Tool","arguments":{"query":"dog","image_path":"input_image_1"}}
+{"type":"tool_call","name":"Visual_Grounding_Tool","arguments":{"query":"dog","image_id":"input_image_1"}}
 Expected result: Bounding boxes or masks highlighting detected dogs in the image.
 
 ### Example: Find red cars
-{"type":"tool_call","name":"Visual_Grounding_Tool","arguments":{"query":"red car","image_path":"input_image_1"}}
+{"type":"tool_call","name":"Visual_Grounding_Tool","arguments":{"query":"red car","image_id":"input_image_1"}}
 Expected result: Bounding boxes or masks highlighting red cars in the image.

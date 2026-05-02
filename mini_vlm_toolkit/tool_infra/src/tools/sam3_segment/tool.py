@@ -15,8 +15,7 @@ INPUT_SCHEMA = {
         "query": {
             "type": "string",
             "description": (
-                "Short noun phrase describing what to find, "
-                "e.g. 'red car' or 'person on the left'"
+                "A short and simple object name or noun phrase, such as 'bottle', 'green ball', or 'wooden chair'. Avoid relational, comparative, or context-dependent descriptions such as 'the tallest man', 'something to eat', or 'the book on the left'."
             ),
         },
         "image_path": {
@@ -43,7 +42,7 @@ class Visual_Grounding_Tool(BaseTool):
             ),
             tool_version="0.3.0",
             input_types={
-                "query": "str - short noun phrase describing what to find (for example 'red car')",
+                "query": "str - a short and simple noun phrase",
                 "image_path": "str - path to the input image file",
                 "image_base64": "str - base64-encoded image (alternative to image_path)",
             },

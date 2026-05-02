@@ -120,27 +120,6 @@ class ImageStateMemory(PersistentStateMemory):
             # skip this call's sidecar entry rather than break inference.
             pass
 
-    def configure_tool_schema(self, json_schema: Any) -> None:
-        if not isinstance(json_schema, list):
-            return
-        suffix = " You may pass a runtime image ID from Environment Update messages instead of a filesystem path."
-        for entry in json_schema:
-            if not isinstance(entry, dict):
-                continue
-            fn = entry.get("function") or {}
-            params = fn.get("parameters") or {}
-            properties = params.get("properties") or {}
-            if not isinstance(properties, dict):
-                continue
-            for key, spec in properties.items():
-                if not isinstance(spec, dict):
-                    continue
-                key_lower = str(key).lower()
-                if key_lower.endswith("_path") and "image" in key_lower:
-                    desc = spec.get("description", "")
-                    if suffix.strip() not in str(desc):
-                        spec["description"] = f"{desc}{suffix}".strip()
-
     def on_run_start(
         self,
         *,
@@ -420,7 +399,7 @@ class ImageStateMemory(PersistentStateMemory):
                 lines.append(f"- {ref_id}: {source}")
             lines.extend(
                 [
-                    "When a tool needs image input, pass one of these IDs via the *_image_path field.",
+                    "When a tool needs image input, pass one of these IDs via the image_id field.",
                     "Do NOT invent image file names or paths.",
                 ]
             )
@@ -632,11 +611,11 @@ class ImageStateMemory(PersistentStateMemory):
             return data_url, assigned_ref, "http_download"
         return None, None, None
 
-    def _is_image_path_key(self, key: str) -> bool:
+    def _is_image_id_key(self, key: str) -> bool:
         key_lower = str(key).lower()
-        return key_lower.endswith("_path") and "image" in key_lower
+        return key_lower.endswith("_id") and "image" in key_lower
 
-    def _resolve_image_paths_in_args(
+    def _resolve_image_ids_in_args(
         self,
         value: Any,
         *,
@@ -648,43 +627,43 @@ class ImageStateMemory(PersistentStateMemory):
             for key, child in list(value.items()):
                 child_path = f"{path}.{key}"
                 if isinstance(child, (dict, list)):
-                    self._resolve_image_paths_in_args(
+                    self._resolve_image_ids_in_args(
                         child,
                         path=child_path,
                         rewrites=rewrites,
                         errors=errors,
                     )
 
-            for path_key in list(value.keys()):
-                if not self._is_image_path_key(path_key):
+            for id_key in list(value.keys()):
+                if not self._is_image_id_key(id_key):
                     continue
-                base64_key = f"{path_key[:-5]}_base64"
+                base64_key = f"{id_key[:-3]}_base64"
                 if value.get(base64_key):
                     continue
 
-                raw_path = value.get(path_key)
-                if not isinstance(raw_path, str) or not raw_path.strip():
+                raw_id = value.get(id_key)
+                if not isinstance(raw_id, str) or not raw_id.strip():
                     continue
 
-                data_url, matched_ref, fallback_mode = self._resolve_registry_image_data_url(raw_path)
+                data_url, matched_ref, fallback_mode = self._resolve_registry_image_data_url(raw_id)
                 if data_url:
                     value[base64_key] = data_url
-                    value.pop(path_key, None)
+                    value.pop(id_key, None)
                     rewrite_item = {
-                        "field": f"{path}.{path_key}",
+                        "field": f"{path}.{id_key}",
                         "target_field": f"{path}.{base64_key}",
-                        "original": raw_path,
+                        "original": raw_id,
                     }
                     if matched_ref:
                         rewrite_item["image_ref"] = matched_ref
                     if fallback_mode:
                         rewrite_item["fallback_mode"] = fallback_mode
                     rewrites.append(rewrite_item)
-                elif not os.path.isfile(raw_path):
+                elif not os.path.isfile(raw_id):
                     errors.append(
                         {
-                            "field": f"{path}.{path_key}",
-                            "value": raw_path,
+                            "field": f"{path}.{id_key}",
+                            "value": raw_id,
                             "reason": "unresolved_image_reference",
                             "available_image_ids": list(self._image_registry.keys()),
                         }
@@ -694,7 +673,7 @@ class ImageStateMemory(PersistentStateMemory):
         if isinstance(value, list):
             for idx, child in enumerate(value):
                 if isinstance(child, (dict, list)):
-                    self._resolve_image_paths_in_args(
+                    self._resolve_image_ids_in_args(
                         child,
                         path=f"{path}[{idx}]",
                         rewrites=rewrites,
@@ -714,7 +693,7 @@ class ImageStateMemory(PersistentStateMemory):
         resolved = cp.deepcopy(args)
         rewrites: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
-        self._resolve_image_paths_in_args(
+        self._resolve_image_ids_in_args(
             resolved,
             path="args",
             rewrites=rewrites,
