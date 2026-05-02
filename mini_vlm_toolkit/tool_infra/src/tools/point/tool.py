@@ -7,7 +7,10 @@ TOOL_NAME = "Point_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "target": {
             "type": "string",
             "description": "Optional text containing explicit x/y coordinates",
@@ -41,7 +44,7 @@ INPUT_SCHEMA = {
             "enum": ["normalized", "pixel"],
         },
     },
-    "required": ["image_path"],
+    "required": ["image_id"],
     "anyOf": [
         {"required": ["points"]},
         {"required": ["target"]},
@@ -62,7 +65,7 @@ class Point_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "target": "str - optional text containing explicit x/y coordinates",
                 "points": "list[list[float]] | list[dict] - optional point list",
                 "coord_type": "str - normalized (0-1000 scale) or pixel (used with points)",
@@ -71,7 +74,7 @@ class Point_Tool(BaseTool):
             output_type="dict - points (normalized x,y on 0-1000 scale)",
             demo_commands=[
                 {
-                    "command": "Point_Tool(image_path=\"/path/to/image.jpg\", target=\"leftmost cup\")",
+                    "command": "Point_Tool(image_id=\"input_image_1\", target=\"leftmost cup\")",
                     "description": "Predict a point for the target object.",
                 }
             ],

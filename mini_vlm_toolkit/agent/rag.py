@@ -93,12 +93,13 @@ class BaseAgentWithRAG(BaseAgentWithTools):
 
     @staticmethod
     def _find_image_param(tool_schema: List[Dict[str, Any]]) -> Optional[str]:
-        """Find the image input parameter name from a tool schema (e.g. 'image_path')."""
+        """Find the image input parameter name from a tool schema (e.g. 'image_id')."""
         if not tool_schema:
             return None
         props = tool_schema[0].get("function", {}).get("parameters", {}).get("properties", {})
         for name in props:
-            if "image" in name.lower() and "path" in name.lower():
+            lname = name.lower()
+            if "image" in lname and lname.endswith("_id"):
                 return name
         return None
 
@@ -163,7 +164,7 @@ class BaseAgentWithRAG(BaseAgentWithTools):
         header = f"[RAG Step {step_number}: {tool_name}]"
 
         if step_name == "image_search":
-            # Determine the image path param name from schema.
+            # Determine the image id param name from schema.
             image_param = self._find_image_param(tool_schema)
             image_id_hint = ""
             if image_param:
@@ -240,7 +241,7 @@ class BaseAgentWithRAG(BaseAgentWithTools):
                     "result": None,
                     "error": {
                         "code": "unresolved_image_reference",
-                        "message": "Failed to map one or more image_path arguments to runtime images.",
+                        "message": "Failed to map one or more image_id arguments to runtime images.",
                         "details": image_resolution.get("errors", []),
                     },
                     "tool_call_id": call["id"],

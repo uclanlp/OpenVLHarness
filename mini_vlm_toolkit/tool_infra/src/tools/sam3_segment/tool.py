@@ -18,12 +18,12 @@ INPUT_SCHEMA = {
                 "A short and simple object name or noun phrase, such as 'bottle', 'green ball', or 'wooden chair'. Avoid relational, comparative, or context-dependent descriptions such as 'the tallest man', 'something to eat', or 'the book on the left'."
             ),
         },
-        "image_path": {
+        "image_id": {
             "type": "string",
-            "description": "Path to the input image file",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
         },
     },
-    "required": ["query", "image_path"],
+    "required": ["query", "image_id"],
 }
 
 
@@ -39,7 +39,7 @@ class Visual_Grounding_Tool(BaseTool):
             tool_version="0.3.0",
             input_types={
                 "query": "str - a short and simple noun phrase",
-                "image_path": "str - path to the input image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - contains rendered_image_b64 (annotated image), pred_boxes, pred_scores, and num_masks",
@@ -47,7 +47,7 @@ class Visual_Grounding_Tool(BaseTool):
                 {
                     "command": (
                         'Visual_Grounding_Tool(query="cow", '
-                        'image_path="/path/to/cow.jpg")'
+                        'image_id="input_image_1")'
                     ),
                     "description": "Find and highlight cows in an image.",
                 }

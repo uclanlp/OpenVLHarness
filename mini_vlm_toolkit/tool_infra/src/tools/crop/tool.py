@@ -9,7 +9,10 @@ TOOL_NAME = "Crop_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "coords": {
             "type": "array",
             "description": (
@@ -27,7 +30,7 @@ INPUT_SCHEMA = {
             "enum": ["normalized_xyxy", "pixel_xyxy"],
         },
     },
-    "required": ["image_path", "coords"],
+    "required": ["image_id", "coords"],
 }
 
 
@@ -44,7 +47,7 @@ class Crop_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "coords": "list[float] - [x1, y1, x2, y2]; use normalized 0-1000 scale by default",
                 "coords_type": "str - normalized_xyxy (default) or pixel_xyxy",
             },
@@ -52,7 +55,7 @@ class Crop_Tool(BaseTool):
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": "Crop_Tool(image_path=\"/path/to/image.jpg\", coords=[100, 200, 600, 700])",
+                    "command": "Crop_Tool(image_id=\"input_image_1\", coords=[100, 200, 600, 700])",
                     "description": "Crop with 0-1000 normalized coordinates.",
                 }
             ],

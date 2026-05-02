@@ -739,7 +739,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
                                         "arguments": json.dumps(
                                             {
                                                 "prompt": "children",
-                                                "image_path": "image.jpg",
+                                                "image_id": "image.jpg",
                                                 "return_all_masks_viz": True,
                                             }
                                         ),
@@ -784,7 +784,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
         assert timeout == 10
         assert tool_call["tool_name"] == "Visual_Grounding_Tool"
         assert tool_call["tool_call_id"] == "call_img_resolve_1"
-        assert "image_path" not in tool_call["args"]
+        assert "image_id" not in tool_call["args"]
         assert tool_call["args"]["image_base64"] == expected_data_url
         return {
             "ok": True,
@@ -1130,15 +1130,15 @@ def test_image_state_memory_tool_generated_refs_monotonic_and_no_legacy_aliases(
 
     resolved_args, resolution = memory.resolve_tool_call_args(
         agent=None,
-        args={"image_path": "tool_generated_image_2"},
+        args={"image_id": "tool_generated_image_2"},
     )
     assert resolution["errors"] == []
-    assert "image_path" not in resolved_args
+    assert "image_id" not in resolved_args
     assert resolved_args["image_base64"] == "data:image/png;base64,BBBB"
 
     _, legacy_resolution = memory.resolve_tool_call_args(
         agent=None,
-        args={"image_path": "tool_call_img_ref_2_image_1"},
+        args={"image_id": "tool_call_img_ref_2_image_1"},
     )
     assert legacy_resolution["rewrites"] == []
     assert len(legacy_resolution["errors"]) == 1
@@ -1427,7 +1427,7 @@ def test_native_tool_call_single_image_fallback_metadata():
                     "type": "object",
                     "properties": {
                         "prompt": {"type": "string"},
-                        "image_path": {"type": "string"},
+                        "image_id": {"type": "string"},
                     },
                 },
             },
@@ -1471,7 +1471,7 @@ def test_native_tool_call_single_image_fallback_metadata():
                                     "function": {
                                         "name": "Visual_Grounding_Tool",
                                         "arguments": json.dumps(
-                                            {"prompt": "children", "image_path": "nonexistent_image_name.jpg"}
+                                            {"prompt": "children", "image_id": "nonexistent_image_name.jpg"}
                                         ),
                                     },
                                 }

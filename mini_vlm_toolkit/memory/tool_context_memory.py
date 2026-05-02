@@ -234,7 +234,7 @@ class ToolContextMemory(ImageStateMemory):
         # Sanitize tool_args: drop image data and internal keys
         safe_args: Dict[str, Any] = {}
         for k, v in tool_args.items():
-            if k in ("image_base64", "image_path", "context_bindings"):
+            if k in ("image_base64", "image_id", "context_bindings"):
                 continue
             if isinstance(v, str) and len(v) > 200:
                 continue

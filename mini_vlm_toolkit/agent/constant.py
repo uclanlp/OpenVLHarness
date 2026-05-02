@@ -9,7 +9,7 @@ Tool-use reliability rules:
 - If a tool result is empty, missing key values, or otherwise non-informative, do NOT guess.
 - Instead, issue another tool call with corrected arguments, or use a better alternative tool.
 - When requesting computed values, ensure the tool output will contain the value explicitly.
-- If a tool requires image input, use only runtime image IDs from Environment Update messages in *_image_path fields.
+- If a tool requires image input, use only runtime image IDs from Environment Update messages in *image_id fields.
 - Do NOT invent image file names or paths.
 
 When you are NOT calling a tool, format your response as:
@@ -44,7 +44,7 @@ Action Input: the input to the action, or the final answer if Action is "Final A
 
 Image-input rule:
 - Runtime image IDs are provided in Environment Update messages.
-- If a tool needs image input, use those IDs in *_image_path fields.
+- If a tool needs image input, use those IDs in *image_id fields.
 - Do NOT invent image file names or paths.
 """
 
@@ -67,7 +67,7 @@ Action Input: the input to the action, or the final answer if Action is "Final A
 
 # Image-input rule:
 - Runtime image IDs are provided in Environment Update messages.
-- If a tool needs image input, use those IDs in *_image_path fields.
+- If a tool needs image input, use those IDs in *image_id fields.
 - Do NOT invent image file names or paths.
 
 # Tool-Use Rules
@@ -130,7 +130,7 @@ finish(answer="your final answer here")
 - Detailed tool schemas (parameters, types, examples) will be provided automatically the first time you use each tool.
 - After each tool call, verify whether the result is actually informative for the task.
 - If a tool result is empty, missing key values, or non-informative, do NOT guess. Issue another tool call with corrected arguments or use a different tool.
-- If a tool requires image input, use only runtime image IDs from Environment Update messages in *_image_path fields.
+- If a tool requires image input, use only runtime image IDs from Environment Update messages in *image_id fields.
 - Do NOT invent image file names or paths.
 
 # Tool Response Format
@@ -171,7 +171,7 @@ Action Input: the input to the action, or the final answer if Action is "Final A
 
 # Image-input rule
 - Runtime image IDs are provided in Environment Update messages.
-- If a tool needs image input, use those IDs in *_image_path fields.
+- If a tool needs image input, use those IDs in *image_id fields.
 - Do NOT invent image file names or paths.
 
 # Tool-Use Rules
@@ -217,7 +217,7 @@ Step 2 — Final Answer: Use the search results to answer the question.
 
 ## General rules:
 - At each step you will be given exactly one tool to call. Call it with well-chosen arguments.
-- If a tool requires image input, use only runtime image IDs from Environment Update messages in *_image_path fields. Do NOT invent image file names or paths.
+- If a tool requires image input, use only runtime image IDs from Environment Update messages in *image_id fields. Do NOT invent image file names or paths.
 - Focus on generating high-quality, specific search queries that directly address the question.
 """
 
@@ -313,7 +313,7 @@ If you are ready to answer:
 
 # Image-input rule:
 - Runtime image IDs are provided in Environment Update messages.
-- If a tool needs image input, use those IDs in *_image_path fields.
+- If a tool needs image input, use those IDs in *image_id fields.
 - Do NOT invent image file names or paths.
 """
 
@@ -349,7 +349,7 @@ If you are ready to answer:
 
 # Image-input rule:
 - Runtime image IDs are provided in Environment Update messages.
-- If a tool needs image input, use those IDs in *_image_path fields.
+- If a tool needs image input, use those IDs in *image_id fields.
 - Do NOT invent image file names or paths.
 """
 

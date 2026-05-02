@@ -14,10 +14,13 @@ DEFAULT_TEXT_THRESHOLD = 0.3
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "query": {"type": "string", "description": "Text query for detection"},
     },
-    "required": ["image_path", "query"],
+    "required": ["image_id", "query"],
     "additionalProperties": False,
 }
 
@@ -34,7 +37,7 @@ class GroundingDINO_Tool(BaseTool):
             ),
             tool_version="0.3.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "query": "str - object names/phrases to detect (separate multiple phrases with '.')",
             },
             input_schema=INPUT_SCHEMA,
@@ -44,7 +47,7 @@ class GroundingDINO_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        "GroundingDINO_Tool(image_path=\"/path/to/image.jpg\", "
+                        "GroundingDINO_Tool(image_id=\"input_image_1\", "
                         "query=\"bus\")"
                     ),
                     "description": "Detect buses in an image via the GroundingDINO server.",

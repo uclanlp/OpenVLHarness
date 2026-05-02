@@ -11,7 +11,10 @@ TOOL_NAME = "DrawLine_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "box": {
             "type": "array",
             "description": "Pixel box [x1, y1, x2, y2]",
@@ -32,7 +35,7 @@ INPUT_SCHEMA = {
             "maximum": 4,
         },
     },
-    "required": ["image_path", "box", "corner_a", "corner_b"],
+    "required": ["image_id", "box", "corner_a", "corner_b"],
     "additionalProperties": False,
 }
 
@@ -48,7 +51,7 @@ class DrawLine_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "box": "list[int] - pixel box [x1, y1, x2, y2]",
                 "corner_a": "int - corner index (1-4)",
                 "corner_b": "int - corner index (1-4)",
@@ -57,7 +60,7 @@ class DrawLine_Tool(BaseTool):
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "DrawLine_Tool(image_path=\"/path/to/image.jpg\", box=[0, 10, 100, 200], corner_a=1, corner_b=3)",
+                    "command": "DrawLine_Tool(image_id=\"input_image_1\", box=[0, 10, 100, 200], corner_a=1, corner_b=3)",
                     "description": "Draw a line between box corners.",
                 }
             ],

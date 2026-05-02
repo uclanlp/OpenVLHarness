@@ -24,14 +24,14 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Public HTTP(S) image URL for reverse image search",
         },
-        "image_path": {
+        "image_id": {
             "type": "string",
-            "description": "Local image path (will be uploaded to cloud storage to obtain a public URL)",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1. The image will be uploaded to cloud storage to obtain a public URL.",
         },
     },
     "oneOf": [
         {"required": ["image_url"]},
-        {"required": ["image_path"]},
+        {"required": ["image_id"]},
     ],
     "additionalProperties": False,
 }
@@ -43,12 +43,12 @@ class SerpApi_Image_Search_Tool(BaseTool):
             tool_name=TOOL_NAME,
             tool_description=(
                 "Search similar images with SerpApi Google Reverse Image Search. "
-                "Accepts a public image URL or a local image path."
+                "Accepts a public image URL or a runtime image ID."
             ),
             tool_version="1.1.0",
             input_types={
                 "image_url": "str - public HTTP(S) URL of the image to search",
-                "image_path": "str - local image path (auto-uploaded to cloud storage)",
+                "image_id": "str - runtime image ID from Environment Update (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["image_search"],
@@ -67,10 +67,10 @@ class SerpApi_Image_Search_Tool(BaseTool):
                 {
                     "command": (
                         "SerpApi_Image_Search_Tool("
-                        'image_path="/path/to/local/image.jpg"'
+                        'image_id="input_image_1"'
                         ")"
                     ),
-                    "description": "Search a local image (auto-uploaded to cloud storage).",
+                    "description": "Search a runtime image (auto-uploaded to cloud storage).",
                 },
             ],
             user_metadata={

@@ -4,14 +4,17 @@ TOOL_NAME = "SlidingWindowDetection_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "objects": {
             "type": "array",
             "description": "Object names to detect",
             "items": {"type": "string"},
         },
     },
-    "required": ["image_path", "objects"],
+    "required": ["image_id", "objects"],
     "additionalProperties": False,
 }
 
@@ -27,14 +30,14 @@ class SlidingWindowDetection_Tool(BaseTool):
             ),
             tool_version="0.2.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "objects": "list[str] - objects to detect",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - patches, boxes",
             demo_commands=[
                 {
-                    "command": "SlidingWindowDetection_Tool(image_path=\"/path/to/image.jpg\", objects=[\"sign\"])",
+                    "command": "SlidingWindowDetection_Tool(image_id=\"input_image_1\", objects=[\"sign\"])",
                     "description": "Search for small objects using sliding windows.",
                 }
             ],

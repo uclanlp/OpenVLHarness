@@ -12,14 +12,17 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:8087"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "colormap": {
             "type": "string",
             "description": "Output colormap for visualization",
             "enum": ["inferno", "grayscale"],
         },
     },
-    "required": ["image_path"],
+    "required": ["image_id"],
     "additionalProperties": False,
 }
 
@@ -38,7 +41,7 @@ class Depth_Estimation_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "colormap": "str - optional output colormap (inferno or grayscale)",
             },
             input_schema=INPUT_SCHEMA,
@@ -50,7 +53,7 @@ class Depth_Estimation_Tool(BaseTool):
             demo_commands=[
                 {
                     "command": (
-                        'Depth_Estimation_Tool(image_path="/path/to/image.jpg")'
+                        'Depth_Estimation_Tool(image_id="input_image_1")'
                     ),
                     "description": "Generate a depth map with raw depth values.",
                 }

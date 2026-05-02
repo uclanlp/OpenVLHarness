@@ -12,10 +12,13 @@ TOOL_NAME = "OverlayImages_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "base_image_path": {"type": "string", "description": "Local base image path"},
-        "overlay_image_path": {
+        "base_image_id": {
             "type": "string",
-            "description": "Local overlay image path",
+            "description": "Runtime image ID for the base image (from Environment Update messages, e.g. input_image_1).",
+        },
+        "overlay_image_id": {
+            "type": "string",
+            "description": "Runtime image ID for the overlay image (from Environment Update messages, e.g. tool_generated_image_1).",
         },
         "alpha": {
             "type": "number",
@@ -31,7 +34,7 @@ INPUT_SCHEMA = {
             "items": {"type": "number"},
         },
     },
-    "required": ["base_image_path", "overlay_image_path"],
+    "required": ["base_image_id", "overlay_image_id"],
     "additionalProperties": False,
 }
 
@@ -48,8 +51,8 @@ class OverlayImages_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "base_image_path": "str - local path to the base image",
-                "overlay_image_path": "str - local path to the overlay image",
+                "base_image_id": "str - runtime image ID for the base image (e.g. input_image_1)",
+                "overlay_image_id": "str - runtime image ID for the overlay image (e.g. tool_generated_image_1)",
                 "alpha": "float - overlay transparency (default 0.6)",
                 "bounding_box": "list[float] - normalized bbox [x, y, w, h] on the 0-1000 scale",
             },
@@ -57,7 +60,7 @@ class OverlayImages_Tool(BaseTool):
             output_type="dict - blended_image_base64",
             demo_commands=[
                 {
-                    "command": "OverlayImages_Tool(base_image_path=\"/path/to/base.jpg\", overlay_image_path=\"/path/to/overlay.jpg\", alpha=0.6)",
+                    "command": "OverlayImages_Tool(base_image_id=\"input_image_1\", overlay_image_id=\"tool_generated_image_1\", alpha=0.6)",
                     "description": "Overlay images with transparency.",
                 }
             ],

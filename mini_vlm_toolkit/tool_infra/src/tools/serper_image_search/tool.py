@@ -62,18 +62,19 @@ INPUT_SCHEMA = {
                 "reverse image search. Supported formats: JPEG, PNG, WebP, GIF, BMP."
             ),
         },
-        "image_path": {
+        "image_id": {
             "type": "string",
             "description": (
-                "Absolute path to a local image file. The image will be automatically "
-                "uploaded to cloud storage to obtain a public URL before searching. "
-                "Use this when the image is stored locally on the server."
+                "A runtime image ID from Environment Update messages, e.g. "
+                "input_image_1 or tool_generated_image_1. The image will be "
+                "automatically uploaded to cloud storage to obtain a public URL "
+                "before searching."
             ),
         },
     },
     "oneOf": [
         {"required": ["image_url"]},
-        {"required": ["image_path"]},
+        {"required": ["image_id"]},
     ],
     "additionalProperties": False,
 }
@@ -100,7 +101,7 @@ class Image_Search_Tool(BaseTool):
                 "Use this tool when you need to understand what is depicted in an "
                 "image — it can recognize specific places, products, artworks, "
                 "logos, plants, animals, celebrities, etc. Provide the image as a "
-                "public URL or a local file path.\n\n"
+                "public URL or a runtime image ID.\n\n"
                 "This tool performs REVERSE image search (image → information). "
                 "To search for images by text description, use Text_Search_Tool "
                 "with search_type='images' instead."
@@ -108,7 +109,7 @@ class Image_Search_Tool(BaseTool):
             tool_version="1.0.0",
             input_types={
                 "image_url": "str - public HTTP(S) URL of the image to search",
-                "image_path": "str - absolute local image path (auto-uploaded to cloud storage)",
+                "image_id": "str - runtime image ID from Environment Update (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["reverse_image_search", "visual_search"],
@@ -132,10 +133,10 @@ class Image_Search_Tool(BaseTool):
                 },
                 {
                     "command": (
-                        'Image_Search_Tool(image_path="/path/to/local/product.jpg")'
+                        'Image_Search_Tool(image_id="input_image_1")'
                     ),
                     "description": (
-                        "Identify a product from a local image file. The image "
+                        "Identify a product from a runtime image. The image "
                         "is auto-uploaded to cloud storage before searching."
                     ),
                 },

@@ -1525,7 +1525,7 @@ class BaseAgentWithTools(BaseAgent):
                                 "result": None,
                                 "error": {
                                     "code": "unresolved_image_reference",
-                                    "message": "Failed to map one or more image_path arguments to runtime images.",
+                                    "message": "Failed to map one or more image_id arguments to runtime images.",
                                     "details": image_resolution.get("errors", []),
                                 },
                                 "tool_call_id": call["id"],
@@ -2003,7 +2003,7 @@ class BaseAgentWithToolsV2(BaseAgentWithTools):
                 "result": None,
                 "error": {
                     "code": "unresolved_image_reference",
-                    "message": "Failed to map one or more image_path arguments to runtime images.",
+                    "message": "Failed to map one or more image_id arguments to runtime images.",
                     "details": image_resolution.get("errors", []),
                 },
                 "tool_call_id": call["id"],

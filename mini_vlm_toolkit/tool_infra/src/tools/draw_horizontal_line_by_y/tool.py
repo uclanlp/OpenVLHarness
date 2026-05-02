@@ -12,7 +12,10 @@ TOOL_NAME = "DrawHorizontalLineByY_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_path": {"type": "string", "description": "Local image path"},
+        "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+        },
         "y": {"type": "number", "description": "y coordinate"},
         "coord_type": {
             "type": "string",
@@ -20,7 +23,7 @@ INPUT_SCHEMA = {
             "enum": ["normalized", "pixel"],
         },
     },
-    "required": ["image_path", "y"],
+    "required": ["image_id", "y"],
     "additionalProperties": False,
 }
 
@@ -36,7 +39,7 @@ class DrawHorizontalLineByY_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_path": "str - local path to the image file",
+                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
                 "y": "float - y coordinate (normalized 0-1000 scale, or pixel)",
                 "coord_type": "str - normalized (0-1000 scale) or pixel",
             },
@@ -44,7 +47,7 @@ class DrawHorizontalLineByY_Tool(BaseTool):
             output_type="dict - edited_image_base64",
             demo_commands=[
                 {
-                    "command": "DrawHorizontalLineByY_Tool(image_path=\"/path/to/image.jpg\", y=500)",
+                    "command": "DrawHorizontalLineByY_Tool(image_id=\"input_image_1\", y=500)",
                     "description": "Draw a horizontal line at the vertical midpoint (y=500 on 0-1000 scale).",
                 }
             ],
