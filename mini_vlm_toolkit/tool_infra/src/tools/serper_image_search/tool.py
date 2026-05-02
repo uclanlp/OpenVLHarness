@@ -70,19 +70,10 @@ INPUT_SCHEMA = {
                 "Use this when the image is stored locally on the server."
             ),
         },
-        "image_base64": {
-            "type": "string",
-            "description": (
-                "Base64-encoded image data (with or without data URI prefix). "
-                "The image will be decoded, uploaded to cloud storage, and then "
-                "searched. Use this when the image is passed inline as encoded data."
-            ),
-        },
     },
     "oneOf": [
         {"required": ["image_url"]},
         {"required": ["image_path"]},
-        {"required": ["image_base64"]},
     ],
     "additionalProperties": False,
 }
@@ -109,7 +100,7 @@ class Image_Search_Tool(BaseTool):
                 "Use this tool when you need to understand what is depicted in an "
                 "image — it can recognize specific places, products, artworks, "
                 "logos, plants, animals, celebrities, etc. Provide the image as a "
-                "public URL, a local file path, or base64-encoded data.\n\n"
+                "public URL or a local file path.\n\n"
                 "This tool performs REVERSE image search (image → information). "
                 "To search for images by text description, use Text_Search_Tool "
                 "with search_type='images' instead."
@@ -118,7 +109,6 @@ class Image_Search_Tool(BaseTool):
             input_types={
                 "image_url": "str - public HTTP(S) URL of the image to search",
                 "image_path": "str - absolute local image path (auto-uploaded to cloud storage)",
-                "image_base64": "str - base64-encoded image data (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["reverse_image_search", "visual_search"],
@@ -147,15 +137,6 @@ class Image_Search_Tool(BaseTool):
                     "description": (
                         "Identify a product from a local image file. The image "
                         "is auto-uploaded to cloud storage before searching."
-                    ),
-                },
-                {
-                    "command": (
-                        'Image_Search_Tool(image_base64="iVBORw0KGgo...")'
-                    ),
-                    "description": (
-                        "Search using base64-encoded image data. Useful when "
-                        "the image is passed inline from another tool's output."
                     ),
                 },
             ],

@@ -13,10 +13,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "x": {"type": "number", "description": "x coordinate"},
         "coord_type": {
             "type": "string",
@@ -24,11 +20,7 @@ INPUT_SCHEMA = {
             "enum": ["normalized", "pixel"],
         },
     },
-    "required": ["x"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
+    "required": ["image_path", "x"],
     "additionalProperties": False,
 }
 
@@ -45,7 +37,6 @@ class DrawVerticalLineByX_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "x": "float - x coordinate (normalized 0-1000 scale, or pixel)",
                 "coord_type": "str - normalized (0-1000 scale) or pixel",
             },

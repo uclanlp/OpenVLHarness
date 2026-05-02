@@ -22,12 +22,8 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Path to the input image file",
         },
-        "image_base64": {
-            "type": "string",
-            "description": "Base64-encoded image (alternative to image_path)",
-        },
     },
-    "required": ["query"],
+    "required": ["query", "image_path"],
 }
 
 
@@ -44,7 +40,6 @@ class Visual_Grounding_Tool(BaseTool):
             input_types={
                 "query": "str - a short and simple noun phrase",
                 "image_path": "str - path to the input image file",
-                "image_base64": "str - base64-encoded image (alternative to image_path)",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - contains rendered_image_b64 (annotated image), pred_boxes, pred_scores, and num_masks",

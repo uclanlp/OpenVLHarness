@@ -13,17 +13,9 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "base_image_path": {"type": "string", "description": "Local base image path"},
-        "base_image_base64": {
-            "type": "string",
-            "description": "Base64 base image data (use instead of base_image_path)",
-        },
         "overlay_image_path": {
             "type": "string",
             "description": "Local overlay image path",
-        },
-        "overlay_image_base64": {
-            "type": "string",
-            "description": "Base64 overlay image data (use instead of overlay_image_path)",
         },
         "alpha": {
             "type": "number",
@@ -39,20 +31,7 @@ INPUT_SCHEMA = {
             "items": {"type": "number"},
         },
     },
-    "allOf": [
-        {
-            "oneOf": [
-                {"required": ["base_image_path"]},
-                {"required": ["base_image_base64"]},
-            ]
-        },
-        {
-            "oneOf": [
-                {"required": ["overlay_image_path"]},
-                {"required": ["overlay_image_base64"]},
-            ]
-        },
-    ],
+    "required": ["base_image_path", "overlay_image_path"],
     "additionalProperties": False,
 }
 
@@ -70,9 +49,7 @@ class OverlayImages_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "base_image_path": "str - local path to the base image",
-                "base_image_base64": "str - base64-encoded base image (use instead of base_image_path)",
                 "overlay_image_path": "str - local path to the overlay image",
-                "overlay_image_base64": "str - base64-encoded overlay image (use instead of overlay_image_path)",
                 "alpha": "float - overlay transparency (default 0.6)",
                 "bounding_box": "list[float] - normalized bbox [x, y, w, h] on the 0-1000 scale",
             },

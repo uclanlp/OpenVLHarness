@@ -12,10 +12,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "box": {
             "type": "array",
             "description": "Pixel box [x1, y1, x2, y2]",
@@ -36,11 +32,7 @@ INPUT_SCHEMA = {
             "maximum": 4,
         },
     },
-    "required": ["box", "corner_a", "corner_b"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
+    "required": ["image_path", "box", "corner_a", "corner_b"],
     "additionalProperties": False,
 }
 
@@ -57,7 +49,6 @@ class DrawLine_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "box": "list[int] - pixel box [x1, y1, x2, y2]",
                 "corner_a": "int - corner index (1-4)",
                 "corner_b": "int - corner index (1-4)",

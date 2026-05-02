@@ -8,10 +8,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "target": {
             "type": "string",
             "description": "Optional text containing explicit x/y coordinates",
@@ -45,19 +41,10 @@ INPUT_SCHEMA = {
             "enum": ["normalized", "pixel"],
         },
     },
-    "allOf": [
-        {
-            "oneOf": [
-                {"required": ["image_path"]},
-                {"required": ["image_base64"]},
-            ]
-        },
-        {
-            "anyOf": [
-                {"required": ["points"]},
-                {"required": ["target"]},
-            ]
-        },
+    "required": ["image_path"],
+    "anyOf": [
+        {"required": ["points"]},
+        {"required": ["target"]},
     ],
     "additionalProperties": False,
 }
@@ -76,7 +63,6 @@ class Point_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "target": "str - optional text containing explicit x/y coordinates",
                 "points": "list[list[float]] | list[dict] - optional point list",
                 "coord_type": "str - normalized (0-1000 scale) or pixel (used with points)",

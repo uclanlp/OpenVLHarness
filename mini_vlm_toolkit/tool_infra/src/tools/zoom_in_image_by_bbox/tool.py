@@ -10,10 +10,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "coords": {
             "type": "array",
             "description": (
@@ -27,7 +23,7 @@ INPUT_SCHEMA = {
             "description": "Extra normalized margin on each side on the 0-1000 scale (>= 50).",
         },
     },
-    "required": ["coords"],
+    "required": ["image_path", "coords"],
 }
 
 
@@ -46,7 +42,6 @@ class Zoom_In_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "coords": "list[float] - normalized [x1, y1, x2, y2] on 0-1000 scale, each value in [0, 1000]",
                 "padding": "float - extra margin on each side on the 0-1000 scale (must be >= 50)",
             },

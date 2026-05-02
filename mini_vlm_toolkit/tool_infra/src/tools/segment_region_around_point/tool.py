@@ -5,10 +5,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "points": {
             "type": "array",
             "description": "Normalized points [[x, y], ...]",
@@ -25,11 +21,7 @@ INPUT_SCHEMA = {
             "items": {"type": "integer"},
         },
     },
-    "required": ["points"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
+    "required": ["image_path", "points"],
     "additionalProperties": False,
 }
 
@@ -46,7 +38,6 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "points": "list[list[float]] - normalized points [[x, y], ...]",
                 "point_labels": "list[int] - optional labels (1 foreground, 0 background)",
             },

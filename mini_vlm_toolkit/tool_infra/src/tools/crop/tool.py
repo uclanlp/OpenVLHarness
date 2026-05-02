@@ -10,10 +10,6 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "coords": {
             "type": "array",
             "description": (
@@ -31,7 +27,7 @@ INPUT_SCHEMA = {
             "enum": ["normalized_xyxy", "pixel_xyxy"],
         },
     },
-    "required": ["coords"],
+    "required": ["image_path", "coords"],
 }
 
 
@@ -49,7 +45,6 @@ class Crop_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "coords": "list[float] - [x1, y1, x2, y2]; use normalized 0-1000 scale by default",
                 "coords_type": "str - normalized_xyxy (default) or pixel_xyxy",
             },

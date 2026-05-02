@@ -12,19 +12,12 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "description": {
             "type": "string",
             "description": "Text hint for desired subfigure/position",
         },
     },
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
+    "required": ["image_path"],
     "additionalProperties": False,
 }
 
@@ -42,7 +35,6 @@ class ZoomInSubfigure_Tool(BaseTool):
             tool_version="0.1.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "description": "str - position hint like top-left, subplot 1, center, full",
             },
             input_schema=INPUT_SCHEMA,

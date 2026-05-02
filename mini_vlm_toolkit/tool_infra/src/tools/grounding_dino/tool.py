@@ -15,17 +15,9 @@ INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "image_path": {"type": "string", "description": "Local image path"},
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (use instead of image_path)",
-        },
         "query": {"type": "string", "description": "Text query for detection"},
     },
-    "required": ["query"],
-    "oneOf": [
-        {"required": ["image_path"]},
-        {"required": ["image_base64"]},
-    ],
+    "required": ["image_path", "query"],
     "additionalProperties": False,
 }
 
@@ -43,7 +35,6 @@ class GroundingDINO_Tool(BaseTool):
             tool_version="0.3.0",
             input_types={
                 "image_path": "str - local path to the image file",
-                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "query": "str - object names/phrases to detect (separate multiple phrases with '.')",
             },
             input_schema=INPUT_SCHEMA,

@@ -28,15 +28,10 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Local image path (will be uploaded to cloud storage to obtain a public URL)",
         },
-        "image_base64": {
-            "type": "string",
-            "description": "Base64 image data (will be uploaded to cloud storage to obtain a public URL)",
-        },
     },
     "oneOf": [
         {"required": ["image_url"]},
         {"required": ["image_path"]},
-        {"required": ["image_base64"]},
     ],
     "additionalProperties": False,
 }
@@ -48,13 +43,12 @@ class SerpApi_Image_Search_Tool(BaseTool):
             tool_name=TOOL_NAME,
             tool_description=(
                 "Search similar images with SerpApi Google Reverse Image Search. "
-                "Accepts a public image URL, a local image path, or base64 image data."
+                "Accepts a public image URL or a local image path."
             ),
             tool_version="1.1.0",
             input_types={
                 "image_url": "str - public HTTP(S) URL of the image to search",
                 "image_path": "str - local image path (auto-uploaded to cloud storage)",
-                "image_base64": "str - base64-encoded image (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["image_search"],
