@@ -13,12 +13,13 @@ DEFAULT_SERVER_URL = "http://127.0.0.1:8085"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_id": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
             "type": "string",
-            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+            "description": "Base64 image data (use instead of image_path)",
         },
     },
-    "required": ["image_id"],
+    "required": [],
 }
 
 
@@ -34,13 +35,14 @@ class OCR_Tool(BaseTool):
             ),
             tool_version="0.3.0",
             input_types={
-                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
+                "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - texts, results, languages, gpu",
             demo_commands=[
                 {
-                    "command": 'OCR_Tool(image_id="input_image_1")',
+                    "command": 'OCR_Tool(image_path="/path/to/scan.png")',
                     "description": "Extract text from an image using the OCR server.",
                 }
             ],

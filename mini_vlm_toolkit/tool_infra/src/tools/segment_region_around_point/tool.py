@@ -4,9 +4,10 @@ TOOL_NAME = "SegmentRegionAroundPoint_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_id": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
             "type": "string",
-            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+            "description": "Base64 image data (use instead of image_path)",
         },
         "points": {
             "type": "array",
@@ -24,7 +25,11 @@ INPUT_SCHEMA = {
             "items": {"type": "integer"},
         },
     },
-    "required": ["image_id", "points"],
+    "required": ["points"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
     "additionalProperties": False,
 }
 
@@ -40,7 +45,8 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
+                "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "points": "list[list[float]] - normalized points [[x, y], ...]",
                 "point_labels": "list[int] - optional labels (1 foreground, 0 background)",
             },
@@ -48,7 +54,7 @@ class SegmentRegionAroundPoint_Tool(BaseTool):
             output_type="dict - masks or mask encodings",
             demo_commands=[
                 {
-                    "command": "SegmentRegionAroundPoint_Tool(image_id=\"input_image_1\", points=[[0.5, 0.5]])",
+                    "command": "SegmentRegionAroundPoint_Tool(image_path=\"/path/to/image.jpg\", points=[[0.5, 0.5]])",
                     "description": "Segment the region around a point.",
                 }
             ],

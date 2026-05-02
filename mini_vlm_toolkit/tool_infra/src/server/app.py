@@ -539,9 +539,170 @@ def list_tools_jsonschema():
                 },
                 "type": "function"
             }
-            
+
         )
     return json_schemas
+
+
+_LLM_IMAGE_ID_DESCRIPTION = (
+    "A runtime image ID from Environment Update messages, "
+    "e.g. input_image_1 or tool_generated_image_1."
+)
+
+
+def _project_required_for_llm(required, rename_map):
+    if not isinstance(required, list):
+        return required
+    return [rename_map.get(item, item) for item in required if not _is_image_base64_key(item)]
+
+
+def _is_image_base64_key(key):
+    key_lower = str(key).lower()
+    return key_lower.endswith("_base64") and "image" in key_lower
+
+
+def _is_image_path_key(key):
+    key_lower = str(key).lower()
+    return key_lower.endswith("_path") and "image" in key_lower
+
+
+def _project_oneof_branches_for_llm(branches, rename_map):
+    if not isinstance(branches, list):
+        return branches
+    projected = []
+    for branch in branches:
+        if not isinstance(branch, dict):
+            projected.append(branch)
+            continue
+        branch_required = branch.get("required")
+        if isinstance(branch_required, list) and any(
+            _is_image_base64_key(name) for name in branch_required
+        ):
+            # Drop the entire branch when it's the base64 alternative.
+            continue
+        new_branch = copy.deepcopy(branch)
+        new_branch["required"] = _project_required_for_llm(branch_required, rename_map)
+        projected.append(new_branch)
+    return projected
+
+
+def _project_parameters_for_llm(parameters):
+    """Project a wire-contract parameters block into the agent-facing view.
+
+    Rules:
+    - Drop properties whose name matches *image*_base64 (the agent never sets
+      these; the resolver populates them from runtime image IDs).
+    - Rename *image*_path properties to *image*_id and rewrite their
+      description to the canonical "runtime image ID" wording.
+    - Update required, oneOf, and allOf to use the renamed names and drop
+      base64-only branches. If oneOf collapses to a single branch, fold it
+      into required and drop oneOf.
+    """
+    if not isinstance(parameters, dict):
+        return parameters
+
+    projected = copy.deepcopy(parameters)
+    properties = projected.get("properties", {})
+    if not isinstance(properties, dict):
+        return projected
+
+    rename_map = {}
+    new_properties = {}
+    for name, spec in properties.items():
+        if _is_image_base64_key(name):
+            continue
+        if _is_image_path_key(name):
+            new_name = name[: -len("_path")] + "_id"
+            rename_map[name] = new_name
+            new_spec = spec if isinstance(spec, dict) else {"type": "string"}
+            new_spec = copy.deepcopy(new_spec)
+            new_spec["description"] = _LLM_IMAGE_ID_DESCRIPTION
+            new_properties[new_name] = new_spec
+        else:
+            new_properties[name] = spec
+    projected["properties"] = new_properties
+
+    if "required" in projected:
+        projected["required"] = _project_required_for_llm(
+            projected["required"], rename_map
+        )
+
+    if "oneOf" in projected:
+        projected["oneOf"] = _project_oneof_branches_for_llm(
+            projected["oneOf"], rename_map
+        )
+        # If only one branch survives, fold it into required and drop oneOf.
+        if len(projected["oneOf"]) == 1 and isinstance(projected["oneOf"][0], dict):
+            sole = projected["oneOf"][0]
+            sole_required = sole.get("required")
+            if isinstance(sole_required, list):
+                existing = projected.get("required", [])
+                if not isinstance(existing, list):
+                    existing = []
+                merged = list(existing) + [
+                    item for item in sole_required if item not in existing
+                ]
+                projected["required"] = merged
+                del projected["oneOf"]
+
+    if "allOf" in projected and isinstance(projected["allOf"], list):
+        rebuilt_allof = []
+        for clause in projected["allOf"]:
+            if not isinstance(clause, dict):
+                rebuilt_allof.append(clause)
+                continue
+            new_clause = copy.deepcopy(clause)
+            if "oneOf" in new_clause:
+                new_clause["oneOf"] = _project_oneof_branches_for_llm(
+                    new_clause["oneOf"], rename_map
+                )
+                if len(new_clause["oneOf"]) == 1 and isinstance(
+                    new_clause["oneOf"][0], dict
+                ):
+                    sole_required = new_clause["oneOf"][0].get("required")
+                    if isinstance(sole_required, list):
+                        existing = projected.get("required", [])
+                        if not isinstance(existing, list):
+                            existing = []
+                        merged = list(existing) + [
+                            item for item in sole_required if item not in existing
+                        ]
+                        projected["required"] = merged
+                        # Skip emitting this clause; it's been folded in.
+                        continue
+            if "required" in new_clause:
+                new_clause["required"] = _project_required_for_llm(
+                    new_clause["required"], rename_map
+                )
+            rebuilt_allof.append(new_clause)
+        if rebuilt_allof:
+            projected["allOf"] = rebuilt_allof
+        else:
+            del projected["allOf"]
+
+    return projected
+
+
+@app.get("/llm-schema")
+def list_tools_llm_schema():
+    """Agent-facing projection of /jsonschema.
+
+    Hides the wire-level base64 inputs (the agent's resolver populates those
+    from runtime image IDs) and renames image_path / *_image_path properties
+    to image_id / *_image_id so the LLM-facing field names match what the
+    model is actually asked to produce.
+    """
+    projected = []
+    for entry in list_tools_jsonschema():
+        if not isinstance(entry, dict):
+            projected.append(entry)
+            continue
+        new_entry = copy.deepcopy(entry)
+        function = new_entry.get("function")
+        if isinstance(function, dict) and "parameters" in function:
+            function["parameters"] = _project_parameters_for_llm(function["parameters"])
+        projected.append(new_entry)
+    return projected
 
 def resolve_tool(tool_name):
     """Resolve a tool by name with case-insensitive fallback.

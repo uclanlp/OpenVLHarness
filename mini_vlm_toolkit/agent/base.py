@@ -532,7 +532,7 @@ class BaseAgentWithTools(BaseAgent):
         self.tools = _get_json(self.tool_base, "/tools")
         if not isinstance(self.tools, dict):
             raise ConnectionError(f"Failed to get tools from {self.tool_base}/tools")
-        self.json_schema = _get_json(self.tool_base, "/jsonschema")
+        self.json_schema = _get_json(self.tool_base, "/llm-schema")
         if not isinstance(self.json_schema, list):
             raise ConnectionError(f"Failed to get tool schemas from {self.tool_base}/jsonschema")
         self.tool_choice = tool_choice

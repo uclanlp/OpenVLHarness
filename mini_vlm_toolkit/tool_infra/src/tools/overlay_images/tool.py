@@ -12,13 +12,18 @@ TOOL_NAME = "OverlayImages_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "base_image_id": {
+        "base_image_path": {"type": "string", "description": "Local base image path"},
+        "base_image_base64": {
             "type": "string",
-            "description": "Runtime image ID for the base image (from Environment Update messages, e.g. input_image_1).",
+            "description": "Base64 base image data (use instead of base_image_path)",
         },
-        "overlay_image_id": {
+        "overlay_image_path": {
             "type": "string",
-            "description": "Runtime image ID for the overlay image (from Environment Update messages, e.g. tool_generated_image_1).",
+            "description": "Local overlay image path",
+        },
+        "overlay_image_base64": {
+            "type": "string",
+            "description": "Base64 overlay image data (use instead of overlay_image_path)",
         },
         "alpha": {
             "type": "number",
@@ -34,7 +39,20 @@ INPUT_SCHEMA = {
             "items": {"type": "number"},
         },
     },
-    "required": ["base_image_id", "overlay_image_id"],
+    "allOf": [
+        {
+            "oneOf": [
+                {"required": ["base_image_path"]},
+                {"required": ["base_image_base64"]},
+            ]
+        },
+        {
+            "oneOf": [
+                {"required": ["overlay_image_path"]},
+                {"required": ["overlay_image_base64"]},
+            ]
+        },
+    ],
     "additionalProperties": False,
 }
 
@@ -51,8 +69,10 @@ class OverlayImages_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "base_image_id": "str - runtime image ID for the base image (e.g. input_image_1)",
-                "overlay_image_id": "str - runtime image ID for the overlay image (e.g. tool_generated_image_1)",
+                "base_image_path": "str - local path to the base image",
+                "base_image_base64": "str - base64-encoded base image (use instead of base_image_path)",
+                "overlay_image_path": "str - local path to the overlay image",
+                "overlay_image_base64": "str - base64-encoded overlay image (use instead of overlay_image_path)",
                 "alpha": "float - overlay transparency (default 0.6)",
                 "bounding_box": "list[float] - normalized bbox [x, y, w, h] on the 0-1000 scale",
             },
@@ -60,7 +80,7 @@ class OverlayImages_Tool(BaseTool):
             output_type="dict - blended_image_base64",
             demo_commands=[
                 {
-                    "command": "OverlayImages_Tool(base_image_id=\"input_image_1\", overlay_image_id=\"tool_generated_image_1\", alpha=0.6)",
+                    "command": "OverlayImages_Tool(base_image_path=\"/path/to/base.jpg\", overlay_image_path=\"/path/to/overlay.jpg\", alpha=0.6)",
                     "description": "Overlay images with transparency.",
                 }
             ],

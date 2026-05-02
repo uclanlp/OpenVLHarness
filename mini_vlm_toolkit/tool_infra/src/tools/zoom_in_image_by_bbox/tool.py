@@ -9,9 +9,10 @@ TOOL_NAME = "Zoom_In_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_id": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
             "type": "string",
-            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+            "description": "Base64 image data (use instead of image_path)",
         },
         "coords": {
             "type": "array",
@@ -26,7 +27,7 @@ INPUT_SCHEMA = {
             "description": "Extra normalized margin on each side on the 0-1000 scale (>= 50).",
         },
     },
-    "required": ["image_id", "coords"],
+    "required": ["coords"],
 }
 
 
@@ -44,7 +45,8 @@ class Zoom_In_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
+                "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "coords": "list[float] - normalized [x1, y1, x2, y2] on 0-1000 scale, each value in [0, 1000]",
                 "padding": "float - extra margin on each side on the 0-1000 scale (must be >= 50)",
             },
@@ -53,7 +55,7 @@ class Zoom_In_Tool(BaseTool):
             output_type="dict - cropped_image_base64",
             demo_commands=[
                 {
-                    "command": 'Zoom_In_Tool(image_id="input_image_1", coords=[100, 200, 500, 600])',
+                    "command": 'Zoom_In_Tool(image_path="/path/to/image.jpg", coords=[100, 200, 500, 600])',
                     "description": "Crop around a bbox with padding.",
                 }
             ],

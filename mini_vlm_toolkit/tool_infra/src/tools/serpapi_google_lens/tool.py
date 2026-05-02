@@ -28,14 +28,19 @@ INPUT_SCHEMA = {
             "type": "string",
             "description": "Public HTTP(S) image URL to search with Google Lens",
         },
-        "image_id": {
+        "image_path": {
             "type": "string",
-            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1. The image will be uploaded to cloud storage to obtain a public URL.",
+            "description": "Local image path (will be uploaded to cloud storage to obtain a public URL)",
+        },
+        "image_base64": {
+            "type": "string",
+            "description": "Base64 image data (will be uploaded to cloud storage to obtain a public URL)",
         },
     },
     "oneOf": [
         {"required": ["image_url"]},
-        {"required": ["image_id"]},
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
     ],
     "additionalProperties": False,
 }
@@ -50,13 +55,14 @@ class SerpApi_Google_Lens_Tool(BaseTool):
                 "using Google Lens via SerpApi. Returns visual matches with titles, "
                 "sources, and links. Use this tool when you need to understand what "
                 "is depicted in an image — it can recognize specific places, products, "
-                "artworks, plants, animals, etc. Accepts a public image URL or a "
-                "runtime image ID."
+                "artworks, plants, animals, etc. Accepts a public image URL, a local "
+                "image path, or base64 image data."
             ),
             tool_version="1.0.0",
             input_types={
                 "image_url": "str - public HTTP(S) URL of the image to search",
-                "image_id": "str - runtime image ID from Environment Update (auto-uploaded to cloud storage)",
+                "image_path": "str - local image path (auto-uploaded to cloud storage)",
+                "image_base64": "str - base64-encoded image (auto-uploaded to cloud storage)",
             },
             input_schema=INPUT_SCHEMA,
             tool_aliases=["google_lens"],
@@ -75,10 +81,10 @@ class SerpApi_Google_Lens_Tool(BaseTool):
                 {
                     "command": (
                         "SerpApi_Google_Lens_Tool("
-                        'image_id="input_image_1"'
+                        'image_path="/path/to/local/image.jpg"'
                         ")"
                     ),
-                    "description": "Identify content in a runtime image (auto-uploaded to cloud storage).",
+                    "description": "Identify content in a local image (auto-uploaded to cloud storage).",
                 },
             ],
             user_metadata={

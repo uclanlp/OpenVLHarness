@@ -11,16 +11,20 @@ TOOL_NAME = "ZoomInSubfigure_Tool"
 INPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "image_id": {
+        "image_path": {"type": "string", "description": "Local image path"},
+        "image_base64": {
             "type": "string",
-            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1.",
+            "description": "Base64 image data (use instead of image_path)",
         },
         "description": {
             "type": "string",
             "description": "Text hint for desired subfigure/position",
         },
     },
-    "required": ["image_id"],
+    "oneOf": [
+        {"required": ["image_path"]},
+        {"required": ["image_base64"]},
+    ],
     "additionalProperties": False,
 }
 
@@ -37,14 +41,15 @@ class ZoomInSubfigure_Tool(BaseTool):
             ),
             tool_version="0.1.0",
             input_types={
-                "image_id": "str - runtime image ID from Environment Update (e.g. input_image_1)",
+                "image_path": "str - local path to the image file",
+                "image_base64": "str - base64-encoded image (use instead of image_path)",
                 "description": "str - position hint like top-left, subplot 1, center, full",
             },
             input_schema=INPUT_SCHEMA,
             output_type="dict - subplot_images_base64",
             demo_commands=[
                 {
-                    "command": "ZoomInSubfigure_Tool(image_id=\"input_image_1\", description=\"top-left subplot\")",
+                    "command": "ZoomInSubfigure_Tool(image_path=\"/path/to/chart.png\", description=\"top-left subplot\")",
                     "description": "Select subplot images by description.",
                 }
             ],
