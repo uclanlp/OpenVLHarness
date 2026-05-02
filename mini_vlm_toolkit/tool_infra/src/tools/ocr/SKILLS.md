@@ -3,10 +3,10 @@
 Extract readable text from an image using an OCR server. Use this tool when the task is about words, numbers, or printed labels in the image. Do not use it for general object localization or segmentation.
 
 ## Parameters
-- `image_path` (string, required): Runtime image ID from Environment Update messages (e.g., `input_image_1`, `tool_generated_image_1`).
+- `image_id` (string, required): Runtime image ID from Environment Update messages (e.g., `input_image_1`, `tool_generated_image_1`).
 
 ## Call Format
-{"type":"tool_call","name":"OCR_Tool","arguments":{"image_path":"input_image_1"}}
+{"type":"tool_call","name":"OCR_Tool","arguments":{"image_id":"input_image_1"}}
 
 ## Best Practices
 1. USE FOR TEXT READING — this tool is specifically for extracting words, numbers, labels, signs, and any printed or handwritten text visible in the image.
@@ -16,9 +16,9 @@ Extract readable text from an image using an OCR server. Use this tool when the 
 
 ## Examples
 ### Example: Read text from a photo of a sign
-{"type":"tool_call","name":"OCR_Tool","arguments":{"image_path":"input_image_1"}}
-Expected result: `{"texts": ["STOP", "ONE WAY"], "results": [...], "languages": ["en"], "gpu": true}`
+{"type":"tool_call","name":"OCR_Tool","arguments":{"image_id":"input_image_1"}}
+Expected result: `{"texts": ["STOP", "ONE WAY"], "results": [...]}`
 
 ### Example: Read text from a tool-generated cropped image
-{"type":"tool_call","name":"OCR_Tool","arguments":{"image_path":"tool_generated_image_1"}}
-Expected result: `{"texts": ["Hello World"], "results": [...], "languages": ["en"], "gpu": true}`
+{"type":"tool_call","name":"OCR_Tool","arguments":{"image_id":"tool_generated_image_1"}}
+Expected result: `{"texts": ["Hello World"], "results": [...]}`
