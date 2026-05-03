@@ -187,7 +187,6 @@ class UrlModule(MemoryModule):
     def __init__(
         self,
         *,
-        url_rewrite_enabled: bool = True,
         webpage_env_update_limit: Optional[int] = None,
     ) -> None:
         if webpage_env_update_limit is not None and (
@@ -198,7 +197,6 @@ class UrlModule(MemoryModule):
                 "webpage_env_update_limit must be a positive int or None, "
                 f"got {webpage_env_update_limit!r}."
             )
-        self.url_rewrite_enabled = bool(url_rewrite_enabled)
         self.webpage_env_update_limit = webpage_env_update_limit
 
     # ---- before_tool_call ----
@@ -206,10 +204,7 @@ class UrlModule(MemoryModule):
         if not isinstance(args, dict):
             return args, {"rewrites": [], "errors": []}
         rewrites: List[Dict[str, Any]] = []
-        if (
-            self.url_rewrite_enabled
-            and _normalize_tool_name(tool_name) in _WEBPAGE_VISIT_TOOL_NAMES
-        ):
+        if _normalize_tool_name(tool_name) in _WEBPAGE_VISIT_TOOL_NAMES:
             for url_key in ("urls", "url"):
                 if url_key in args:
                     args[url_key] = _resolve_urls_in_value(
@@ -225,8 +220,6 @@ class UrlModule(MemoryModule):
     # to register_webpage_url (state.urls).
     def consume_tool_result(self, *, agent, turn_idx, tool_call, payload, prepared, state):
         del agent, turn_idx, tool_call
-        if not self.url_rewrite_enabled:
-            return prepared
         tool_name_norm = _normalize_tool_name(payload.get("tool_name"))
         if tool_name_norm not in _SEARCH_TOOL_NAMES:
             return prepared

@@ -12,11 +12,10 @@ from .modules.image import _snapshot as _image_snapshot
 from .modules.tool_context import get_binding_descriptors_payload
 from .run_state import MemoryRunState, ToolOutputsState
 
-_PRESET_NAME_ALIAS = {
-    "base": "base",
-    "image": "image",
-    "tool_context": "tool_context",
-    "url": "url",
+_MODULE_CLASSES: Dict[str, "type[MemoryModule]"] = {
+    "image": ImageModule,
+    "tool_context": ToolContextModule,
+    "url": UrlModule,
 }
 
 # Per-tool process_tool_output module overrides for cases where name-based
@@ -47,22 +46,21 @@ class PersistentStateMemory:
     """
 
     memory_name = "base"
+    _ALLOWED_EMIT_POLICIES = ("always", "on_change")
 
     def __init__(
         self,
         *,
         modules: Optional[List[MemoryModule]] = None,
         emit_policy: str = "always",
-        url_rewrite_enabled: bool = True,
-        webpage_env_update_limit: Optional[int] = None,
-        **kwargs: Any,
     ):
-        self.options: Dict[str, Any] = {
-            "emit_policy": emit_policy,
-            "url_rewrite_enabled": url_rewrite_enabled,
-            "webpage_env_update_limit": webpage_env_update_limit,
-            **kwargs,
-        }
+        policy = str(emit_policy).strip().lower()
+        if policy not in self._ALLOWED_EMIT_POLICIES:
+            raise ValueError(
+                f"Invalid emit_policy '{emit_policy}'. "
+                f"Expected one of: {self._ALLOWED_EMIT_POLICIES}."
+            )
+        self.options: Dict[str, Any] = {"emit_policy": policy}
         self.modules: List[MemoryModule] = list(modules or [])
         self.state: MemoryRunState = MemoryRunState()
         # Eval sidecar (per-row, not in MemoryRunState).
@@ -608,32 +606,50 @@ class PersistentStateMemory:
 
 
 def build_persistent_state_memory(
-    name: str = "base",
-    **kwargs: Any,
+    *,
+    modules: Optional[List[Dict[str, Any]]] = None,
+    **orchestrator_kwargs: Any,
 ) -> PersistentStateMemory:
-    """Factory: instantiate a PersistentStateMemory with a preset module composition."""
-    preset = _PRESET_NAME_ALIAS.get(str(name).strip().lower(), "base")
-    emit_policy = kwargs.get("emit_policy", "always")
-    url_rewrite_enabled = kwargs.get("url_rewrite_enabled", True)
-    webpage_env_update_limit = kwargs.get("webpage_env_update_limit", None)
+    """Build a PersistentStateMemory from a list-of-dict module specs.
 
-    if preset == "base":
-        modules: List[MemoryModule] = []
-    elif preset == "image":
-        modules = [ImageModule(emit_policy=emit_policy)]
-    elif preset == "tool_context":
-        modules = [ImageModule(emit_policy=emit_policy), ToolContextModule()]
-    elif preset == "url":
-        modules = [
-            ImageModule(emit_policy=emit_policy),
-            ToolContextModule(),
-            UrlModule(
-                url_rewrite_enabled=url_rewrite_enabled,
-                webpage_env_update_limit=webpage_env_update_limit,
-            ),
-        ]
-    else:
-        modules = []
-    instance = PersistentStateMemory(modules=modules, **kwargs)
-    instance.memory_name = preset
-    return instance
+    Each spec is ``{"name": <module_name>, ...module_kwargs}``. Modules are
+    constructed in list order via an explicit for-loop. Module-specific
+    kwargs are scoped to that module's spec dict (Python's argument binding
+    catches typos naturally — we re-raise the TypeError as ValueError with
+    the spec attached). Orchestrator-level kwargs (e.g. ``emit_policy``)
+    sit at the top level.
+    """
+    module_specs = list(modules or [])
+    instances: List[MemoryModule] = []
+    module_names: List[str] = []
+
+    for spec in module_specs:
+        if not isinstance(spec, dict):
+            raise ValueError(
+                f"Each 'modules' entry must be a dict like "
+                f"{{'name': 'image'}}, got {type(spec).__name__}: {spec!r}"
+            )
+        spec_kwargs = dict(spec)
+        name = spec_kwargs.pop("name", None)
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(
+                f"Module spec missing required string 'name': {spec!r}"
+            )
+        key = name.strip().lower()
+        cls = _MODULE_CLASSES.get(key)
+        if cls is None:
+            raise ValueError(
+                f"Unknown memory module '{name}'. "
+                f"Known: {sorted(_MODULE_CLASSES)}."
+            )
+        try:
+            instances.append(cls(**spec_kwargs))
+        except TypeError as exc:
+            raise ValueError(
+                f"Invalid options for module '{name}': {spec_kwargs}. {exc}"
+            ) from exc
+        module_names.append(key)
+
+    orchestrator = PersistentStateMemory(modules=instances, **orchestrator_kwargs)
+    orchestrator.memory_name = "+".join(module_names) or "base"
+    return orchestrator

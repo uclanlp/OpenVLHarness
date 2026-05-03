@@ -20,8 +20,9 @@ agent_kwargs:
   tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "Zoom_In_Tool", "OCR_Tool"]
   prompt_version: "v3"  # default in this config: "v2". Set "v1" to use the original prompt template.
   reasoning_effort: null  # optional OpenAI GPT-5 knob: "minimal" | "low" | "medium" | "high"
-  persistent_state_memory:  # default: {"name": "image", "emit_policy": "always"}
-    name: "image"
+  persistent_state_memory:  # default: {"emit_policy": "always", "modules": [{"name": "image"}]}
     emit_policy: "always"  # "always" (default) or "on_change"
+    modules:
+      - name: "image"
   extra_body: {} # optional provider-specific fields forwarded to chat/completions
   max_iterations: 15

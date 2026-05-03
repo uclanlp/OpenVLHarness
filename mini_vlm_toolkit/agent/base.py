@@ -502,7 +502,10 @@ class BaseAgent:
 class BaseAgentWithTools(BaseAgent):
     _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
-    _SUPPORTED_MEMORY_NAMES = ("image", "tool_context", "url")
+    _DEFAULT_PERSISTENT_STATE_MEMORY_SPEC = {
+        "emit_policy": "always",
+        "modules": [{"name": "image"}],
+    }
 
     def __init__(self,
                 tool_base,
@@ -614,30 +617,24 @@ class BaseAgentWithTools(BaseAgent):
     def _build_persistent_state_memory(self, memory_spec: Optional[Dict[str, Any]]) -> PersistentStateMemory:
         spec = memory_spec
         if spec is None:
-            spec = {"name": "image", "emit_policy": "always"}
+            spec = cp.deepcopy(self._DEFAULT_PERSISTENT_STATE_MEMORY_SPEC)
         if not isinstance(spec, dict):
             raise ValueError(
-                "persistent_state_memory must be null or a dict config, "
-                "for example {'name': 'image', 'emit_policy': 'always'}."
+                "persistent_state_memory must be null or a dict, e.g. "
+                "{'emit_policy': 'always', 'modules': [{'name': 'image'}]}."
             )
-        if "name" not in spec:
-            raise ValueError("persistent_state_memory config must include a string 'name' field.")
-
-        name = spec.get("name")
-        if not isinstance(name, str):
-            raise ValueError("persistent_state_memory.name must be a string.")
-        memory_name = name.strip().lower()
-
-        if memory_name in {"", "none", "off", "disabled"}:
-            return build_persistent_state_memory(name="base")
-
-        options = {key: value for key, value in spec.items() if key != "name"}
-        if memory_name not in self._SUPPORTED_MEMORY_NAMES:
+        modules = spec.get("modules")
+        if modules is None:
             raise ValueError(
-                f"Unknown persistent_state_memory '{name}'. "
-                f"Supported memories: {list(self._SUPPORTED_MEMORY_NAMES)}."
+                "persistent_state_memory config must include a 'modules' list "
+                "of dicts, each with at least a 'name' key."
             )
-        return build_persistent_state_memory(name=memory_name, **options)
+        if not isinstance(modules, list):
+            raise ValueError(
+                "persistent_state_memory.modules must be a list of dicts."
+            )
+        options = {k: v for k, v in spec.items() if k != "modules"}
+        return build_persistent_state_memory(modules=modules, **options)
 
     def _new_persistent_state_memory(self) -> PersistentStateMemory:
         """Create a fresh per-run memory object.

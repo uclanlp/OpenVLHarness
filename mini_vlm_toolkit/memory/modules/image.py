@@ -9,7 +9,6 @@ from ..module import EnvironmentUpdateBuilder, MemoryModule
 from ..run_state import ImagesState, MemoryRunState
 
 _DROP_VALUE = object()
-_ALLOWED_EMIT_POLICIES = ("always", "on_change")
 _INPUT_IMAGE_REF_PATTERN = re.compile(r"^input_image_(\d+)$")
 _TOOL_GENERATED_IMAGE_REF_PATTERN = re.compile(r"^tool_generated_image_(\d+)$")
 _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.png")
@@ -504,14 +503,9 @@ class ImageModule(MemoryModule):
 
     name = "image"
 
-    def __init__(self, *, emit_policy: str = "always") -> None:
-        policy = str(emit_policy).strip().lower()
-        if policy not in _ALLOWED_EMIT_POLICIES:
-            raise ValueError(
-                f"Invalid image memory emit_policy '{emit_policy}'. "
-                f"Expected one of: {_ALLOWED_EMIT_POLICIES}."
-            )
-        self.emit_policy = policy
+    # No __init__: ImageModule has no per-instance config. The emit_policy
+    # decision lives on the orchestrator (PersistentStateMemory) since it
+    # consults cross-module state (image snapshot + webpage counter delta).
 
     # ---- on_run_start ----
     def on_run_start(self, *, agent, question, messages, state):

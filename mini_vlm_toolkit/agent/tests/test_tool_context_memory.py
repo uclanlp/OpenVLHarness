@@ -53,7 +53,7 @@ def _seed_descriptors(memory):
 
 
 def test_python_coding_agent_tool_receives_binding_descriptors():
-    memory = build_persistent_state_memory("tool_context")
+    memory = build_persistent_state_memory(modules=[{"name": "image"}, {"name": "tool_context"}])
     _seed_descriptors(memory)
 
     resolved, _info = memory.resolve_tool_call_args(
@@ -76,7 +76,7 @@ def test_python_coding_agent_tool_receives_binding_descriptors():
 
 
 def test_non_coding_agent_tools_receive_no_binding_descriptors():
-    memory = build_persistent_state_memory("tool_context")
+    memory = build_persistent_state_memory(modules=[{"name": "image"}, {"name": "tool_context"}])
     _seed_descriptors(memory)
 
     resolved, _info = memory.resolve_tool_call_args(
@@ -91,7 +91,7 @@ def test_non_coding_agent_tools_receive_no_binding_descriptors():
 
 
 def test_binding_descriptors_omitted_when_no_bindings_accumulated():
-    memory = build_persistent_state_memory("tool_context")
+    memory = build_persistent_state_memory(modules=[{"name": "image"}, {"name": "tool_context"}])
 
     resolved, _info = memory.resolve_tool_call_args(
         agent=None,

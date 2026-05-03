@@ -91,7 +91,7 @@ def _build_agent():
     agent.max_iterations = 3
     agent.tool_choice = "auto"
     agent.system_prompt = agent._construct_system_message()
-    agent.persistent_state_memory = build_persistent_state_memory("image", emit_policy="always")
+    agent.persistent_state_memory = build_persistent_state_memory(modules=[{"name": "image"}], emit_policy="always")
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
@@ -131,7 +131,7 @@ def _build_agent_v3():
     agent.prompt_version = "v5"
     agent.stop_tokens = ["</tool_call>"]
     agent.system_prompt = agent._construct_system_message()
-    agent.persistent_state_memory = build_persistent_state_memory("image", emit_policy="always")
+    agent.persistent_state_memory = build_persistent_state_memory(modules=[{"name": "image"}], emit_policy="always")
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTestV3")
@@ -1081,7 +1081,7 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
 
 
 def test_image_state_memory_tool_generated_refs_monotonic_and_no_legacy_aliases():
-    memory = build_persistent_state_memory("image", emit_policy="always")
+    memory = build_persistent_state_memory(modules=[{"name": "image"}], emit_policy="always")
 
     payload_1 = {
         "ok": True,

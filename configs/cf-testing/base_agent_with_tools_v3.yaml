@@ -20,8 +20,9 @@ agent_kwargs:
   tool_list: ["Crop_Tool", "Visual_Grounding_Tool", "Python_Executor_Tool", "Zoom_In_Tool", "OCR_Tool"]
   prompt_version: "v5"  # V5: natural language format with <tool_call> tags + auto-schema on first use.
   reasoning_effort: null  # optional OpenAI GPT-5 knob: "minimal" | "low" | "medium" | "high"
-  persistent_state_memory:  # default: {"name": "image", "emit_policy": "always"}
-    name: "image"
+  persistent_state_memory:  # default: {"emit_policy": "always", "modules": [{"name": "image"}]}
     emit_policy: "always"  # "always" (default) or "on_change"
+    modules:
+      - name: "image"
   extra_body: {} # optional provider-specific fields forwarded to chat/completions
   max_iterations: 30

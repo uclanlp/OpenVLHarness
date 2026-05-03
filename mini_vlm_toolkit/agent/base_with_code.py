@@ -51,9 +51,16 @@ class BaseAgentWithToolsAndCode(BaseAgentWithTools):
         if not generated_code:
             return normalized_payload
 
-        # Get actual binding values from memory
+        # Get actual binding values from memory. The refactored memory stack
+        # stores these in run_memory.state.bindings.bindings; keep a fallback
+        # to the legacy private attribute for older tests/custom setups.
         bindings = {}
-        if hasattr(run_memory, "_tool_result_bindings"):
+        state = getattr(run_memory, "state", None)
+        bindings_state = getattr(state, "bindings", None)
+        refactored_bindings = getattr(bindings_state, "bindings", None)
+        if isinstance(refactored_bindings, dict):
+            bindings = dict(refactored_bindings)
+        elif hasattr(run_memory, "_tool_result_bindings"):
             bindings = dict(run_memory._tool_result_bindings)
 
         try:

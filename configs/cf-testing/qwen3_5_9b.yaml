@@ -33,7 +33,9 @@ agent_kwargs:
   prompt_version: "v2_thinking"
   reasoning_effort: null
   persistent_state_memory:
-    name: "tool_context"       # must be tool_context to get descriptor injection
     emit_policy: "always"
+    modules:                          # tool_context provides binding_descriptors injection
+      - name: "image"
+      - name: "tool_context"
   extra_body: {}
   max_iterations: 15
