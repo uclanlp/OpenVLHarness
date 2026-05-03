@@ -252,6 +252,8 @@ class Image_Search_Tool(BaseTool):
     @staticmethod
     def _extract_item(item_data: Dict[str, object]) -> Optional[Dict[str, object]]:
         """Extract a visual match from a raw result item."""
+        # Serper /lens returns ``imageUrl`` (source) + ``thumbnailUrl``
+        # (gstatic CDN preview); the field name ``thumbnail`` does not exist.
         title = item_data.get("title")
         link = item_data.get("link")
         if not title and not link:
@@ -260,7 +262,11 @@ class Image_Search_Tool(BaseTool):
             "title": title or "",
             "link": link or "",
             "source": item_data.get("source", ""),
-            "thumbnail": item_data.get("thumbnail", ""),
+            "thumbnail": (
+                item_data.get("imageUrl")
+                or item_data.get("thumbnailUrl")
+                or ""
+            ),
             "position": item_data.get("position", ""),
         }
 

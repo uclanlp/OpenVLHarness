@@ -229,7 +229,8 @@ def _format_images(data: Dict[str, Any], max_results: int) -> str:
     lines = []
     for i, item in enumerate(items, 1):
         title = item.get("title", "")
-        img_url = item.get("imageUrl", "")
+        # Prefer source-quality imageUrl; fall back to gstatic thumbnailUrl.
+        img_url = item.get("imageUrl") or item.get("thumbnailUrl") or ""
         source = item.get("source", "")
         w = item.get("imageWidth", "")
         h = item.get("imageHeight", "")
@@ -254,7 +255,7 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
         source = item.get("source", "")
         date = item.get("date", "")
         snippet = item.get("snippet", "")
-        thumbnail = item.get("imageUrl") or item.get("thumbnail", "")
+        thumbnail = item.get("imageUrl") or item.get("thumbnailUrl") or ""
         lines.append(f"{i}. {title}")
         lines.append(f"   URL: {link}")
         # ImageStateMemory routes URLs trailed by ` <img>` directly
@@ -281,6 +282,7 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
         place_type = item.get("type", "")
         phone = item.get("phoneNumber", "")
         website = item.get("website", "")
+        img_url = item.get("thumbnailUrl") or item.get("imageUrl") or ""
         lines.append(f"{i}. {title}")
         if place_type:
             lines.append(f"   Type: {place_type}")
@@ -292,6 +294,10 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   Phone: {phone}")
         if website:
             lines.append(f"   Website: {website}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if img_url:
+            lines.append(f"   Image: {img_url} <img>")
     return "\n".join(lines)
 
 
@@ -319,6 +325,7 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
         price = item.get("price", "")
         link = item.get("link", "")
         source = item.get("source", "")
+        img_url = item.get("imageUrl") or item.get("thumbnailUrl") or ""
         lines.append(f"{i}. {title}")
         if price:
             lines.append(f"   Price: {price}")
@@ -326,6 +333,10 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   URL: {link}")
         if source:
             lines.append(f"   Source: {source}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if img_url:
+            lines.append(f"   Image: {img_url} <img>")
     return "\n".join(lines)
 
 
