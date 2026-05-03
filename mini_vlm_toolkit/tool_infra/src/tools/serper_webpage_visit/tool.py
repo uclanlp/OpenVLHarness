@@ -271,30 +271,6 @@ class Webpage_Visit_Tool(BaseTool):
             return f"https://{url}"
         return url
 
-    @staticmethod
-    def _extract_jsonld_image(data: Dict[str, Any]) -> str:
-        """Pull a single image URL from Schema.org JSON-LD if present.
-
-        ``jsonld.image`` is often the full-resolution version of og:image
-        (og:image is typically a sized social-card thumbnail). It can be
-        a string, a list of strings, or a list of {url: ...} objects.
-        """
-        jsonld = data.get("jsonld")
-        if not isinstance(jsonld, dict):
-            return ""
-        img = jsonld.get("image")
-        if isinstance(img, str):
-            return img
-        if isinstance(img, list) and img:
-            first = img[0]
-            if isinstance(first, str):
-                return first
-            if isinstance(first, dict):
-                return str(first.get("url") or first.get("@id") or "")
-        if isinstance(img, dict):
-            return str(img.get("url") or img.get("@id") or "")
-        return ""
-
     def _fetch_page_serper(self, url: str) -> Dict[str, Any]:
         """Fetch page content via Serper Scrape API (scrape.serper.dev)."""
         client = self._get_client()
@@ -303,27 +279,9 @@ class Webpage_Visit_Tool(BaseTool):
         metadata = data.get("metadata", {})
         if not text:
             raise RuntimeError("Serper Scrape returned empty text")
-        # Page hero image — try sources in order of resolution quality:
-        # 1. jsonld.image (Schema.org structured data, usually full-res)
-        # 2. og:image (Open Graph, often a fixed social-card thumbnail)
-        # 3. twitter:image (last resort)
-        # Filter to http(s); meta tags occasionally hold relative paths
-        # or data: URLs which are not registerable by ImageStateMemory.
-        raw_candidates = (
-            self._extract_jsonld_image(data),
-            metadata.get("og:image", ""),
-            metadata.get("twitter:image", ""),
-        )
-        og_image = ""
-        for cand in raw_candidates:
-            s = str(cand or "").strip()
-            if s.lower().startswith(("http://", "https://")):
-                og_image = s
-                break
         return {
             "content": text,
             "description": metadata.get("description", "") or metadata.get("og:description", ""),
-            "og_image": og_image,
         }
 
     def _fetch_page_jina(self, url: str) -> Dict[str, Any]:
@@ -335,7 +293,7 @@ class Webpage_Visit_Tool(BaseTool):
         response = requests.post(JINA_READER_URL, headers=headers, data={"url": url}, timeout=60)
         if response.status_code != 200:
             raise RuntimeError(f"Jina Reader API returned HTTP {response.status_code}")
-        return {"content": response.text or "", "description": "", "og_image": ""}
+        return {"content": response.text or "", "description": ""}
 
     def _fetch_page(self, url: str) -> Dict[str, Any]:
         """Fetch via Serper Scrape with transient-error retry.
@@ -473,16 +431,10 @@ class Webpage_Visit_Tool(BaseTool):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _format_success(
-        url: str, goal: str, evidence: str, summary: str, og_image: str = "",
-    ) -> str:
+    def _format_success(url: str, goal: str, evidence: str, summary: str) -> str:
         output = f"The useful information in {url} for user goal {goal or 'N/A'} as follows: \n\n"
         output += "Evidence in page: \n" + evidence + "\n\n"
         output += "Summary: \n" + (summary or "No summary generated") + "\n\n"
-        # ImageStateMemory routes URLs trailed by ` <img>` directly
-        # into the image registry as ``tool_generated_image_N``.
-        if og_image:
-            output += f"Page image: {og_image} <img>\n\n"
         return output
 
     @staticmethod
@@ -555,7 +507,6 @@ class Webpage_Visit_Tool(BaseTool):
 
             content = page_data.get("content") or ""
             description = page_data.get("description") or ""
-            og_image = page_data.get("og_image") or ""
 
             if not content:
                 fallback = description or "Webpage content is empty"
@@ -567,6 +518,6 @@ class Webpage_Visit_Tool(BaseTool):
             evidence = extraction.get("evidence") or content
             summary = extraction.get("summary") or description or ""
 
-            results.append(self._format_success(url, goal, evidence, summary, og_image))
+            results.append(self._format_success(url, goal, evidence, summary))
 
         return "\n\n=======\n\n".join(results)

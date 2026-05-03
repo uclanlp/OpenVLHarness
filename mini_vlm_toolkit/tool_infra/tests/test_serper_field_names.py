@@ -202,22 +202,6 @@ def test_data_url_image_is_filtered_out():
     assert "data:image" not in out
 
 
-def test_webpage_visit_filters_non_http_og_image():
-    """og:image meta tag occasionally contains relative paths. Those are
-    not registerable by ImageStateMemory and must be filtered upstream.
-    """
-    # Simulate _fetch_page_serper post-filter logic
-    def filter_og(raw_og):
-        s = str(raw_og or "").strip()
-        return s if s.lower().startswith(("http://", "https://")) else ""
-
-    assert filter_og("/static/hero.jpg") == ""
-    assert filter_og("data:image/png;base64,XXX") == ""
-    assert filter_og("https://x.com/og.jpg") == "https://x.com/og.jpg"
-    assert filter_og("") == ""
-    assert filter_og(None) == ""
-
-
 def test_format_maps_emits_image_line():
     from tools.serper_common import _format_maps
 
@@ -285,55 +269,22 @@ def test_format_organic_no_top_stories_block_when_empty():
     assert "[Top Stories]" not in out
 
 
-def test_webpage_visit_jsonld_image_extraction():
-    """jsonld.image (Schema.org structured data) accepts string, list-of-string,
-    list-of-dict, dict-with-url shapes. Each must produce a usable URL.
+def test_webpage_visit_returns_text_only():
+    """Webpage_Visit is intentionally text-only — it must NOT emit any
+    ``Page image:`` line nor consume ``og:image`` / ``jsonld.image`` /
+    ``twitter:image``. Image discovery is the search tools' job; mixing
+    image emission here would conflate semantics (search-found image vs.
+    page hero image) and bloat the agent's ``tool_generated_image_N``
+    namespace with often-irrelevant social-card thumbnails.
     """
     from tools.serper_webpage_visit.tool import Webpage_Visit_Tool
 
-    extract = Webpage_Visit_Tool._extract_jsonld_image
-
-    # String form (Wikipedia)
-    assert extract({"jsonld": {"image": "https://x.com/full.jpg"}}) == "https://x.com/full.jpg"
-
-    # List of strings (Reuters)
-    assert extract({"jsonld": {"image": ["https://x.com/a.jpg", "https://x.com/b.jpg"]}}) == "https://x.com/a.jpg"
-
-    # List of dicts
-    assert extract({"jsonld": {"image": [{"url": "https://x.com/c.jpg"}]}}) == "https://x.com/c.jpg"
-
-    # Dict with @id (older Schema.org)
-    assert extract({"jsonld": {"image": {"@id": "https://x.com/d.jpg"}}}) == "https://x.com/d.jpg"
-
-    # No jsonld → empty
-    assert extract({}) == ""
-    assert extract({"jsonld": None}) == ""
-    assert extract({"jsonld": {}}) == ""
-
-    # Empty image list → empty
-    assert extract({"jsonld": {"image": []}}) == ""
-
-
-def test_webpage_visit_format_success_emits_og_image():
-    from tools.serper_webpage_visit.tool import Webpage_Visit_Tool
-
     out = Webpage_Visit_Tool._format_success(
         url="https://x.com/page",
-        goal="find image",
-        evidence="evidence text",
-        summary="summary text",
-        og_image="https://x.com/og.jpg",
-    )
-    assert "Page image: https://x.com/og.jpg <img>" in out, (
-        "webpage_visit must surface og:image so the agent can OCR / inspect "
-        "the page's hero image without a separate search"
-    )
-
-    # No og_image → no Page image line (no false-positive emission)
-    out = Webpage_Visit_Tool._format_success(
-        url="https://x.com/page",
-        goal="goal",
+        goal="g",
         evidence="ev",
         summary="sum",
     )
     assert "Page image:" not in out
+    assert "<img>" not in out
+    assert "Image:" not in out
