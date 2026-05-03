@@ -154,7 +154,7 @@ def _build_descriptor(
 ) -> BindingDescriptor:
     safe_args: Dict[str, Any] = {}
     for k, v in tool_args.items():
-        if k in ("image_base64", "image_path", "binding_descriptors"):
+        if k in ("image_base64", "image_id", "binding_descriptors"):
             continue
         if isinstance(v, str) and len(v) > 200:
             continue

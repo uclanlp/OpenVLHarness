@@ -292,12 +292,12 @@ def build_image_registry_from_inputs(images: ImagesState, question: Any) -> Dict
     return images.registry
 
 
-def _is_image_path_key(key: Any) -> bool:
+def _is_image_id_key(key: Any) -> bool:
     key_lower = str(key).lower()
-    return key_lower.endswith("_path") and "image" in key_lower
+    return key_lower.endswith("_id") and "image" in key_lower
 
 
-def _resolve_image_paths_in_args(
+def _resolve_image_ids_in_args(
     images: ImagesState,
     value: Any,
     *,
@@ -309,40 +309,40 @@ def _resolve_image_paths_in_args(
         for key, child in list(value.items()):
             child_path = f"{path}.{key}"
             if isinstance(child, (dict, list)):
-                _resolve_image_paths_in_args(
+                _resolve_image_ids_in_args(
                     images, child, path=child_path, rewrites=rewrites, errors=errors
                 )
 
-        for path_key in list(value.keys()):
-            if not _is_image_path_key(path_key):
+        for id_key in list(value.keys()):
+            if not _is_image_id_key(id_key):
                 continue
-            base64_key = f"{path_key[:-5]}_base64"
+            base64_key = f"{id_key[:-3]}_base64"
             if value.get(base64_key):
                 continue
 
-            raw_path = value.get(path_key)
-            if not isinstance(raw_path, str) or not raw_path.strip():
+            raw_id = value.get(id_key)
+            if not isinstance(raw_id, str) or not raw_id.strip():
                 continue
 
-            data_url, matched_ref, fallback_mode = resolve_registry_image_data_url(images, raw_path)
+            data_url, matched_ref, fallback_mode = resolve_registry_image_data_url(images, raw_id)
             if data_url:
                 value[base64_key] = data_url
-                value.pop(path_key, None)
+                value.pop(id_key, None)
                 rewrite_item = {
-                    "field": f"{path}.{path_key}",
+                    "field": f"{path}.{id_key}",
                     "target_field": f"{path}.{base64_key}",
-                    "original": raw_path,
+                    "original": raw_id,
                 }
                 if matched_ref:
                     rewrite_item["image_ref"] = matched_ref
                 if fallback_mode:
                     rewrite_item["fallback_mode"] = fallback_mode
                 rewrites.append(rewrite_item)
-            elif not os.path.isfile(raw_path):
+            elif not os.path.isfile(raw_id):
                 errors.append(
                     {
-                        "field": f"{path}.{path_key}",
-                        "value": raw_path,
+                        "field": f"{path}.{id_key}",
+                        "value": raw_id,
                         "reason": "unresolved_image_reference",
                         "available_image_ids": list(images.registry.keys()),
                     }
@@ -352,7 +352,7 @@ def _resolve_image_paths_in_args(
     if isinstance(value, list):
         for idx, child in enumerate(value):
             if isinstance(child, (dict, list)):
-                _resolve_image_paths_in_args(
+                _resolve_image_ids_in_args(
                     images, child, path=f"{path}[{idx}]", rewrites=rewrites, errors=errors
                 )
 
@@ -519,7 +519,7 @@ class ImageModule(MemoryModule):
         resolved = cp.deepcopy(args)
         rewrites: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
-        _resolve_image_paths_in_args(
+        _resolve_image_ids_in_args(
             state.images, resolved, path="args", rewrites=rewrites, errors=errors
         )
         return resolved, {"rewrites": rewrites, "errors": errors}
@@ -575,7 +575,7 @@ class ImageModule(MemoryModule):
             for ref_id, source in snapshot:
                 lines.append(f"- {ref_id}: {source}")
             lines.append(
-                "When a tool needs image input, pass one of these IDs via the *_image_path field."
+                "When a tool needs image input, pass one of these IDs via the *_image_id field."
             )
             lines.append("Do NOT invent image file names or paths.")
         else:
