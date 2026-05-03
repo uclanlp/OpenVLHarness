@@ -36,7 +36,7 @@ agent_kwargs:
     - "Webpage_Visit_Tool"
     - "Image_Search_Tool"
     - "Text_Search_Tool"
-  prompt_version: "v3_instruct"
+  prompt_version: "v4_instruct"
   reasoning_effort: null
   persistent_state_memory:
     emit_policy: "always"      # emit Environment Update every turn with successful tool outputs

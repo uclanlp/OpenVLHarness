@@ -1,17 +1,25 @@
 """Webpage Visit Tool — scrape webpages via Serper and extract content with LLM.
 
 Two-step flow:
-1. Fetch page content via Serper Scrape API (fallback: Jina Reader API).
-2. Extract evidence and summary using an LLM with structured extraction prompt.
+1. Fetch page content via Serper Scrape API. Transient failures (5xx,
+   429, network timeout) are retried with exponential backoff, up to
+   ``SERPER_MAX_RETRIES`` attempts. Permanent failures (4xx) fail fast.
+2. Extract evidence and summary using an LLM with structured extraction
+   prompt.
 
-This is the primary Webpage_Visit_Tool implementation backed by Serper's
-web scraping API. The legacy Jina/Zhipu-based implementation is available
-as ``Webpage_Visit_Tool_BK`` in the ``webpage_visit`` directory.
+The Jina Reader fallback path is currently disabled in ``_fetch_page``
+(call site commented out). ``_fetch_page_jina`` / ``_load_jina_key`` /
+the JINA_* constants are retained so the fallback can be re-enabled by
+uncommenting a single block. The legacy Jina/Zhipu-based implementation
+is also still available as ``Webpage_Visit_Tool_BK`` in the
+``webpage_visit`` directory.
 """
 
 import json
 import logging
 import os
+import re
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -28,7 +36,18 @@ from tools.serper_common import SerperClient, get_serper_api_key, strip_think_ta
 
 logger = logging.getLogger(__name__)
 
-# Extraction prompt: the LLM returns a JSON object with keys: rational, evidence, summary.
+# System prompt: defines the model's role and the strict output contract that
+# downstream parsing depends on (single JSON object, three keys).
+EXTRACTOR_SYSTEM_PROMPT = """You are a precise webpage content extractor. Your job is to read raw webpage text together with a user-supplied goal, then return a structured extraction that captures every detail materially relevant to that goal — no more, no less.
+
+You always:
+- Stay strictly grounded in the webpage content; do not invent facts that are not present.
+- Output a single valid JSON object matching the schema requested by the user message — no Markdown, no code fences, no commentary outside the JSON.
+- Preserve the source's exact wording for precision-sensitive details (numbers, names, dates, quotations).
+- Skip content that has no bearing on the user's goal."""
+
+
+# User-message extraction prompt: the LLM returns a JSON object with keys: rationale, evidence, summary.
 EXTRACTOR_PROMPT = """Please process the following webpage content and user goal to extract relevant information:
 
 ## **Webpage Content**
@@ -38,18 +57,18 @@ EXTRACTOR_PROMPT = """Please process the following webpage content and user goal
 {goal}
 
 ## **Task Guidelines**
-1. **Content Scanning for Rational**: Locate the **specific sections/data** directly related to the user's goal within the webpage content
-2. **Key Extraction for Evidence**: Identify and extract the **most relevant information** from the content, you never miss any important information, output the **full original context** of the content as far as possible, it can be more than three paragraphs.
-3. **Summary Output for Summary**: Organize into a concise paragraph with logical flow, prioritizing clarity and judge the contribution of the information to the goal.
+1. **Content Scanning for Rationale**: Locate the **specific sections/data** directly related to the user's goal within the webpage content.
+2. **Key Extraction for Evidence**: Identify and extract **all information materially relevant to the goal — do not omit any important detail**. Preserve the source's exact wording where precision matters (numbers, names, dates, quoted phrases). Stay focused on goal-relevant content; do not verbatim-dump entire pages.
+3. **Summary Output for Summary**: Organize into a concise paragraph with logical flow, prioritising clarity and judging the contribution of the information to the goal.
 
 **Final Output Requirements**
 - Return a valid JSON object only (no code fences, Markdown, comments, or additional text).
-- The JSON must contain exactly the keys "rational", "evidence", and "summary".
+- The JSON must contain exactly the keys "rationale", "evidence", and "summary".
 - Each key must map to a string value. Use an empty string if no content is available.
 - Do not include any extra keys or explanatory sentences outside the JSON object.
 
 Example:
-{{"rational": "Explain why the information is relevant to the goal.", "evidence": "Quote or paraphrase the key supporting content from the webpage.", "summary": "Provide a concise summary that connects the evidence back to the goal."}}
+{{"rationale": "Explain why the information is relevant to the goal.", "evidence": "Quote or paraphrase the key supporting content from the webpage.", "summary": "Provide a concise summary that connects the evidence back to the goal."}}
 """
 
 TOOL_NAME = "Webpage_Visit_Tool"
@@ -64,6 +83,17 @@ _JINA_KEY_CANDIDATES = [
 
 MAX_URLS = int(os.getenv("WEBPAGE_VISIT_MAX_URLS", "5"))
 MAX_CONTENT_CHARS = int(os.getenv("WEBPAGE_VISIT_MAX_CONTENT_CHARS", "120000"))
+
+# Retry config for ``_fetch_page``. Transient errors (5xx / 429 / network
+# timeout) are retried with exponential backoff; permanent errors (4xx)
+# fail fast. Default ceiling: 1s + 2s = 3s of backoff sleep across 3
+# attempts, so worst-case latency on a fully-failing URL is roughly
+# ~5-9s including request RTTs.
+SERPER_MAX_RETRIES = 3
+SERPER_BACKOFF_BASE_SEC = 1.0
+SERPER_BACKOFF_MAX_SEC = 4.0
+_HTTP_CODE_RE = re.compile(r"^\s*(\d{3})\s+")
+_TRANSIENT_HTTP_CODES = frozenset({"500", "502", "503", "504", "429"})
 
 INPUT_SCHEMA = {
     "type": "object",
@@ -98,10 +128,13 @@ INPUT_SCHEMA = {
 class Webpage_Visit_Tool(BaseTool):
     """Visit webpages via Serper Scrape and extract goal-relevant content with LLM.
 
-    Primary backend: Serper Scrape API (scrape.serper.dev).
-    Fallback: Jina Reader API (r.jina.ai).
+    Primary backend: Serper Scrape API (scrape.serper.dev) with
+    transient-error retry (5xx / 429 / timeout, up to
+    ``SERPER_MAX_RETRIES`` attempts).
     Content extraction: LLM-based structured extraction returning
     evidence + summary in JSON format.
+    Jina Reader fallback is currently disabled in ``_fetch_page``
+    (commented call site); helper code retained for re-enable.
     """
 
     require_llm_engine = True
@@ -120,10 +153,12 @@ class Webpage_Visit_Tool(BaseTool):
                 "discovery; use Text_Search_Tool or Image_Search_Tool first to "
                 "find relevant URLs, then pass those URLs here.\n\n"
                 "The tool processes each URL independently: fetches the page content "
-                "(with automatic fallback to Jina Reader if Serper fails), truncates "
-                "overly long content, and runs LLM extraction to produce structured "
-                "output with 'evidence' (relevant quotes/paraphrases) and 'summary' "
-                "(concise connection to the goal)."
+                "via Serper Scrape (transient errors retried up to "
+                f"{SERPER_MAX_RETRIES} times with exponential backoff; 4xx errors "
+                "fail fast), truncates overly long content, and runs LLM "
+                "extraction to produce structured output with 'evidence' "
+                "(relevant quotes/paraphrases) and 'summary' (concise connection "
+                "to the goal)."
             ),
             tool_version="1.0.0",
             input_types={
@@ -160,13 +195,14 @@ class Webpage_Visit_Tool(BaseTool):
             user_metadata={
                 "api_key_env": "SERPER_API_KEY",
                 "scrape_endpoint": "https://scrape.serper.dev/",
-                "fallback": "Jina Reader API (https://r.jina.ai)",
                 "llm_model_env": "WEBPAGE_VISIT_LLM_MODEL",
                 "max_urls": MAX_URLS,
                 "max_content_chars": MAX_CONTENT_CHARS,
+                "max_retries": SERPER_MAX_RETRIES,
                 "notes": (
                     "Serper Scrape costs 2 credits per request (vs 1 for search). "
-                    "Falls back to Jina Reader if Serper fails and JINA_API_KEY is set."
+                    f"Transient failures (5xx / 429 / timeout) are retried up to "
+                    f"{SERPER_MAX_RETRIES} times with exponential backoff."
                 ),
             },
         )
@@ -227,16 +263,11 @@ class Webpage_Visit_Tool(BaseTool):
         return None
 
     def sanity_check(self) -> List[str]:
-        """Verify that Serper API key (or Jina fallback key) is available."""
+        """Verify that the Serper API key is available."""
         try:
             get_serper_api_key()
         except Exception as exc:
-            jina_key = self._load_jina_key()
-            if not jina_key:
-                return [
-                    f"No Serper or Jina API key found. {exc} "
-                    "Or set JINA_API_KEY for fallback."
-                ]
+            return [f"No Serper API key found. {exc}"]
         return []
 
     # ------------------------------------------------------------------
@@ -276,27 +307,81 @@ class Webpage_Visit_Tool(BaseTool):
         return {"content": response.text or "", "description": ""}
 
     def _fetch_page(self, url: str) -> Dict[str, Any]:
-        """Fetch with Serper primary, Jina fallback."""
-        serper_error = None
-        try:
-            return self._fetch_page_serper(url)
-        except Exception as exc:
-            serper_error = str(exc)
-            logger.warning("Serper scrape failed for %s: %s", url, serper_error)
+        """Fetch via Serper Scrape with transient-error retry.
 
-        jina_error = None
-        try:
-            return self._fetch_page_jina(url)
-        except Exception as exc:
-            jina_error = str(exc)
-            logger.warning("Jina fallback also failed for %s: %s", url, jina_error)
+        Retries up to ``SERPER_MAX_RETRIES`` times on transient failures
+        (5xx / 429 / network timeout) with exponential backoff. Permanent
+        failures (4xx other than 429) fail fast on the first attempt.
 
-        parts = []
-        if serper_error:
-            parts.append(f"Serper: {serper_error}")
-        if jina_error:
-            parts.append(f"Jina: {jina_error}")
-        raise RuntimeError(f"Failed to fetch {url}. " + "; ".join(parts))
+        On final failure, raises ``RuntimeError`` with an agent-readable
+        message that includes HTTP code, transient/permanent
+        classification, attempt count, and a suggestion for the agent's
+        next move.
+        """
+        last_error: str = ""
+        last_code: Optional[str] = None
+        last_is_transient: bool = True
+        attempts: int = 0
+
+        for attempt in range(SERPER_MAX_RETRIES):
+            attempts = attempt + 1
+            try:
+                return self._fetch_page_serper(url)
+            except Exception as exc:
+                last_error = str(exc)
+                m = _HTTP_CODE_RE.match(last_error)
+                last_code = m.group(1) if m else None
+                if last_code is not None:
+                    last_is_transient = last_code in _TRANSIENT_HTTP_CODES
+                else:
+                    # No HTTP code → likely network-layer error
+                    # (Timeout / ConnectionError); treat as transient.
+                    last_is_transient = any(
+                        k in last_error for k in ("Timeout", "Connection")
+                    )
+                logger.warning(
+                    "Serper scrape failed for %s (attempt %d/%d, transient=%s): %s",
+                    url, attempts, SERPER_MAX_RETRIES, last_is_transient, last_error,
+                )
+                if not last_is_transient:
+                    break  # 4xx → no point retrying
+            if attempt < SERPER_MAX_RETRIES - 1 and last_is_transient:
+                time.sleep(
+                    min(SERPER_BACKOFF_BASE_SEC * (2 ** attempt),
+                        SERPER_BACKOFF_MAX_SEC)
+                )
+
+        # # Jina fallback temporarily disabled — uncomment to re-enable.
+        # # ``_fetch_page_jina`` / ``_load_jina_key`` / JINA_* constants
+        # # are retained intact so this is a one-block opt-in.
+        # try:
+        #     return self._fetch_page_jina(url)
+        # except Exception as exc:
+        #     last_error = f"Serper: {last_error}; Jina: {exc}"
+
+        # Build agent-readable error message.
+        msg_parts = [f"Failed to fetch {url}"]
+        if last_code:
+            msg_parts.append(
+                f"(HTTP {last_code}, {'transient' if last_is_transient else 'permanent'})"
+            )
+        if attempts > 1:
+            msg_parts.append(f"after {attempts} attempts")
+        msg_parts.append(f"Detail: {last_error}.")
+
+        if last_is_transient:
+            msg_parts.append(
+                "Suggestion: source temporarily unavailable; try again later "
+                "or pick a different URL."
+            )
+        elif last_code == "404":
+            msg_parts.append("Suggestion: URL not found; try a different result.")
+        elif last_code in ("401", "403"):
+            msg_parts.append("Suggestion: access blocked; try a different source.")
+        else:
+            msg_parts.append("Suggestion: URL is unreachable; try a different result.")
+
+        raise RuntimeError(" ".join(msg_parts))
 
     # ------------------------------------------------------------------
     # Content processing
@@ -322,7 +407,13 @@ class Webpage_Visit_Tool(BaseTool):
 
         try:
             extract_max_tokens = int(os.getenv("WEBPAGE_VISIT_LLM_MAX_TOKENS", "16384"))
-            raw_output = engine.generate(prompt, max_tokens=extract_max_tokens, temperature=0.0, top_p=1.0)
+            raw_output = engine.generate(
+                prompt,
+                system_prompt=EXTRACTOR_SYSTEM_PROMPT,
+                max_tokens=extract_max_tokens,
+                temperature=0.0,
+                top_p=1.0,
+            )
         except Exception:
             return {
                 "evidence": content,
