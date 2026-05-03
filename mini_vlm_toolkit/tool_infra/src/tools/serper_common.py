@@ -172,6 +172,21 @@ class SerperClient:
 # ---------------------------------------------------------------------------
 # Result formatters
 # ---------------------------------------------------------------------------
+def _http_image_url(url: object) -> str:
+    """Return ``url`` only if it is a non-empty http(s) URL.
+
+    Some Serper endpoints (notably /shopping, ~75% of items) inline
+    images as ``data:image/...;base64,...`` URLs. Emitting those into
+    the agent text bloats context massively (tens of KB per item) and
+    they are not registerable by ImageStateMemory's URL rewriter
+    (which only matches ``https?://``). Skip non-http URLs so the
+    formatter neither emits a useless ``Image:`` line nor leaks the
+    inline base64 blob into the agent's context.
+    """
+    s = str(url or "").strip()
+    return s if s.lower().startswith(("http://", "https://")) else ""
+
+
 def format_search_results(search_type: str, data: Dict[str, Any], max_results: int = 10) -> str:
     """Format raw Serper response into agent-readable text."""
     formatter = _FORMATTERS.get(search_type, _format_generic)
@@ -186,7 +201,7 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
     kg = data.get("knowledgeGraph")
     if kg:
         lines.append(f"[Knowledge Graph] {kg.get('title', '')}: {kg.get('description', '')}")
-        kg_image_url = kg.get("imageUrl")
+        kg_image_url = _http_image_url(kg.get("imageUrl"))
         if kg_image_url:
             # ImageStateMemory routes URLs trailed by ` <img>` directly
             # into the image registry as ``tool_generated_image_N``.
@@ -230,7 +245,8 @@ def _format_images(data: Dict[str, Any], max_results: int) -> str:
     for i, item in enumerate(items, 1):
         title = item.get("title", "")
         # Prefer source-quality imageUrl; fall back to gstatic thumbnailUrl.
-        img_url = item.get("imageUrl") or item.get("thumbnailUrl") or ""
+        # _http_image_url also filters out inline data: URLs.
+        img_url = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         source = item.get("source", "")
         w = item.get("imageWidth", "")
         h = item.get("imageHeight", "")
@@ -255,7 +271,7 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
         source = item.get("source", "")
         date = item.get("date", "")
         snippet = item.get("snippet", "")
-        thumbnail = item.get("imageUrl") or item.get("thumbnailUrl") or ""
+        thumbnail = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         lines.append(f"{i}. {title}")
         lines.append(f"   URL: {link}")
         # ImageStateMemory routes URLs trailed by ` <img>` directly
@@ -282,7 +298,7 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
         place_type = item.get("type", "")
         phone = item.get("phoneNumber", "")
         website = item.get("website", "")
-        img_url = item.get("thumbnailUrl") or item.get("imageUrl") or ""
+        img_url = _http_image_url(item.get("thumbnailUrl")) or _http_image_url(item.get("imageUrl"))
         lines.append(f"{i}. {title}")
         if place_type:
             lines.append(f"   Type: {place_type}")
@@ -325,7 +341,9 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
         price = item.get("price", "")
         link = item.get("link", "")
         source = item.get("source", "")
-        img_url = item.get("imageUrl") or item.get("thumbnailUrl") or ""
+        # Shopping items frequently carry data: URLs (~75% on /shopping);
+        # _http_image_url filters those out so we don't bloat agent context.
+        img_url = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         lines.append(f"{i}. {title}")
         if price:
             lines.append(f"   Price: {price}")

@@ -135,6 +135,89 @@ def test_format_shopping_emits_image_line():
     )
 
 
+def test_data_url_image_is_filtered_out():
+    """Real /shopping returns ~75% data:image/* URLs. They must NOT leak
+    into agent text (would bloat context and not be registerable by
+    ImageStateMemory's URL rewriter, which only matches https?://).
+    """
+    from tools.serper_common import (
+        _format_shopping, _format_images, _format_news, _format_organic, _format_maps,
+    )
+    from tools.serper_image_search.tool import Image_Search_Tool
+
+    fake_data_url = "data:image/webp;base64," + "X" * 200
+
+    # Shopping
+    out = _format_shopping({"shopping": [{
+        "title": "iPhone", "price": "$1", "link": "https://x", "source": "X",
+        "imageUrl": fake_data_url,
+    }]}, 5)
+    assert "data:image" not in out, "shopping must not emit data: URL"
+    assert "Image:" not in out, "no Image: line when only data: URL is available"
+
+    # Images
+    out = _format_images({"images": [{
+        "title": "X", "imageUrl": fake_data_url,
+    }]}, 5)
+    assert "data:image" not in out
+    assert "Image:" not in out
+
+    # Image_Search reverse — fall through data: → http thumbnailUrl
+    t = Image_Search_Tool.__new__(Image_Search_Tool)
+    extracted = t._extract_item({
+        "title": "X", "link": "https://x.com/p",
+        "imageUrl": fake_data_url, "thumbnailUrl": "https://encrypted-tbn0/y",
+    })
+    assert extracted["thumbnail"] == "https://encrypted-tbn0/y"
+
+    # data:-only entry → empty thumbnail (Image: line skipped)
+    extracted = t._extract_item({
+        "title": "X", "link": "https://x.com/p",
+        "imageUrl": fake_data_url,
+    })
+    assert extracted["thumbnail"] == ""
+
+    # News
+    out = _format_news({"news": [{
+        "title": "X", "link": "https://x.com", "source": "X", "date": "1d",
+        "snippet": "...", "imageUrl": fake_data_url,
+    }]}, 5)
+    assert "data:image" not in out
+
+    # /search Knowledge Graph
+    out = _format_organic({
+        "knowledgeGraph": {
+            "title": "X", "description": "...",
+            "imageUrl": fake_data_url,
+        },
+        "organic": [],
+    }, 5)
+    assert "data:image" not in out
+
+    # /maps
+    out = _format_maps({"places": [{
+        "title": "X", "address": "1 St",
+        "thumbnailUrl": fake_data_url,
+    }]}, 5)
+    assert "data:image" not in out
+
+
+def test_webpage_visit_filters_non_http_og_image():
+    """og:image meta tag occasionally contains relative paths. Those are
+    not registerable by ImageStateMemory and must be filtered upstream.
+    """
+    # Simulate _fetch_page_serper post-filter logic
+    def filter_og(raw_og):
+        s = str(raw_og or "").strip()
+        return s if s.lower().startswith(("http://", "https://")) else ""
+
+    assert filter_og("/static/hero.jpg") == ""
+    assert filter_og("data:image/png;base64,XXX") == ""
+    assert filter_og("https://x.com/og.jpg") == "https://x.com/og.jpg"
+    assert filter_og("") == ""
+    assert filter_og(None) == ""
+
+
 def test_format_maps_emits_image_line():
     from tools.serper_common import _format_maps
 

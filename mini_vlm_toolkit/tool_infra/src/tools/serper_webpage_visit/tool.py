@@ -282,8 +282,12 @@ class Webpage_Visit_Tool(BaseTool):
         # ``og:image`` is the page's hero/representative image (Open Graph
         # protocol). Most well-formed pages emit it; ImageStateMemory
         # registers it as ``tool_generated_image_N`` for downstream
-        # OCR / VLM consumption.
-        og_image = metadata.get("og:image", "") or metadata.get("twitter:image", "")
+        # OCR / VLM consumption. Filter to http(s) URLs — meta tags
+        # occasionally contain relative paths or data: URLs which are
+        # not registerable.
+        raw_og = metadata.get("og:image", "") or metadata.get("twitter:image", "")
+        og_image_str = str(raw_og or "").strip()
+        og_image = og_image_str if og_image_str.lower().startswith(("http://", "https://")) else ""
         return {
             "content": text,
             "description": metadata.get("description", "") or metadata.get("og:description", ""),

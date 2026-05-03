@@ -253,20 +253,24 @@ class Image_Search_Tool(BaseTool):
     def _extract_item(item_data: Dict[str, object]) -> Optional[Dict[str, object]]:
         """Extract a visual match from a raw result item."""
         # Serper /lens returns ``imageUrl`` (source) + ``thumbnailUrl``
-        # (gstatic CDN preview); the field name ``thumbnail`` does not exist.
+        # (gstatic CDN preview); the field name ``thumbnail`` does not
+        # exist. Iterate per-candidate so that a data: URL in imageUrl
+        # does not block falling through to a usable http thumbnailUrl.
         title = item_data.get("title")
         link = item_data.get("link")
         if not title and not link:
             return None
+        thumbnail = ""
+        for key in ("imageUrl", "thumbnailUrl"):
+            cand = str(item_data.get(key) or "").strip()
+            if cand.lower().startswith(("http://", "https://")):
+                thumbnail = cand
+                break
         return {
             "title": title or "",
             "link": link or "",
             "source": item_data.get("source", ""),
-            "thumbnail": (
-                item_data.get("imageUrl")
-                or item_data.get("thumbnailUrl")
-                or ""
-            ),
+            "thumbnail": thumbnail,
             "position": item_data.get("position", ""),
         }
 
