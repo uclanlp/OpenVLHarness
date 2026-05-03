@@ -36,7 +36,18 @@ from tools.serper_common import SerperClient, get_serper_api_key, strip_think_ta
 
 logger = logging.getLogger(__name__)
 
-# Extraction prompt: the LLM returns a JSON object with keys: rational, evidence, summary.
+# System prompt: defines the model's role and the strict output contract that
+# downstream parsing depends on (single JSON object, three keys).
+EXTRACTOR_SYSTEM_PROMPT = """You are a precise webpage content extractor. Your job is to read raw webpage text together with a user-supplied goal, then return a structured extraction that captures every detail materially relevant to that goal — no more, no less.
+
+You always:
+- Stay strictly grounded in the webpage content; do not invent facts that are not present.
+- Output a single valid JSON object matching the schema requested by the user message — no Markdown, no code fences, no commentary outside the JSON.
+- Preserve the source's exact wording for precision-sensitive details (numbers, names, dates, quotations).
+- Skip content that has no bearing on the user's goal."""
+
+
+# User-message extraction prompt: the LLM returns a JSON object with keys: rationale, evidence, summary.
 EXTRACTOR_PROMPT = """Please process the following webpage content and user goal to extract relevant information:
 
 ## **Webpage Content**
@@ -46,18 +57,18 @@ EXTRACTOR_PROMPT = """Please process the following webpage content and user goal
 {goal}
 
 ## **Task Guidelines**
-1. **Content Scanning for Rational**: Locate the **specific sections/data** directly related to the user's goal within the webpage content
-2. **Key Extraction for Evidence**: Identify and extract the **most relevant information** from the content, you never miss any important information, output the **full original context** of the content as far as possible, it can be more than three paragraphs.
-3. **Summary Output for Summary**: Organize into a concise paragraph with logical flow, prioritizing clarity and judge the contribution of the information to the goal.
+1. **Content Scanning for Rationale**: Locate the **specific sections/data** directly related to the user's goal within the webpage content.
+2. **Key Extraction for Evidence**: Identify and extract **all information materially relevant to the goal — do not omit any important detail**. Preserve the source's exact wording where precision matters (numbers, names, dates, quoted phrases). Stay focused on goal-relevant content; do not verbatim-dump entire pages.
+3. **Summary Output for Summary**: Organize into a concise paragraph with logical flow, prioritising clarity and judging the contribution of the information to the goal.
 
 **Final Output Requirements**
 - Return a valid JSON object only (no code fences, Markdown, comments, or additional text).
-- The JSON must contain exactly the keys "rational", "evidence", and "summary".
+- The JSON must contain exactly the keys "rationale", "evidence", and "summary".
 - Each key must map to a string value. Use an empty string if no content is available.
 - Do not include any extra keys or explanatory sentences outside the JSON object.
 
 Example:
-{{"rational": "Explain why the information is relevant to the goal.", "evidence": "Quote or paraphrase the key supporting content from the webpage.", "summary": "Provide a concise summary that connects the evidence back to the goal."}}
+{{"rationale": "Explain why the information is relevant to the goal.", "evidence": "Quote or paraphrase the key supporting content from the webpage.", "summary": "Provide a concise summary that connects the evidence back to the goal."}}
 """
 
 TOOL_NAME = "Webpage_Visit_Tool"
@@ -396,7 +407,13 @@ class Webpage_Visit_Tool(BaseTool):
 
         try:
             extract_max_tokens = int(os.getenv("WEBPAGE_VISIT_LLM_MAX_TOKENS", "16384"))
-            raw_output = engine.generate(prompt, max_tokens=extract_max_tokens, temperature=0.0, top_p=1.0)
+            raw_output = engine.generate(
+                prompt,
+                system_prompt=EXTRACTOR_SYSTEM_PROMPT,
+                max_tokens=extract_max_tokens,
+                temperature=0.0,
+                top_p=1.0,
+            )
         except Exception:
             return {
                 "evidence": content,
