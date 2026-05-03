@@ -110,7 +110,7 @@ Citations:
 [2] <title> - <url>
 ...
 
-(For images type, use: [1] <title> | Image: <image_url> | Source: <page_url>)
+(For images type, use EXACTLY (with the trailing ` <img>` framework marker preserved): [1] <title> | Image: <image_url> <img> | Source: <page_url>)
 """
 
 
