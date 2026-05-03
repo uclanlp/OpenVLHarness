@@ -255,10 +255,6 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
         extra_parts = []
         if item.get("year"):
             extra_parts.append(f"Year: {item['year']}")
-        if item.get("citedBy"):
-            cited = item["citedBy"]
-            if isinstance(cited, dict):
-                extra_parts.append(f"Cited by: {cited.get('total', '')}")
         extra = " | ".join(extra_parts)
         # Per-item image (patents' main figure thumbnailUrl; some /search
         # rich items also carry imageUrl). Patents' ``figures[]`` array can
