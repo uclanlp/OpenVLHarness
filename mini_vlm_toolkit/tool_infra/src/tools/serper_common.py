@@ -194,7 +194,15 @@ def format_search_results(search_type: str, data: Dict[str, Any], max_results: i
 
 
 def _format_organic(data: Dict[str, Any], max_results: int) -> str:
-    """Format /search, /scholar, /patents responses (organic key)."""
+    """Format /search, /scholar, /patents responses (organic key).
+
+    Also surfaces image URLs from auxiliary sections that some queries
+    return alongside organic results — ``topStories`` (breaking-news
+    queries on /search) and per-item ``thumbnailUrl`` (every /patents
+    item, the patent's main figure). Without this, a "Apple earnings"
+    search would silently lose all topStories thumbnails, and patent
+    queries would lose every patent diagram.
+    """
     lines = []
 
     # Knowledge graph (if present)
@@ -217,6 +225,28 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
         lines.append(ab.get("snippet", ""))
         lines.append("")
 
+    # Top Stories (breaking-news subsection on /search; each item carries
+    # an imageUrl). Emit BEFORE organic so freshness signals lead.
+    top_stories = data.get("topStories", [])[:max_results]
+    if top_stories:
+        lines.append("[Top Stories]")
+        for i, item in enumerate(top_stories, 1):
+            title = item.get("title", "")
+            link = item.get("link", "")
+            source = item.get("source", "")
+            date = item.get("date", "")
+            img = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
+            lines.append(f"{i}. {title}")
+            if link:
+                meta_bits = " | ".join(filter(None, [source, date]))
+                if meta_bits:
+                    lines.append(f"   {meta_bits}   {link}")
+                else:
+                    lines.append(f"   URL: {link}")
+            if img:
+                lines.append(f"   Image: {img} <img>")
+        lines.append("")
+
     items = data.get("organic", [])[:max_results]
     for i, item in enumerate(items, 1):
         title = item.get("title", "")
@@ -230,12 +260,22 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
             if isinstance(cited, dict):
                 extra_parts.append(f"Cited by: {cited.get('total', '')}")
         extra = " | ".join(extra_parts)
+        # Per-item image (patents' main figure thumbnailUrl; some /search
+        # rich items also carry imageUrl). Patents' ``figures[]`` array can
+        # contain 5-13 entries — intentionally emit only the main thumbnail
+        # to avoid context bloat; agent can visit the patent for more.
+        per_item_img = (
+            _http_image_url(item.get("thumbnailUrl"))
+            or _http_image_url(item.get("imageUrl"))
+        )
         lines.append(f"{i}. {title}")
         lines.append(f"   URL: {link}")
         if snippet:
             lines.append(f"   {snippet}")
         if extra:
             lines.append(f"   {extra}")
+        if per_item_img:
+            lines.append(f"   Image: {per_item_img} <img>")
     return "\n".join(lines)
 
 

@@ -237,6 +237,83 @@ def test_format_maps_emits_image_line():
     assert "Image: https://lh3.googleusercontent.com/x <img>" in out
 
 
+def test_format_organic_emits_patent_thumbnail():
+    """/patents items each carry a ``thumbnailUrl`` (the patent's main
+    figure). Without this, every patent search lost all image refs.
+    """
+    from tools.serper_common import _format_organic
+
+    out = _format_organic({"organic": [{
+        "title": "Battery system patent",
+        "link": "https://patents.google.com/patent/US11190026B2",
+        "snippet": "...",
+        "thumbnailUrl": "https://patentimages.storage.googleapis.com/x.png",
+    }]}, 5)
+    assert "Image: https://patentimages.storage.googleapis.com/x.png <img>" in out, (
+        "patents per-item thumbnailUrl must emit Image: line"
+    )
+
+
+def test_format_organic_emits_top_stories():
+    """/search responses with topStories block carry imageUrl per item."""
+    from tools.serper_common import _format_organic
+
+    out = _format_organic({
+        "organic": [{"title": "Generic", "link": "https://x.com", "snippet": "..."}],
+        "topStories": [
+            {
+                "title": "Apple Q2 earnings",
+                "link": "https://finance.yahoo.com/x",
+                "source": "Yahoo Finance",
+                "date": "1 day ago",
+                "imageUrl": "https://encrypted-tbn0.gstatic.com/x",
+            },
+        ],
+    }, 5)
+    assert "[Top Stories]" in out
+    assert "Image: https://encrypted-tbn0.gstatic.com/x <img>" in out
+    assert "Apple Q2 earnings" in out
+
+
+def test_format_organic_no_top_stories_block_when_empty():
+    """No Top Stories section when there's no topStories data."""
+    from tools.serper_common import _format_organic
+
+    out = _format_organic({"organic": [{
+        "title": "X", "link": "https://x.com", "snippet": "...",
+    }]}, 5)
+    assert "[Top Stories]" not in out
+
+
+def test_webpage_visit_jsonld_image_extraction():
+    """jsonld.image (Schema.org structured data) accepts string, list-of-string,
+    list-of-dict, dict-with-url shapes. Each must produce a usable URL.
+    """
+    from tools.serper_webpage_visit.tool import Webpage_Visit_Tool
+
+    extract = Webpage_Visit_Tool._extract_jsonld_image
+
+    # String form (Wikipedia)
+    assert extract({"jsonld": {"image": "https://x.com/full.jpg"}}) == "https://x.com/full.jpg"
+
+    # List of strings (Reuters)
+    assert extract({"jsonld": {"image": ["https://x.com/a.jpg", "https://x.com/b.jpg"]}}) == "https://x.com/a.jpg"
+
+    # List of dicts
+    assert extract({"jsonld": {"image": [{"url": "https://x.com/c.jpg"}]}}) == "https://x.com/c.jpg"
+
+    # Dict with @id (older Schema.org)
+    assert extract({"jsonld": {"image": {"@id": "https://x.com/d.jpg"}}}) == "https://x.com/d.jpg"
+
+    # No jsonld → empty
+    assert extract({}) == ""
+    assert extract({"jsonld": None}) == ""
+    assert extract({"jsonld": {}}) == ""
+
+    # Empty image list → empty
+    assert extract({"jsonld": {"image": []}}) == ""
+
+
 def test_webpage_visit_format_success_emits_og_image():
     from tools.serper_webpage_visit.tool import Webpage_Visit_Tool
 

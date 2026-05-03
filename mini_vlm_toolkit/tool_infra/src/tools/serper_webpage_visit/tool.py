@@ -271,6 +271,30 @@ class Webpage_Visit_Tool(BaseTool):
             return f"https://{url}"
         return url
 
+    @staticmethod
+    def _extract_jsonld_image(data: Dict[str, Any]) -> str:
+        """Pull a single image URL from Schema.org JSON-LD if present.
+
+        ``jsonld.image`` is often the full-resolution version of og:image
+        (og:image is typically a sized social-card thumbnail). It can be
+        a string, a list of strings, or a list of {url: ...} objects.
+        """
+        jsonld = data.get("jsonld")
+        if not isinstance(jsonld, dict):
+            return ""
+        img = jsonld.get("image")
+        if isinstance(img, str):
+            return img
+        if isinstance(img, list) and img:
+            first = img[0]
+            if isinstance(first, str):
+                return first
+            if isinstance(first, dict):
+                return str(first.get("url") or first.get("@id") or "")
+        if isinstance(img, dict):
+            return str(img.get("url") or img.get("@id") or "")
+        return ""
+
     def _fetch_page_serper(self, url: str) -> Dict[str, Any]:
         """Fetch page content via Serper Scrape API (scrape.serper.dev)."""
         client = self._get_client()
@@ -279,15 +303,23 @@ class Webpage_Visit_Tool(BaseTool):
         metadata = data.get("metadata", {})
         if not text:
             raise RuntimeError("Serper Scrape returned empty text")
-        # ``og:image`` is the page's hero/representative image (Open Graph
-        # protocol). Most well-formed pages emit it; ImageStateMemory
-        # registers it as ``tool_generated_image_N`` for downstream
-        # OCR / VLM consumption. Filter to http(s) URLs — meta tags
-        # occasionally contain relative paths or data: URLs which are
-        # not registerable.
-        raw_og = metadata.get("og:image", "") or metadata.get("twitter:image", "")
-        og_image_str = str(raw_og or "").strip()
-        og_image = og_image_str if og_image_str.lower().startswith(("http://", "https://")) else ""
+        # Page hero image — try sources in order of resolution quality:
+        # 1. jsonld.image (Schema.org structured data, usually full-res)
+        # 2. og:image (Open Graph, often a fixed social-card thumbnail)
+        # 3. twitter:image (last resort)
+        # Filter to http(s); meta tags occasionally hold relative paths
+        # or data: URLs which are not registerable by ImageStateMemory.
+        raw_candidates = (
+            self._extract_jsonld_image(data),
+            metadata.get("og:image", ""),
+            metadata.get("twitter:image", ""),
+        )
+        og_image = ""
+        for cand in raw_candidates:
+            s = str(cand or "").strip()
+            if s.lower().startswith(("http://", "https://")):
+                og_image = s
+                break
         return {
             "content": text,
             "description": metadata.get("description", "") or metadata.get("og:description", ""),
