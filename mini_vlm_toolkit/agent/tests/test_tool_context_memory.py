@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import sys
 import types
@@ -25,44 +24,60 @@ api_utils_stub = types.ModuleType("mini_vlm_toolkit.utils.api_utils")
 api_utils_stub.local_image_to_data_url = lambda _path: "data:image/png;base64,"
 sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
-from mini_vlm_toolkit.memory.tool_context_memory import ToolContextMemory
+from mini_vlm_toolkit.memory import build_persistent_state_memory
+from mini_vlm_toolkit.memory.run_state import BindingDescriptor, FieldDescriptor
 
 
-def test_coding_context_ndarrays_are_json_safe_transport_values():
-    memory = ToolContextMemory()
-    depth = np.array([[1.25, 2.5], [3.75, 4.0]], dtype=np.float32)
-    memory._tool_result_bindings = {
+def _seed_descriptors(memory):
+    memory.state.bindings.bindings = {
         "depth_scene": {
-            "depth_meters": depth,
+            "depth_meters": np.array([[1.25, 2.5], [3.75, 4.0]], dtype=np.float32),
             "label": "scene",
         }
     }
+    memory.state.bindings.descriptors = {
+        "depth_scene": BindingDescriptor(
+            key="depth_scene",
+            source_tool="Depth_Estimation_Tool",
+            source_args={},
+            fields={
+                "depth_meters": FieldDescriptor(
+                    dtype="ndarray shape=(2, 2) dtype=float32",
+                    description="per-pixel metric depth in meters",
+                    shape_hint="",
+                    preview="range=[1.25, 4]",
+                ),
+            },
+        )
+    }
+
+
+def test_python_coding_agent_tool_receives_binding_descriptors():
+    memory = build_persistent_state_memory("tool_context")
+    _seed_descriptors(memory)
 
     resolved, _info = memory.resolve_tool_call_args(
         agent=None,
-        args={"code": "print(depth_scene['depth_meters'].shape)"},
-        tool_name="Python_Executor_Tool",
+        args={"task": "compute the mean depth"},
+        tool_name="Python_Coding_Agent_Tool",
     )
 
-    json.dumps({"tool_name": "Python_Executor_Tool", "args": resolved})
-    encoded = resolved["context_bindings"]["depth_scene"]["depth_meters"]
-    assert encoded["__toolvision_type__"] == "ndarray"
-    assert encoded["dtype"] == "float32"
-    assert encoded["shape"] == [2, 2]
-    assert isinstance(encoded["data_b64"], str)
-    np.testing.assert_array_equal(
-        memory._tool_result_bindings["depth_scene"]["depth_meters"],
-        depth,
-    )
+    assert "binding_descriptors" in resolved
+    descriptors = resolved["binding_descriptors"]
+    assert isinstance(descriptors, dict)
+    assert "depth_scene" in descriptors
+    depth_desc = descriptors["depth_scene"]
+    assert depth_desc["source_tool"] == "Depth_Estimation_Tool"
+    assert "depth_meters" in depth_desc["fields"]
+    # Descriptors are JSON-safe metadata, not raw values.
+    assert "depth_meters" not in resolved
+    # Old context_bindings injection mechanism is gone.
+    assert "context_bindings" not in resolved
 
 
-def test_non_coding_tools_do_not_receive_transport_encoded_bindings():
-    memory = ToolContextMemory()
-    memory._tool_result_bindings = {
-        "depth_scene": {
-            "depth_meters": np.array([[1.0]], dtype=np.float32),
-        }
-    }
+def test_non_coding_agent_tools_receive_no_binding_descriptors():
+    memory = build_persistent_state_memory("tool_context")
+    _seed_descriptors(memory)
 
     resolved, _info = memory.resolve_tool_call_args(
         agent=None,
@@ -70,10 +85,25 @@ def test_non_coding_tools_do_not_receive_transport_encoded_bindings():
         tool_name="OCR_Tool",
     )
 
+    assert "binding_descriptors" not in resolved
+    assert "context_bindings" not in resolved
     assert resolved == {"query": "read text"}
 
 
+def test_binding_descriptors_omitted_when_no_bindings_accumulated():
+    memory = build_persistent_state_memory("tool_context")
+
+    resolved, _info = memory.resolve_tool_call_args(
+        agent=None,
+        args={"task": "anything"},
+        tool_name="Python_Coding_Agent_Tool",
+    )
+
+    assert "binding_descriptors" not in resolved
+
+
 if __name__ == "__main__":
-    test_coding_context_ndarrays_are_json_safe_transport_values()
-    test_non_coding_tools_do_not_receive_transport_encoded_bindings()
+    test_python_coding_agent_tool_receives_binding_descriptors()
+    test_non_coding_agent_tools_receive_no_binding_descriptors()
+    test_binding_descriptors_omitted_when_no_bindings_accumulated()
     print("Tool context memory tests passed.")

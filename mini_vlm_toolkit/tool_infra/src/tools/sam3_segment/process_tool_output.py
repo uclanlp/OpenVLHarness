@@ -10,33 +10,29 @@ def _safe_int(value, default=0):
         return default
 
 
-def process_tool_output(payload, memory, tool_metadata=None):
+def process_tool_output(payload, prepared, tool_metadata=None):
     if not isinstance(payload, dict) or payload.get("ok") is not True:
-        return memory.process_tool_output_default(
-            payload=payload,
-            tool_metadata=tool_metadata,
-            processor_info={
-                "mode": PROCESSOR_MODE,
-                "status": "fallback",
+        return {
+            "processor_info": {
+                "mode": PROCESSOR_MODE, "status": "fallback",
                 "fallback_reason": "non_success_payload",
-            },
-        )
+            }
+        }
 
     result = payload.get("result")
     if not isinstance(result, dict):
-        return memory.process_tool_output_default(
-            payload=payload,
-            tool_metadata=tool_metadata,
-            processor_info={
-                "mode": PROCESSOR_MODE,
-                "status": "fallback",
+        return {
+            "processor_info": {
+                "mode": PROCESSOR_MODE, "status": "fallback",
                 "fallback_reason": "result_not_dict",
-            },
-        )
+            }
+        }
 
-    prepared = memory.prepare_tool_message_payload(payload)
     image_refs = prepared.get("image_refs") if isinstance(prepared, dict) else []
     image_ref = image_refs[0] if isinstance(image_refs, list) and image_refs else None
+    image_parts = prepared.get("image_parts") if isinstance(prepared, dict) else []
+    if not isinstance(image_parts, list):
+        image_parts = []
 
     pred_scores = result.get("pred_scores")
     if isinstance(pred_scores, list):
@@ -47,37 +43,32 @@ def process_tool_output(payload, memory, tool_metadata=None):
     tool_name = str(payload.get("tool_name") or "Visual_Grounding_Tool").strip()
     prompt = str(result.get("prompt") or "").strip()
 
+    tool_detection = None
     if mask_count > 0 and image_ref:
         pred_boxes = result.get("pred_boxes", [])
         orig_w = result.get("orig_img_w", 1)
         orig_h = result.get("orig_img_h", 1)
 
-        # Phase 2: stash the per-tool-call (boxes, scores) candidate set on
-        # the memory object as a sidecar entry. The LLM-visible text below
-        # is unchanged (scores still scrubbed from the prompt).  At eval
-        # time the inference loop persists memory.tool_detections to
-        # tool_detections/<task_id>.json and the eval bridge IoU-matches
-        # agent boxes against these candidates to recover real scores.
+        # Phase 2: stash per-call (boxes, scores) candidate set on the
+        # orchestrator's eval sidecar. The orchestrator sees the
+        # `tool_detection` key in this return and forwards it to
+        # record_tool_detection — keeps process_fn free of memory access.
         if (
             isinstance(pred_scores, list)
             and pred_scores
             and isinstance(pred_boxes, list)
-            and hasattr(memory, "record_tool_detection")
         ):
-            try:
-                memory.record_tool_detection(
-                    tool_name=tool_name,
-                    category_query=prompt,
-                    boxes_xyxy_pixels=[
-                        list(b) for b in pred_boxes if isinstance(b, (list, tuple)) and len(b) >= 4
-                    ],
-                    scores=list(pred_scores),
-                    image_width=_safe_int(orig_w, default=0),
-                    image_height=_safe_int(orig_h, default=0),
-                )
-            except Exception:
-                # Don't let sidecar bookkeeping break the agent path.
-                pass
+            tool_detection = {
+                "tool_name": tool_name,
+                "category_query": prompt,
+                "boxes_xyxy_pixels": [
+                    list(b) for b in pred_boxes
+                    if isinstance(b, (list, tuple)) and len(b) >= 4
+                ],
+                "scores": list(pred_scores),
+                "image_width": _safe_int(orig_w, default=0),
+                "image_height": _safe_int(orig_h, default=0),
+            }
 
         box_mapping = {
             f"object {i + 1}": [
@@ -100,9 +91,18 @@ def process_tool_output(payload, memory, tool_metadata=None):
             + f"Please examine the image carefully to determine whether it contains {prompt!r}. If the image does contain {prompt!r} but {tool_name} did not successfully ground it, you may try calling {tool_name} again with an alternative / simpler prompt or locate it directly by yourself."
         )
 
-    return memory.build_processed_tool_output(
-        payload=payload,
-        prepared_payload=prepared,
-        text=text,
-        processor_info={"mode": PROCESSOR_MODE, "status": "ok"},
-    )
+    if image_parts:
+        user_message = {
+            "role": "user",
+            "content": [{"type": "text", "text": text}] + list(image_parts),
+        }
+    else:
+        user_message = {"role": "user", "content": text}
+
+    out = {
+        "user_message": user_message,
+        "processor_info": {"mode": PROCESSOR_MODE, "status": "ok"},
+    }
+    if tool_detection is not None:
+        out["tool_detection"] = tool_detection
+    return out

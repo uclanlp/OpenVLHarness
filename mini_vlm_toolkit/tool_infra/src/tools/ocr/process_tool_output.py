@@ -13,16 +13,9 @@ PROCESSOR_MODE = "custom"
 _DROPPED_RESULT_KEYS = ("gpu", "languages")
 
 
-def process_tool_output(payload, memory, tool_metadata=None):
-    cleaned = payload
-    if isinstance(payload, dict) and isinstance(payload.get("result"), dict):
-        cleaned = cp.deepcopy(payload)
-        result = cleaned["result"]
-        for key in _DROPPED_RESULT_KEYS:
-            result.pop(key, None)
-
-    return memory.process_tool_output_default(
-        payload=cleaned,
-        tool_metadata=tool_metadata,
-        processor_info={"mode": PROCESSOR_MODE, "dropped_result_keys": list(_DROPPED_RESULT_KEYS)},
-    )
+def process_tool_output(payload, prepared, tool_metadata=None):
+    """Return None to delegate to the orchestrator's default tool-return
+    message construction. Tools needing a custom message build a dict
+    ``{"user_message": ..., "processor_info": ...}``.
+    """
+    return None

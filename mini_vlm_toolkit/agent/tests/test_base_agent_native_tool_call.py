@@ -51,7 +51,8 @@ sys.modules.setdefault("mini_vlm_toolkit.utils.api_utils", api_utils_stub)
 
 import mini_vlm_toolkit.agent.base as base_module
 from mini_vlm_toolkit.agent.base import BaseAgentWithTools, BaseAgentWithToolsV3
-from mini_vlm_toolkit.memory import ImageStateMemory, PersistentStateMemory
+from mini_vlm_toolkit.memory import PersistentStateMemory, build_persistent_state_memory
+import mini_vlm_toolkit.memory.modules.image as _image_module
 
 
 class _DummyAgent(BaseAgentWithTools):
@@ -90,8 +91,7 @@ def _build_agent():
     agent.max_iterations = 3
     agent.tool_choice = "auto"
     agent.system_prompt = agent._construct_system_message()
-    agent.persistent_state_memory = ImageStateMemory(emit_policy="always")
-    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
+    agent.persistent_state_memory = build_persistent_state_memory("image", emit_policy="always")
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTest")
@@ -131,8 +131,7 @@ def _build_agent_v3():
     agent.prompt_version = "v5"
     agent.stop_tokens = ["</tool_call>"]
     agent.system_prompt = agent._construct_system_message()
-    agent.persistent_state_memory = ImageStateMemory(emit_policy="always")
-    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
+    agent.persistent_state_memory = build_persistent_state_memory("image", emit_policy="always")
     agent.timeout = 10
     agent.fail_msg = "Error: test failure"
     agent.logger = _get_logger("BaseAgentNativeToolCallTestV3")
@@ -295,7 +294,6 @@ def test_native_tool_call_single_text_tool():
 def test_native_tool_call_single_text_tool_base_memory_ack_and_summary():
     agent = _build_agent()
     agent.persistent_state_memory = PersistentStateMemory()
-    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
     state = {"chat_calls": 0}
 
     def fake_chat_completion_request(**kwargs):
@@ -400,7 +398,6 @@ def test_native_tool_call_single_text_tool_base_memory_ack_and_summary():
 def test_native_tool_call_single_text_tool_base_memory_failure_only_tool_message():
     agent = _build_agent()
     agent.persistent_state_memory = PersistentStateMemory()
-    agent.persistent_state_memory.configure_tool_schema(agent.json_schema)
     state = {"chat_calls": 0}
 
     def fake_chat_completion_request(**kwargs):
@@ -691,21 +688,17 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     )
     expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
 
-    def fake_build_image_registry(_question):
-        agent.persistent_state_memory._image_registry = {
-            "input_image_1": {
-                "id": "input_image_1",
-                "data_url": expected_data_url,
-                "source": "user_input",
-                "aliases": {"input_image_1", "image.jpg"},
-            }
+    def fake_build_image_registry(images, _question):
+        images.registry["input_image_1"] = {
+            "id": "input_image_1",
+            "data_url": expected_data_url,
+            "source": "user_input",
+            "aliases": {"input_image_1", "image.jpg"},
         }
-        agent.persistent_state_memory._image_alias_to_ref = {
-            "input_image_1": "input_image_1",
-            "image.jpg": "input_image_1",
-        }
-        agent.persistent_state_memory._image_url_to_ref = {expected_data_url: "input_image_1"}
-        return agent.persistent_state_memory._image_registry
+        images.alias_to_ref["input_image_1"] = "input_image_1"
+        images.alias_to_ref["image.jpg"] = "input_image_1"
+        images.url_to_ref[expected_data_url] = "input_image_1"
+        return images.registry
 
     def fake_chat_completion_request(**kwargs):
         state["chat_calls"] += 1
@@ -795,7 +788,8 @@ def test_native_tool_call_resolves_hallucinated_image_path():
             "meta": {},
         }
 
-    agent.persistent_state_memory._build_image_registry_from_inputs = fake_build_image_registry
+    original_build = _image_module.build_image_registry_from_inputs
+    _image_module.build_image_registry_from_inputs = fake_build_image_registry
     original_chat_completion_request = base_module.chat_completion_request
     original_tool_execute_request = base_module.tool_execute_request
     base_module.chat_completion_request = fake_chat_completion_request
@@ -803,6 +797,7 @@ def test_native_tool_call_resolves_hallucinated_image_path():
     try:
         answer, chat_history = agent._run([{"type": "text", "value": "Count the children."}])
     finally:
+        _image_module.build_image_registry_from_inputs = original_build
         base_module.chat_completion_request = original_chat_completion_request
         base_module.tool_execute_request = original_tool_execute_request
 
@@ -1086,7 +1081,7 @@ def test_native_tool_call_image_result_top_level_string_scrubbed():
 
 
 def test_image_state_memory_tool_generated_refs_monotonic_and_no_legacy_aliases():
-    memory = ImageStateMemory(emit_policy="always")
+    memory = build_persistent_state_memory("image", emit_policy="always")
 
     payload_1 = {
         "ok": True,
@@ -1439,18 +1434,16 @@ def test_native_tool_call_single_image_fallback_metadata():
     )
     expected_data_url = f"data:image/png;base64,{tiny_png_b64}"
 
-    def fake_build_image_registry(_question):
-        agent.persistent_state_memory._image_registry = {
-            "input_image_1": {
-                "id": "input_image_1",
-                "data_url": expected_data_url,
-                "source": "user_input",
-                "aliases": {"input_image_1"},
-            }
+    def fake_build_image_registry(images, _question):
+        images.registry["input_image_1"] = {
+            "id": "input_image_1",
+            "data_url": expected_data_url,
+            "source": "user_input",
+            "aliases": {"input_image_1"},
         }
-        agent.persistent_state_memory._image_alias_to_ref = {"input_image_1": "input_image_1"}
-        agent.persistent_state_memory._image_url_to_ref = {expected_data_url: "input_image_1"}
-        return agent.persistent_state_memory._image_registry
+        images.alias_to_ref["input_image_1"] = "input_image_1"
+        images.url_to_ref[expected_data_url] = "input_image_1"
+        return images.registry
 
     def fake_chat_completion_request(**kwargs):
         state["chat_calls"] += 1
@@ -1508,7 +1501,8 @@ def test_native_tool_call_single_image_fallback_metadata():
             "meta": {},
         }
 
-    agent.persistent_state_memory._build_image_registry_from_inputs = fake_build_image_registry
+    original_build = _image_module.build_image_registry_from_inputs
+    _image_module.build_image_registry_from_inputs = fake_build_image_registry
     original_chat_completion_request = base_module.chat_completion_request
     original_tool_execute_request = base_module.tool_execute_request
     base_module.chat_completion_request = fake_chat_completion_request
@@ -1516,6 +1510,7 @@ def test_native_tool_call_single_image_fallback_metadata():
     try:
         answer, chat_history = agent._run([{"type": "text", "value": "Count the children."}])
     finally:
+        _image_module.build_image_registry_from_inputs = original_build
         base_module.chat_completion_request = original_chat_completion_request
         base_module.tool_execute_request = original_tool_execute_request
 

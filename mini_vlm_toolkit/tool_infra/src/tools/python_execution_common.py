@@ -284,7 +284,8 @@ def build_rich_data_catalog(binding_descriptors):
 
     Args:
         binding_descriptors: dict of serialized BindingDescriptor dicts,
-            as produced by ToolContextMemory.get_binding_descriptors_payload().
+            as produced by PersistentStateMemory.get_binding_descriptors_payload()
+            (sourced from ToolContextModule's binding descriptors).
 
     Returns:
         A multi-line string suitable for inclusion in a coding LLM prompt.

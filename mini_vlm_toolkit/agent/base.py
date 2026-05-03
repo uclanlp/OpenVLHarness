@@ -7,7 +7,7 @@ import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
 from .constant import PROMPT_REGISTRY
-from ..memory import PersistentStateMemory, ImageStateMemory, ToolContextMemory
+from ..memory import PersistentStateMemory, build_persistent_state_memory
 from ..utils.api_utils import (
     chat_completion_request,
     filter_kwargs_for_endpoint,
@@ -502,7 +502,7 @@ class BaseAgent:
 class BaseAgentWithTools(BaseAgent):
     _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
-    _SUPPORTED_MEMORY_NAMES = ("image", "tool_context")
+    _SUPPORTED_MEMORY_NAMES = ("image", "tool_context", "url")
 
     def __init__(self,
                 tool_base,
@@ -555,7 +555,6 @@ class BaseAgentWithTools(BaseAgent):
         self.system_prompt = self._construct_system_message()
         self._persistent_state_memory_spec = cp.deepcopy(persistent_state_memory)
         self.persistent_state_memory = self._build_persistent_state_memory(persistent_state_memory)
-        self.persistent_state_memory.configure_tool_schema(self.json_schema)
         self.logger.info(
             "PersistentStateMemory: "
             f"{self.persistent_state_memory.__class__.__name__} "
@@ -630,18 +629,15 @@ class BaseAgentWithTools(BaseAgent):
         memory_name = name.strip().lower()
 
         if memory_name in {"", "none", "off", "disabled"}:
-            return PersistentStateMemory()
+            return build_persistent_state_memory(name="base")
 
         options = {key: value for key, value in spec.items() if key != "name"}
-        if memory_name == "image":
-            return ImageStateMemory(**options)
-        if memory_name == "tool_context":
-            return ToolContextMemory(**options)
-
-        raise ValueError(
-            f"Unknown persistent_state_memory '{name}'. "
-            f"Supported memories: {list(self._SUPPORTED_MEMORY_NAMES)}."
-        )
+        if memory_name not in self._SUPPORTED_MEMORY_NAMES:
+            raise ValueError(
+                f"Unknown persistent_state_memory '{name}'. "
+                f"Supported memories: {list(self._SUPPORTED_MEMORY_NAMES)}."
+            )
+        return build_persistent_state_memory(name=memory_name, **options)
 
     def _new_persistent_state_memory(self) -> PersistentStateMemory:
         """Create a fresh per-run memory object.
