@@ -180,7 +180,11 @@ class Image_Search_Tool(BaseTool):
             temperature=0.0, top_p=1.0,
             enable_thinking=_enable_thinking,
         )
-        self._llm_summarize = os.getenv("SEARCH_LLM_SUMMARIZE", "true").strip().lower() in ("true", "1", "yes")
+        # Default off: see serper_text_search for rationale.
+        # ImageStateMemory's URL routing relies on the tool-emitted
+        # ``<img>`` sentinel propagating verbatim. Set
+        # SEARCH_LLM_SUMMARIZE=true explicitly to opt back in.
+        self._llm_summarize = os.getenv("SEARCH_LLM_SUMMARIZE", "false").strip().lower() in ("true", "1", "yes")
         self._llm_max_tokens = int(os.getenv("SEARCH_LLM_MAX_TOKENS", "4096"))
         self._num_results = int(os.getenv("SEARCH_NUM_RESULTS", "10"))
         self._client: Optional[SerperClient] = None
@@ -248,27 +252,72 @@ class Image_Search_Tool(BaseTool):
     @staticmethod
     def _extract_item(item_data: Dict[str, object]) -> Optional[Dict[str, object]]:
         """Extract a visual match from a raw result item."""
+        # Serper /lens returns ``imageUrl`` (source) + ``thumbnailUrl``
+        # (gstatic CDN preview); the field name ``thumbnail`` does not
+        # exist. Iterate per-candidate so that a data: URL in imageUrl
+        # does not block falling through to a usable http thumbnailUrl.
         title = item_data.get("title")
         link = item_data.get("link")
         if not title and not link:
             return None
+        thumbnail = ""
+        for key in ("imageUrl", "thumbnailUrl"):
+            cand = str(item_data.get(key) or "").strip()
+            if cand.lower().startswith(("http://", "https://")):
+                thumbnail = cand
+                break
         return {
             "title": title or "",
             "link": link or "",
             "source": item_data.get("source", ""),
-            "thumbnail": item_data.get("thumbnail", ""),
+            "thumbnail": thumbnail,
             "position": item_data.get("position", ""),
         }
 
     def _format_raw_results(self, results: List[Dict[str, object]]) -> str:
-        """Format raw visual matches into numbered text for LLM or direct output."""
+        """Format raw visual matches into numbered text for LLM or direct output.
+
+        Emits a ``Source: {domain/slug-path}   {link}`` line per result. The
+        path portion is preserved (scheme / www. / query stripped) so the
+        URL slug remains a semantic cue for the agent. ImageStateMemory's
+        URL rewriting registers the page link as ``webpage_url_N`` and
+        the trailing ``Image: {thumbnail} <img>`` line as
+        ``tool_generated_image_N`` (the ``<img>`` sentinel forces image
+        classification regardless of URL extension — Google CDN
+        thumbnails typically have no extension).
+        """
+        MAX_PATH_LEN = 80
         lines = []
         for i, item in enumerate(results, 1):
             lines.append(f"{i}. {item.get('title', '')}")
-            if item.get("link"):
-                lines.append(f"   URL: {item['link']}")
-            if item.get("source"):
-                lines.append(f"   Source: {item['source']}")
+            link = item.get("link")
+            thumbnail = str(item.get("thumbnail") or "").strip()
+            existing_source = str(item.get("source") or "").strip()
+            if link:
+                try:
+                    parsed = urlparse(str(link))
+                    host = (parsed.netloc or "").lower().removeprefix("www.")
+                    path = parsed.path or ""
+                except Exception:
+                    host = ""
+                    path = ""
+                compact = (host + path).rstrip("/")
+                if compact and len(compact) > MAX_PATH_LEN:
+                    tail_seg = path.rstrip("/").rsplit("/", 1)[-1] if path else ""
+                    compact = (
+                        f"{host}/.../{tail_seg}"
+                        if tail_seg and (len(host) + 4 + len(tail_seg)) <= MAX_PATH_LEN + 10
+                        else compact[: MAX_PATH_LEN - 3] + "..."
+                    )
+                display = compact or existing_source
+                if display:
+                    lines.append(f"   Source: {display}   {link}")
+                else:
+                    lines.append(f"   URL: {link}")
+            elif existing_source:
+                lines.append(f"   Source: {existing_source}")
+            if thumbnail:
+                lines.append(f"   Image: {thumbnail} <img>")
         return "\n".join(lines)
 
     def _summarize_with_llm(self, raw_text: str) -> str:

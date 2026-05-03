@@ -172,6 +172,21 @@ class SerperClient:
 # ---------------------------------------------------------------------------
 # Result formatters
 # ---------------------------------------------------------------------------
+def _http_image_url(url: object) -> str:
+    """Return ``url`` only if it is a non-empty http(s) URL.
+
+    Some Serper endpoints (notably /shopping, ~75% of items) inline
+    images as ``data:image/...;base64,...`` URLs. Emitting those into
+    the agent text bloats context massively (tens of KB per item) and
+    they are not registerable by ImageStateMemory's URL rewriter
+    (which only matches ``https?://``). Skip non-http URLs so the
+    formatter neither emits a useless ``Image:`` line nor leaks the
+    inline base64 blob into the agent's context.
+    """
+    s = str(url or "").strip()
+    return s if s.lower().startswith(("http://", "https://")) else ""
+
+
 def format_search_results(search_type: str, data: Dict[str, Any], max_results: int = 10) -> str:
     """Format raw Serper response into agent-readable text."""
     formatter = _FORMATTERS.get(search_type, _format_generic)
@@ -179,13 +194,26 @@ def format_search_results(search_type: str, data: Dict[str, Any], max_results: i
 
 
 def _format_organic(data: Dict[str, Any], max_results: int) -> str:
-    """Format /search, /scholar, /patents responses (organic key)."""
+    """Format /search, /scholar, /patents responses (organic key).
+
+    Also surfaces image URLs from auxiliary sections that some queries
+    return alongside organic results — ``topStories`` (breaking-news
+    queries on /search) and per-item ``thumbnailUrl`` (every /patents
+    item, the patent's main figure). Without this, a "Apple earnings"
+    search would silently lose all topStories thumbnails, and patent
+    queries would lose every patent diagram.
+    """
     lines = []
 
     # Knowledge graph (if present)
     kg = data.get("knowledgeGraph")
     if kg:
         lines.append(f"[Knowledge Graph] {kg.get('title', '')}: {kg.get('description', '')}")
+        kg_image_url = _http_image_url(kg.get("imageUrl"))
+        if kg_image_url:
+            # ImageStateMemory routes URLs trailed by ` <img>` directly
+            # into the image registry as ``tool_generated_image_N``.
+            lines.append(f"  Image: {kg_image_url} <img>")
         for k, v in (kg.get("attributes") or {}).items():
             lines.append(f"  {k}: {v}")
         lines.append("")
@@ -197,6 +225,28 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
         lines.append(ab.get("snippet", ""))
         lines.append("")
 
+    # Top Stories (breaking-news subsection on /search; each item carries
+    # an imageUrl). Emit BEFORE organic so freshness signals lead.
+    top_stories = data.get("topStories", [])[:max_results]
+    if top_stories:
+        lines.append("[Top Stories]")
+        for i, item in enumerate(top_stories, 1):
+            title = item.get("title", "")
+            link = item.get("link", "")
+            source = item.get("source", "")
+            date = item.get("date", "")
+            img = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
+            lines.append(f"{i}. {title}")
+            if link:
+                meta_bits = " | ".join(filter(None, [source, date]))
+                if meta_bits:
+                    lines.append(f"   {meta_bits}   {link}")
+                else:
+                    lines.append(f"   URL: {link}")
+            if img:
+                lines.append(f"   Image: {img} <img>")
+        lines.append("")
+
     items = data.get("organic", [])[:max_results]
     for i, item in enumerate(items, 1):
         title = item.get("title", "")
@@ -205,17 +255,23 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
         extra_parts = []
         if item.get("year"):
             extra_parts.append(f"Year: {item['year']}")
-        if item.get("citedBy"):
-            cited = item["citedBy"]
-            if isinstance(cited, dict):
-                extra_parts.append(f"Cited by: {cited.get('total', '')}")
         extra = " | ".join(extra_parts)
+        # Per-item image (patents' main figure thumbnailUrl; some /search
+        # rich items also carry imageUrl). Patents' ``figures[]`` array can
+        # contain 5-13 entries — intentionally emit only the main thumbnail
+        # to avoid context bloat; agent can visit the patent for more.
+        per_item_img = (
+            _http_image_url(item.get("thumbnailUrl"))
+            or _http_image_url(item.get("imageUrl"))
+        )
         lines.append(f"{i}. {title}")
         lines.append(f"   URL: {link}")
         if snippet:
             lines.append(f"   {snippet}")
         if extra:
             lines.append(f"   {extra}")
+        if per_item_img:
+            lines.append(f"   Image: {per_item_img} <img>")
     return "\n".join(lines)
 
 
@@ -224,12 +280,17 @@ def _format_images(data: Dict[str, Any], max_results: int) -> str:
     lines = []
     for i, item in enumerate(items, 1):
         title = item.get("title", "")
-        img_url = item.get("imageUrl", "")
+        # Prefer source-quality imageUrl; fall back to gstatic thumbnailUrl.
+        # _http_image_url also filters out inline data: URLs.
+        img_url = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         source = item.get("source", "")
         w = item.get("imageWidth", "")
         h = item.get("imageHeight", "")
         lines.append(f"{i}. {title}")
-        lines.append(f"   Image: {img_url}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if img_url:
+            lines.append(f"   Image: {img_url} <img>")
         if source:
             lines.append(f"   Source: {source}")
         if w and h:
@@ -246,8 +307,13 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
         source = item.get("source", "")
         date = item.get("date", "")
         snippet = item.get("snippet", "")
+        thumbnail = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         lines.append(f"{i}. {title}")
         lines.append(f"   URL: {link}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if thumbnail:
+            lines.append(f"   Image: {thumbnail} <img>")
         meta = " | ".join(filter(None, [source, date]))
         if meta:
             lines.append(f"   {meta}")
@@ -268,6 +334,7 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
         place_type = item.get("type", "")
         phone = item.get("phoneNumber", "")
         website = item.get("website", "")
+        img_url = _http_image_url(item.get("thumbnailUrl")) or _http_image_url(item.get("imageUrl"))
         lines.append(f"{i}. {title}")
         if place_type:
             lines.append(f"   Type: {place_type}")
@@ -279,6 +346,10 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   Phone: {phone}")
         if website:
             lines.append(f"   Website: {website}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if img_url:
+            lines.append(f"   Image: {img_url} <img>")
     return "\n".join(lines)
 
 
@@ -306,6 +377,9 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
         price = item.get("price", "")
         link = item.get("link", "")
         source = item.get("source", "")
+        # Shopping items frequently carry data: URLs (~75% on /shopping);
+        # _http_image_url filters those out so we don't bloat agent context.
+        img_url = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         lines.append(f"{i}. {title}")
         if price:
             lines.append(f"   Price: {price}")
@@ -313,6 +387,10 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   URL: {link}")
         if source:
             lines.append(f"   Source: {source}")
+        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # into the image registry as ``tool_generated_image_N``.
+        if img_url:
+            lines.append(f"   Image: {img_url} <img>")
     return "\n".join(lines)
 
 

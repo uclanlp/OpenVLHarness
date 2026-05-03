@@ -110,7 +110,12 @@ class LLMEngine:
         system_prompt: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         if isinstance(prompt_or_messages, str):
-            return [{"role": "user", "content": prompt_or_messages}]
+            messages: List[Dict[str, Any]] = [
+                {"role": "user", "content": prompt_or_messages}
+            ]
+            if system_prompt:
+                messages = [{"role": "system", "content": system_prompt}] + messages
+            return messages
 
         if not isinstance(prompt_or_messages, list):
             raise TypeError("prompt_or_messages must be a string or a list of messages")
