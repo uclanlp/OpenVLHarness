@@ -251,7 +251,16 @@ class Text_Search_Tool(BaseTool):
             result = self.llm_engine.generate(
                 prompt, max_tokens=self._llm_max_tokens, temperature=0.0, top_p=1.0,
             )
-            return strip_think_tags(result)
+            stripped = strip_think_tags(result or "")
+            # Empty / whitespace-only LLM output is not a useful summary —
+            # fall back to raw_results so the agent still gets the
+            # underlying citations + ``<img>`` sentinels intact.
+            if not stripped.strip():
+                logger.warning(
+                    "LLM summarization returned empty content, returning raw results"
+                )
+                return raw_results
+            return stripped
         except Exception as exc:
             logger.warning("LLM summarization failed (%s), returning raw results", exc)
             return raw_results
