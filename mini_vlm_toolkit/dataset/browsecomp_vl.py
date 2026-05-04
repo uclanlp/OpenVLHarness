@@ -33,6 +33,10 @@ from ..utils import track_progress_rich
 # simplevqa_en / vdrbench for cross-benchmark consistency).
 # ---------------------------------------------------------------------------
 from .utils.hle_judge import HLE_JUDGE_PROMPT as JUDGE_PROMPT, parse_hle_judgement
+from .utils.judge_rs import (
+    JUDGE_RS_PROMPT, JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT,
+    JUDGE_RS_VERSION, parse_judge_rs_judgement,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -78,8 +82,15 @@ Respond **strictly in a valid JSON object** matching this schema:
 # Per-item grading helpers
 # ---------------------------------------------------------------------------
 
-def _grade_item(model, item):
-    """Grade a single prediction using the BrowseComp-VL JUDGE_PROMPT.
+def _grade_item(model, item, judge_name: str = 'hle'):
+    """Grade a single prediction using the selected judge protocol.
+
+    ``judge_name`` selects the judge prompt + parser:
+      - ``'hle'`` (default): paper-protocol HLE_JUDGE_PROMPT (extract +
+        binary correct yes/no JSON). Reported numbers match the
+        BrowseComp-VL paper.
+      - ``'judge_rs'``: Rui's iterative judge protocol (more lenient, MM-DR
+        11-rule pair). For exploratory comparison.
 
     Returns a dict with keys: correct (1 or 0), extracted_answer, reasoning.
     """
@@ -99,23 +110,56 @@ def _grade_item(model, item):
     # Use the first answer as the correct_answer (matches original code line 76)
     correct_answer = gt_list[0]
 
-    prompt = JUDGE_PROMPT.format(
-        question=question,
-        correct_answer=correct_answer,
-        response=prediction,
-    )
+    if judge_name == 'judge_rs':
+        # Judge_RS schema: ground_truth_answer + candidate_answers + model_response.
+        # Send system + user as separate roles via ``generate_inner`` (skips
+        # ``model.generate``'s ``preprocess_message_with_role`` which would
+        # mutate ``self.system_prompt`` on the wrapper instance).
+        rest = [str(x) for x in gt_list[1:] if str(x).strip()]
+        candidates = ' | '.join(rest) if rest else '(none)'
+        msgs_role_split = [
+            {"role": "system", "content": [{"type": "text", "value": JUDGE_RS_SYSTEM_PROMPT}]},
+            {"role": "user",   "content": [{"type": "text", "value": JUDGE_RS_USER_PROMPT.format(
+                question=str(question),
+                ground_truth_answer=str(correct_answer),
+                candidate_answers=candidates,
+                model_response=prediction,
+            )}]},
+        ]
+        parser = parse_judge_rs_judgement
+        unparseable_sentinel = 'judge_rs failed to parse'
+        use_role_split = True
+    else:
+        prompt = JUDGE_PROMPT.format(
+            question=question,
+            correct_answer=correct_answer,
+            response=prediction,
+        )
+        parser = parse_hle_judgement
+        unparseable_sentinel = 'judge failed to parse'
+        use_role_split = False
 
     retry = 3
     while retry:
-        ans = model.generate(prompt)
-        if 'Failed to obtain answer via API' in ans:
-            retry -= 1
-            continue
-        parsed = parse_hle_judgement(ans)
-        # parse_hle_judgement signals "couldn't parse" via this reasoning
-        # string; on that case, retry. Any other verdict (correct=0 or 1)
-        # is a legitimate judge answer.
-        if parsed.get('reasoning') != 'judge failed to parse':
+        if use_role_split:
+            try:
+                code, ans, _log = model.generate_inner(msgs_role_split)
+            except Exception:
+                retry -= 1
+                continue
+            if code != 0 or not ans:
+                retry -= 1
+                continue
+        else:
+            ans = model.generate(prompt)
+            if 'Failed to obtain answer via API' in ans:
+                retry -= 1
+                continue
+        parsed = parser(ans)
+        # parser signals "couldn't parse" via this reasoning string; on
+        # that case, retry. Any other verdict (correct=0 or 1) is a
+        # legitimate judge answer.
+        if parsed.get('reasoning') != unparseable_sentinel:
             return dict(
                 correct=parsed['correct'],
                 extracted_answer=parsed.get('extracted_answer', ''),
@@ -246,6 +290,21 @@ class BrowseCompVLDataset(ImageBaseDataset):
         # parameter). Pop it before passing kwargs to build_judge() so it
         # doesn't leak into the OpenAI request payload and trigger 400.
         enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
+        # Optional alternative judge protocol. Default = paper-protocol HLE.
+        # Override via judge_kwargs['judge_prompt'] = 'judge_rs' OR env
+        # MVT_JUDGE_PROMPT=judge_rs. Filename suffix '_judge_rs' is added
+        # to scoring artifacts so HLE + Judge_RS results coexist in the
+        # same run dir without overwriting each other.
+        judge_name = (
+            os.environ.get('MVT_JUDGE_PROMPT')
+            or judge_kwargs.pop('judge_prompt', None)
+            or 'hle'
+        ).lower()
+        if judge_name not in ('hle', 'judge_rs'):
+            raise ValueError(
+                f"Unknown judge_prompt {judge_name!r}; supported: 'hle' (default), 'judge_rs'"
+            )
+        judge_suffix = '' if judge_name == 'hle' else f'_{judge_name}'
         model = build_judge(**judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -256,7 +315,7 @@ class BrowseCompVLDataset(ImageBaseDataset):
             return pd.DataFrame()
 
         # Run grading
-        result_file = get_intermediate_file_path(eval_file, '_bcvl_grade', 'pkl')
+        result_file = get_intermediate_file_path(eval_file, f'_bcvl_grade{judge_suffix}', 'pkl')
         result_cache = {}
         if osp.exists(result_file):
             result_cache = load(result_file)
@@ -269,7 +328,7 @@ class BrowseCompVLDataset(ImageBaseDataset):
                 items_to_grade.append(item)
 
         if items_to_grade:
-            tups = [dict(model=model, item=x) for x in items_to_grade]
+            tups = [dict(model=model, item=x, judge_name=judge_name) for x in items_to_grade]
             keys = [str(x['index']) for x in items_to_grade]
             res = track_progress_rich(
                 _grade_item, tups, nproc=nproc, chunksize=nproc,
@@ -294,13 +353,14 @@ class BrowseCompVLDataset(ImageBaseDataset):
             for idx in data['index']
         ]
 
-        # Save detailed results
-        detail_file = get_intermediate_file_path(eval_file, '_bcvl_detail')
+        # Save detailed results (filename includes judge_suffix so HLE +
+        # Judge_RS coexist in the same run dir without overwriting).
+        detail_file = get_intermediate_file_path(eval_file, f'_bcvl_detail{judge_suffix}')
         dump(data, detail_file)
 
         # Compute accuracy
         acc = self._compute_accuracy(data)
-        score_file = get_intermediate_file_path(eval_file, '_bcvl_acc', 'csv')
+        score_file = get_intermediate_file_path(eval_file, f'_bcvl_acc{judge_suffix}', 'csv')
         dump(acc, score_file)
         logger.info(f'BrowseComp-VL accuracy results saved to {score_file}')
 

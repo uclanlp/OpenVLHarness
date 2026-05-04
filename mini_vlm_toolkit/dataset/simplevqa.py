@@ -263,8 +263,12 @@ class SimpleVQA_EN(SimpleVQA):
         instead of the Chinese conclusion). Returned DataFrame has the
         same single-column ``[metric, value]`` shape SimpleVQAEval used.
         """
+        import os as _os
         from mini_vlm_toolkit.dataset.utils.hle_judge import (
             HLE_JUDGE_PROMPT, parse_hle_judgement,
+        )
+        from mini_vlm_toolkit.dataset.utils.judge_rs import (
+            JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
         )
         from mini_vlm_toolkit.dataset.utils.webwatcher_subset import (
             apply_webwatcher_subset,
@@ -276,7 +280,18 @@ class SimpleVQA_EN(SimpleVQA):
         # calls on the 713 non-subset rows. Bypass with
         # MVT_DISABLE_WEBWATCHER_SUBSET=1.
         data = apply_webwatcher_subset(data, "SimpleVQA_EN")
-        fout = open(str(Path(result_file).parent) + '/gpt_eval.json', 'w', encoding='utf-8')
+
+        # Judge selection: env var > judge_kwargs > 'hle' default
+        judge_name = (
+            _os.environ.get('MVT_JUDGE_PROMPT')
+            or judge_kwargs.get('judge_prompt', None)
+            or 'hle'
+        ).strip().lower()
+        if judge_name not in ('hle', 'judge_rs'):
+            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+
+        gpt_eval_filename = 'gpt_eval_judge_rs.json' if judge_name == 'judge_rs' else 'gpt_eval.json'
+        fout = open(str(Path(result_file).parent) + '/' + gpt_eval_filename, 'w', encoding='utf-8')
 
         api_key = judge_kwargs.get('key', None)
         api_base = judge_kwargs.get('api_base', None)
@@ -294,22 +309,47 @@ class SimpleVQA_EN(SimpleVQA):
             model_response = data['prediction'][idx]
             line = {'question': question, 'answer': answer, 'model_response': model_response}
             res_json = line.copy()
-            prompt = HLE_JUDGE_PROMPT.format(
-                question=str(question),
-                correct_answer=str(answer),
-                response=str(model_response),
-            )
-            try:
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0,
-                    max_tokens=max_tokens,
+
+            if judge_name == 'judge_rs':
+                # Send SYSTEM + USER as separate roles
+                user_content = JUDGE_RS_USER_PROMPT.format(
+                    question=str(question),
+                    ground_truth_answer=str(answer),
+                    candidate_answers="(none)",
+                    model_response=str(model_response),
                 )
-                raw = response.choices[0].message.content or ""
-                parsed = parse_hle_judgement(raw)
-            except Exception:
-                parsed = {"correct": 0, "extracted_answer": "", "reasoning": "judge api exception", "confidence": 0}
+                messages = [
+                    {"role": "system", "content": JUDGE_RS_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ]
+                try:
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=0,
+                        max_tokens=max_tokens,
+                    )
+                    raw = response.choices[0].message.content or ""
+                    parsed = parse_judge_rs_judgement(raw)
+                except Exception:
+                    parsed = {"correct": 0, "extracted_answer": "", "reasoning": "judge api exception", "confidence": 0}
+            else:
+                prompt = HLE_JUDGE_PROMPT.format(
+                    question=str(question),
+                    correct_answer=str(answer),
+                    response=str(model_response),
+                )
+                try:
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0,
+                        max_tokens=max_tokens,
+                    )
+                    raw = response.choices[0].message.content or ""
+                    parsed = parse_hle_judgement(raw)
+                except Exception:
+                    parsed = {"correct": 0, "extracted_answer": "", "reasoning": "judge api exception", "confidence": 0}
             res_json["judge_res"] = parsed
             return idx, res_json
 
@@ -329,7 +369,8 @@ class SimpleVQA_EN(SimpleVQA):
         n_unparsed = sum(
             1 for r in results
             if r["judge_res"].get("reasoning") in
-                ("judge failed to parse", "judge unreachable after retries", "judge api exception")
+                ("judge failed to parse", "judge unreachable after retries",
+                 "judge api exception", "judge_rs failed to parse")
         )
         scores = {
             "accuracy": round(100 * n_correct / n, 2) if n else 0.0,

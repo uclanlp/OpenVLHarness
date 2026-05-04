@@ -184,6 +184,12 @@ from .utils.realxbench_judge import (
 )
 
 
+def _normalize_alts(alt_answers) -> list:
+    if isinstance(alt_answers, str):
+        return [a.strip() for a in alt_answers.split(" or ") if a.strip()]
+    return alt_answers if isinstance(alt_answers, list) else []
+
+
 def _judge_one(judge, row) -> Dict[str, Any]:
     question = str(row.get("question", ""))
     gt = str(row.get("answer", ""))
@@ -191,10 +197,8 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     pred_extracted = _extract_answer(pred)
 
     # Check all alternative answers
-    alt_answers = row.get("alternative_gt_answers", [])
-    if isinstance(alt_answers, str):
-        alt_answers = [a.strip() for a in alt_answers.split(" or ") if a.strip()]
-    all_answers = [gt] + (alt_answers if isinstance(alt_answers, list) else [])
+    alt_answers = _normalize_alts(row.get("alternative_gt_answers", []))
+    all_answers = [gt] + alt_answers
     gt_combined = " or ".join(all_answers)
 
     prompt = REALXBENCH_JUDGE_PROMPT.format(
@@ -214,7 +218,40 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     return {"verdict": verdict, "raw_response": raw_response}
 
 
+def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
+    """Judge_RS variant. Opt-in via env ``MVT_JUDGE_PROMPT=judge_rs``."""
+    from .utils.judge_rs import grade_with_judge_rs
+
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+    pred_extracted = _extract_answer(pred)
+    alt_answers = _normalize_alts(row.get("alternative_gt_answers", []))
+    correct_answer_list = [gt] + alt_answers
+
+    try:
+        parsed = grade_with_judge_rs(
+            judge, question, correct_answer_list, pred_extracted or pred,
+        )
+    except Exception as e:
+        logger.warning("RealXBench Judge_RS error: %s", e)
+        return {"verdict": "error", "raw_response": ""}
+
+    if parsed["correct"] == 1:
+        verdict = "correct"
+    elif parsed.get("reasoning") in (
+            "judge_rs failed to parse", "judge unreachable after retries"):
+        verdict = "error"
+    else:
+        verdict = "incorrect"
+    return {"verdict": verdict, "raw_response": str(parsed.get("reasoning", ""))[:200]}
+
+
 def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, Any]):
+    """Switch between RealXBench paper-protocol judge (default) and
+    Judge_RS via env ``MVT_JUDGE_PROMPT`` or ``judge_kwargs['judge_prompt']``.
+    Cache + score files are suffixed with ``_judge_rs`` when active.
+    """
     from .utils import build_judge
     from ..utils.mp_util import track_progress_rich
 
@@ -223,10 +260,26 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     nproc = judge_kwargs_local.pop("nproc", 4)
     max_tokens = judge_kwargs_local.pop("judge_max_tokens", 128)
 
+    judge_name = (
+        os.environ.get('MVT_JUDGE_PROMPT')
+        or judge_kwargs_local.pop('judge_prompt', None)
+        or 'realxbench'
+    ).strip().lower()
+    if judge_name not in ('realxbench', 'judge_rs'):
+        raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'realxbench' or 'judge_rs'")
+    judge_kwargs_local.pop('judge_prompt', None)
+
     judge = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
     assert judge.working(), "RealXBench LLM judge requires a working OpenAI API"
 
-    judge_cache_file = get_intermediate_file_path(eval_file, "_realxbench_llm_judge_cache", "pkl")
+    if judge_name == 'judge_rs':
+        judge_one_fn = _judge_one_judge_rs
+        cache_stem = "_realxbench_llm_judge_judge_rs_cache"
+    else:
+        judge_one_fn = _judge_one
+        cache_stem = "_realxbench_llm_judge_cache"
+
+    judge_cache_file = get_intermediate_file_path(eval_file, cache_stem, "pkl")
     cached: Dict[Any, Dict[str, Any]] = {}
     if osp.exists(judge_cache_file):
         cached = load(judge_cache_file)
@@ -242,7 +295,7 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
 
     if indices:
         track_progress_rich(
-            _judge_one,
+            judge_one_fn,
             tups,
             nproc=nproc,
             chunksize=nproc,
@@ -281,7 +334,8 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
         "task_type": by_task_type,
     }
 
-    judge_score_file = get_intermediate_file_path(eval_file, "_realxbench_llm_judge", "json")
+    score_stem = "_realxbench_llm_judge_judge_rs" if judge_name == 'judge_rs' else "_realxbench_llm_judge"
+    judge_score_file = get_intermediate_file_path(eval_file, score_stem, "json")
     dump(judge_summary, judge_score_file)
     return judge_summary, verdicts
 
@@ -387,7 +441,6 @@ class RealXBench(ImageBaseDataset):
             msgs.append({"type": "image", "value": img_path})
 
         question = str(line.get("question", "") or "").strip()
-        question = question + ANSWER_FORMAT_INSTRUCTION
         msgs.append({"type": "text", "value": question})
         return msgs
 

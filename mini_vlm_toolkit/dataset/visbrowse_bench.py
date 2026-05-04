@@ -227,6 +227,39 @@ def _grade_item(model, item):
     return dict(correct=0, extracted_answer='', reasoning='No matching GT variant')
 
 
+def _grade_item_judge_rs(model, item):
+    """Judge_RS variant of ``_grade_item`` for VisBrowse-Bench.
+
+    Sends ``JUDGE_RS_SYSTEM_PROMPT`` + ``JUDGE_RS_USER_PROMPT`` as
+    separate roles via ``grade_with_judge_rs`` helper. All ground-truth
+    variants are passed as ``Candidate Answers`` (Rule 10 — match any →
+    correct). Opt-in via env ``MVT_JUDGE_PROMPT=judge_rs``.
+    """
+    from .utils.judge_rs import grade_with_judge_rs
+
+    prediction = str(item.get('prediction', ''))
+    gt_list = item.get('ground_truth_list', '')
+    question = item.get('question', '')
+
+    if isinstance(gt_list, str):
+        try:
+            gt_list = json.loads(gt_list)
+        except Exception:
+            gt_list = [gt_list]
+    if not gt_list:
+        return dict(correct=0, extracted_answer='', reasoning='Empty ground truth')
+
+    try:
+        parsed = grade_with_judge_rs(model, question, gt_list, prediction)
+    except Exception as e:
+        return dict(correct=0, extracted_answer='', reasoning=f'judge_rs error: {e}')
+    return dict(
+        correct=int(parsed['correct']),
+        extracted_answer='',
+        reasoning=str(parsed.get('reasoning', ''))[:500],
+    )
+
+
 def _grade_item_vdr(model, item):
     """Auxiliary VDR-style contains-based binary judge.
 
@@ -445,6 +478,17 @@ class VisBrowseBenchDataset(ImageBaseDataset):
         judge_kwargs.pop('enable_llm_judge', None)
         max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
         enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
+
+        # Judge selection: env var > judge_kwargs > 'vbb' default (paper protocol)
+        judge_name = (
+            os.environ.get('MVT_JUDGE_PROMPT')
+            or judge_kwargs.pop('judge_prompt', None)
+            or 'vbb'
+        ).strip().lower()
+        if judge_name not in ('vbb', 'judge_rs'):
+            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'vbb' or 'judge_rs'")
+        judge_kwargs.pop('judge_prompt', None)
+
         model = build_judge(max_tokens=max_tokens, **judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -454,8 +498,19 @@ class VisBrowseBenchDataset(ImageBaseDataset):
             logger.error(DEBUG_MESSAGE)
             return pd.DataFrame()
 
+        if judge_name == 'judge_rs':
+            grade_fn = _grade_item_judge_rs
+            grade_stem = '_vbb_grade_judge_rs'
+            detail_stem = '_vbb_detail_judge_rs'
+            acc_stem = '_vbb_acc_judge_rs'
+        else:
+            grade_fn = _grade_item
+            grade_stem = '_vbb_grade'
+            detail_stem = '_vbb_detail'
+            acc_stem = '_vbb_acc'
+
         # Run grading with file cache for resumability
-        result_file = get_intermediate_file_path(eval_file, '_vbb_grade', 'pkl')
+        result_file = get_intermediate_file_path(eval_file, grade_stem, 'pkl')
         result_cache = {}
         if osp.exists(result_file):
             result_cache = load(result_file)
@@ -471,7 +526,7 @@ class VisBrowseBenchDataset(ImageBaseDataset):
             tups = [dict(model=model, item=x) for x in items_to_grade]
             keys = [str(x['index']) for x in items_to_grade]
             res = track_progress_rich(
-                _grade_item, tups, nproc=nproc, chunksize=nproc,
+                grade_fn, tups, nproc=nproc, chunksize=nproc,
                 save=result_file, keys=keys,
             )
             result_cache = load(result_file)
@@ -494,12 +549,12 @@ class VisBrowseBenchDataset(ImageBaseDataset):
         ]
 
         # Save detailed results
-        detail_file = get_intermediate_file_path(eval_file, '_vbb_detail')
+        detail_file = get_intermediate_file_path(eval_file, detail_stem)
         dump(data, detail_file)
 
         # Compute accuracy breakdown
         acc = self._compute_accuracy(data)
-        score_file = get_intermediate_file_path(eval_file, '_vbb_acc', 'csv')
+        score_file = get_intermediate_file_path(eval_file, acc_stem, 'csv')
         dump(acc, score_file)
         logger.info(f'VisBrowseBench accuracy results saved to {score_file}')
 
