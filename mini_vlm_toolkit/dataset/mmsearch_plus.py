@@ -212,6 +212,21 @@ Prediction: {prediction}
 Respond with EXACTLY one word: either "CORRECT" or "INCORRECT". No explanation."""
 
 
+def _parse_alts(alt) -> list:
+    if isinstance(alt, str):
+        import ast
+        import json
+        for parser in (json.loads, ast.literal_eval):
+            try:
+                parsed = parser(alt)
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                continue
+        return []
+    return alt if isinstance(alt, list) else []
+
+
 def _judge_one(judge, row) -> Dict[str, Any]:
     question = str(row.get("question", ""))
     gt = str(row.get("answer", ""))
@@ -220,19 +235,8 @@ def _judge_one(judge, row) -> Dict[str, Any]:
 
     # Combine primary + alternatives for judge — HLE prompt convention is
     # to use a single ``correct_answer`` field, so we OR-join the variants.
-    alt = row.get("alternative_gt_answers", [])
-    if isinstance(alt, str):
-        import ast
-        import json
-        for parser in (json.loads, ast.literal_eval):
-            try:
-                parsed = parser(alt)
-                if isinstance(parsed, list):
-                    alt = parsed
-                    break
-            except Exception:
-                continue
-    all_answers = [gt] + (alt if isinstance(alt, list) else [])
+    alt = _parse_alts(row.get("alternative_gt_answers", []))
+    all_answers = [gt] + alt
     gt_combined = " OR ".join(str(a) for a in all_answers if a)
 
     prompt = HLE_JUDGE_PROMPT.format(
@@ -257,7 +261,43 @@ def _judge_one(judge, row) -> Dict[str, Any]:
     return {"verdict": verdict, "raw_response": raw_response}
 
 
+def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
+    """Judge_RS variant of ``_judge_one``. Uses role-split system+user
+    via ``grade_with_judge_rs`` helper. Opt-in via env var
+    ``MVT_JUDGE_PROMPT=judge_rs`` or ``judge_kwargs['judge_prompt']='judge_rs'``.
+    """
+    from .utils.judge_rs import grade_with_judge_rs
+
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+    pred_extracted = _extract_answer(pred)
+    alt = _parse_alts(row.get("alternative_gt_answers", []))
+    correct_answer_list = [gt] + alt  # primary + candidates
+
+    try:
+        parsed = grade_with_judge_rs(
+            judge, question, correct_answer_list, pred_extracted or pred,
+        )
+    except Exception as e:
+        logger.warning("MMSearch-Plus Judge_RS error: %s", e)
+        return {"verdict": "error", "raw_response": ""}
+
+    if parsed["correct"] == 1:
+        verdict = "correct"
+    elif parsed.get("reasoning") in (
+            "judge_rs failed to parse", "judge unreachable after retries"):
+        verdict = "error"
+    else:
+        verdict = "incorrect"
+    return {"verdict": verdict, "raw_response": str(parsed.get("reasoning", ""))[:200]}
+
+
 def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, Any]):
+    """Run LLM judge. Switch between HLE (default) and Judge_RS via
+    env var ``MVT_JUDGE_PROMPT`` or ``judge_kwargs['judge_prompt']``.
+    Cache + score files are suffixed with ``_judge_rs`` when active.
+    """
     from .utils import build_judge
     from ..utils.mp_util import track_progress_rich
 
@@ -266,10 +306,26 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     nproc = judge_kwargs_local.pop("nproc", 4)
     max_tokens = judge_kwargs_local.pop("judge_max_tokens", 128)
 
+    judge_name = (
+        os.environ.get('MVT_JUDGE_PROMPT')
+        or judge_kwargs_local.pop('judge_prompt', None)
+        or 'hle'
+    ).strip().lower()
+    if judge_name not in ('hle', 'judge_rs'):
+        raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+    judge_kwargs_local.pop('judge_prompt', None)
+
     judge = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
     assert judge.working(), "MMSearch-Plus LLM judge requires a working OpenAI API"
 
-    cache_file = get_intermediate_file_path(eval_file, "_mmsearchplus_llm_judge_cache", "pkl")
+    if judge_name == 'judge_rs':
+        judge_one_fn = _judge_one_judge_rs
+        cache_stem = "_mmsearchplus_llm_judge_judge_rs_cache"
+    else:
+        judge_one_fn = _judge_one
+        cache_stem = "_mmsearchplus_llm_judge_cache"
+
+    cache_file = get_intermediate_file_path(eval_file, cache_stem, "pkl")
     cached: Dict[Any, Dict[str, Any]] = {}
     if osp.exists(cache_file):
         cached = load(cache_file)
@@ -284,7 +340,7 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
 
     if indices:
         track_progress_rich(
-            _judge_one, tups, nproc=nproc, chunksize=nproc,
+            judge_one_fn, tups, nproc=nproc, chunksize=nproc,
             keys=indices, save=cache_file,
         )
         cached = load(cache_file)
@@ -315,7 +371,8 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
         "correct": n_correct, "incorrect": n_incorrect, "error": n_error,
         "difficulty": by_difficulty, "category": by_category, "subtask": by_subtask,
     }
-    dump(summary, get_intermediate_file_path(eval_file, "_mmsearchplus_llm_judge", "json"))
+    score_stem = "_mmsearchplus_llm_judge_judge_rs" if judge_name == 'judge_rs' else "_mmsearchplus_llm_judge"
+    dump(summary, get_intermediate_file_path(eval_file, score_stem, "json"))
     return summary, verdicts
 
 

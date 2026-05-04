@@ -34,7 +34,8 @@ from ..utils import track_progress_rich
 # ---------------------------------------------------------------------------
 from .utils.hle_judge import HLE_JUDGE_PROMPT as JUDGE_PROMPT, parse_hle_judgement
 from .utils.judge_rs import (
-    JUDGE_RS_PROMPT, JUDGE_RS_VERSION, parse_judge_rs_judgement,
+    JUDGE_RS_PROMPT, JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT,
+    JUDGE_RS_VERSION, parse_judge_rs_judgement,
 )
 
 
@@ -110,17 +111,24 @@ def _grade_item(model, item, judge_name: str = 'hle'):
     correct_answer = gt_list[0]
 
     if judge_name == 'judge_rs':
-        # Judge_RS schema: ground_truth_answer + candidate_answers + model_response
+        # Judge_RS schema: ground_truth_answer + candidate_answers + model_response.
+        # Send system + user as separate roles via ``generate_inner`` (skips
+        # ``model.generate``'s ``preprocess_message_with_role`` which would
+        # mutate ``self.system_prompt`` on the wrapper instance).
         rest = [str(x) for x in gt_list[1:] if str(x).strip()]
         candidates = ' | '.join(rest) if rest else '(none)'
-        prompt = JUDGE_RS_PROMPT.format(
-            question=str(question),
-            ground_truth_answer=str(correct_answer),
-            candidate_answers=candidates,
-            model_response=prediction,
-        )
+        msgs_role_split = [
+            {"role": "system", "content": [{"type": "text", "value": JUDGE_RS_SYSTEM_PROMPT}]},
+            {"role": "user",   "content": [{"type": "text", "value": JUDGE_RS_USER_PROMPT.format(
+                question=str(question),
+                ground_truth_answer=str(correct_answer),
+                candidate_answers=candidates,
+                model_response=prediction,
+            )}]},
+        ]
         parser = parse_judge_rs_judgement
         unparseable_sentinel = 'judge_rs failed to parse'
+        use_role_split = True
     else:
         prompt = JUDGE_PROMPT.format(
             question=question,
@@ -129,13 +137,24 @@ def _grade_item(model, item, judge_name: str = 'hle'):
         )
         parser = parse_hle_judgement
         unparseable_sentinel = 'judge failed to parse'
+        use_role_split = False
 
     retry = 3
     while retry:
-        ans = model.generate(prompt)
-        if 'Failed to obtain answer via API' in ans:
-            retry -= 1
-            continue
+        if use_role_split:
+            try:
+                code, ans, _log = model.generate_inner(msgs_role_split)
+            except Exception:
+                retry -= 1
+                continue
+            if code != 0 or not ans:
+                retry -= 1
+                continue
+        else:
+            ans = model.generate(prompt)
+            if 'Failed to obtain answer via API' in ans:
+                retry -= 1
+                continue
         parsed = parser(ans)
         # parser signals "couldn't parse" via this reasoning string; on
         # that case, retry. Any other verdict (correct=0 or 1) is a

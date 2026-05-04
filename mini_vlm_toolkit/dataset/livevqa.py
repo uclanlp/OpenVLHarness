@@ -1036,6 +1036,17 @@ class LIVEVQA_v2(ImageBaseDataset):
         judge_kwargs.pop('enable_llm_judge', None)
         judge_kwargs.pop('enable_vdr_aux', None)
         max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
+
+        # Judge selection: env var > judge_kwargs > 'hle' default
+        judge_name = (
+            os.environ.get('MVT_JUDGE_PROMPT')
+            or judge_kwargs.pop('judge_prompt', None)
+            or 'hle'
+        ).strip().lower()
+        if judge_name not in ('hle', 'judge_rs'):
+            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+        judge_kwargs.pop('judge_prompt', None)
+
         model = build_judge(max_tokens=max_tokens, **judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -1045,7 +1056,10 @@ class LIVEVQA_v2(ImageBaseDataset):
             logger.error(DEBUG_MESSAGE)
             return pd.DataFrame()
 
-        # Per-sample grading helper (HLE-style binary).
+        # Per-sample grading helper. ``judge_name='hle'`` (default) uses
+        # the HLE-style binary judge; ``'judge_rs'`` uses the
+        # multimodal-search-r1 prompt with role-split system+user via
+        # ``grade_with_judge_rs`` helper.
         def _grade(item):
             pred = str(item.get('prediction', ''))
             gt_list = item.get('ground_truth_list', '')
@@ -1057,7 +1071,18 @@ class LIVEVQA_v2(ImageBaseDataset):
                     gt_list = [gt_list]
             if not gt_list:
                 return dict(hit=0, log='empty ground truth')
-            # Use first GT variant as correct_answer (HLE convention).
+
+            if judge_name == 'judge_rs':
+                from .utils.judge_rs import grade_with_judge_rs
+                try:
+                    parsed = grade_with_judge_rs(model, question, gt_list, pred)
+                except Exception as e:
+                    return dict(hit=0, log=f'judge_rs error: {e}')
+                log = (f"verdict={parsed['correct']} "
+                       f"reasoning={parsed.get('reasoning', '')[:200]}")
+                return dict(hit=int(parsed['correct']), log=log)
+
+            # HLE path
             ca = str(gt_list[0])
             prompt = HLE_JUDGE_PROMPT.format(
                 question=question, correct_answer=ca, response=pred,
@@ -1079,7 +1104,8 @@ class LIVEVQA_v2(ImageBaseDataset):
                 retry -= 1
             return dict(hit=0, log=f'judge unparseable: {str(last)[:200]}' if last else 'judge unreachable')
 
-        result_file = get_intermediate_file_path(eval_file, '_livevqa_v2_grade', 'pkl')
+        grade_stem = '_livevqa_v2_grade_judge_rs' if judge_name == 'judge_rs' else '_livevqa_v2_grade'
+        result_file = get_intermediate_file_path(eval_file, grade_stem, 'pkl')
         result_cache = load(result_file) if osp.exists(result_file) else {}
         items_to_grade = []
         for i in range(len(data)):
@@ -1122,7 +1148,8 @@ class LIVEVQA_v2(ImageBaseDataset):
                 rows.append(_row(sub, data[data['subset'] == sub]))
 
         acc = pd.DataFrame(rows)
-        score_file = get_intermediate_file_path(eval_file, '_livevqa_v2_acc', 'csv')
+        acc_stem = '_livevqa_v2_acc_judge_rs' if judge_name == 'judge_rs' else '_livevqa_v2_acc'
+        score_file = get_intermediate_file_path(eval_file, acc_stem, 'csv')
         dump(acc, score_file)
         logger.info(f'LIVEVQA_v2 accuracy saved to {score_file}')
         return acc

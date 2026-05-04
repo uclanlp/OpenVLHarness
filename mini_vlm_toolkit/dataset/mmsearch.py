@@ -643,6 +643,11 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
 
     Reuses the standard `build_judge` + `track_progress_rich` pattern from
     other datasets (e.g. MathVista in image_vqa.py).
+
+    Judge prompt is selected by env var ``MVT_JUDGE_PROMPT`` or
+    ``judge_kwargs['judge_prompt']``: ``'hle'`` (default) | ``'judge_rs'``.
+    Cache + score files are suffixed with ``_judge_rs`` when that variant
+    is active so HLE and Judge_RS results coexist on the same run dir.
     """
     from .utils import build_judge
     from ..utils.mp_util import track_progress_rich
@@ -655,10 +660,28 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     # needs to return CORRECT/INCORRECT.
     max_tokens = judge_kwargs_local.pop("judge_max_tokens", 128)
 
+    # Judge prompt selection: env var > judge_kwargs > default 'hle'
+    judge_name = (
+        os.environ.get('MVT_JUDGE_PROMPT')
+        or judge_kwargs_local.pop('judge_prompt', None)
+        or 'hle'
+    ).strip().lower()
+    if judge_name not in ('hle', 'judge_rs'):
+        raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+    # Drop the kwarg (if not popped above) so it doesn't reach OpenAIWrapper.
+    judge_kwargs_local.pop('judge_prompt', None)
+
     judge = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
     assert judge.working(), "MMSearch LLM judge requires a working OpenAI API"
 
-    judge_cache_file = get_intermediate_file_path(eval_file, "_mmsearch_llm_judge_cache", "pkl")
+    if judge_name == 'judge_rs':
+        judge_one_fn = _mmsearch_judge_one_judge_rs
+        cache_stem = "_mmsearch_llm_judge_judge_rs_cache"
+    else:
+        judge_one_fn = _mmsearch_judge_one
+        cache_stem = "_mmsearch_llm_judge_cache"
+
+    judge_cache_file = get_intermediate_file_path(eval_file, cache_stem, "pkl")
     cached: Dict[Any, Dict[str, Any]] = {}
     if osp.exists(judge_cache_file):
         cached = load(judge_cache_file)
@@ -674,7 +697,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
 
     if indices:
         new_results = track_progress_rich(
-            _mmsearch_judge_one,
+            judge_one_fn,
             tups,
             nproc=nproc,
             chunksize=nproc,
@@ -735,7 +758,8 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
         "subfield": by_subfield,
     }
 
-    judge_score_file = get_intermediate_file_path(eval_file, "_mmsearch_llm_judge", "json")
+    score_stem = "_mmsearch_llm_judge_judge_rs" if judge_name == 'judge_rs' else "_mmsearch_llm_judge"
+    judge_score_file = get_intermediate_file_path(eval_file, score_stem, "json")
     dump(judge_summary, judge_score_file)
     return judge_summary, verdicts
 
@@ -831,6 +855,75 @@ def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
             return {"verdict": "correct", "raw_response": str(answer)[:200]}
         if parsed.get("reasoning") not in (
                 "judge failed to parse", "judge unreachable after retries"):
+            return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
+        return {"verdict": "error", "raw_response": str(answer)[:200]}
+    except Exception as exc:
+        return {"verdict": "error", "raw_response": f"exception: {exc}"}
+
+
+# Judge_RS variant: same row signature, but uses the multimodal-search-r1
+# judge prompt (system + user as separate roles) and the v2 XML output
+# parser. Switched in via env var MVT_JUDGE_PROMPT=judge_rs (per-call,
+# NOT a global default — HLE remains the default judge for MMSearch).
+from .utils.judge_rs import (
+    JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
+)
+
+
+def _mmsearch_judge_one_judge_rs(judge, row) -> Dict[str, Any]:
+    """Judge a single MMSearch prediction using the Judge_RS v2 prompt.
+
+    Sends system + user as separate role-tagged messages via
+    ``judge.generate_inner`` (skips ``model.generate``'s side-effecting
+    ``preprocess_message_with_role`` path so ``self.system_prompt`` on
+    the OpenAIWrapper instance is not mutated).
+    """
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+
+    pred_extracted = _extract_mmsearch_answer(pred)
+
+    alts_raw = row.get("alternative_gt_answers", [])
+    alts: List[str] = []
+    if isinstance(alts_raw, list):
+        alts = [str(a) for a in alts_raw if a]
+    elif isinstance(alts_raw, str) and alts_raw.strip():
+        s = alts_raw.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                import json as _json
+                parsed_alts = _json.loads(s)
+                if isinstance(parsed_alts, list):
+                    alts = [str(a) for a in parsed_alts if a]
+            except Exception:
+                alts = [s]
+        else:
+            alts = [s]
+
+    candidates = " | ".join(alts) if alts else "(none)"
+
+    if not pred_extracted.strip():
+        return {"verdict": "incorrect", "raw_response": ""}
+
+    msgs_role_split = [
+        {"role": "system", "content": [{"type": "text", "value": JUDGE_RS_SYSTEM_PROMPT}]},
+        {"role": "user",   "content": [{"type": "text", "value": JUDGE_RS_USER_PROMPT.format(
+            question=question[:1000],
+            ground_truth_answer=gt[:500],
+            candidate_answers=candidates[:500],
+            model_response=pred_extracted[:2000],
+        )}]},
+    ]
+
+    try:
+        code, answer, _ = judge.generate_inner(msgs_role_split)
+        if code != 0:
+            return {"verdict": "error", "raw_response": str(answer)[:200]}
+        parsed = parse_judge_rs_judgement(str(answer))
+        if parsed.get("correct") == 1:
+            return {"verdict": "correct", "raw_response": str(answer)[:200]}
+        if parsed.get("reasoning") != "judge_rs failed to parse":
             return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
         return {"verdict": "error", "raw_response": str(answer)[:200]}
     except Exception as exc:

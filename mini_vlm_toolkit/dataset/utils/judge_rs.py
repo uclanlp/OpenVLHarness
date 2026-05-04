@@ -201,6 +201,13 @@ def grade_with_judge_rs(model, question: str, correct_answer: Any, response: str
                         retry: int = 3) -> dict:
     """Run the Judge_RS prompt on a single (question, gt, response) tuple.
 
+    Sends ``JUDGE_RS_SYSTEM_PROMPT`` and ``JUDGE_RS_USER_PROMPT`` as
+    SEPARATE roles via ``model.generate_inner`` so the OpenAI judge
+    receives a real ``system`` role (not a single concatenated user
+    message). Skips ``model.generate``'s ``preprocess_message_with_role``
+    path so ``self.system_prompt`` on the OpenAIWrapper instance is not
+    mutated across calls.
+
     ``correct_answer`` may be a string, list, or list-of-lists. The first
     variant becomes ``Ground Truth Answer``; remaining variants become
     ``Candidate Answers`` (Rule 10 — match any → correct). When there is
@@ -219,17 +226,23 @@ def grade_with_judge_rs(model, question: str, correct_answer: Any, response: str
         rest = [str(x) for x in flat[1:] if str(x).strip()]
         candidates = " | ".join(rest) if rest else "(none)"
 
-    prompt = JUDGE_RS_PROMPT.format(
-        question=str(question),
-        ground_truth_answer=gt_primary,
-        candidate_answers=candidates,
-        model_response=str(response),
-    )
+    msgs_role_split = [
+        {"role": "system", "content": [{"type": "text", "value": JUDGE_RS_SYSTEM_PROMPT}]},
+        {"role": "user",   "content": [{"type": "text", "value": JUDGE_RS_USER_PROMPT.format(
+            question=str(question),
+            ground_truth_answer=gt_primary,
+            candidate_answers=candidates,
+            model_response=str(response),
+        )}]},
+    ]
 
     last_text: Optional[str] = None
     for _ in range(retry):
-        ans = model.generate(prompt)
-        if "Failed to obtain answer via API" in (ans or ""):
+        try:
+            code, ans, _log = model.generate_inner(msgs_role_split)
+        except Exception:
+            continue
+        if code != 0 or not ans:
             continue
         last_text = ans
         parsed = parse_judge_rs_judgement(ans)

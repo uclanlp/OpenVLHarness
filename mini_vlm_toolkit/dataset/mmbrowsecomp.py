@@ -299,9 +299,28 @@ class MMBrowseCompDataset(ImageBaseDataset):
         return ['MMBrowseComp']
 
     def evaluate(self, eval_file, **judge_kwargs):
-        """MMBrowseComp uses LLM-as-a-judge by default. Set use_exact_match=True for quick exact-match only."""
+        """MMBrowseComp uses LLM-as-a-judge by default. Set use_exact_match=True for quick exact-match only.
+
+        Judge selection (via env var ``MVT_JUDGE_PROMPT`` or
+        ``judge_kwargs['judge_prompt']``):
+          - default: paper-protocol ``mmbrowsecomp`` checklist judge
+          - ``'judge_rs'``: multimodal-search-r1 binary judge (no
+            checklist; only overall correctness). Score files are
+            suffixed with ``_judge_rs`` to coexist with the default.
+        """
         if judge_kwargs.get('use_exact_match', False):
             return self._evaluate_exact_match(eval_file, **judge_kwargs)
+
+        judge_name = (
+            os.environ.get('MVT_JUDGE_PROMPT')
+            or judge_kwargs.get('judge_prompt', None)
+            or 'mmbrowsecomp'
+        ).strip().lower()
+        if judge_name not in ('mmbrowsecomp', 'judge_rs'):
+            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'mmbrowsecomp' or 'judge_rs'")
+
+        if judge_name == 'judge_rs':
+            return self._evaluate_judge_rs(eval_file, **judge_kwargs)
         return self._evaluate_judge(eval_file, **judge_kwargs)
 
     def _evaluate_exact_match(self, eval_file, **judge_kwargs):
@@ -461,5 +480,78 @@ class MMBrowseCompDataset(ImageBaseDataset):
         ret = d2df(ret)
         ret = ret.round(2)
         score_file = get_intermediate_file_path(eval_file, '_acc', 'csv')
+        dump(ret, score_file)
+        return ret
+
+    def _evaluate_judge_rs(self, eval_file, **judge_kwargs):
+        """LLM-as-a-judge using Judge_RS (multimodal-search-r1 binary
+        protocol). Produces ONLY overall correctness — no checklist
+        breakdown (Judge_RS prompt doesn't have a checklist concept).
+        Output files use the ``_judge_rs`` suffix to keep the default
+        mmbrowsecomp checklist judge results intact.
+        """
+        from tqdm import tqdm
+
+        from .utils import build_judge
+        from .utils.judge_rs import grade_with_judge_rs
+
+        data = load(eval_file)
+        if isinstance(data, list):
+            data = pd.DataFrame(data)
+        assert 'answer' in data and 'prediction' in data
+        data['prediction'] = [str(x) for x in data['prediction']]
+        data['answer'] = [str(x) for x in data['answer']]
+
+        judge_kwargs_local = dict(judge_kwargs)
+        judge_kwargs_local.pop('use_exact_match', None)
+        judge_kwargs_local.pop('judge_prompt', None)
+        judge_kwargs_local.pop('enable_llm_judge', None)
+        max_tokens = judge_kwargs_local.pop('judge_max_tokens', 1024)
+        judge_kwargs_local.pop('nproc', None)
+
+        model = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
+        if model is None or not model.working():
+            raise RuntimeError(
+                'MMBrowseComp Judge_RS evaluation requires a working judge model. '
+                'Please configure judge_kwargs properly.'
+            )
+
+        lines = [data.iloc[i] for i in range(len(data))]
+        overall_correct_list = []
+
+        for line in tqdm(lines, desc='MMBrowseComp judge_rs'):
+            question_full = line['question']
+            question = (
+                question_full.split('Question: ')[-1]
+                if 'Question: ' in question_full else question_full
+            )
+            ref_answer = line['answer']
+            pred = line['prediction']
+
+            try:
+                parsed = grade_with_judge_rs(model, question, ref_answer, pred)
+                overall_correct_list.append(1.0 if parsed.get('correct') == 1 else 0.0)
+            except Exception:
+                overall_correct_list.append(0.0)
+
+        data['judge_overall_correct'] = overall_correct_list
+
+        detailed_result_file = get_intermediate_file_path(eval_file, '_judge_results_judge_rs')
+        dump(data, detailed_result_file)
+
+        overall_acc = float(np.mean(overall_correct_list)) * 100
+        ret = {'Overall': overall_acc}
+
+        if 'category' in data:
+            cates = sorted((c for c in set(data['category']) if pd.notna(c) and c != ''))
+            for c in cates:
+                mask = data['category'] == c
+                sub = [overall_correct_list[i] for i in range(len(data)) if mask.iloc[i]]
+                if sub:
+                    ret[c] = float(np.mean(sub)) * 100
+
+        ret = d2df(ret)
+        ret = ret.round(2)
+        score_file = get_intermediate_file_path(eval_file, '_acc_judge_rs', 'csv')
         dump(ret, score_file)
         return ret
