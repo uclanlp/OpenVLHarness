@@ -36,15 +36,16 @@ IMAGE_SEARCH_SUMMARIZE_PROMPT = """You are a visual analysis assistant. Organize
 2. Group related matches (e.g., multiple results pointing to the same entity).
 3. Summarize key findings: what the image shows, relevant context, and notable sources.
 4. Include citation markers [1], [2], ... referencing specific results.
-5. End with a Citations section listing source titles and URLs.
-6. Do NOT hallucinate — only describe what the search results indicate.
+5. End with a Citations section listing source titles, source/page URLs, AND the direct image URLs.
+6. **Preserve the trailing ` <img>` marker** that appears after each image URL in the raw results EXACTLY as-is. This marker is a framework signal used by downstream tools (e.g., Image_Search_Tool, ImageStateMemory) to register the image — dropping the marker breaks image-URL routing. Always emit it verbatim after the image URL.
+7. Do NOT hallucinate — only describe what the search results indicate.
 
 ## Output Format
 <summary of what the image likely depicts, with inline citations [1], [2], ...>
 
 Citations:
-[1] <title> - <url>
-[2] <title> - <url>
+[1] <title> | Image: <image_url> <img> | Source: <source_page_url>
+[2] <title> | Image: <image_url> <img> | Source: <source_page_url>
 ...
 """
 
@@ -278,7 +279,16 @@ class Image_Search_Tool(BaseTool):
             result = self.llm_engine.generate(
                 prompt, max_tokens=self._llm_max_tokens, temperature=0.0, top_p=1.0,
             )
-            return strip_think_tags(result)
+            stripped = strip_think_tags(result or "")
+            # Empty / whitespace-only LLM output is not a useful summary —
+            # fall back to raw_text so the agent still gets the underlying
+            # citations + ``<img>`` sentinels intact.
+            if not stripped.strip():
+                logger.warning(
+                    "LLM summarization returned empty content, returning raw results"
+                )
+                return raw_text
+            return stripped
         except Exception as exc:
             logger.warning("LLM summarization failed (%s), returning raw results", exc)
             return raw_text
