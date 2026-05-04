@@ -394,7 +394,6 @@ class VDRBench(ImageBaseDataset):
             msgs.append({"type": "image", "value": img_path})
 
         question = str(line.get("question", "") or "").strip()
-        question = question + ANSWER_FORMAT_INSTRUCTION
         msgs.append({"type": "text", "value": question})
         return msgs
 

@@ -126,12 +126,6 @@ class ImageShortQADataset(ImageBaseDataset):
         'hle': 'a83cbdbea89f27c2aa5b8f34a8894b72',
     }
 
-    def build_prompt(self, line):
-        msgs = super().build_prompt(line)
-        assert msgs[-1]['type'] == 'text'
-        msgs[-1]['value'] += '\nPlease directly provide a short answer to the question. '
-        return msgs
-
     def load_data(self, dataset):
         # Default ImageBaseDataset loader; then auto-filter to the
         # WebWatcher subset where applicable (currently only ``hle``).
