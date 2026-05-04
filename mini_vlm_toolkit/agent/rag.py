@@ -441,6 +441,7 @@ class BaseAgentWithRAG(BaseAgentWithTools):
         debug_char_limit = int(kwargs.pop("debug_char_limit", 280))
         chat_timeout_seconds = kwargs.pop("timeout_seconds", self.timeout)
         _ = kwargs.pop("tool_choice", None)  # ignored; we control tool_choice per step
+        _ = kwargs.pop("task_id", None)  # mp_util progress-tracking id; not for the LLM API
         active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
 
         # Strip OpenAI-incompatible kwargs.
@@ -586,9 +587,7 @@ class BaseAgentWithRAG(BaseAgentWithTools):
             final_answer = self.fail_msg
 
         if return_messages:
-            if return_snapshot:
-                return final_answer, chat_history, msgs, cp.deepcopy(input_snapshot)
-            return final_answer, chat_history, msgs
-        if return_snapshot:
-            return final_answer, chat_history, cp.deepcopy(input_snapshot)
+            # Match BaseAgentWithTools._run shape: (answer, chat_history, msgs, raw_sft).
+            # RAG does not produce raw_sft tuples; pass None.
+            return final_answer, chat_history, msgs, None
         return final_answer, chat_history

@@ -196,6 +196,36 @@ class ImageMCQDataset(ImageBaseDataset):
     DATASET_MD5.update(MTL_MMBench_MD5)
     DEFAULT_JUDGE = ['chatgpt-0125', 'gpt-4-0125']
 
+    @classmethod
+    def supported_datasets(cls):
+        # Register ``MMStar_v2`` as a stratified sub-sample variant of
+        # MMStar (300 rows, seed=42 defaults). Implementation lives in
+        # ``load_data``; no separate TSV cached.
+        return list(cls.DATASET_URL) + ['MMStar_v2']
+
+    def load_data(self, dataset):
+        """Default MCQ load path, plus a special branch for the
+        ``MMStar_v2`` stratified sub-sample variant.
+
+        ``MMStar_v2`` is NOT a separate upstream dataset — it loads the
+        same MMStar TSV and then applies an opt-in stratified sub-sample
+        on the ``l2_category`` column (which nests inside ``category``,
+        so both layers' distributions are preserved). Defaults: 300
+        samples, seed 42. Override via ``MVT_MMSTAR_SUBSET_N`` and
+        ``MVT_MMSTAR_SUBSET_SEED`` env vars when you need a different
+        size or seed.
+        """
+        if dataset == 'MMStar_v2':
+            import os as _os
+            df = super().load_data('MMStar')
+            from .utils.mmstar_subset import apply_mmstar_stratified_subset
+            env_n = _os.environ.get('MVT_MMSTAR_SUBSET_N', '').strip()
+            n = int(env_n) if env_n else 300
+            env_seed = _os.environ.get('MVT_MMSTAR_SUBSET_SEED', '').strip()
+            seed = int(env_seed) if env_seed else 42
+            return apply_mmstar_stratified_subset(df, n=n, seed=seed)
+        return super().load_data(dataset)
+
     def build_prompt(self, line):
 
         if isinstance(line, int):
