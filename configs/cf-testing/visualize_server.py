@@ -233,6 +233,33 @@ def _render_messages(messages: Any, max_chars: int, base_dir: Optional[Path] = N
                     blocks.append(_render_text_block("content", json.dumps(part, ensure_ascii=False), max_chars))
         else:
             blocks.append(_render_text_block("content", str(content), max_chars))
+
+        if msg.get("role") == "assistant":
+            tool_calls = msg.get("tool_calls") or []
+            if isinstance(tool_calls, list):
+                for i, tc in enumerate(tool_calls):
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") or {}
+                    if not isinstance(fn, dict):
+                        continue
+                    name = fn.get("name", "")
+                    arguments = fn.get("arguments", "")
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.dumps(
+                                json.loads(arguments), ensure_ascii=False, indent=2,
+                            )
+                        except Exception:
+                            pass
+                    elif arguments is not None:
+                        try:
+                            arguments = json.dumps(arguments, ensure_ascii=False, indent=2)
+                        except Exception:
+                            arguments = str(arguments)
+                    label = f"tool_call[{i}]: {name}" if name else f"tool_call[{i}]"
+                    blocks.append(_render_text_block(label, arguments or "", max_chars))
+
         blocks.append("<div class='divider'></div>")
     return "<div class='messages'>" + "".join(blocks) + "</div>"
 
