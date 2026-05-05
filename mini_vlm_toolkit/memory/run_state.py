@@ -32,6 +32,7 @@ class BindingsState:
     bindings: Dict[str, Any] = field(default_factory=dict)
     binding_counters: Dict[str, int] = field(default_factory=dict)
     descriptors: Dict[str, BindingDescriptor] = field(default_factory=dict)
+    last_descriptors_count: int = -1
 
 
 @dataclass

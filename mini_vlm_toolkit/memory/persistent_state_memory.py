@@ -230,6 +230,8 @@ class PersistentStateMemory:
             return True
         if self.state.urls.webpage_counter != self.state.urls.last_webpage_counter:
             return True
+        if len(self.state.bindings.descriptors) != self.state.bindings.last_descriptors_count:
+            return True
         return False
 
     def _coalesce_env_update(self, *, reset_change_signal: bool) -> List[Dict[str, Any]]:
@@ -238,6 +240,7 @@ class PersistentStateMemory:
         if reset_change_signal:
             self.state.images.last_snapshot = _image_snapshot(self.state.images)
             self.state.urls.last_webpage_counter = self.state.urls.webpage_counter
+            self.state.bindings.last_descriptors_count = len(self.state.bindings.descriptors)
         if not should_emit or builder.is_empty():
             return []
         return [builder.build_message()]
