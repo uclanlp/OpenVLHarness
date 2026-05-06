@@ -349,8 +349,8 @@ class BaseAgent:
             try:
                 ret_code, answer, log = self.chat_inner(cp.deepcopy(messages), **kwargs)
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
-                    if self.verbose:
-                        print(answer)
+                    # if self.verbose:
+                    #     print(answer)
                     return answer
                 elif self.verbose:
                     if not isinstance(log, str):
@@ -405,6 +405,30 @@ class BaseAgent:
             ]
         return record
 
+    def _extract_reasoning_from_log(self, log):
+        if isinstance(log, dict):
+            try:
+                return (((log.get("choices") or [])[0].get("message") or {}).get("reasoning"))
+            except Exception:
+                return None
+        try:
+            return json.loads(log.text)["choices"][0]["message"].get("reasoning")
+        except Exception:
+            return None
+
+    def _stringify_log(self, log):
+        if isinstance(log, str):
+            return log
+        if isinstance(log, dict):
+            try:
+                return json.dumps(log, ensure_ascii=False)
+            except Exception:
+                return str(log)
+        try:
+            return log.text
+        except Exception:
+            return str(log)
+
     def generate(self, message, **kwargs1):
         """The main function to generate the answer. Will call `generate_inner` with the preprocessed input messages.
 
@@ -454,8 +478,8 @@ class BaseAgent:
                 last_log = log
                 last_ret_code = ret_code
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
-                    if self.verbose:
-                        print(answer)
+                    # if self.verbose:
+                    #     print(answer)
                     # Return both answer and extra_records
                     # Add for agent evaluation
                     trajectory = self._build_trajectory_record(
@@ -466,20 +490,12 @@ class BaseAgent:
                     extra_records = {"trajectory": trajectory}
                     if isinstance(log, dict):
                         extra_records.update(log)
-                    try:
-                        reasoning = json.loads(log.text)["choices"][0]["message"].get("reasoning")
-                        if reasoning:
-                            extra_records["reasoning"] = reasoning
-                    except Exception:
-                        pass
+                    reasoning = self._extract_reasoning_from_log(log)
+                    if reasoning:
+                        extra_records["reasoning"] = reasoning
                     return {"prediction": answer, "extra_records": extra_records}
                 elif self.verbose:
-                    if not isinstance(log, str):
-                        try:
-                            log = log.text
-                        except Exception as e:
-                            self.logger.warning(f'Failed to parse {log} as an http response: {str(e)}. ')
-                    self.logger.info(f'RetCode: {ret_code}\nAnswer: {answer}\nLog: {log}')
+                    self.logger.info(f'RetCode: {ret_code}\nAnswer: {answer}\nLog: {self._stringify_log(log)}')
             except Exception as err:
                 if self.verbose:
                     self.logger.error(f'An error occured during try {i}: ')
@@ -498,6 +514,73 @@ class BaseAgent:
             trajectory["ret_code"] = last_ret_code
         return {"prediction": final_answer, "extra_records": {"trajectory": trajectory}}
     
+
+class APIAgent(BaseAgent):
+    """Hosted API variant of BaseAgent using the shared chat request helper."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.logger = get_logger("APIAgent")
+
+    def generate_inner(self, inputs, system_prompt=None, **kwargs) -> str:
+        input_msgs = self.prepare_inputs(inputs, system_prompt=system_prompt)
+        request_kwargs = cp.deepcopy(kwargs)
+        request_kwargs.pop("dataset", None)
+        request_kwargs.pop("task_id", None)
+        request_kwargs.pop("image_paths", None)
+        request_kwargs = filter_kwargs_for_endpoint(request_kwargs, "chat")
+
+        response = chat_completion_request(
+            model=self.model,
+            messages=input_msgs,
+            base_url=self.base,
+            api_key=self.key,
+            timeout_seconds=self.timeout * 1.1,
+            **request_kwargs,
+        )
+        if not isinstance(response, dict):
+            raise RuntimeError(
+                f"Invalid chat response type: expected dict, got {type(response).__name__}"
+            )
+
+        choices = response.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            raise RuntimeError(
+                f"Invalid chat response payload: missing choices. Response={response}"
+            )
+        first_choice = choices[0]
+        message = first_choice.get("message")
+        if not isinstance(message, dict):
+            raise RuntimeError(
+                "Invalid chat response payload: choices[0].message must be an object. "
+                f"Response={response}"
+            )
+
+        content = message.get("content")
+        answer = self.fail_msg
+        if isinstance(content, str):
+            answer = content.strip()
+        elif content not in (None, ""):
+            answer = json.dumps(content, ensure_ascii=False)
+        if answer in ("", self.fail_msg):
+            finish_reason = first_choice.get("finish_reason")
+            usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+            completion_details = (
+                usage.get("completion_tokens_details")
+                if isinstance(usage.get("completion_tokens_details"), dict)
+                else {}
+            )
+            reasoning_tokens = completion_details.get("reasoning_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            if finish_reason == "length":
+                answer = (
+                    "Error: GPT-5 exhausted the completion budget before producing visible output. "
+                    f"finish_reason=length, completion_tokens={completion_tokens}, "
+                    f"reasoning_tokens={reasoning_tokens}. "
+                    "Try increasing max_tokens and/or lowering reasoning_effort."
+                )
+        return 0, answer, response
+
 
 class BaseAgentWithTools(BaseAgent):
     _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct")
