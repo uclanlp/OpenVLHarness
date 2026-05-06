@@ -7,7 +7,7 @@ import random as rd
 import copy as cp
 from .utils import _get_json, pretty_print_msgs
 from .constant import PROMPT_REGISTRY
-from ..memory import PersistentStateMemory, ImageStateMemory, ToolContextMemory
+from ..memory import PersistentStateMemory, build_persistent_state_memory
 from ..utils.api_utils import (
     chat_completion_request,
     filter_kwargs_for_endpoint,
@@ -500,9 +500,12 @@ class BaseAgent:
     
 
 class BaseAgentWithTools(BaseAgent):
-    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct")
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
-    _SUPPORTED_MEMORY_NAMES = ("image", "tool_context")
+    _DEFAULT_PERSISTENT_STATE_MEMORY_SPEC = {
+        "emit_policy": "always",
+        "modules": [{"name": "image"}],
+    }
 
     def __init__(self,
                 tool_base,
@@ -555,7 +558,6 @@ class BaseAgentWithTools(BaseAgent):
         self.system_prompt = self._construct_system_message()
         self._persistent_state_memory_spec = cp.deepcopy(persistent_state_memory)
         self.persistent_state_memory = self._build_persistent_state_memory(persistent_state_memory)
-        self.persistent_state_memory.configure_tool_schema(self.json_schema)
         self.logger.info(
             "PersistentStateMemory: "
             f"{self.persistent_state_memory.__class__.__name__} "
@@ -615,33 +617,24 @@ class BaseAgentWithTools(BaseAgent):
     def _build_persistent_state_memory(self, memory_spec: Optional[Dict[str, Any]]) -> PersistentStateMemory:
         spec = memory_spec
         if spec is None:
-            spec = {"name": "image", "emit_policy": "always"}
+            spec = cp.deepcopy(self._DEFAULT_PERSISTENT_STATE_MEMORY_SPEC)
         if not isinstance(spec, dict):
             raise ValueError(
-                "persistent_state_memory must be null or a dict config, "
-                "for example {'name': 'image', 'emit_policy': 'always'}."
+                "persistent_state_memory must be null or a dict, e.g. "
+                "{'emit_policy': 'always', 'modules': [{'name': 'image'}]}."
             )
-        if "name" not in spec:
-            raise ValueError("persistent_state_memory config must include a string 'name' field.")
-
-        name = spec.get("name")
-        if not isinstance(name, str):
-            raise ValueError("persistent_state_memory.name must be a string.")
-        memory_name = name.strip().lower()
-
-        if memory_name in {"", "none", "off", "disabled"}:
-            return PersistentStateMemory()
-
-        options = {key: value for key, value in spec.items() if key != "name"}
-        if memory_name == "image":
-            return ImageStateMemory(**options)
-        if memory_name == "tool_context":
-            return ToolContextMemory(**options)
-
-        raise ValueError(
-            f"Unknown persistent_state_memory '{name}'. "
-            f"Supported memories: {list(self._SUPPORTED_MEMORY_NAMES)}."
-        )
+        modules = spec.get("modules")
+        if modules is None:
+            raise ValueError(
+                "persistent_state_memory config must include a 'modules' list "
+                "of dicts, each with at least a 'name' key."
+            )
+        if not isinstance(modules, list):
+            raise ValueError(
+                "persistent_state_memory.modules must be a list of dicts."
+            )
+        options = {k: v for k, v in spec.items() if k != "modules"}
+        return build_persistent_state_memory(modules=modules, **options)
 
     def _new_persistent_state_memory(self) -> PersistentStateMemory:
         """Create a fresh per-run memory object.
@@ -1050,7 +1043,7 @@ class BaseAgentWithTools(BaseAgent):
                     return non_scaffold[fa_match.end():].strip()
 
         # Strict <answer> extraction for prompts that use that tag.
-        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct"):
+        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct"):
             answer_match = re.search(r"<answer>(.*?)</answer>", content, flags=re.DOTALL | re.IGNORECASE)
             if answer_match:
                 return answer_match.group(1).strip()

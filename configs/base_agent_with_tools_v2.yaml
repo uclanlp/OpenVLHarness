@@ -85,8 +85,9 @@ agent_kwargs:
   # Tracks runtime images. Supports HTTP URL auto-download: agents can
   # pass image URLs from search results to visual tools.
   persistent_state_memory:
-    name: "image"
     emit_policy: "always"  # "always" or "on_change"
+    modules:
+      - name: "image"
 
   # ===== Generation =====
   # enable_thinking=false disables Qwen3-VL's <think> reasoning for the

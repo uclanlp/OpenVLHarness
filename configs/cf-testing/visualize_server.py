@@ -5,7 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
         "--trajectory-dir",
         type=str,
         # default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260401_004439_default/RefSpatial/full_trajectories",
-        default="/Users/<user>/Downloads/agent_spatial/MindCubeBench_tiny_raw_qa/full_trajectories",
+        default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260503_004235_default/RealXBench/full_trajectories",
         help="Path to a full_trajectories directory containing per-task JSON files.",
     )
     args, _ = parser.parse_known_args(sys.argv[1:])
@@ -121,16 +121,37 @@ def _looks_like_base64(value: str) -> bool:
         return False
 
 
-def _ensure_image_url(value: str) -> str:
+def _file_to_data_url(path: Path) -> str:
+    suffix = path.suffix.lower().lstrip(".") or "png"
+    if suffix == "jpg":
+        suffix = "jpeg"
+    with open(path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode("utf-8")
+    return f"data:image/{suffix};base64,{encoded}"
+
+
+def _ensure_image_url(value: str, base_dir: Optional[Path] = None) -> str:
     if not value:
         return ""
     if value.startswith("data:image/"):
         return value
+    # Absolute or CWD-relative path that already exists.
     if os.path.exists(value):
-        suffix = Path(value).suffix.lower().lstrip(".") or "png"
-        with open(value, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("utf-8")
-        return f"data:image/{suffix};base64,{encoded}"
+        return _file_to_data_url(Path(value))
+    # Relative path resolved against the trajectory dir (new on-disk format,
+    # e.g. messages[*].content[*].image_url.url == "images/1_0.jpg").
+    if base_dir is not None and not os.path.isabs(value):
+        try:
+            candidate = (base_dir / value).resolve()
+            base_resolved = base_dir.resolve()
+            # Path-traversal guard: only serve files under base_dir.
+            if (
+                candidate.is_file()
+                and base_resolved in candidate.parents
+            ):
+                return _file_to_data_url(candidate)
+        except Exception:
+            pass
     if _looks_like_base64(value):
         return f"data:image/png;base64,{value}"
     return value
@@ -153,8 +174,8 @@ def _render_text_block(label: str, text: str, max_chars: int) -> str:
     )
 
 
-def _render_images(urls: list[str]) -> str:
-    clean_urls = [_ensure_image_url(url) for url in urls if url]
+def _render_images(urls: list[str], base_dir: Optional[Path] = None) -> str:
+    clean_urls = [_ensure_image_url(url, base_dir=base_dir) for url in urls if url]
     if not clean_urls:
         return ""
     img_tags = [f"<img src='{_escape(url)}' />" for url in clean_urls]
@@ -183,7 +204,7 @@ def _normalize_messages_for_render(messages: Any) -> list[dict[str, Any]]:
     return messages
 
 
-def _render_messages(messages: Any, max_chars: int) -> str:
+def _render_messages(messages: Any, max_chars: int, base_dir: Optional[Path] = None) -> str:
     messages = _normalize_messages_for_render(messages)
     if not messages:
         return ""
@@ -207,16 +228,43 @@ def _render_messages(messages: Any, max_chars: int) -> str:
                             url = image_url
                     else:
                         url = part.get("value", "")
-                    blocks.append(_render_images([url]))
+                    blocks.append(_render_images([url], base_dir=base_dir))
                 else:
                     blocks.append(_render_text_block("content", json.dumps(part, ensure_ascii=False), max_chars))
         else:
             blocks.append(_render_text_block("content", str(content), max_chars))
+
+        if msg.get("role") == "assistant":
+            tool_calls = msg.get("tool_calls") or []
+            if isinstance(tool_calls, list):
+                for i, tc in enumerate(tool_calls):
+                    if not isinstance(tc, dict):
+                        continue
+                    fn = tc.get("function") or {}
+                    if not isinstance(fn, dict):
+                        continue
+                    name = fn.get("name", "")
+                    arguments = fn.get("arguments", "")
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.dumps(
+                                json.loads(arguments), ensure_ascii=False, indent=2,
+                            )
+                        except Exception:
+                            pass
+                    elif arguments is not None:
+                        try:
+                            arguments = json.dumps(arguments, ensure_ascii=False, indent=2)
+                        except Exception:
+                            arguments = str(arguments)
+                    label = f"tool_call[{i}]: {name}" if name else f"tool_call[{i}]"
+                    blocks.append(_render_text_block(label, arguments or "", max_chars))
+
         blocks.append("<div class='divider'></div>")
     return "<div class='messages'>" + "".join(blocks) + "</div>"
 
 
-def build_html(record: dict[str, Any], max_chars: int = 2000) -> str:
+def build_html(record: dict[str, Any], max_chars: int = 2000, base_dir: Optional[Path] = None) -> str:
     header = (
         "<div class='header'>"
         f"<div class='title'>Task {_escape(str(record.get('task_id', 'Unknown')))}</div>"
@@ -240,7 +288,7 @@ def build_html(record: dict[str, Any], max_chars: int = 2000) -> str:
     messages = record.get("messages")
     if isinstance(messages, list) and messages:
         body.append("<h2>Messages</h2>")
-        body.append(_render_messages(messages, max_chars))
+        body.append(_render_messages(messages, max_chars, base_dir=base_dir))
     else:
         body.append("<h2>Raw JSON</h2>")
         body.append(_render_text_block("record", json.dumps(record, ensure_ascii=False, indent=2), max_chars))
@@ -457,7 +505,7 @@ def main() -> None:
     with meta_right:
         st.write(f"Messages: `{len(record.get('messages') or [])}`")
 
-    html_text = build_html(record)
+    html_text = build_html(record, base_dir=selected_path.parent)
     components.html(html_text, height=DEFAULT_HTML_HEIGHT, scrolling=True)
 
 
