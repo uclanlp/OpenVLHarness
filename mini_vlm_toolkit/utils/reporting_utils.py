@@ -802,3 +802,10 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
     dump(summary, summary_path)
     summary["summary_path"] = summary_path
     return summary
+
+
+# Public re-export: post-eval merger that injects per-instance eval results
+# (correct / score / raw) into ``full_trajectories/<task_id>.json``.
+# Implementation lives in ``utils.eval_injection`` alongside the per-dataset
+# adapter registry.
+from .eval_injection import merge_eval_into_trajectories  # noqa: E402,F401

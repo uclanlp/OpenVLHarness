@@ -131,4 +131,6 @@ class Visual_Grounding_Tool(BaseTool):
             raise_for_status_with_detail(response, prefix="SAM3 server error")
             result = response.json()
 
+        if isinstance(result, dict):
+            result["ephemeral_images"] = True
         return result
