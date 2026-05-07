@@ -24,8 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--trajectory-dir",
         type=str,
-        # default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260401_004439_default/RefSpatial/full_trajectories",
-        default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260503_004235_default/RealXBench/full_trajectories",
+        default="/Users/<user>/Downloads/agent_spatial/MMSIBench_wo_circular/full_trajectories",
+        # default="/Users/<user>/Downloads/agent_v1_0215_judge_v1_0215_20260503_004235_default/FSC147_val/full_trajectories",
         help="Path to a full_trajectories directory containing per-task JSON files.",
     )
     args, _ = parser.parse_known_args(sys.argv[1:])

@@ -1,11 +1,18 @@
 # OCR Tool Setup
 
+<<<<<<< HEAD
 `OCR_Tool` calls a vLLM-served PaddleOCR-VL model directly via the
 OpenAI-compatible `/v1/chat/completions` endpoint. There is no separate
 wrapper process — `tool.py` does image preprocessing (EXIF transpose, RGB,
 PNG re-encode → base64 data URL) and posts to vLLM. Weights for
 `PaddlePaddle/PaddleOCR-VL-1.5` are downloaded by vLLM on first run and
 cached under the standard Hugging Face cache directory.
+=======
+This tool wraps a dedicated PaddleOCR-VL model server. The model server
+runs separately from the mini VLM tool server. Weights for
+`PaddlePaddle/PaddleOCR-VL-1.5` are downloaded by `transformers` on first
+run and cached under the standard Hugging Face cache directory.
+>>>>>>> 91d1ed8 (add ocr server)
 
 ## Image inputs
 
@@ -71,6 +78,22 @@ curl http://127.0.0.1:8085/v1/chat/completions \
 {
   "text": "...transcribed text...",
   "model_id": "PaddlePaddle/PaddleOCR-VL-1.5"
+}
+```
+
+Smoke transcription:
+
+```bash
+curl -F image=@/path/to/scan.png http://127.0.0.1:8085/v1/ocr
+```
+
+Response shape:
+
+```json
+{
+  "text": "...transcribed text...",
+  "model_id": "PaddlePaddle/PaddleOCR-VL-1.5",
+  "device": "cuda"
 }
 ```
 
