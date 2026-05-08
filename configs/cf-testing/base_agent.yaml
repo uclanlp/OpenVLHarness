@@ -3,7 +3,7 @@ agent_name: BaseAgent
 agent_config_version: v1_0215
 
 agent_kwargs:
-  base: "http://localhost:8222"
+  base: "http://localhost:8333"
   key: "empty"
   model: "Qwen/Qwen3-VL-8B-Instruct"
   timeout: 600
