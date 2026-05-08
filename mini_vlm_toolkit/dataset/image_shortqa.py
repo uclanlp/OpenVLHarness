@@ -186,7 +186,8 @@ class ImageShortQADataset(ImageBaseDataset):
         judge_kwargs = dict(judge_kwargs)
         nproc = judge_kwargs.pop('nproc', 4)
         judge_kwargs.pop('enable_llm_judge', None)
-        max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
+        # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
+        # the single source of truth; no per-evaluator default).
 
         # Judge selection: env var > judge_kwargs > 'hle' default
         judge_name = (
@@ -211,7 +212,7 @@ class ImageShortQADataset(ImageBaseDataset):
             if model == 'exact_matching':
                 model = None
             else:
-                model = build_judge(model=model, max_tokens=max_tokens, **judge_kwargs)
+                model = build_judge(model=model, **judge_kwargs)
                 if not model.working():
                     warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
                     warnings.warn(DEBUG_MESSAGE)

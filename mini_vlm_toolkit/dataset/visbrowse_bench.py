@@ -476,7 +476,8 @@ class VisBrowseBenchDataset(ImageBaseDataset):
         judge_kwargs = dict(judge_kwargs)
         nproc = judge_kwargs.pop('nproc', 4)
         judge_kwargs.pop('enable_llm_judge', None)
-        max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
+        # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
+        # the single source of truth; no per-evaluator default).
         enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
 
         # Judge selection: env var > judge_kwargs > 'vbb' default (paper protocol)
@@ -489,7 +490,7 @@ class VisBrowseBenchDataset(ImageBaseDataset):
             raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'vbb' or 'judge_rs'")
         judge_kwargs.pop('judge_prompt', None)
 
-        model = build_judge(max_tokens=max_tokens, **judge_kwargs)
+        model = build_judge(**judge_kwargs)
         if model is None or not model.working():
             logger.error(
                 'VisBrowseBench evaluation requires a working judge model. '

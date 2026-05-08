@@ -290,6 +290,8 @@ class BrowseCompVLDataset(ImageBaseDataset):
         # parameter). Pop it before passing kwargs to build_judge() so it
         # doesn't leak into the OpenAI request payload and trigger 400.
         enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
+        # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
+        # the single source of truth; no per-evaluator default).
         # Optional alternative judge protocol. Default = paper-protocol HLE.
         # Override via judge_kwargs['judge_prompt'] = 'judge_rs' OR env
         # MVT_JUDGE_PROMPT=judge_rs. Filename suffix '_judge_rs' is added

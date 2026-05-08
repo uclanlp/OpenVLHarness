@@ -1035,7 +1035,8 @@ class LIVEVQA_v2(ImageBaseDataset):
         nproc = judge_kwargs.pop('nproc', 4)
         judge_kwargs.pop('enable_llm_judge', None)
         judge_kwargs.pop('enable_vdr_aux', None)
-        max_tokens = judge_kwargs.pop('judge_max_tokens', 1024)
+        # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
+        # the single source of truth; no per-evaluator default).
 
         # Judge selection: env var > judge_kwargs > 'hle' default
         judge_name = (
@@ -1047,7 +1048,7 @@ class LIVEVQA_v2(ImageBaseDataset):
             raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
         judge_kwargs.pop('judge_prompt', None)
 
-        model = build_judge(max_tokens=max_tokens, **judge_kwargs)
+        model = build_judge(**judge_kwargs)
         if model is None or not model.working():
             logger.error(
                 'LIVEVQA_v2 evaluation requires a working judge model. '
