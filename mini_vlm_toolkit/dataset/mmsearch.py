@@ -655,10 +655,10 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     judge_kwargs_local = dict(judge_kwargs)
     judge_kwargs_local.pop("enable_llm_judge", None)
     nproc = judge_kwargs_local.pop("nproc", 4)
-    # `judge_max_tokens` is the YAML key; convert it to the `max_tokens`
-    # kwarg expected by OpenAIWrapper. Default to 128 since the judge only
-    # needs to return CORRECT/INCORRECT.
-    max_tokens = judge_kwargs_local.pop("judge_max_tokens", 128)
+    # NOTE: ``judge_max_tokens`` is consumed centrally inside
+    # ``build_judge()`` (translated to OpenAIWrapper's ``max_tokens``).
+    # Yaml is the single source of truth; do NOT introduce a per-evaluator
+    # default here.
 
     # Judge prompt selection: env var > judge_kwargs > default 'hle'
     judge_name = (
@@ -671,7 +671,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     # Drop the kwarg (if not popped above) so it doesn't reach OpenAIWrapper.
     judge_kwargs_local.pop('judge_prompt', None)
 
-    judge = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
+    judge = build_judge(**judge_kwargs_local)
     assert judge.working(), "MMSearch LLM judge requires a working OpenAI API"
 
     if judge_name == 'judge_rs':

@@ -293,13 +293,18 @@ class SimpleVQA_EN(SimpleVQA):
         gpt_eval_filename = 'gpt_eval_judge_rs.json' if judge_name == 'judge_rs' else 'gpt_eval.json'
         fout = open(str(Path(result_file).parent) + '/' + gpt_eval_filename, 'w', encoding='utf-8')
 
+        from .utils.judge_util import resolve_judge_max_tokens
+
         api_key = judge_kwargs.get('key', None)
         api_base = judge_kwargs.get('api_base', None)
         if api_base and "/chat/completions" in api_base:
             api_base = api_base.replace("/chat/completions", "")
         model_name = judge_kwargs.get('model', 'gpt-4o')
         nproc = judge_kwargs.get('nproc', 16)
-        max_tokens = judge_kwargs.get('judge_max_tokens', 1024)
+        # Custom OpenAI client path (not via build_judge); resolve from yaml
+        # → JUDGE_MAX_TOKENS_DEFAULT centrally so we don't drift back into
+        # per-evaluator defaults.
+        max_tokens = resolve_judge_max_tokens(judge_kwargs)
 
         client = OpenAI(api_key=api_key, base_url=api_base)
 

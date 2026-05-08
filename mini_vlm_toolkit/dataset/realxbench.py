@@ -258,7 +258,8 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     judge_kwargs_local = dict(judge_kwargs)
     judge_kwargs_local.pop("enable_llm_judge", None)
     nproc = judge_kwargs_local.pop("nproc", 4)
-    max_tokens = judge_kwargs_local.pop("judge_max_tokens", 128)
+    # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
+    # the single source of truth; no per-evaluator default).
 
     judge_name = (
         os.environ.get('MVT_JUDGE_PROMPT')
@@ -269,7 +270,7 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
         raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'realxbench' or 'judge_rs'")
     judge_kwargs_local.pop('judge_prompt', None)
 
-    judge = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
+    judge = build_judge(**judge_kwargs_local)
     assert judge.working(), "RealXBench LLM judge requires a working OpenAI API"
 
     if judge_name == 'judge_rs':

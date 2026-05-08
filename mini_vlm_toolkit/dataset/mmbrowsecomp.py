@@ -382,10 +382,14 @@ class MMBrowseCompDataset(ImageBaseDataset):
         if 'checklist' not in data:
             data['checklist'] = [[]] * len(data)
 
+        from .utils.judge_util import resolve_judge_max_tokens
+
         judge_model = judge_kwargs.get('model')
         judge_key = judge_kwargs.get('key', 'empty')
         judge_base = judge_kwargs.get('api_base')
-        judge_max_tokens = judge_kwargs.get('judge_max_tokens', 5120)
+        # Custom OpenAI client path (not via build_judge); resolve from yaml
+        # → JUDGE_MAX_TOKENS_DEFAULT centrally.
+        judge_max_tokens = resolve_judge_max_tokens(judge_kwargs)
 
         if not judge_model:
             raise ValueError(
@@ -506,10 +510,11 @@ class MMBrowseCompDataset(ImageBaseDataset):
         judge_kwargs_local.pop('use_exact_match', None)
         judge_kwargs_local.pop('judge_prompt', None)
         judge_kwargs_local.pop('enable_llm_judge', None)
-        max_tokens = judge_kwargs_local.pop('judge_max_tokens', 1024)
+        # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
+        # the single source of truth; no per-evaluator default).
         judge_kwargs_local.pop('nproc', None)
 
-        model = build_judge(max_tokens=max_tokens, **judge_kwargs_local)
+        model = build_judge(**judge_kwargs_local)
         if model is None or not model.working():
             raise RuntimeError(
                 'MMBrowseComp Judge_RS evaluation requires a working judge model. '
