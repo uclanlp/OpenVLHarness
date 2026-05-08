@@ -141,7 +141,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
 - Model server URLs:
   - `SAM3_SERVER_URL`
   - `GROUNDING_DINO_SERVER_URL`
-  - `OCR_SERVER_URL` (languages configured by `OCR_LANGS` on the server; requests must match)
+  - `OCR_SERVER_URL` (PaddleOCR-VL; tune via `OCR_MODEL_ID`, `OCR_DEVICE`, `OCR_TORCH_DTYPE` on the server)
   - `DEPTH_ANYTHING_SERVER_URL` (colormap via `DEPTH_ANYTHING_COLORMAP`, optional `matplotlib`)
 - API key files are read from:
   - `src/tools/gemini_google_search/google_api_key`

@@ -229,7 +229,7 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - `sam3_segment` also depends on `requirements-server.txt` (including `matplotlib`) and runs via `./src/tools/sam3_segment/run_sam3_server.sh`.
 - Image tools accept base64 inputs for remote clients; pass exactly one of `image_path` or `image_base64` (use `base_image_base64`/`overlay_image_base64` for `OverlayImages_Tool`).
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./src/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
-- OCR runs as a separate EasyOCR server; set `OCR_SERVER_URL` and launch `./src/tools/ocr/run_ocr_server.sh` (requires `easyocr`, downloads weights on first run, defaults to CPU).
+- OCR runs as a separate PaddleOCR-VL server; set `OCR_SERVER_URL` and launch `./src/tools/ocr/run_ocr_server.sh` (requires `transformers>=5.0` and `torch`; downloads `PaddlePaddle/PaddleOCR-VL-1.5` weights on first run; uses CUDA when available).
 - Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./src/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
 - Subserver ports can be overridden via env vars: SAM3 uses `SAM3_HOST`/`SAM3_PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
 - Heavy tool wrappers surface subserver error messages (status + detail) and truncate large payloads.

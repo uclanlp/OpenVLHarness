@@ -1,117 +1,105 @@
 import io
-import json
 import os
-import re
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-import easyocr
-import numpy as np
-from PIL import Image
 import torch
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from PIL import Image, ImageOps
+from transformers import AutoModelForImageTextToText, AutoProcessor
 
 
-LANGS_ENV = os.getenv("OCR_LANGS", "ch_sim,en")
-GPU_ENV = os.getenv("OCR_GPU", "auto")
-MODEL_DIR = os.getenv("OCR_MODEL_DIR", "").strip()
-DOWNLOAD_ENABLED = os.getenv("OCR_DOWNLOAD_ENABLED", "true")
+MODEL_ID = os.getenv("OCR_MODEL_ID", "PaddlePaddle/PaddleOCR-VL-1.5")
+DEVICE_ENV = os.getenv("OCR_DEVICE", "auto")
+TORCH_DTYPE_ENV = os.getenv("OCR_TORCH_DTYPE", "bfloat16")
+MAX_NEW_TOKENS = int(os.getenv("OCR_MAX_NEW_TOKENS", "2048"))
+REPETITION_PENALTY = float(os.getenv("OCR_REPETITION_PENALTY", "1.0"))
 
-app = FastAPI()
+PROMPT = "OCR:"
+MAX_PIXELS = 1280 * 28 * 28
 
-
-def _parse_langs(raw):
-    if not raw:
-        return []
-    raw = raw.strip()
-    if raw.startswith("["):
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                return [str(item).strip() for item in parsed if str(item).strip()]
-        except json.JSONDecodeError:
-            pass
-    parts = re.split(r"[,\s;|]+", raw)
-    return [part.strip() for part in parts if part.strip()]
+app = FastAPI(title="OCR Server (PaddleOCR-VL)", version="0.4")
 
 
-def _resolve_gpu():
-    raw = str(GPU_ENV).lower().strip()
-    if raw in ("1", "true", "yes", "on"):
-        return torch.cuda.is_available()
-    if raw in ("0", "false", "no", "off"):
-        return False
-    return torch.cuda.is_available()
+def _resolve_device(device):
+    if device and device != "auto":
+        if device == "cuda" and not torch.cuda.is_available():
+            return "cpu"
+        return device
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _resolve_download_enabled():
-    return str(DOWNLOAD_ENABLED).lower() not in ("0", "false", "no", "off")
+def _resolve_dtype(name):
+    dtype = getattr(torch, str(name).strip(), None)
+    if not isinstance(dtype, torch.dtype):
+        raise ValueError(
+            f"OCR_TORCH_DTYPE={name!r} is not a valid torch dtype "
+            "(expected e.g. bfloat16, float16, float32)"
+        )
+    return dtype
 
 
-def _load_reader():
-    langs = _parse_langs(LANGS_ENV)
-    if not langs:
-        langs = ["en"]
-    gpu = _resolve_gpu()
-    kwargs = {
-        "gpu": gpu,
-        "download_enabled": _resolve_download_enabled(),
-    }
-    if MODEL_DIR:
-        kwargs["model_storage_directory"] = MODEL_DIR
-    reader = easyocr.Reader(langs, **kwargs)
-    return reader, langs, gpu
+def _load_model():
+    device = _resolve_device(DEVICE_ENV)
+    dtype = _resolve_dtype(TORCH_DTYPE_ENV)
+    model = (
+        AutoModelForImageTextToText.from_pretrained(MODEL_ID, dtype=dtype, attn_implementation="flash_attention_2")
+        .to(device)
+        .eval()
+    )
+    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    return model, processor, device
 
 
-READER, LOADED_LANGS, USING_GPU = _load_reader()
+MODEL, PROCESSOR, DEVICE = _load_model()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "languages": LOADED_LANGS, "gpu": USING_GPU}
+    return {"status": "ok", "model_id": MODEL_ID, "device": DEVICE}
 
 
 @app.post("/v1/ocr")
-async def ocr(
-    image: UploadFile = File(...),
-    languages: str = Form(""),
-):
+async def ocr(image: UploadFile = File(...)):
     payload = await image.read()
     if not payload:
         raise HTTPException(status_code=400, detail="image payload is empty")
-
-    requested_langs = _parse_langs(languages)
-    if requested_langs and set(requested_langs) != set(LOADED_LANGS):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Requested languages do not match server configuration. "
-                "Restart the OCR server with OCR_LANGS set to the desired list."
-            ),
+    try:
+        pil_image = ImageOps.exif_transpose(Image.open(io.BytesIO(payload))).convert(
+            "RGB"
         )
-    langs = LOADED_LANGS
-    pil_image = Image.open(io.BytesIO(payload)).convert("RGB")
-    results = READER.readtext(np.array(pil_image))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"invalid image: {exc}") from exc
 
-    texts = []
-    structured = []
-    for item in results:
-        if len(item) < 3:
-            continue
-        box, text, confidence = item
-        texts.append(text)
-        structured.append(
-            {
-                "box": [[float(x), float(y)] for x, y in box],
-                "text": text,
-                "confidence": float(confidence),
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": pil_image},
+                {"type": "text", "text": PROMPT},
+            ],
+        }
+    ]
+    inputs = PROCESSOR.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        tokenize=True,
+        return_dict=True,
+        return_tensors="pt",
+        images_kwargs={
+            "size": {
+                "shortest_edge": PROCESSOR.image_processor.size["shortest_edge"],
+                "longest_edge": MAX_PIXELS,
             }
-        )
+        },
+    ).to(DEVICE)
 
-    return {
-        "texts": texts,
-        "results": structured,
-        "languages": langs,
-        "gpu": USING_GPU,
-    }
+    gen_kwargs = {"max_new_tokens": MAX_NEW_TOKENS}
+    if REPETITION_PENALTY != 1.0:
+        gen_kwargs["repetition_penalty"] = REPETITION_PENALTY
+    with torch.inference_mode():
+        outputs = MODEL.generate(**inputs, **gen_kwargs)
+    decoded = PROCESSOR.decode(outputs[0][inputs["input_ids"].shape[-1] : -1])
+
+    return {"text": decoded.strip(), "model_id": MODEL_ID, "device": DEVICE}
 
 
 def main():

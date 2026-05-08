@@ -3,14 +3,15 @@
 import base64
 import requests
 import numpy as np
+from pathlib import Path
 
+IMAGE_PATH = Path(__file__).resolve().parent / "data" / "test_depth.png"
 SERVER_URL = "http://127.0.0.1:8087"
-IMAGE_PATH = "test_depth.png"
 
 with open(IMAGE_PATH, "rb") as f:
     resp = requests.post(
         f"{SERVER_URL}/v1/depth",
-        files={"image": (IMAGE_PATH, f, "image/png")},
+        files={"image": (IMAGE_PATH.name, f, "image/png")},
         data={"colormap": "inferno"},
         timeout=60,
     )

@@ -1,4 +1,3 @@
-import json
 import mimetypes
 import os
 
@@ -28,30 +27,31 @@ class OCR_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Extract readable text from an image using an OCR server. Use this "
-                "tool when the task is about words, numbers, or printed labels in "
-                "the image. Do not use it for general object localization or "
-                "segmentation."
+                "Extract readable text from an image using PaddleOCR-VL "
+                "(a vision-language OCR model). Returns the transcribed text "
+                "as a single string. Use this tool when the task is about "
+                "words, numbers, or printed labels in the image. Do not use "
+                "it for general object localization or segmentation."
             ),
-            tool_version="0.3.0",
+            tool_version="0.4.0",
             input_types={
                 "image_path": "str - local path to the image file",
                 "image_base64": "str - base64-encoded image (use instead of image_path)",
             },
             input_schema=INPUT_SCHEMA,
-            output_type="dict - texts, results, languages, gpu",
+            output_type="dict - text (str), model_id, device",
             demo_commands=[
                 {
                     "command": 'OCR_Tool(image_path="/path/to/scan.png")',
-                    "description": "Extract text from an image using the OCR server.",
+                    "description": "Transcribe text from an image using the OCR server.",
                 }
             ],
             user_metadata={
-                "source": "OpenThinkIMG",
+                "source": "PaddlePaddle/PaddleOCR-VL-1.5",
                 "status": "implemented",
                 "server_env": "OCR_SERVER_URL",
                 "default_server_url": DEFAULT_SERVER_URL,
-                "notes": "Wrapper around a standalone EasyOCR server.",
+                "notes": "Wrapper around a standalone PaddleOCR-VL server.",
             },
         )
 
@@ -69,7 +69,6 @@ class OCR_Tool(BaseTool):
     def execute(
         self,
         image_path=None,
-        languages=None,
         server_url=None,
         timeout_seconds=120,
         image_base64=None,
@@ -86,14 +85,6 @@ class OCR_Tool(BaseTool):
         ).rstrip("/")
         endpoint = f"{resolved_server_url}/v1/ocr"
 
-        content_type = None
-        data = {}
-        if languages:
-            if isinstance(languages, (list, tuple)):
-                data["languages"] = json.dumps(list(languages))
-            else:
-                data["languages"] = str(languages)
-
         if image_path:
             content_type = (
                 mimetypes.guess_type(image_path)[0] or "application/octet-stream"
@@ -103,7 +94,7 @@ class OCR_Tool(BaseTool):
                     "image": (os.path.basename(image_path), handle, content_type),
                 }
                 response = requests.post(
-                    endpoint, files=files, data=data, timeout=timeout_seconds
+                    endpoint, files=files, timeout=timeout_seconds
                 )
                 raise_for_status_with_detail(response, prefix="OCR server error")
                 return response.json()
@@ -112,8 +103,6 @@ class OCR_Tool(BaseTool):
         files = {
             "image": ("image", image_bytes, content_type or "application/octet-stream"),
         }
-        response = requests.post(
-            endpoint, files=files, data=data, timeout=timeout_seconds
-        )
+        response = requests.post(endpoint, files=files, timeout=timeout_seconds)
         raise_for_status_with_detail(response, prefix="OCR server error")
         return response.json()
