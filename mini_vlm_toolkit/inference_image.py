@@ -1,5 +1,7 @@
 """Image inference utilities for multi-modal models."""
 
+import copy
+import itertools
 import os
 import warnings
 import torch
@@ -8,13 +10,16 @@ import pandas as pd
 from .utils.reporting_utils import (
     build_trajectory_records,
     write_input_snapshot_json,
-    write_html_reports,
-    write_full_trajectory_jsons,
     write_raw_response_jsons,
     write_raw_trajectory_jsons,
+    build_complete_messages_from_trajectory,
+    render_html_report,
+    _replace_data_uris_with_files,
 )
 from .utils import track_progress_rich
+from .utils import file_db
 from .smp import *
+from .smp.file import NumpyEncoder
 
 # Constants
 FAIL_MSG = 'Failed to obtain answer via API.'
@@ -24,7 +29,143 @@ FAIL_MSG = 'Failed to obtain answer via API.'
 # API-based Inference Functions
 # ============================================================================
 
-def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_nproc=4, ignore_failed=False, enable_incremental_json=False):
+def _build_full_trajectory_payload(record, save_images, images_subdir):
+    """Build the per-task ``full_trajectories/<idx>.json`` payload.
+
+    Mirrors ``write_full_trajectory_jsons`` (reporting_utils.py:679-729) but
+    returns the dict instead of writing it, so the caller can land it
+    atomically alongside other commit-time sidecars.
+    """
+    trajectory = record.get("trajectory")
+    payload = {
+        "task_id": copy.deepcopy(record.get("task_id")),
+        "dataset": copy.deepcopy(record.get("dataset")),
+        "model_name": copy.deepcopy(record.get("model_name")),
+        "agent_class": copy.deepcopy(record.get("agent_class")),
+        "prediction": copy.deepcopy(record.get("prediction")),
+    }
+    gt = record.get("ground_truth")
+    if gt is not None:
+        payload["ground_truth"] = copy.deepcopy(gt)
+    reasoning = (record.get("extra_records") or {}).get("reasoning")
+    if reasoning:
+        payload["reasoning"] = reasoning
+    complete_messages = build_complete_messages_from_trajectory(trajectory)
+    if complete_messages is not None:
+        payload["messages"] = complete_messages
+    elif isinstance(trajectory, dict) and isinstance(trajectory.get("messages"), list):
+        payload["messages"] = copy.deepcopy(trajectory["messages"])
+
+    if save_images == "files" and payload.get("messages") is not None:
+        os.makedirs(images_subdir, exist_ok=True)
+        _replace_data_uris_with_files(
+            payload["messages"], payload["task_id"], images_subdir,
+        )
+    return payload
+
+
+def _make_committed_gen(
+    original_gen,
+    *,
+    work_dir,
+    dataset,
+    dataset_name,
+    model_name,
+    agent_class,
+    save_images,
+    save_raw_trajectory,
+    html_limit,
+    full_trajectories_limit=-1,
+):
+    """Wrap ``model.generate`` with per-example claim → run → commit.
+
+    Each successful invocation atomically writes:
+      - ``results/<shard>/<idx>/record.json`` (canonical, with done flag)
+      - ``full_trajectories/<idx>.json`` (gated by ``full_trajectories_limit``;
+        -1 = write all (image default), N = first-N by completion order,
+        0 = never)
+      - ``tool_detections/<idx>.json`` (only if non-empty)
+      - ``htmls/<idx>.html`` (first-N by completion order, gated by html_limit)
+      - ``raw_trajectories/<idx>.json`` (if requested + ``raw_sft`` present)
+    """
+    file_db.ensure_layout(work_dir)
+    gt_key = None
+    for key in ("answer", "GT", "answers", "ground_truth"):
+        if key in dataset.data:
+            gt_key = key
+            break
+    answer_map = dict(zip(dataset.data["index"], dataset.data[gt_key])) if gt_key else {}
+
+    html_committed = itertools.count()
+    full_committed = itertools.count()
+    images_subdir = osp.join(work_dir, "full_trajectories", "images")
+
+    def gen(message=None, dataset=None, task_id=None, **kwargs):
+        idx = task_id
+        with file_db.claim_and_heartbeat(work_dir, idx) as got:
+            if not got:
+                return None
+            result = original_gen(message=message, dataset=dataset, task_id=task_id, **kwargs)
+
+            records = build_trajectory_records(
+                [idx], {idx: result},
+                dataset_name=dataset_name, model_name=model_name,
+                agent_class=agent_class, scrub_images=False,
+                strip_assistant_content=False,
+            )
+            if records:
+                rec0 = records[0]
+                gt = answer_map.get(idx)
+                if gt is not None:
+                    rec0["ground_truth"] = str(gt)
+
+                # 1) full_trajectories/<idx>.json — first-N gating
+                if full_trajectories_limit != 0:
+                    if full_trajectories_limit < 0 or next(full_committed) < full_trajectories_limit:
+                        payload = _build_full_trajectory_payload(rec0, save_images, images_subdir)
+                        file_db.atomic_write(
+                            osp.join(work_dir, "full_trajectories", f"{idx}.json"),
+                            payload, json_encoder=NumpyEncoder,
+                        )
+
+                # 2) tool_detections/<idx>.json — only if non-empty
+                extra = rec0.get("extra_records") or {}
+                detections = extra.get("tool_detections") if isinstance(extra, dict) else None
+                if detections:
+                    file_db.atomic_write(
+                        osp.join(work_dir, "tool_detections", f"{idx}.json"),
+                        detections, json_encoder=NumpyEncoder,
+                    )
+
+                # 3) htmls/<idx>.html — first-N gating
+                if html_limit != 0:
+                    if html_limit < 0 or next(html_committed) < html_limit:
+                        html_text = render_html_report(rec0)
+                        file_db.atomic_write(
+                            osp.join(work_dir, "htmls", f"{idx}.html"),
+                            html_text,
+                        )
+
+                # 4) raw_trajectories/<idx>.json — if requested + raw_sft present
+                if save_raw_trajectory:
+                    write_raw_trajectory_jsons(
+                        [rec0], osp.join(work_dir, "raw_trajectories"), limit=-1,
+                    )
+
+            # 5) canonical record + done flag — last, so a crash before this
+            # leaves no done flag and the boot scan re-dispatches.
+            file_db.commit_atomic(work_dir, idx, result, json_encoder=NumpyEncoder)
+            return result
+
+    return gen
+
+
+def infer_data_api(
+    model, work_dir, model_name, dataset, *,
+    index_set=None, api_nproc=4, ignore_failed=False,
+    enable_incremental_json=False,
+    html_limit=0, save_images="files", save_raw_trajectory=False,
+):
     rank, world_size = get_rank_and_world_size()
     assert rank == 0 and world_size == 1
     dataset_name = dataset.dataset_name
@@ -35,124 +176,121 @@ def infer_data_api(model, work_dir, model_name, dataset, index_set=None, api_npr
     if hasattr(model, 'set_dump_image'):
         model.set_dump_image(dataset.dump_image)
 
-    lt, indices = len(data), list(data['index'])
+    file_db.ensure_layout(work_dir)
 
-    structs = []
-    for i in range(lt):
-        item = data.iloc[i]
-        if hasattr(model, 'use_custom_prompt') and model.use_custom_prompt(dataset_name):
-            assert hasattr(model, 'build_prompt')
-            struct = model.build_prompt(item, dataset=dataset_name)
-        else:
-            struct = dataset.build_prompt(item)
-        structs.append(struct)
-
-    out_file = f'{work_dir}/{model_name}_supp.pkl'
-
-    # To reuse records in MMBench_V11
+    # MMBench_V11 reuse: pre-seed sidecars from the cached predictions.
     if dataset_name in ['MMBench', 'MMBench_CN']:
         pred_format = get_pred_file_format()
         v11_pred = f'{work_dir}/{model_name}_V11.{pred_format}'
         if osp.exists(v11_pred):
             try:
                 reuse_inds = load('http://opencompass.openxlab.space/utils/mmb_reuse.pkl')
-                data = load(v11_pred)
-                ans_map = {x: y for x, y in zip(data['index'], data['prediction']) if x in reuse_inds}
-                dump(ans_map, out_file)
+                v11_data = load(v11_pred)
+                ans_map = {
+                    x: y for x, y in zip(v11_data['index'], v11_data['prediction'])
+                    if x in reuse_inds
+                }
+                for k, v in ans_map.items():
+                    if str(k) not in file_db.load_done_set(work_dir):
+                        file_db.commit_atomic(work_dir, k, v)
             except Exception as err:
                 print(type(err), err)
 
-    res = {}
-    if osp.exists(out_file):
-        res = load(out_file)
-        if ignore_failed:
-            res = {k: v for k, v in res.items() if FAIL_MSG not in v}
+    # Boot scan: skip already-committed and live-claimed examples.
+    done = file_db.load_done_set(work_dir)
+    fresh = file_db.load_fresh_claims(work_dir)
+    if ignore_failed:
+        # Re-run examples whose committed prediction is FAIL_MSG.
+        for idx_str in list(done):
+            try:
+                rec = file_db.load_record(work_dir, idx_str)
+            except (FileNotFoundError, ValueError):
+                continue
+            pred = rec.get("prediction") if isinstance(rec, dict) else rec
+            if FAIL_MSG in str(pred):
+                done.discard(idx_str)
+                try:
+                    os.unlink(file_db._done_path(work_dir, idx_str))
+                except FileNotFoundError:
+                    pass
 
-    structs = [s for i, s in zip(indices, structs) if i not in res]
-    indices = [i for i in indices if i not in res]
-
-    # Shared-agent threaded inference is safe after stateless-agent refactor.
-    gen_func = model.generate
-    # Legacy fallback kept for reference only:
-    # gen_func = _build_isolated_generate_func(model)
-    structs = [dict(message=struct, dataset=dataset_name, task_id=idx) for struct, idx in zip(structs, indices)]
-
-    if len(structs):
-        if enable_incremental_json:
-            incremental_json = osp.join(work_dir, f'{model_name}_incremental.jsonl')
-            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices, incremental_json_file=incremental_json)
+    skip = done | fresh
+    structs = []
+    indices_to_run = []
+    for i in range(len(data)):
+        item = data.iloc[i]
+        idx = item['index']
+        if str(idx) in skip:
+            continue
+        if hasattr(model, 'use_custom_prompt') and model.use_custom_prompt(dataset_name):
+            assert hasattr(model, 'build_prompt')
+            struct = model.build_prompt(item, dataset=dataset_name)
         else:
-            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
+            struct = dataset.build_prompt(item)
+        structs.append(struct)
+        indices_to_run.append(idx)
 
-    res = load(out_file)
+    structs = [
+        dict(message=s, dataset=dataset_name, task_id=idx)
+        for s, idx in zip(structs, indices_to_run)
+    ]
+
+    if structs:
+        agent_class = model.__class__.__name__
+        committed_gen = _make_committed_gen(
+            model.generate,
+            work_dir=work_dir, dataset=dataset, dataset_name=dataset_name,
+            model_name=model_name, agent_class=agent_class,
+            save_images=save_images, save_raw_trajectory=save_raw_trajectory,
+            html_limit=html_limit,
+        )
+        incremental_json = (
+            osp.join(work_dir, f'{model_name}_incremental.jsonl')
+            if enable_incremental_json else None
+        )
+        track_progress_rich(
+            committed_gen, structs, nproc=api_nproc, chunksize=api_nproc,
+            save=None, keys=indices_to_run,
+            incremental_json_file=incremental_json,
+        )
+
+    # Build the result dict from per-example sidecars.
+    idx_lookup = {str(x): x for x in dataset.data['index']}
+    res = {}
+    for idx_str, record in file_db.iter_records(work_dir):
+        native_idx = idx_lookup.get(idx_str, idx_str)
+        res[native_idx] = record
     if index_set is not None:
         res = {k: v for k, v in res.items() if k in index_set}
-    os.remove(out_file)
     return res
 
 
-def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, enable_incremental_json=False):
-    """
-    Run inference on dataset with batching across ranks.
-    
-    Args:
-        model: The model with generate() method
-        model_name: Name of the model
-        work_dir: Working directory for output files
-        dataset: Dataset object
-        out_file: Output file for results
-        verbose: Whether to print verbose output
-        api_nproc: Number of processes for API calls
-        enable_incremental_json: Whether to enable incremental JSONL output
-    
-    Returns:
-        The model object
-    """
-    dataset_name = dataset.dataset_name
-    prev_file = f'{work_dir}/{model_name}_PREV.pkl'
-    res = load(prev_file) if osp.exists(prev_file) else {}
-    if osp.exists(out_file):
-        res.update(load(out_file))
+def infer_data(
+    model, model_name, work_dir, dataset, out_file=None, *,
+    verbose=False, api_nproc=4, enable_incremental_json=False,
+    html_limit=0, save_images="files", save_raw_trajectory=False,
+    ignore_failed=False,
+):
+    """Run inference for ``dataset`` under ``work_dir``.
 
+    Single-rank only (the inner ``infer_data_api`` asserts world_size==1).
+    Resume is driven by ``_done/`` flags + per-example sidecars under
+    ``work_dir`` rather than the legacy ``_supp.pkl`` / ``_PREV.pkl``
+    cumulative pickles.
+
+    The legacy ``out_file`` argument is kept for callsite compatibility but
+    is no longer the source of truth.
+    """
     rank, world_size = get_rank_and_world_size()
-    sheet_indices = list(range(rank, len(dataset), world_size))
-    lt = len(sheet_indices)
-    data = dataset.data.iloc[sheet_indices]
-    data_indices = [i for i in data['index']]
-
-    # If finished, will exit without building the model
-    all_finished = True
-    for i in range(lt):
-        idx = data.iloc[i]['index']
-        if idx not in res:
-            all_finished = False
-    if all_finished:
-        res = {k: res[k] for k in data_indices}
-        dump(res, out_file)
-        return model
-
-    # Data need to be inferred
-    data = data[~data['index'].isin(res)]
-    lt = len(data)
-
-    ws_bak = os.environ.pop('WORLD_SIZE', None)
-    if ws_bak:
-        os.environ['WORLD_SIZE'] = ws_bak
-
-    lt, indices = len(data), list(data['index'])
-    supp = infer_data_api(
-        model=model,
-        work_dir=work_dir,
-        model_name=model_name,
-        dataset=dataset,
-        index_set=set(indices),
-        api_nproc=api_nproc,
-        enable_incremental_json=enable_incremental_json)
-    for idx in indices:
-        assert idx in supp
-    res.update(supp)
-    res = {k: res[k] for k in data_indices}
-    dump(res, out_file)
+    indices = list(dataset.data['index'])
+    infer_data_api(
+        model=model, work_dir=work_dir, model_name=model_name,
+        dataset=dataset, index_set=set(indices), api_nproc=api_nproc,
+        ignore_failed=ignore_failed,
+        enable_incremental_json=enable_incremental_json,
+        html_limit=html_limit, save_images=save_images,
+        save_raw_trajectory=save_raw_trajectory,
+    )
     return model
 
 
@@ -286,7 +424,6 @@ def infer_image_job(
     """
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
-    # set dataset_len = 16 for debugging
     if use_dataset_subdir:
         work_dir = osp.join(work_dir, dataset_name)
     if rank == 0 and not osp.exists(work_dir):
@@ -295,149 +432,98 @@ def infer_image_job(
         dist.barrier()
     pred_dataset = dataset_name if use_dataset_subdir else None
     result_file = get_pred_file_path(work_dir, model_name, pred_dataset, use_env_format=True)
-    # simplify the resume logic here
+
     if osp.exists(result_file) and not ignore_failed:
         return model  # already done, skip entirely
 
-    # ========== Pre-processing ==========
-    prev_file = f'{work_dir}/{model_name}_PREV.pkl'
-    if osp.exists(result_file):
-        if rank == 0:
-            data = load(result_file)
-            if isinstance(data, list):
-                data = pd.DataFrame(data)
-            if 'extra_records' in data:
-                results = {
-                    k: {'prediction': p, 'extra_records': e}
-                    for k, p, e in zip(data['index'], data['prediction'], data['extra_records'])
-                }
-            else:
-                results = {k: v for k, v in zip(data['index'], data['prediction'])}
-            if ignore_failed:
-                results = {
-                    k: v for k, v in results.items()
-                    if FAIL_MSG not in str(v['prediction'] if _is_structured_record(v) else v)
-                }
-            dump(results, prev_file)
-        if world_size > 1:
-            dist.barrier()
-
-    # ========== Distributed Inference ==========
-    tmpl = osp.join(work_dir, '{}' + f'{world_size}.pkl')
-    out_file = tmpl.format(rank)
-
-    model = infer_data(
-        model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
-        out_file=out_file, verbose=verbose, api_nproc=api_nproc,
-        enable_incremental_json=enable_incremental_json)
+    # --ignore-failed: seed _done/ flags + sidecars for non-failed rows from
+    # the existing xlsx so the inference loop only re-runs failures.
+    # Replaces the legacy _PREV.pkl seed.
+    if osp.exists(result_file) and ignore_failed and rank == 0:
+        _seed_done_from_xlsx(work_dir, result_file)
     if world_size > 1:
         dist.barrier()
 
-    # ========== Post-processing ==========
+    # ========== Inference (per-example sidecars) ==========
+    infer_data(
+        model=model, model_name=model_name, work_dir=work_dir, dataset=dataset,
+        verbose=verbose, api_nproc=api_nproc,
+        enable_incremental_json=enable_incremental_json,
+        html_limit=html_limit, save_images=save_images,
+        save_raw_trajectory=save_raw_trajectory, ignore_failed=ignore_failed,
+    )
+    if world_size > 1:
+        dist.barrier()
+
+    # ========== Aggregation ==========
     if rank == 0:
-        data_all = {}
-        for i in range(world_size):
-            data_all.update(load(tmpl.format(i)))
+        idx_lookup = {str(x): x for x in dataset.data['index']}
+        data_all = {
+            idx_lookup.get(idx_str, idx_str): record
+            for idx_str, record in file_db.iter_records(work_dir)
+        }
 
         data = dataset.data
         for x in data['index']:
-            assert x in data_all
-        
-        # Process results with thinking tags if enabled
+            assert x in data_all, f"missing committed record for idx={x!r}"
+
         if os.getenv('SPLIT_THINK', False):
             data = _process_results_with_thinking(data, data_all, model)
-            print(f'Prediction format: SPLIT_THINK, splitting func enabled')
+            print('Prediction format: SPLIT_THINK, splitting func enabled')
         else:
             data = _process_results_default(data, data_all)
-        
+
         if 'image' in data:
             data.pop('image')
 
         dump(data, result_file)
         write_input_snapshot_json(
-            data["index"],
-            data_all,
+            data["index"], data_all,
             osp.join(work_dir, "input_snapshot.json"),
         )
 
-        # Always save full trajectories for all instances (needed by experience learning).
-        # Pruning happens at reflection time, not save time.
-        full_trajectory_dir = osp.join(work_dir, "full_trajectories")
-        full_records = build_trajectory_records(
-            data["index"],
-            data_all,
-            dataset_name=dataset_name,
-            model_name=model_name,
-            agent_class=model.__class__.__name__,
-            scrub_images=False,
-            strip_assistant_content=False,
-        )
-        # Inject ground truth answers into full_records for HTML reports
-        gt_key = None
-        for key in ('answer', 'GT', 'answers', 'ground_truth'):
-            if key in data:
-                gt_key = key
-                break
-        if gt_key is not None:
-            answer_map = dict(zip(data['index'], data[gt_key]))
-            for rec in full_records:
-                gt = answer_map.get(rec['task_id'])
-                if gt is not None:
-                    rec['ground_truth'] = str(gt)
-
-        write_full_trajectory_jsons(
-            full_records, full_trajectory_dir, limit=-1, save_images=save_images
-        )
-
-        # Phase 2: persist per-row SAM3 (and other detection-tool) candidate
-        # (boxes, scores) sets that the agent's run_memory accumulated. The
-        # eval bridge later IoU-matches agent-emitted text boxes against
-        # these sidecars to recover real per-box confidence.  Mirrors the
-        # full_trajectories/<task_id>.json layout.
-        tool_detections_dir = osp.join(work_dir, "tool_detections")
-        sidecar_count = 0
-        for idx in data["index"]:
-            rec = data_all.get(idx)
-            if not isinstance(rec, dict):
-                continue
-            extra = rec.get("extra_records") or {}
-            detections = extra.get("tool_detections") if isinstance(extra, dict) else None
-            if not detections:
-                continue
-            os.makedirs(tool_detections_dir, exist_ok=True)
-            out_path = osp.join(tool_detections_dir, f"{idx}.json")
-            with open(out_path, "w") as f:
-                json.dump(detections, f)
-            sidecar_count += 1
-        if sidecar_count:
-            print(f"[tool_detections] wrote {sidecar_count} sidecar JSONs under {tool_detections_dir}")
-
-        if save_raw_trajectory:
-            raw_trajectory_dir = osp.join(work_dir, "raw_trajectories")
-            raw_summary = write_raw_trajectory_jsons(full_records, raw_trajectory_dir, limit=-1)
-            if raw_summary["exported_records"] == 0 and raw_summary["total_records"] > 0:
-                print(
-                    "[raw_trajectories] wrote 0 sample files. "
-                    f"See {raw_summary['summary_path']} for likely causes."
-                )
-            else:
-                print(
-                    "[raw_trajectories] wrote "
-                    f"{raw_summary['exported_records']}/{raw_summary['total_records']} sample files "
-                    f"under {raw_trajectory_dir}"
-                )
-
+        # raw_response is opt-in per agent. The other per-task artifacts
+        # (full_trajectories/, tool_detections/, htmls/, raw_trajectories/)
+        # are already written at commit time inside the worker wrapper.
         if getattr(model, 'save_raw_response', False):
-            raw_response_dir = osp.join(work_dir, "raw_response")
-            write_raw_response_jsons(full_records, raw_response_dir)
+            full_records = build_trajectory_records(
+                data["index"], data_all,
+                dataset_name=dataset_name, model_name=model_name,
+                agent_class=model.__class__.__name__,
+                scrub_images=False, strip_assistant_content=False,
+            )
+            write_raw_response_jsons(full_records, osp.join(work_dir, "raw_response"))
 
-        # HTML reports are still gated by html_limit
-        if html_limit != 0:
-            html_dir = osp.join(work_dir, "htmls")
-            write_html_reports(full_records, html_dir, html_limit)
-        for i in range(world_size):
-            os.remove(tmpl.format(i))
-    
     if world_size > 1:
         dist.barrier()
     return model
+
+
+def _seed_done_from_xlsx(work_dir, result_file):
+    """Walk an existing prediction xlsx and emit per-example sidecars +
+    ``_done/`` flags for rows whose prediction is not ``FAIL_MSG``. Used by
+    the ``--ignore-failed`` boot path; replaces the legacy ``_PREV.pkl``
+    seed so the worker loop only re-runs the failures."""
+    file_db.ensure_layout(work_dir)
+    data = load(result_file)
+    if isinstance(data, list):
+        data = pd.DataFrame(data)
+    has_extra = 'extra_records' in data
+    already_done = file_db.load_done_set(work_dir)
+    seeded = 0
+    for i in range(len(data)):
+        row = data.iloc[i]
+        idx = row['index']
+        prediction = row['prediction']
+        if FAIL_MSG in str(prediction):
+            continue
+        if str(idx) in already_done:
+            continue
+        if has_extra:
+            record = {"prediction": prediction, "extra_records": row['extra_records']}
+        else:
+            record = prediction
+        file_db.commit_atomic(work_dir, idx, record, json_encoder=NumpyEncoder)
+        seeded += 1
+    if seeded:
+        print(f"[ignore-failed seed] re-imported {seeded} non-failed rows from {result_file}")

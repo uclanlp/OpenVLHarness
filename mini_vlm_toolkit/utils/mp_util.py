@@ -97,7 +97,9 @@ def track_progress_rich(
         for future in tqdm(as_completed(futures), total=len(futures)):
             idx, result = future.result()
             results[idx] = result
-            if keys is not None:
+            if keys is not None and save is not None:
+                # Legacy cumulative-pickle path. New per-example sidecar
+                # callers pass save=None and persist inside `func` itself.
                 res[keys[idx]] = result
                 dump(res, save)
             if incremental_json_file is not None and keys is not None:

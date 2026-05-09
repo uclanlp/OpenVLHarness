@@ -8,13 +8,19 @@ from .utils.reporting_utils import (
     write_full_trajectory_jsons,
 )
 from .utils import track_progress_rich
+from .utils import file_db
 from .smp import *
+from .smp.file import NumpyEncoder
 
 FAIL_MSG = 'Failed to obtain answer via API.'
 
 
 # Only API model is accepted
-def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4, enable_incremental_json=False):
+def infer_data_api(
+    model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4,
+    enable_incremental_json=False,
+    html_limit=0, save_images="files", save_raw_trajectory=False,
+):
     rank, world_size = get_rank_and_world_size()
     assert rank == 0 and world_size == 1
     dataset_name = dataset.dataset_name
@@ -43,6 +49,8 @@ def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_np
         struct_tmp_file = f'{work_dir}/{model_name}_{dataset.nframe}frame_{packstr}_structs.pkl'
     else:
         struct_tmp_file = f'{work_dir}/{model_name}_{dataset.fps}fps_{packstr}_structs.pkl'
+    # Prompt-build phase keeps the legacy cumulative-pickle path; per-prompt
+    # records are small enough that the quadratic write isn't a concern here.
     structs = track_progress_rich(
         dataset.build_prompt,
         tasks=build_prompt_input,
@@ -51,46 +59,69 @@ def infer_data_api(model, work_dir, model_name, dataset, samples_dict={}, api_np
         keys=indices,
     )
 
-    if dataset.nframe > 0:
-        out_file = f'{work_dir}/{model_name}_{dataset.nframe}frame_{packstr}_supp.pkl'
-    else:
-        out_file = f'{work_dir}/{model_name}_{dataset.fps}fps_{packstr}_supp.pkl'
-    res = load(out_file) if osp.exists(out_file) else {}
+    # Inference phase: per-example sidecars (replaces the _supp.pkl cumulative pickle).
+    file_db.ensure_layout(work_dir)
+    done = file_db.load_done_set(work_dir)
+    fresh = file_db.load_fresh_claims(work_dir)
+    skip = done | fresh
 
-    structs = [s for i, s in zip(indices, structs) if i not in res or res[i] == FAIL_MSG]
-    structs = [struct for struct in structs if struct is not None]
-    indices = [i for i in indices if i not in res or res[i] == FAIL_MSG]
+    structs_to_run = []
+    indices_to_run = []
+    for s, idx in zip(structs, indices):
+        if s is None:
+            continue
+        if str(idx) in skip:
+            continue
+        structs_to_run.append(dict(message=s, dataset=dataset_name, task_id=idx))
+        indices_to_run.append(idx)
 
-    # Shared-agent threaded inference is safe after stateless-agent refactor.
-    gen_func = model.generate
-    # Legacy fallback kept for reference only:
-    # gen_func = _build_isolated_generate_func(model)
-    structs = [dict(message=struct, dataset=dataset_name) for struct in structs]
+    if structs_to_run:
+        # Reuse the image-side wrapper. For video the per-task
+        # full_trajectories are gated by html_limit (matches the legacy
+        # behavior at inference_video.py: full + html were written
+        # together for the same selected subset).
+        from .inference_image import _make_committed_gen
+        agent_class = model.__class__.__name__
+        committed_gen = _make_committed_gen(
+            model.generate,
+            work_dir=work_dir, dataset=dataset, dataset_name=dataset_name,
+            model_name=model_name, agent_class=agent_class,
+            save_images=save_images, save_raw_trajectory=save_raw_trajectory,
+            html_limit=html_limit, full_trajectories_limit=html_limit,
+        )
+        incremental_json = (
+            osp.join(work_dir, f'{model_name}_incremental.jsonl')
+            if enable_incremental_json else None
+        )
+        track_progress_rich(
+            committed_gen, structs_to_run, nproc=api_nproc, chunksize=api_nproc,
+            save=None, keys=indices_to_run,
+            incremental_json_file=incremental_json,
+        )
 
-    if len(structs):
-        if enable_incremental_json:
-            incremental_json = osp.join(work_dir, f'{model_name}_incremental.jsonl')
-            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices, incremental_json_file=incremental_json)
-        else:
-            track_progress_rich(gen_func, structs, nproc=api_nproc, chunksize=api_nproc, save=out_file, keys=indices)
-
-    res = load(out_file)
+    # Build res from sidecars, restricted to samples_dict.
+    sample_keys = set(samples_dict.keys())
+    sample_keys_str = {str(k) for k in sample_keys}
+    idx_lookup = {str(k): k for k in sample_keys}
+    res = {}
+    for idx_str, record in file_db.iter_records(work_dir):
+        if idx_str not in sample_keys_str:
+            continue
+        res[idx_lookup[idx_str]] = record
     return res
 
 
-def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, api_nproc=4, enable_incremental_json=False):
-    res = load(out_file) if osp.exists(out_file) else {}
+def infer_data(
+    model, model_name, work_dir, dataset, out_file=None, *,
+    verbose=False, api_nproc=4, enable_incremental_json=False,
+    html_limit=0, save_images="files", save_raw_trajectory=False,
+):
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
 
     sample_indices = list(dataset.videos) if getattr(dataset, 'pack', False) else list(dataset.data['index'])
     samples = list(dataset.videos) if getattr(dataset, 'pack', False) else list(range(len(dataset.data)))
     sample_map = {i: s for i, s in zip(sample_indices, samples)}
-
-    sample_indices_sub = sample_indices[rank::world_size]
-    if np.all([idx in res for idx in sample_indices_sub]):
-        return model
-    sample_indices_subrem = [x for x in sample_indices_sub if x not in res]
 
     # (25.06.05) In newer version of transformers (after 4.50), with device_map='auto' and torchrun launcher,
     # Transformers automatically adopt TP parallelism, which leads to compatibility problems with VLMEvalKit
@@ -101,18 +132,13 @@ def infer_data(model, model_name, work_dir, dataset, out_file, verbose=False, ap
         os.environ['WORLD_SIZE'] = ws_bak
 
     assert world_size == 1
-    supp = infer_data_api(
-        model=model,
-        work_dir=work_dir,
-        model_name=model_name,
-        dataset=dataset,
-        samples_dict={k: sample_map[k] for k in sample_indices_subrem},
-        api_nproc=api_nproc,
-        enable_incremental_json=enable_incremental_json)
-    for k in sample_indices_subrem:
-        assert k in supp
-    res.update(supp)
-    dump(res, out_file)
+    infer_data_api(
+        model=model, work_dir=work_dir, model_name=model_name, dataset=dataset,
+        samples_dict={k: sample_map[k] for k in sample_indices},
+        api_nproc=api_nproc, enable_incremental_json=enable_incremental_json,
+        html_limit=html_limit, save_images=save_images,
+        save_raw_trajectory=save_raw_trajectory,
+    )
     return model
 
 
@@ -128,6 +154,8 @@ def infer_video_job(
         api_nproc=4,
         html_limit=0,
         enable_incremental_json=False,
+        save_images="files",
+        save_raw_trajectory=False,
     ):
 
     if dataset_name is None:
@@ -139,30 +167,26 @@ def infer_video_job(
     if world_size > 1:
         dist.barrier()
     result_file = get_pred_file_path(work_dir, model_name, dataset_name, use_env_format=True)
-    # Dump Predictions to Prev File if result file exists
     if osp.exists(result_file):
         return model
 
-    tmpl = osp.join(work_dir, '{}' + f'{world_size}.pkl')
-    out_file = tmpl.format(rank)
-
-    model = infer_data(
-        model=model,
-        model_name=model_name,
-        work_dir=work_dir,
-        dataset=dataset,
-        out_file=out_file,
-        verbose=verbose,
-        api_nproc=api_nproc,
-        enable_incremental_json=enable_incremental_json)
-
+    infer_data(
+        model=model, model_name=model_name, work_dir=work_dir, dataset=dataset,
+        verbose=verbose, api_nproc=api_nproc,
+        enable_incremental_json=enable_incremental_json,
+        html_limit=html_limit, save_images=save_images,
+        save_raw_trajectory=save_raw_trajectory,
+    )
     if world_size > 1:
         dist.barrier()
 
     if rank == 0:
-        data_all = {}
-        for i in range(world_size):
-            data_all.update(load(tmpl.format(i)))
+        sample_indices = list(dataset.videos) if getattr(dataset, 'pack', False) else list(dataset.data['index'])
+        idx_lookup = {str(k): k for k in sample_indices}
+        data_all = {
+            idx_lookup.get(idx_str, idx_str): record
+            for idx_str, record in file_db.iter_records(work_dir)
+        }
 
         meta = dataset.data
         if dataset_name == 'MMBench-Video' and getattr(dataset, 'pack', False):
@@ -170,7 +194,7 @@ def infer_video_job(
             print(f'Statitics of Pack Video Inference: {vstats}')
         else:
             for x in meta['index']:
-                assert x in data_all
+                assert x in data_all, f"missing committed record for idx={x!r}"
             if all(isinstance(data_all[x], dict) and "prediction" in data_all[x] and "extra_records" in data_all[x] for x in meta['index']):
                 meta['prediction'] = [data_all[x]['prediction'] for x in meta['index']]
                 cleaned_extra = []
@@ -188,36 +212,17 @@ def infer_video_job(
 
         dump(meta, result_file)
         write_input_snapshot_json(
-            meta["index"],
-            data_all,
+            meta["index"], data_all,
             osp.join(work_dir, "input_snapshot.json"),
         )
+        # trajectories.jsonl is the only multi-record artifact built at
+        # aggregation; the per-task full_trajectories/htmls were already
+        # written at commit time inside the worker wrapper.
         records = build_trajectory_records(
-            meta["index"],
-            data_all,
-            dataset_name=dataset_name,
-            model_name=model_name,
+            meta["index"], data_all,
+            dataset_name=dataset_name, model_name=model_name,
             agent_class=model.__class__.__name__,
-            scrub_images=True,
-            strip_assistant_content=True,
+            scrub_images=True, strip_assistant_content=True,
         )
-        trajectories_path = osp.join(work_dir, "trajectories.jsonl")
-        write_trajectory_jsonl(records, trajectories_path)
-
-        if html_limit != 0:
-            html_dir = osp.join(work_dir, "htmls")
-            full_trajectory_dir = osp.join(work_dir, "full_trajectories")
-            html_records = build_trajectory_records(
-                meta["index"],
-                data_all,
-                dataset_name=dataset_name,
-                model_name=model_name,
-                agent_class=model.__class__.__name__,
-                scrub_images=False,
-                strip_assistant_content=False,
-            )
-            write_html_reports(html_records, html_dir, html_limit)
-            write_full_trajectory_jsons(html_records, full_trajectory_dir, html_limit)
-        for i in range(world_size):
-            os.remove(tmpl.format(i))
+        write_trajectory_jsonl(records, osp.join(work_dir, "trajectories.jsonl"))
     return model

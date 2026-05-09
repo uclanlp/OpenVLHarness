@@ -657,24 +657,22 @@ def _run_inference_trial(
         dataset.data = dataset.data.head(num_examples)
         logger.info(f"Limiting dataset {dataset_name} to first {num_examples} examples")
 
-    # Pre-populate supp file with carried-forward predictions (skip_correct)
+    # Pre-populate per-example sidecars + _done/ flags with carried-forward
+    # predictions (skip_correct). Replaces the legacy _supp.pkl seed.
     if carried_forward:
-        supp_file = osp.join(trial_dir, f'{model_name}_supp.pkl')
+        from mini_vlm_toolkit.utils import file_db
         os.makedirs(trial_dir, exist_ok=True)
-        supp_data = {k: v["prediction"] for k, v in carried_forward.items()}
-        # Merge with existing pkl to preserve partial inference progress on resume
-        if osp.exists(supp_file):
-            try:
-                existing = smp_load(supp_file)
-                if isinstance(existing, dict):
-                    existing.update(supp_data)
-                    supp_data = existing
-            except Exception:
-                pass
-        dump(supp_data, supp_file)
+        file_db.ensure_layout(trial_dir)
+        already_done = file_db.load_done_set(trial_dir)
+        seeded = 0
+        for k, v in carried_forward.items():
+            if str(k) in already_done:
+                continue
+            file_db.commit_atomic(trial_dir, k, {"prediction": v["prediction"], "extra_records": {}})
+            seeded += 1
         logger.info(
             f"Trial {trial}: skipping {len(carried_forward)} previously-correct "
-            f"instances for {dataset_name}"
+            f"instances for {dataset_name} (seeded {seeded} new sidecars)"
         )
 
     logger.info(f"Trial {trial}: running inference on {dataset_name} with {model_name}")
