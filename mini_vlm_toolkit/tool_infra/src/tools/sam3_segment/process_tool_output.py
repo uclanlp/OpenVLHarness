@@ -10,37 +10,6 @@ def _safe_int(value, default=0):
         return default
 
 
-def _input_image_id_from_payload(payload):
-    """Recover the original `image_id` the agent passed to this call.
-
-    The image-id resolver pops `image_id` from the call args before the
-    tool runs and records the rewrite under
-    payload["meta"]["image_resolution"]["rewrites"][i]["original"]. We use
-    that as the sidecar's `image_id` so a downstream tool (e.g.
-    Examine_Subimages_Tool) can locate the right grounding entry.
-    """
-    if not isinstance(payload, dict):
-        return None
-    meta = payload.get("meta")
-    if not isinstance(meta, dict):
-        return None
-    img_res = meta.get("image_resolution")
-    if not isinstance(img_res, dict):
-        return None
-    rewrites = img_res.get("rewrites") or []
-    for r in rewrites:
-        if not isinstance(r, dict):
-            continue
-        field = str(r.get("field", ""))
-        # Match the top-level image_id rewrite (e.g. ".image_id" or
-        # ".image_path"). Skip nested rewrites.
-        if field.endswith(".image_id") or field.endswith(".image_path"):
-            original = r.get("original")
-            if isinstance(original, str) and original:
-                return original
-    return None
-
-
 def process_tool_output(payload, prepared, tool_metadata=None):
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         return {
@@ -61,11 +30,6 @@ def process_tool_output(payload, prepared, tool_metadata=None):
 
     image_refs = prepared.get("image_refs") if isinstance(prepared, dict) else []
     image_ref = image_refs[0] if isinstance(image_refs, list) and image_refs else None
-    # Used for the sidecar `image_id` field. The output `image_refs` above
-    # is the list of *rendered* image refs, which is empty when the SAM3
-    # tool's overlay is ephemeral (PR #146). Recover the input `image_id`
-    # from the resolver's rewrites instead.
-    input_image_id = _input_image_id_from_payload(payload)
     image_parts = prepared.get("image_parts") if isinstance(prepared, dict) else []
     if not isinstance(image_parts, list):
         image_parts = []
@@ -80,7 +44,7 @@ def process_tool_output(payload, prepared, tool_metadata=None):
     prompt = str(result.get("prompt") or "").strip()
 
     tool_detection = None
-    if mask_count > 0:
+    if mask_count > 0 and image_ref:
         pred_boxes = result.get("pred_boxes", [])
         orig_w = result.get("orig_img_w", 1)
         orig_h = result.get("orig_img_h", 1)
@@ -104,15 +68,6 @@ def process_tool_output(payload, prepared, tool_metadata=None):
                 "scores": list(pred_scores),
                 "image_width": _safe_int(orig_w, default=0),
                 "image_height": _safe_int(orig_h, default=0),
-                "image_id": str(input_image_id) if input_image_id else None,
-                "pred_masks": (
-                    list(result.get("pred_masks"))
-                    if isinstance(result.get("pred_masks"), list)
-                    else None
-                ),
-                "orig_img_h": _safe_int(orig_h, default=0),
-                "orig_img_w": _safe_int(orig_w, default=0),
-                "prompt": prompt,
             }
 
         box_mapping = {
@@ -125,19 +80,10 @@ def process_tool_output(payload, prepared, tool_metadata=None):
             for i, box in enumerate(pred_boxes)
             if len(box) == 4
         }
-        if isinstance(pred_scores, list):
-            score_mapping = {
-                f"object {i + 1}": round(float(score), 3)
-                for i, score in enumerate(pred_scores)
-            }
-        else:
-            score_mapping = {}
         text = (
             f"{tool_name} grounded {mask_count} objects for the prompt {prompt!r}. "
             f"Their corresponding bounding boxes (on a 0-1000 scale, [x1, y1, x2, y2]) are: {box_mapping}. "
-            f"Their corresponding confidence scores are: {score_mapping}. "
-            f"The object numbers correspond to the labeled masks rendered on the image as shown below. This image will not be saved in memory. "
-            f"If you would like to examine individual objects, you may call the Examine_Subimages_Tool on the objects."
+            f"The object numbers correspond to the labeled masks rendered in the following image, which you can refer to as {image_ref}."
         )
     else:
         text = (
