@@ -583,7 +583,7 @@ class APIAgent(BaseAgent):
 
 
 class BaseAgentWithTools(BaseAgent):
-    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct")
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
     _DEFAULT_PERSISTENT_STATE_MEMORY_SPEC = {
         "emit_policy": "always",
@@ -1126,7 +1126,7 @@ class BaseAgentWithTools(BaseAgent):
                     return non_scaffold[fa_match.end():].strip()
 
         # Strict <answer> extraction for prompts that use that tag.
-        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct"):
+        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct"):
             answer_match = re.search(r"<answer>(.*?)</answer>", content, flags=re.DOTALL | re.IGNORECASE)
             if answer_match:
                 return answer_match.group(1).strip()
