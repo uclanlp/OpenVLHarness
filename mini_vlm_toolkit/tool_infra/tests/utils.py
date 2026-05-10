@@ -271,7 +271,7 @@ def ensure_ocr_test_image():
         env_var="OCR_TEST_IMAGE",
         url_env_var="OCR_TEST_IMAGE_URL",
         default_url=DEFAULT_OCR_TEST_IMAGE_URL,
-        filename="ocr_tools_demo.png",
+        filename="test_ocr.png",
     )
 
 

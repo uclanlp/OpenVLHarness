@@ -82,6 +82,8 @@ def _identify_subtool(host, port):
         if "colormap_default" in health:
             return "Depth Anything", health
         if "model_id" in health and "device" in health:
+            if "paddle" in health.get("model_id", "").lower():
+                return "OCR", health
             return "Grounding DINO", health
 
     models_info = _openai_models_info(host, port)
@@ -139,17 +141,15 @@ def _llm_direct_suffix_from_metadata(tool_metadata):
 
 def _format_subtool_details(name, details):
     if name == "OCR":
-        languages = details.get("languages")
-        gpu = details.get("gpu")
         parts = []
-        if languages is not None:
-            if isinstance(languages, list):
-                parts.append("languages: " + ", ".join(str(item) for item in languages))
-            else:
-                parts.append(f"languages: {languages}")
-        if gpu is not None:
-            parts.append(f"gpu: {gpu}")
+        model_id = details.get("model_id")
+        device = details.get("device")
+        if model_id:
+            parts.append(f"model_id: {model_id}")
+        if device:
+            parts.append(f"device: {device}")
         return " | " + " | ".join(parts) if parts else ""
+
 
     if name == "Depth Anything":
         parts = []
