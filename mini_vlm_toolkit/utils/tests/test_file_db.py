@@ -144,6 +144,37 @@ def test_load_fresh_claims_excludes_stale():
         assert "stale" not in fresh
 
 
+def test_dead_pid_claim_is_reclaimable_immediately():
+    """A claim whose recorded PID is no longer alive must be reclaimable
+    even if the mtime is fresh — this is the kill-resume case."""
+    import json as _json
+    with tempfile.TemporaryDirectory() as work_dir:
+        path = file_db._claim_path(work_dir, "k")
+        os.makedirs(file_db._claim_dir(work_dir), exist_ok=True)
+        # Write a claim whose PID is guaranteed dead but whose mtime is now.
+        with open(path, "w") as f:
+            _json.dump(
+                {"pid": 999999999, "host": __import__("socket").gethostname(),
+                 "started_at": time.time()},
+                f,
+            )
+        # Despite fresh mtime, claim should be acquirable (PID is dead).
+        assert file_db.claim(work_dir, "k") is True
+
+
+def test_load_fresh_claims_excludes_dead_pid():
+    import json as _json, socket as _socket
+    with tempfile.TemporaryDirectory() as work_dir:
+        os.makedirs(file_db._claim_dir(work_dir), exist_ok=True)
+        # Two claims, both fresh mtime: one with my PID (alive), one with dead PID.
+        for idx, pid in (("alive", os.getpid()), ("dead", 999999999)):
+            with open(file_db._claim_path(work_dir, idx), "w") as f:
+                _json.dump({"pid": pid, "host": _socket.gethostname(), "started_at": time.time()}, f)
+        fresh = file_db.load_fresh_claims(work_dir)
+        assert "alive" in fresh
+        assert "dead" not in fresh
+
+
 def test_atomic_write_str_and_json():
     with tempfile.TemporaryDirectory() as work_dir:
         p1 = os.path.join(work_dir, "a", "b", "x.txt")

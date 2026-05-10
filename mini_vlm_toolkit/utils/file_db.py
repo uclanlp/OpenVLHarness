@@ -67,12 +67,40 @@ def ensure_layout(work_dir: str) -> None:
     os.makedirs(_done_dir(work_dir), exist_ok=True)
 
 
+def _claim_is_stale(path: str, stale_seconds: int) -> bool:
+    """A claim is stale if (a) its mtime is older than ``stale_seconds`` OR
+    (b) the recorded PID is on the same host but no longer alive (catches
+    SIGKILL'd workers immediately, without waiting for the mtime timeout).
+    """
+    try:
+        mtime = os.path.getmtime(path)
+    except FileNotFoundError:
+        return True
+    if time.time() - mtime > stale_seconds:
+        return True
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError, OSError):
+        return False  # can't read payload; trust the fresh mtime
+    pid = payload.get("pid")
+    host = payload.get("host")
+    if not pid or host != socket.gethostname():
+        return False  # different host; we can't check liveness, trust mtime
+    try:
+        os.kill(int(pid), 0)
+        return False  # alive
+    except ProcessLookupError:
+        return True   # dead — claim is orphaned regardless of mtime
+    except PermissionError:
+        return False  # alive but owned by another uid; treat as fresh
+
+
 def claim(work_dir: str, idx: Any, stale_seconds: int = DEFAULT_STALE_SECONDS) -> bool:
     """Atomically claim ``idx``. Returns True on success.
 
-    Uses ``O_CREAT|O_EXCL`` for the atomic primitive. If a claim file exists
-    but its mtime is older than ``stale_seconds``, the original heartbeat is
-    presumed dead and the claim is reclaimed by overwriting.
+    Uses ``O_CREAT|O_EXCL`` for the atomic primitive. If a claim file
+    exists but is stale (per ``_claim_is_stale``), reclaim by overwriting.
     """
     os.makedirs(_claim_dir(work_dir), exist_ok=True)
     path = _claim_path(work_dir, idx)
@@ -90,15 +118,11 @@ def claim(work_dir: str, idx: Any, stale_seconds: int = DEFAULT_STALE_SECONDS) -
             os.close(fd)
         return True
     except FileExistsError:
-        try:
-            age = time.time() - os.path.getmtime(path)
-        except FileNotFoundError:
-            return claim(work_dir, idx, stale_seconds=stale_seconds)
-        if age < stale_seconds:
+        if not _claim_is_stale(path, stale_seconds):
             return False
         # Stale — reclaim. The race window where two workers both see a
-        # stale mtime is bounded: only one will land its overwrite "last,"
-        # and that one's heartbeat keeps the claim fresh.
+        # stale claim is bounded: only one's overwrite lands "last," and
+        # that one's heartbeat keeps the claim fresh going forward.
         with open(path, "w", encoding="utf-8") as f:
             f.write(json.dumps({
                 "pid": os.getpid(),
@@ -219,20 +243,21 @@ def load_fresh_claims(
     work_dir: str,
     stale_seconds: int = DEFAULT_STALE_SECONDS,
 ) -> Set[str]:
-    """Return idx (as strings) currently claimed by a live worker."""
+    """Return idx (as strings) currently claimed by a live worker.
+
+    Uses ``_claim_is_stale`` so that SIGKILL'd workers' orphaned claims
+    are recognized as stale immediately on resume, rather than waiting
+    out the ``stale_seconds`` mtime timeout.
+    """
     d = _claim_dir(work_dir)
     if not osp.isdir(d):
         return set()
-    now = time.time()
     fresh: Set[str] = set()
     for name in os.listdir(d):
         if not name.endswith(".lock"):
             continue
-        try:
-            age = now - os.path.getmtime(osp.join(d, name))
-        except FileNotFoundError:
-            continue
-        if age < stale_seconds:
+        path = osp.join(d, name)
+        if not _claim_is_stale(path, stale_seconds):
             fresh.add(osp.splitext(name)[0])
     return fresh
 
