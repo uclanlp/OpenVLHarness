@@ -478,8 +478,8 @@ class BaseAgent:
                 last_log = log
                 last_ret_code = ret_code
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
-                    # if self.verbose:
-                    #     print(answer)
+                    if self.verbose:
+                        print(answer)
                     # Return both answer and extra_records
                     # Add for agent evaluation
                     trajectory = self._build_trajectory_record(
