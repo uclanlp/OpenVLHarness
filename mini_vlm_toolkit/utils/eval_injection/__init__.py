@@ -33,6 +33,13 @@ _REGISTRY: Dict[str, Tuple[Callable, Dict[str, Any]]] = {
         _adapters.mcq_result_adapter,
         {"correct_col": "hit", "raw_cols": ["log", "extracted", "pred_extracted"]},
     ),
+    # --- ImageYORNDataset family (MME / HallusionBench / POPE / AMBER / VSR-zeroshot) ---
+    # evaluate() writes _<judge>_result.xlsx with a boolean `score` column
+    # (answer == extracted); reuse the MCQ adapter pointed at that column.
+    "ImageYORNDataset": (
+        _adapters.mcq_result_adapter,
+        {"correct_col": "score", "raw_cols": ["extracted", "answer"]},
+    ),
     "FREAKMCQDataset": (
         _adapters.mcq_result_adapter,
         {"correct_col": "hit", "raw_cols": ["extracted"]},
