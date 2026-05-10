@@ -144,6 +144,64 @@ def test_load_fresh_claims_excludes_stale():
         assert "stale" not in fresh
 
 
+def test_stale_reclaim_race_n_threads_one_wins():
+    """When N workers all see the same stale claim simultaneously, only
+    one should win the reclaim. Without the O_EXCL stale-reclaim path,
+    every worker would overwrite and all return True, leading to multiple
+    workers thinking they own the same idx (commit collision)."""
+    import json as _json, socket as _socket
+    with tempfile.TemporaryDirectory() as work_dir:
+        # Pre-stage a stale claim with a dead PID (forces _claim_is_stale=True
+        # for every worker, regardless of mtime).
+        os.makedirs(file_db._claim_dir(work_dir), exist_ok=True)
+        path = file_db._claim_path(work_dir, "stale_idx")
+        with open(path, "w") as f:
+            _json.dump(
+                {"pid": 999999999, "host": _socket.gethostname(),
+                 "started_at": time.time()},
+                f,
+            )
+
+        winners = []
+        winners_lock = threading.Lock()
+        ready = threading.Event()
+
+        def worker():
+            ready.wait()  # release all workers simultaneously
+            if file_db.claim(work_dir, "stale_idx"):
+                with winners_lock:
+                    winners.append(threading.current_thread().name)
+
+        threads = [threading.Thread(target=worker) for _ in range(20)]
+        for t in threads:
+            t.start()
+        ready.set()
+        for t in threads:
+            t.join()
+        assert len(winners) == 1, f"expected exactly 1 winner, got {len(winners)}"
+
+
+def test_stale_reclaim_then_unrelated_worker_cannot_take_over():
+    """After a successful stale reclaim by worker A, a later worker B
+    must see a fresh claim (not stale) and back off."""
+    import json as _json, socket as _socket
+    with tempfile.TemporaryDirectory() as work_dir:
+        os.makedirs(file_db._claim_dir(work_dir), exist_ok=True)
+        path = file_db._claim_path(work_dir, "k")
+        # Stale claim with dead PID
+        with open(path, "w") as f:
+            _json.dump(
+                {"pid": 999999999, "host": _socket.gethostname(),
+                 "started_at": time.time()},
+                f,
+            )
+        # Worker A reclaims successfully
+        assert file_db.claim(work_dir, "k") is True
+        # Worker B (this same PID, mid-test) sees the just-reclaimed lock —
+        # it's NOT stale anymore (our PID is alive, mtime is fresh).
+        assert file_db.claim(work_dir, "k") is False
+
+
 def test_dead_pid_claim_is_reclaimable_immediately():
     """A claim whose recorded PID is no longer alive must be reclaimable
     even if the mtime is fresh — this is the kill-resume case."""
