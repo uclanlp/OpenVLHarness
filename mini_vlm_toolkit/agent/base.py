@@ -349,8 +349,8 @@ class BaseAgent:
             try:
                 ret_code, answer, log = self.chat_inner(cp.deepcopy(messages), **kwargs)
                 if ret_code == 0 and self.fail_msg not in answer and answer != '':
-                    # if self.verbose:
-                    #     print(answer)
+                    if self.verbose:
+                        print(answer)
                     return answer
                 elif self.verbose:
                     if not isinstance(log, str):
