@@ -659,16 +659,35 @@ def _run_inference_trial(
 
     # Pre-populate per-example sidecars + _done/ flags with carried-forward
     # predictions (skip_correct). Replaces the legacy _supp.pkl seed.
+    #
+    # We also write a minimal full_trajectories/<idx>.json so that
+    # _get_labeled_trajectories (which loads per-idx from full_trajectories/)
+    # can still find the carried-forward examples. Without this, those rows
+    # would silently drop out of the labeled set since they bypass
+    # _make_committed_gen.
     if carried_forward:
         from mini_vlm_toolkit.utils import file_db
         os.makedirs(trial_dir, exist_ok=True)
         file_db.ensure_layout(trial_dir)
+        full_traj_dir = osp.join(trial_dir, "full_trajectories")
+        os.makedirs(full_traj_dir, exist_ok=True)
+        agent_class_name = agent.__class__.__name__
         already_done = file_db.load_done_set(trial_dir)
         seeded = 0
         for k, v in carried_forward.items():
             if str(k) in already_done:
                 continue
             file_db.commit_atomic(trial_dir, k, {"prediction": v["prediction"], "extra_records": {}})
+            file_db.atomic_write(
+                osp.join(full_traj_dir, f"{k}.json"),
+                {
+                    "task_id": k,
+                    "dataset": dataset_name,
+                    "model_name": model_name,
+                    "agent_class": agent_class_name,
+                    "prediction": v["prediction"],
+                },
+            )
             seeded += 1
         logger.info(
             f"Trial {trial}: skipping {len(carried_forward)} previously-correct "
