@@ -99,8 +99,12 @@ def _claim_is_stale(path: str, stale_seconds: int) -> bool:
 def claim(work_dir: str, idx: Any, stale_seconds: int = DEFAULT_STALE_SECONDS) -> bool:
     """Atomically claim ``idx``. Returns True on success.
 
-    Uses ``O_CREAT|O_EXCL`` for the atomic primitive. If a claim file
-    exists but is stale (per ``_claim_is_stale``), reclaim by overwriting.
+    Initial-claim path uses ``O_CREAT|O_EXCL`` for atomicity. Stale
+    reclaim is serialized through a sibling ``<path>.reclaiming`` mutex
+    (also ``O_EXCL``) so that under heavy concurrency only one worker
+    actually performs the unlink+recreate sequence; a re-check of
+    staleness inside the mutex prevents late arrivals from clobbering
+    the just-installed fresh claim.
     """
     os.makedirs(_claim_dir(work_dir), exist_ok=True)
     path = _claim_path(work_dir, idx)
@@ -109,7 +113,14 @@ def claim(work_dir: str, idx: Any, stale_seconds: int = DEFAULT_STALE_SECONDS) -
         "host": socket.gethostname(),
         "started_at": time.time(),
     }).encode("utf-8")
+    reclaim_payload = json.dumps({
+        "pid": os.getpid(),
+        "host": socket.gethostname(),
+        "started_at": time.time(),
+        "reclaimed": True,
+    }).encode("utf-8")
 
+    # Step 1 — try to create the canonical claim outright.
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         try:
@@ -118,19 +129,45 @@ def claim(work_dir: str, idx: Any, stale_seconds: int = DEFAULT_STALE_SECONDS) -
             os.close(fd)
         return True
     except FileExistsError:
+        pass
+
+    # Step 2 — claim already exists. Is it stale?
+    if not _claim_is_stale(path, stale_seconds):
+        return False
+
+    # Step 3 — stale. Acquire the per-claim reclaim mutex so at most one
+    # worker performs the unlink+recreate sequence. Workers that lose
+    # the mutex back off; the winner re-verifies staleness inside the
+    # mutex (another worker may have reclaimed while we waited) before
+    # touching the canonical path.
+    marker = path + ".reclaiming"
+    try:
+        mfd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(mfd)
+    except FileExistsError:
+        return False  # another worker holds the reclaim mutex
+
+    try:
+        # Re-check staleness now that we hold the mutex. If another
+        # worker reclaimed between our staleness check and our mutex
+        # acquisition, the canonical claim is fresh and we must back off.
         if not _claim_is_stale(path, stale_seconds):
             return False
-        # Stale — reclaim. The race window where two workers both see a
-        # stale claim is bounded: only one's overwrite lands "last," and
-        # that one's heartbeat keeps the claim fresh going forward.
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "pid": os.getpid(),
-                "host": socket.gethostname(),
-                "started_at": time.time(),
-                "reclaimed": True,
-            }))
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        try:
+            os.write(fd, reclaim_payload)
+        finally:
+            os.close(fd)
         return True
+    finally:
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
 
 
 def release(work_dir: str, idx: Any) -> None:
