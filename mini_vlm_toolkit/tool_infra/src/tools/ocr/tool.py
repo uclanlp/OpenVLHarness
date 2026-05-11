@@ -32,8 +32,7 @@ class OCR_Tool(BaseTool):
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
-                "Extract readable text from an image using PaddleOCR-VL "
-                "(a vision-language OCR model served by vLLM). Returns the "
+                "Extract readable text from an image. Returns the "
                 "transcribed text as a single string. Use this tool when the "
                 "task is about words, numbers, or printed labels in the image. "
                 "Do not use it for general object localization or segmentation."

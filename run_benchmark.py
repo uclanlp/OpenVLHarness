@@ -11,6 +11,7 @@ import datetime
 from mini_vlm_toolkit.smp import *
 from mini_vlm_toolkit import infer_video_job, infer_image_job
 from mini_vlm_toolkit.utils import load_judge_config
+from mini_vlm_toolkit.utils.eval_injection import merge_eval_into_trajectories
 from mini_vlm_toolkit.utils.run_identity import (
     parse_yaml_mapping,
     require_config_version,
@@ -495,3 +496,20 @@ if __name__ == "__main__":
             logger.info(f"Start evaluation on dataset {dataset_name} with model {model_name}")
             # Perform the Evaluation
             eval_results = dataset.evaluate(result_file, **judge_kwargs)
+
+            # Inject per-instance eval results into full_trajectories JSONs so
+            # each <task_id>.json carries its own correct / score / raw block
+            # for debugging and visualization. No-op if no adapter is
+            # registered for this dataset, or if full_trajectories/ is absent.
+            try:
+                merge_eval_into_trajectories(
+                    work_dir=os.path.dirname(result_file),
+                    dataset_name=dataset_name,
+                    dataset_obj=dataset,
+                    result_file=result_file,
+                    judge_kwargs=judge_kwargs,
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"[eval_injection] failed for dataset {dataset_name}: {exc}"
+                )

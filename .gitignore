@@ -224,6 +224,7 @@ outputs/
 # Tool API keys
 mini_vlm_toolkit/tool_infra/src/tools/serpapi_image_search/serpapi_api_key
 mini_vlm_toolkit/tool_infra/.env.latest
+*/gpt_agent.yaml
 
 # RL integration runtime artifacts
 rl/data/*.parquet
@@ -234,6 +235,7 @@ wandb/
 checkpoints/
 debug_dumps/
 .claude/
+analyze/
 
 # SFT module: track shared templates and code, ignore per-user files.
 # Configs and the dataset registry ship as `_example` templates; on first

@@ -91,7 +91,7 @@ Notes:
 ### Key runtime controls
 - `tool_choice`: `"auto"`, `"none"`, or forced function selection.
 - `tool_list`: limit to a tool subset.
-- `prompt_version`: `"v1"` (class default) or `"v2"` prompt templates. `configs/base_agent_with_tools.yaml` currently sets `"v2"`.
+- `prompt_version`: prompt template key such as `"v1"`, `"v2"`, `"v5_instruct"`, or `"v6_instruct"`; see `PROMPT_REGISTRY` in `constant.py`.
 - `reasoning_effort`: optional GPT-5 reasoning knob (`"minimal"`, `"low"`, `"medium"`, `"high"`), applied on OpenAI endpoints.
 - `persistent_state_memory`: single dict config, default `{"name": "image", "emit_policy": "always"}`.
 - `persistent_state_memory` currently supports `name: "image"` and can be disabled with names `"none"`, `"off"`, or `"disabled"`.
