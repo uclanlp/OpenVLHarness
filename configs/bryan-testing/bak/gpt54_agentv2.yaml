@@ -1,0 +1,26 @@
+agent_name: BaseAgentWithTools
+agent_config_version: gpt54_tools_v1_0423
+
+agent_kwargs:
+  base: "http://localhost:8333"
+  key: "empty"
+  model: "gpt-5.4"
+  timeout: 600
+  custom_prompt: false
+  max_tokens: 2048
+  temperature: 0.3
+  top_p: 0.95
+  repetition_penalty: 1.1
+  retry: 3
+  verbose: true
+  debug_tool_loop: true
+  tool_base: "http://localhost:8102"
+  tool_choice: "auto"
+  tool_list: ["Visual_Grounding_Tool", "Depth_Estimation_Tool", "Zoom_In_Tool", "OCR_Tool"]
+  prompt_version: "v2"
+  reasoning_effort: null
+  persistent_state_memory:
+    name: "image"
+    emit_policy: "always"
+  extra_body: {}
+  max_iterations: 15
