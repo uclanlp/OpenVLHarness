@@ -227,6 +227,11 @@ class ODinWBBoxDataset(ImageBaseDataset):
         'ODinW13_bbox_val_full_n100':   '',
         'ODinW13_bbox_val_full_n200':   '',
         'ODinW13_bbox_val_full_all':    '',
+        # Domains where the Qwen3-VL-8B agent underperforms SAM3 most (per
+        # 2026-05-11 ODinW13_bbox_val_full_all eval): NorthAmericaMushrooms
+        # (Δ AP -12.5) and thermalDogsAndPeople (Δ AP -9.6).
+        'ODinW13_bbox_val_full_challenging': '',
+        'ODinW13_bbox_val_full_challenging_test': '',
         'ODinW13_bbox_train_full_n5':   '',
         'ODinW13_bbox_train_full_n10':  '',
         'ODinW13_bbox_train_full_n20':  '',
