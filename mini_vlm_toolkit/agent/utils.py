@@ -1,6 +1,6 @@
 import json
 import urllib.request
-HTTP_TIMEOUT_SEC = 1
+HTTP_TIMEOUT_SEC = 30
 
 
 def _get_json(host, path):
