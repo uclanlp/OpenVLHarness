@@ -123,7 +123,22 @@ class BaseAgent:
                  **kwargs):
 
         self.base = base
-        self.key = key
+        key_text = str(key or "").strip()
+        is_empty_key = key_text.lower() in {"", "empty", "none", "null"}
+        is_openai_official_base = "api.openai.com" in str(base or "").lower()
+        if is_openai_official_base and is_empty_key:
+            key_text = ""
+            for env_name in ("OPENAI_API_KEY", "MODEL_API_KEY"):
+                env_value = os.getenv(env_name, "").strip()
+                if env_value:
+                    key_text = env_value
+                    break
+            if not key_text.strip():
+                raise ValueError(
+                    "OpenAI API key is required for https://api.openai.com. "
+                    "Set OPENAI_API_KEY in the repo-root .env file, or pass key explicitly."
+                )
+        self.key = key_text if key_text else key
         self.model = model
         self.timeout = timeout
         self.api_base = os.path.join(self.base, "v1/chat/completions")
@@ -583,7 +598,7 @@ class APIAgent(BaseAgent):
 
 
 class BaseAgentWithTools(BaseAgent):
-    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct")
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct", "openai_v1")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
     _DEFAULT_PERSISTENT_STATE_MEMORY_SPEC = {
         "emit_policy": "always",
@@ -1126,7 +1141,7 @@ class BaseAgentWithTools(BaseAgent):
                     return non_scaffold[fa_match.end():].strip()
 
         # Strict <answer> extraction for prompts that use that tag.
-        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct"):
+        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct", "openai_v1"):
             answer_match = re.search(r"<answer>(.*?)</answer>", content, flags=re.DOTALL | re.IGNORECASE)
             if answer_match:
                 return answer_match.group(1).strip()

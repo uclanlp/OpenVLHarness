@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from mini_vlm_toolkit.agent import APIAgent, build_agent
@@ -58,6 +59,8 @@ def test_api_agent_generate_uses_chat_completion_helper():
 
 def test_build_agent_loads_api_agent_config():
     original_get = _patch_healthcheck()
+    original_env = os.environ.get("OPENAI_API_KEY")
+    os.environ["OPENAI_API_KEY"] = "ENV_KEY"
     try:
         config_path = (
             Path(__file__).resolve().parents[3]
@@ -68,14 +71,50 @@ def test_build_agent_loads_api_agent_config():
         agent = build_agent(str(config_path))
     finally:
         base_module.requests.get = original_get
+        if original_env is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = original_env
 
     assert isinstance(agent, APIAgent)
     assert agent.base == "https://api.openai.com"
+    assert agent.key == "ENV_KEY"
     assert agent.model == "gpt-5-2025-08-07"
+
+
+def test_openai_agent_empty_key_falls_back_to_env():
+    original_get = _patch_healthcheck()
+    original_openai = os.environ.get("OPENAI_API_KEY")
+    original_model = os.environ.get("MODEL_API_KEY")
+    os.environ["OPENAI_API_KEY"] = "OPENAI_ENV_KEY"
+    os.environ.pop("MODEL_API_KEY", None)
+    try:
+        agent = APIAgent(
+            base="https://api.openai.com",
+            key="empty",
+            model="gpt-5-2025-08-07",
+            max_tokens=128,
+            temperature=1.0,
+            verbose=False,
+        )
+    finally:
+        base_module.requests.get = original_get
+        if original_openai is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = original_openai
+        if original_model is None:
+            os.environ.pop("MODEL_API_KEY", None)
+        else:
+            os.environ["MODEL_API_KEY"] = original_model
+
+    assert agent.key == "OPENAI_ENV_KEY"
 
 
 if __name__ == "__main__":
     test_api_agent_generate_uses_chat_completion_helper()
     test_build_agent_loads_api_agent_config()
+    test_openai_agent_empty_key_falls_back_to_env()
     print("PASS: test_api_agent_generate_uses_chat_completion_helper")
     print("PASS: test_build_agent_loads_api_agent_config")
+    print("PASS: test_openai_agent_empty_key_falls_back_to_env")

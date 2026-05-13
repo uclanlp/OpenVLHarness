@@ -248,6 +248,17 @@ def _normalize_embeddings_endpoint(
     return f"{trimmed}/v1/embeddings"
 
 
+def _normalize_responses_endpoint(
+    base_url: str,
+) -> str:
+    trimmed = base_url.rstrip("/")
+    if trimmed.endswith("/responses"):
+        return trimmed
+    if trimmed.endswith("/v1"):
+        return f"{trimmed}/responses"
+    return f"{trimmed}/v1/responses"
+
+
 def _is_openai_chat_endpoint(endpoint: str) -> bool:
     try:
         parsed = urlparse(str(endpoint))
@@ -444,6 +455,105 @@ def chat_completion_request(
         _dump_failed_request(payload, response)
     raise_for_status_with_detail(response, prefix=f"Chat request failed at endpoint {endpoint}")
     return response.json()
+
+def _sanitize_responses_tools(tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+    """Flatten Chat-Completions-shaped tools to Responses-API shape.
+
+    Chat: {"type":"function","function":{"name","description","parameters"}}
+    Responses: {"type":"function","name","description","parameters"}
+    """
+    if not isinstance(tools, list):
+        return tools
+    out: List[Dict[str, Any]] = []
+    blocked_top_level_keys = {"oneOf", "anyOf", "allOf", "enum", "not"}
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        if isinstance(tool.get("function"), dict):
+            fn = tool["function"]
+            flat: Dict[str, Any] = {
+                "type": "function",
+                "name": fn.get("name"),
+                "description": fn.get("description"),
+                "parameters": copy.deepcopy(fn.get("parameters")) if fn.get("parameters") is not None else {"type": "object"},
+            }
+        else:
+            flat = {
+                "type": tool.get("type", "function"),
+                "name": tool.get("name"),
+                "description": tool.get("description"),
+                "parameters": copy.deepcopy(tool.get("parameters")) if tool.get("parameters") is not None else {"type": "object"},
+            }
+        params = flat.get("parameters")
+        if isinstance(params, dict):
+            for key in blocked_top_level_keys:
+                params.pop(key, None)
+            if "type" not in params:
+                params["type"] = "object"
+        out.append(flat)
+    return out
+
+
+@retry_with_exponential_backoff
+def responses_create_request(
+    *,
+    model: str,
+    input: List[Dict[str, Any]],
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Union[str, Dict[str, Any], None] = "auto",
+    max_output_tokens: Optional[int] = None,
+    reasoning: Optional[Dict[str, Any]] = None,
+    store: bool = False,
+    previous_response_id: Optional[str] = None,
+    timeout_seconds: float = 120,
+    extra_body: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """POST /v1/responses (OpenAI Responses API).
+
+    `input` is a list of items, each one of:
+      - {"type":"message","role":"system|user|assistant","content":[{type:"input_text|input_image|...",...}]}
+      - {"type":"function_call","call_id":...,"name":...,"arguments":"<json string>"}
+      - {"type":"function_call_output","call_id":...,"output": <str or list of content parts>}
+
+    `tools` is accepted in either Chat-API shape ({"type":"function","function":{...}}) or
+    Responses-API shape ({"type":"function","name":..,"description":..,"parameters":..}) — the
+    function normalizes to the Responses shape automatically.
+    """
+    resolved_base_url = base_url or "https://api.openai.com"
+    resolved_api_key = api_key or get_model_api_key(model)
+    endpoint = _normalize_responses_endpoint(resolved_base_url)
+
+    payload: Dict[str, Any] = {
+        "model": model,
+        "input": input,
+        "store": bool(store),
+    }
+    if tools:
+        payload["tools"] = _sanitize_responses_tools(tools)
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
+    if max_output_tokens is not None:
+        payload["max_output_tokens"] = max_output_tokens
+    if reasoning:
+        payload["reasoning"] = reasoning
+    if previous_response_id:
+        payload["previous_response_id"] = previous_response_id
+    if extra_body:
+        cleaned = {k: v for k, v in extra_body.items() if k not in {"repetition_penalty", "dataset", "return_token_ids"}}
+        if cleaned:
+            payload.update(cleaned)
+
+    headers = {"Content-Type": "application/json"}
+    if resolved_api_key:
+        headers["Authorization"] = f"Bearer {resolved_api_key}"
+    response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout_seconds)
+    if response.status_code == 400:
+        _dump_failed_request(payload, response)
+    raise_for_status_with_detail(response, prefix=f"Responses request failed at endpoint {endpoint}")
+    return response.json()
+
 
 @retry_with_exponential_backoff
 def embeddings_request(

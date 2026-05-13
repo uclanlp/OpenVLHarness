@@ -609,11 +609,19 @@ def _decode_data_uri(url):
     return data, ext
 
 
-def _iter_image_url_dicts(messages):
-    """Yield every {"type": "image_url", "image_url": {...}} node in `messages`.
+def _iter_image_url_refs(messages):
+    """Yield ``(parent_dict, key)`` for every image-URL holder in ``messages``.
+
+    The yielded pair satisfies ``parent[key]`` == data-URI string (read) and
+    supports in-place rewrite via ``parent[key] = new_url``. Handles two shapes:
+
+    * Chat Completions: ``{type:"image_url", image_url:{url:"data:..."}}``
+      → yields ``(node["image_url"], "url")``.
+    * Responses API: ``{type:"input_image", image_url:"data:..."}``
+      → yields ``(node, "image_url")``.
 
     Shared walker so full_trajectories and raw_trajectories see images in the
-    same top-to-bottom order they were appended to `msgs` during inference.
+    same top-to-bottom order they were appended during inference.
     """
     if not isinstance(messages, list):
         return
@@ -624,7 +632,13 @@ def _iter_image_url_dicts(messages):
                 node.get("type") == "image_url"
                 and isinstance(node.get("image_url"), dict)
             ):
-                yield node["image_url"]
+                yield node["image_url"], "url"
+                return
+            if (
+                node.get("type") == "input_image"
+                and isinstance(node.get("image_url"), str)
+            ):
+                yield node, "image_url"
                 return
             for v in node.values():
                 yield from _walk(v)
@@ -643,8 +657,8 @@ def iter_data_uris(messages):
     the N-th `<|vision_start|>...<|vision_end|>` block in the server-rendered
     prompt.
     """
-    for image_url in _iter_image_url_dicts(messages):
-        decoded = _decode_data_uri(image_url.get("url", ""))
+    for parent, key in _iter_image_url_refs(messages):
+        decoded = _decode_data_uri(parent.get(key, ""))
         if decoded is None:
             continue
         yield decoded
@@ -660,8 +674,8 @@ def _replace_data_uris_with_files(messages, task_id, images_subdir):
     URIs that fail to decode are left unchanged.
     """
     idx = 0
-    for image_url in _iter_image_url_dicts(messages):
-        decoded = _decode_data_uri(image_url.get("url", ""))
+    for parent, key in _iter_image_url_refs(messages):
+        decoded = _decode_data_uri(parent.get(key, ""))
         if decoded is None:
             continue
         data, ext = decoded
@@ -672,7 +686,7 @@ def _replace_data_uris_with_files(messages, task_id, images_subdir):
                 f.write(data)
         except OSError:
             continue
-        image_url["url"] = f"images/{rel_name}"
+        parent[key] = f"images/{rel_name}"
         idx += 1
 
 
