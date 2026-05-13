@@ -224,8 +224,6 @@ outputs/
 # Tool API keys
 mini_vlm_toolkit/tool_infra/src/tools/serpapi_image_search/serpapi_api_key
 mini_vlm_toolkit/tool_infra/.env.latest
-*/gpt_agent.yaml
-*/gpt_agent_with_tools.yaml
 
 # RL integration runtime artifacts
 rl/data/*.parquet
