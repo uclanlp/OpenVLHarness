@@ -22,6 +22,8 @@ def img_root_map(dataset):
         return "QSpatial"
     if 'FREAK' in dataset:
         return 'FREAK'
+    if 'FSCD_147' in dataset:
+        return 'FSC147'
     if 'FSC147' in dataset:
         return 'FSC147'
     if 'PixmoCount' in dataset:

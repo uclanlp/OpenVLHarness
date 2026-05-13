@@ -533,6 +533,8 @@ def extract_per_row_diagnostics(
             fn = num_gt
 
         # Mean IoU of matched pairs (best-effort; NaN if recovery fails).
+        # Emitted on a 0-100 percentage scale, rounded to 2 dp — matches the
+        # AP / Prec / Rec conventions used elsewhere in the per-row CSVs.
         mean_match_iou: Optional[float] = None
         if tp > 0:
             try:
@@ -554,7 +556,7 @@ def extract_per_row_diagnostics(
                             if d_idx < ious_mat.shape[0] and g_idx < ious_mat.shape[1]:
                                 matched_ious.append(float(ious_mat[d_idx, g_idx]))
                         if matched_ious:
-                            mean_match_iou = float(np.mean(matched_ious))
+                            mean_match_iou = round(float(np.mean(matched_ious)) * 100.0, 2)
             except Exception:
                 mean_match_iou = None
 

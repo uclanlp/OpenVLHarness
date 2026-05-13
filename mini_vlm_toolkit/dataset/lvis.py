@@ -490,12 +490,14 @@ class LVISBBoxDataset(ImageBaseDataset):
                 evaluator.print_results()
                 raw = evaluator.get_results()
                 # LVISEval may emit NaN for empty splits; coerce to 0.0.
+                # Emit AP / APr / APc / APf on the 0-100 percentage scale
+                # (matches the summary CSV and the project-wide convention).
                 def _coerce(v):
                     try:
                         fv = float(v)
                         if np.isnan(fv) or np.isinf(fv):
                             return 0.0
-                        return fv
+                        return round(fv * 100.0, 2)
                     except (TypeError, ValueError):
                         return 0.0
                 results_dict = {k: _coerce(v) for k, v in raw.items()}
@@ -601,13 +603,15 @@ class LVISBBoxDataset(ImageBaseDataset):
 
             # Slim summary CSV (per mode).
             def _pct(v):
+                # Inputs are already on the 0-100 percentage scale (from the
+                # _coerce above). Just round and handle missing/N/A.
                 try:
                     fv = float(v)
                 except (TypeError, ValueError):
                     return 'N/A'
                 if fv < 0:
                     return 'N/A'
-                return round(fv * 100, 2)
+                return round(fv, 2)
 
             summary_df = pd.DataFrame([{
                 'Split': 'Overall',
@@ -808,11 +812,11 @@ class LVISMaskDataset(ImageBaseDataset):
                 'gt_mask_count': len(gt_masks),
                 'pred_mask_count': len(pred_masks),
                 'mask_tp': mask_tp, 'mask_fp': mask_fp, 'mask_fn': mask_fn,
-                'mask_mean_iou': round(mask_mean_iou, 4),
+                'mask_mean_iou': round(mask_mean_iou * 100.0, 2),
                 'gt_bbox_count': len(gt_boxes),
                 'pred_bbox_count': len(pred_boxes),
                 'bbox_tp': bbox_tp, 'bbox_fp': bbox_fp, 'bbox_fn': bbox_fn,
-                'bbox_mean_iou': round(bbox_mean_iou, 4),
+                'bbox_mean_iou': round(bbox_mean_iou * 100.0, 2),
                 'prediction': pred_text[:500],
             })
 
@@ -855,11 +859,11 @@ class LVISMaskDataset(ImageBaseDataset):
                 'Mask Prec@50': round(m_prec, 2),
                 'Mask Rec@50': round(m_rec, 2),
                 'Mask F1@50': round(m_f1, 2),
-                'Mean Mask IoU': round(m_iou, 4),
+                'Mean Mask IoU': round(m_iou * 100.0, 2),
                 'BBox Prec@50': round(b_prec, 2),
                 'BBox Rec@50': round(b_rec, 2),
                 'BBox F1@50': round(b_f1, 2),
-                'Mean BBox IoU': round(b_iou, 4),
+                'Mean BBox IoU': round(b_iou * 100.0, 2),
                 'Samples': stats['total'],
             }
 

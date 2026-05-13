@@ -37,6 +37,7 @@ from .refcoco import RefCOCODataset
 from .refspatial import RefSpatialDataset
 from .lvis import LVISBBoxDataset, LVISMaskDataset
 from .odinw import ODinWBBoxDataset
+from .fscd import FSCD147BBoxDataset, FSCDLVISBBoxDataset
 from .simplevqa import SimpleVQA, SimpleVQA_EN
 from .embspatialbench import EmbSpatialBench
 from .erqabench import ERQABench
@@ -259,6 +260,7 @@ IMAGE_DATASET = [
     FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, PixmoCount, CountQA, RefSpatialDataset,
     LVISBBoxDataset, LVISMaskDataset,
     ODinWBBoxDataset,
+    FSCD147BBoxDataset, FSCDLVISBBoxDataset,
     LIVEVQADataset,
     LIVEVQA_v2,
     BrowseCompVLDataset,

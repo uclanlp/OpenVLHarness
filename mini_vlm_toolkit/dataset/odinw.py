@@ -170,11 +170,16 @@ def _evaluate_coco_bbox(
     evaluator.summarize()
 
     def _coerce(v):
+        # COCOeval emits -1 for "no GT in this size band"; preserve that
+        # sentinel so callers/the summary formatter can render it as N/A.
+        # Other valid stats get scaled to the 0-100 percentage scale.
         try:
             fv = float(v)
             if np.isnan(fv) or np.isinf(fv):
                 return 0.0
-            return fv
+            if fv < 0:
+                return fv
+            return round(fv * 100.0, 2)
         except (TypeError, ValueError):
             return 0.0
 
@@ -662,13 +667,15 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
             # Slim summary DataFrame (per mode).
             def _pct(v):
+                # Inputs are already on the 0-100 percentage scale (from
+                # _evaluate_coco_bbox above). Just round and handle N/A.
                 try:
                     fv = float(v)
                 except (TypeError, ValueError):
                     return 'N/A'
                 if fv < 0:
                     return 'N/A'
-                return round(fv * 100, 2)
+                return round(fv, 2)
 
             rows_out: List[Dict] = []
             for d in sorted(per_domain.keys()):

@@ -2942,7 +2942,14 @@ class CountBenchQA(ImageVQADataset):
 
 class FSC147Dataset(ImageVQADataset):
     TYPE = 'VQA'
-    DATASET_URL = {'FSC147_test': '', 'FSC147_val': '', 'FSC147_train': ''}
+    DATASET_URL = {
+        'FSC147_test': '', 'FSC147_val': '', 'FSC147_train': '',
+        # FSCD-LVIS counting variants (one row per (image, class), answer = int count).
+        # TSVs produced by `prepare_fscdlvis_count.py`; reuses this evaluator since
+        # the eval logic (extract_integer_from_prediction → MAE/RMSE/EM) is identical.
+        'FSCD_LVIS_count_train': '', 'FSCD_LVIS_count_val': '', 'FSCD_LVIS_count_test': '',
+        'FSCD_LVIS_unseen_count_train': '', 'FSCD_LVIS_unseen_count_test': '',
+    }
     DATASET_MD5 = {}
 
     def _get_eval_method(self):
@@ -2986,7 +2993,7 @@ class FSC147Dataset(ImageVQADataset):
         rmse = np.sqrt((diff ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
-        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+        result = {'mae': round(float(mae), 2), 'rmse': round(float(rmse), 2), 'acc': round(float(acc), 2)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
@@ -3060,7 +3067,7 @@ class PixmoCount(ImageVQADataset):
         rmse = np.sqrt((diff ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
-        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+        result = {'mae': round(float(mae), 2), 'rmse': round(float(rmse), 2), 'acc': round(float(acc), 2)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
@@ -3139,9 +3146,9 @@ class CountQA(ImageVQADataset):
         ra10 = ra10_per_row.mean() * 100
 
         result = {
-            'acc': round(float(acc), 4),
-            'RA@5': round(float(ra5), 4),
-            'RA@10': round(float(ra10), 4),
+            'acc': round(float(acc), 2),
+            'RA@5': round(float(ra5), 2),
+            'RA@10': round(float(ra10), 2),
         }
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
@@ -3505,7 +3512,13 @@ class TallyQA(ImageBaseDataset):
 
         data = load(eval_file)
 
-        pred_ints = data["prediction"].apply(extract_count_from_prediction)
+        # Coerce unparseable predictions to 0 (matches FSC147Dataset's pattern)
+        # so the downstream .astype(int) for the per-row CSV doesn't choke on
+        # None → NaN. Such rows count as wrong unless the GT is also 0.
+        pred_ints = data["prediction"].apply(
+            lambda x: extract_count_from_prediction(x)
+                      if extract_count_from_prediction(x) is not None else 0
+        )
         answer_ints = data["answer"].astype(int)
 
         exact_match = (pred_ints == answer_ints).astype(int)
@@ -3513,7 +3526,7 @@ class TallyQA(ImageBaseDataset):
         total = len(data)
         accuracy = correct / total * 100
 
-        result_df = pd.DataFrame([{"acc": round(float(accuracy), 4)}])
+        result_df = pd.DataFrame([{"acc": round(float(accuracy), 2)}])
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(result_df, result_file)
 
