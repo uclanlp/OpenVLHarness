@@ -31,7 +31,7 @@ If you don't need to start the server on your end, you can install the lighter `
 
 Subserver ports are configurable via env vars (SAM3 uses `SAM3_HOST`/`SAM3_PORT`,
 GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
-Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`). After launching, run
+Depth_Estimation uses `DEPTH_ESTIMATION_HOST`/`DEPTH_ESTIMATION_PORT`). After launching, run
 `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 
 `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) and optional
