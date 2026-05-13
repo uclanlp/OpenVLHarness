@@ -20,4 +20,5 @@ exec vllm serve "$MODEL_ID" \
     --no-enable-prefix-caching \
     --mm-processor-cache-gb 0 \
     --host "$HOST" \
-    --port "$PORT"
+    --port "$PORT" \
+    "$@"
