@@ -3512,7 +3512,13 @@ class TallyQA(ImageBaseDataset):
 
         data = load(eval_file)
 
-        pred_ints = data["prediction"].apply(extract_count_from_prediction)
+        # Coerce unparseable predictions to 0 (matches FSC147Dataset's pattern)
+        # so the downstream .astype(int) for the per-row CSV doesn't choke on
+        # None → NaN. Such rows count as wrong unless the GT is also 0.
+        pred_ints = data["prediction"].apply(
+            lambda x: extract_count_from_prediction(x)
+                      if extract_count_from_prediction(x) is not None else 0
+        )
         answer_ints = data["answer"].astype(int)
 
         exact_match = (pred_ints == answer_ints).astype(int)
@@ -3520,7 +3526,7 @@ class TallyQA(ImageBaseDataset):
         total = len(data)
         accuracy = correct / total * 100
 
-        result_df = pd.DataFrame([{"acc": round(float(accuracy), 4)}])
+        result_df = pd.DataFrame([{"acc": round(float(accuracy), 2)}])
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(result_df, result_file)
 
