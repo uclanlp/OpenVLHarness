@@ -2993,7 +2993,7 @@ class FSC147Dataset(ImageVQADataset):
         rmse = np.sqrt((diff ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
-        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+        result = {'mae': round(float(mae), 2), 'rmse': round(float(rmse), 2), 'acc': round(float(acc), 2)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
@@ -3067,7 +3067,7 @@ class PixmoCount(ImageVQADataset):
         rmse = np.sqrt((diff ** 2).mean())
         acc = (predictions == answers).mean() * 100
 
-        result = {'mae': round(float(mae), 4), 'rmse': round(float(rmse), 4), 'acc': round(float(acc), 4)}
+        result = {'mae': round(float(mae), 2), 'rmse': round(float(rmse), 2), 'acc': round(float(acc), 2)}
 
         result_file = get_intermediate_file_path(eval_file, '_acc')
         dump(d2df(result), result_file)
@@ -3146,9 +3146,9 @@ class CountQA(ImageVQADataset):
         ra10 = ra10_per_row.mean() * 100
 
         result = {
-            'acc': round(float(acc), 4),
-            'RA@5': round(float(ra5), 4),
-            'RA@10': round(float(ra10), 4),
+            'acc': round(float(acc), 2),
+            'RA@5': round(float(ra5), 2),
+            'RA@10': round(float(ra10), 2),
         }
 
         result_file = get_intermediate_file_path(eval_file, '_acc')

@@ -337,8 +337,8 @@ class RefCOCODataset(ImageBaseDataset):
             iou_list = split_ious[split_name]
             row = {
                 'Split': split_name,
-                'Precision@1': float(np.mean(hits_list)) * 100 if hits_list else 0.0,
-                'Average IoU': float(np.mean(iou_list)) if iou_list else 0.0,
+                'Precision@1': round(float(np.mean(hits_list)) * 100.0, 2) if hits_list else 0.0,
+                'Average IoU': round(float(np.mean(iou_list)) * 100.0, 2) if iou_list else 0.0,
                 'Samples': len(hits_list),
             }
             summary_rows.append(row)
@@ -350,15 +350,15 @@ class RefCOCODataset(ImageBaseDataset):
             iou_values = [row['Average IoU'] for row in macro_rows]
             overall_row = {
                 'Split': 'Average',
-                'Precision@1': float(np.mean(precision_values)),
-                'Average IoU': float(np.mean(iou_values)),
+                'Precision@1': round(float(np.mean(precision_values)), 2),
+                'Average IoU': round(float(np.mean(iou_values)), 2),
                 'Samples': int(sum(row['Samples'] for row in macro_rows)),
             }
         else:
             overall_row = {
                 'Split': 'Average',
-                'Precision@1': float(np.mean(hits)) * 100 if hits else 0.0,
-                'Average IoU': float(np.mean(ious)) if ious else 0.0,
+                'Precision@1': round(float(np.mean(hits)) * 100.0, 2) if hits else 0.0,
+                'Average IoU': round(float(np.mean(ious)) * 100.0, 2) if ious else 0.0,
                 'Samples': len(hits),
             }
         summary_rows.append(overall_row)

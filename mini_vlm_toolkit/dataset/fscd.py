@@ -166,13 +166,15 @@ def _run_cocoeval(gt_dict: Dict, predictions: List[Dict]) -> Tuple[Dict, Optiona
         evaluator.evaluate()
         evaluator.accumulate()
         evaluator.summarize()
+        # Emit AP* on the standard 0-100 percentage scale (matches AP_pct in
+        # _acc.csv and the convention used by LVIS / ODinW reporting).
         stats = {
-            'AP':   _coerce_float(evaluator.stats[0]),
-            'AP50': _coerce_float(evaluator.stats[1]),
-            'AP75': _coerce_float(evaluator.stats[2]),
-            'APs':  _coerce_float(evaluator.stats[3]),
-            'APm':  _coerce_float(evaluator.stats[4]),
-            'APl':  _coerce_float(evaluator.stats[5]),
+            'AP':   round(_coerce_float(evaluator.stats[0]) * 100.0, 2),
+            'AP50': round(_coerce_float(evaluator.stats[1]) * 100.0, 2),
+            'AP75': round(_coerce_float(evaluator.stats[2]) * 100.0, 2),
+            'APs':  round(_coerce_float(evaluator.stats[3]) * 100.0, 2),
+            'APm':  round(_coerce_float(evaluator.stats[4]) * 100.0, 2),
+            'APl':  round(_coerce_float(evaluator.stats[5]) * 100.0, 2),
         }
         return stats, evaluator
     finally:
@@ -218,10 +220,10 @@ def _compute_counting_metrics(
         if abs(p - g) / max(g, 1) <= 0.10
     ) / n
     # MAE/RMSE stay in raw instance units. NAE/EM/acc bands scaled to 0-100
-    # so they read like AP percentages in the summary CSV.
+    # so they read like AP percentages in the summary CSV. All to 2 dp.
     return {
-        'count_MAE':       round(mae, 4),
-        'count_RMSE':      round(rmse, 4),
+        'count_MAE':       round(mae, 2),
+        'count_RMSE':      round(rmse, 2),
         'count_NAE':       round(nae * 100.0, 2),
         'count_EM':        round(em * 100.0, 2),
         'count_acc_5pct':  round(acc5 * 100.0, 2),
@@ -553,8 +555,10 @@ class _FSCDBBoxBase(ImageBaseDataset):
             dump(metrics_blob, metrics_file)
 
             def _pct(v):
+                # Inputs are already on the 0-100 percentage scale (from
+                # _run_cocoeval). Just round and handle missing/N/A.
                 fv = _coerce_float(v)
-                return round(fv * 100, 2) if fv >= 0 else 'N/A'
+                return round(fv, 2) if fv >= 0 else 'N/A'
 
             summary_df = pd.DataFrame([{
                 'Split':         'Overall',
