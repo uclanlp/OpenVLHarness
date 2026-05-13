@@ -2942,7 +2942,14 @@ class CountBenchQA(ImageVQADataset):
 
 class FSC147Dataset(ImageVQADataset):
     TYPE = 'VQA'
-    DATASET_URL = {'FSC147_test': '', 'FSC147_val': '', 'FSC147_train': ''}
+    DATASET_URL = {
+        'FSC147_test': '', 'FSC147_val': '', 'FSC147_train': '',
+        # FSCD-LVIS counting variants (one row per (image, class), answer = int count).
+        # TSVs produced by `prepare_fscdlvis_count.py`; reuses this evaluator since
+        # the eval logic (extract_integer_from_prediction → MAE/RMSE/EM) is identical.
+        'FSCD_LVIS_count_train': '', 'FSCD_LVIS_count_val': '', 'FSCD_LVIS_count_test': '',
+        'FSCD_LVIS_unseen_count_train': '', 'FSCD_LVIS_unseen_count_test': '',
+    }
     DATASET_MD5 = {}
 
     def _get_eval_method(self):
