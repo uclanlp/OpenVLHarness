@@ -1,20 +1,21 @@
 """Stage 2 + 3: SAM3 inference + dataset.evaluate.
 
-Standalone runner that bypasses run_benchmark.py's agent loop. For each
-example: extract noun phrase, POST to SAM3, write a prediction row in the
-shape the dataset evaluator expects, and stash a per-task sidecar of raw
-SAM3 output (boxes + scores + masks) plus an agent-compatible
-tool_detections sidecar so the LVIS/ODinW eval bridge can recover
-real SAM3 confidence scores for AP.
+Standalone runner that bypasses run_benchmark.py's agent loop *and* the
+unified tool server: SAM3 is loaded in-process via `Sam3Inline` and
+called serially. For each example: extract noun phrase, run SAM3, write
+a prediction row in the shape the dataset evaluator expects, and stash a
+per-task sidecar of raw SAM3 output (boxes + scores + masks) plus an
+agent-compatible tool_detections sidecar so the LVIS/ODinW eval bridge
+can recover real SAM3 confidence scores for AP.
 
 Usage:
     python -m baselines.sam3.run \
         --data LVIS_bbox_val_positive_only CountBenchQA \
         --num-examples 300 --shuffle --seed 42 \
-        --num-proc 8 \
-        --sam3-server-url http://127.0.0.1:8086 \
         --work-dir outputs/ \
-        --mode all
+        --mode all \
+        --use-presence            # default off; enables presence-token grounding
+        --iom-nms-thresh 0.3      # default 0.3; pass --no-iom to disable
 """
 
 import argparse
@@ -23,7 +24,6 @@ import os
 import random
 import sys
 import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Make `mini_vlm_toolkit` and `baselines` importable.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +33,6 @@ if _REPO_ROOT not in sys.path:
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv(os.path.join(_REPO_ROOT, ".env"))
 
-import pandas as pd  # noqa: E402
 from tqdm import tqdm  # noqa: E402
 
 from mini_vlm_toolkit.dataset import build_dataset  # noqa: E402
@@ -41,7 +40,6 @@ from mini_vlm_toolkit.smp import dump, get_pred_file_format  # noqa: E402
 from mini_vlm_toolkit.utils import load_judge_config  # noqa: E402
 
 from baselines.sam3 import io_layout, prompts, formatting  # noqa: E402
-from baselines.sam3.client import SAM3Client  # noqa: E402
 
 ERROR_TAG = "[SAM3_ERROR]"
 
@@ -84,7 +82,7 @@ def _format_prediction(dataset_name: str, sam3_response: dict) -> str:
     return formatting.format_grounding_prediction(sam3_response)
 
 
-def _process_row(row, dataset, dataset_name, client, raw_dir, det_dir):
+def _process_row(row, dataset, dataset_name, sam3, raw_dir, det_dir):
     """Process one row end-to-end. Returns (index, prediction_text, status)."""
     idx = str(row.get("index"))
     raw_path = os.path.join(raw_dir, f"{idx}.json")
@@ -129,7 +127,7 @@ def _process_row(row, dataset, dataset_name, client, raw_dir, det_dir):
         return idx, f"{ERROR_TAG} image-resolve: {exc}", "image_error", ext.sam3_prompt, str(exc)
 
     try:
-        sam3_response = client.segment(prompt=ext.sam3_prompt, image_path=image_path)
+        sam3_response = sam3.segment(prompt=ext.sam3_prompt, image_path=image_path)
     except Exception as exc:
         return idx, f"{ERROR_TAG} sam3: {exc}", "sam3_error", ext.sam3_prompt, str(exc)
 
@@ -158,10 +156,7 @@ def run_one_dataset(
     num_examples,
     shuffle,
     seed,
-    num_proc,
-    tool_base,
-    timeout_seconds,
-    retries,
+    sam3,
     mode,
 ):
     print(f"\n=== {dataset_name} ===")
@@ -181,30 +176,20 @@ def run_one_dataset(
     os.makedirs(ds_dir, exist_ok=True)
 
     if mode in ("infer", "all"):
-        client = SAM3Client(tool_base=tool_base, timeout_seconds=timeout_seconds, retries=retries)
-        try:
-            client.health_check()
-        except Exception as exc:
-            raise SystemExit(f"Tool server unreachable / Visual_Grounding_Tool unavailable at {client.tool_base}: {exc}")
-        print(f"  Tool server: {client.tool_base} (Visual_Grounding_Tool -> SAM3)")
-
-        rows = list(dataset.data.iterrows())
         results: dict[str, str] = {}
         statuses: dict[str, str] = {}
 
-        with ThreadPoolExecutor(max_workers=max(1, num_proc)) as pool:
-            futures = {
-                pool.submit(_process_row, row, dataset, dataset_name, client, raw_dir, det_dir): idx
-                for idx, (_, row) in enumerate(rows)
-            }
-            for fut in tqdm(as_completed(futures), total=len(futures), desc=dataset_name):
-                try:
-                    idx, prediction, status, _prompt, _err = fut.result()
-                except Exception as exc:
-                    traceback.print_exc()
-                    raise SystemExit(f"Worker died: {exc}")
-                results[idx] = prediction
-                statuses[status] = statuses.get(status, 0) + 1
+        rows = list(dataset.data.iterrows())
+        for _, row in tqdm(rows, total=len(rows), desc=dataset_name):
+            try:
+                idx, prediction, status, _prompt, _err = _process_row(
+                    row, dataset, dataset_name, sam3, raw_dir, det_dir,
+                )
+            except Exception as exc:
+                traceback.print_exc()
+                raise SystemExit(f"Row failed: {exc}")
+            results[idx] = prediction
+            statuses[status] = statuses.get(status, 0) + 1
 
         # Build the prediction file: take dataset.data verbatim and add a
         # `prediction` column. This preserves `index`, `image_path`,
@@ -247,13 +232,15 @@ def main(argv=None):
     p.add_argument("--num-examples", type=int, default=None)
     p.add_argument("--shuffle", action="store_true")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--num-proc", type=int, default=4)
-    p.add_argument("--tool-base", default=None,
-                   help="Tool server base URL (default: $TOOL_BASE or http://127.0.0.1:8102). "
-                        "This is the same endpoint the agent uses; the tool server forwards "
-                        "Visual_Grounding_Tool calls to the SAM3 backend.")
-    p.add_argument("--timeout-seconds", type=int, default=300)
-    p.add_argument("--retries", type=int, default=3)
+    p.add_argument("--use-presence", action="store_true",
+                   help="Enable the presence-token sigmoid multiply in SAM3 grounding. "
+                        "Default off, matching the SAM3 server's monkey-patch.")
+    p.add_argument("--no-iom", action="store_true",
+                   help="Disable post-hoc IoM mask-overlap removal. By default IoM NMS "
+                        "is applied with threshold --iom-nms-thresh.")
+    p.add_argument("--iom-nms-thresh", type=float, default=0.3,
+                   help="IoM threshold for mask-overlap removal (default 0.3, "
+                        "matching the SAM3 server).")
     p.add_argument("--judge-config", default=None,
                    help="Optional. SAM3 outputs are unambiguous so a judge LLM is not "
                         "needed; pass this only if you want the evaluator's LLM-judge path.")
@@ -276,6 +263,22 @@ def main(argv=None):
     if args.judge_config:
         print(f"[run] judge_kwargs: {judge_kwargs}")
 
+    sam3 = None
+    if args.mode in ("infer", "all"):
+        # Lazy import: only required when we actually run inference; lets
+        # --mode eval be used outside the `sam3` conda env.
+        from baselines.sam3.inline import Sam3Inline  # noqa: E402
+
+        iom_nms_thresh = None if args.no_iom else args.iom_nms_thresh
+        print(
+            f"[run] loading SAM3 (use_presence={args.use_presence}, "
+            f"iom_nms_thresh={iom_nms_thresh})"
+        )
+        sam3 = Sam3Inline(
+            use_presence=args.use_presence,
+            iom_nms_thresh=iom_nms_thresh,
+        )
+
     for name in args.data:
         try:
             run_one_dataset(
@@ -286,10 +289,7 @@ def main(argv=None):
                 num_examples=args.num_examples,
                 shuffle=args.shuffle,
                 seed=args.seed,
-                num_proc=args.num_proc,
-                tool_base=args.tool_base,
-                timeout_seconds=args.timeout_seconds,
-                retries=args.retries,
+                sam3=sam3,
                 mode=args.mode,
             )
         except SystemExit:
