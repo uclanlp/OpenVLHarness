@@ -15,7 +15,6 @@ _CODING_AGENT_TOOL_NAMES = frozenset({
 _TOOL_NAME_TO_BINDING_PREFIX = {
     "GroundingDINO_Tool": "grounding",
     "Visual_Grounding_Tool": "segment",
-    "Depth_Tool": "depth",
     "Depth_Estimation_Tool": "depth",
     "OCR_Tool": "ocr",
 }
@@ -30,9 +29,6 @@ _TOOL_RESULT_FIELDS: Dict[str, Dict[str, Any]] = {
             "orig_img_h", "orig_img_w",
         ],
         "exclude": ["rendered_image_b64", "all_masks_viz_base64"],
-    },
-    "Depth_Tool": {
-        "include": ["depth_map_base64", "colormap", "size"],
     },
     "Depth_Estimation_Tool": {
         "include": ["depth_meters_b64", "depth_shape", "colormap", "size"],
@@ -55,9 +51,6 @@ _FIELD_DESCRIPTIONS: Dict[Tuple[str, str], str] = {
     ("Visual_Grounding_Tool", "num_masks"): "number of predicted masks",
     ("Visual_Grounding_Tool", "orig_img_h"): "original image height",
     ("Visual_Grounding_Tool", "orig_img_w"): "original image width",
-    ("Depth_Tool", "depth_map_base64"): "base64-encoded depth map image",
-    ("Depth_Tool", "colormap"): "colormap used for depth visualization",
-    ("Depth_Tool", "size"): "[width, height] of source image",
     ("Depth_Estimation_Tool", "depth_meters"): "per-pixel metric depth in meters",
     ("Depth_Estimation_Tool", "depth_meters_b64"): "base64-encoded metric depth array (float32)",
     ("Depth_Estimation_Tool", "depth_shape"): "[height, width] of depth map",

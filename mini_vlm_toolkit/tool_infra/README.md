@@ -11,7 +11,7 @@ See `TUTORIAL.md` for endpoint layout and client usage examples (including LLM-a
 | Tool | Description |
 | --- | --- |
 | `Crop_Tool` | Crop an image using 0-1000 normalized or pixel coordinates. |
-| `Depth_Tool` | Estimate depth from an image using a Depth-Anything server. |
+| `Depth_Estimation_Tool` | Estimate depth from an image using a Depth-Anything server. |
 | `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
 | `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
 | `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
@@ -47,7 +47,7 @@ Install dependencies:
 pip install -r requirements-client.txt
 ```
 
-Optional heavy tool dependencies (SAM3, GroundingDINO, OCR, Depth):
+Optional heavy tool dependencies (SAM3, GroundingDINO, OCR, Depth_Estimation):
 ```bash
 pip install -r requirements-server.txt
 ```
@@ -92,9 +92,9 @@ Start the GroundingDINO model server (required for the GroundingDINO tool):
 ./src/tools/grounding_dino/run_grounding_dino_server.sh
 ```
 
-Start the Depth-Anything model server (required for the Depth tool):
+Start the Depth-Anything model server (required for the Depth_Estimation tool):
 ```bash
-./src/tools/depth/run_depth_anything_server.sh
+./src/tools/depth_estimation/run_depth_estimation_server.sh
 ```
 
 Start the server with a specific tool list:
@@ -230,8 +230,8 @@ export LLM_DIRECT_MODEL_API_KEYS=Qwen/Qwen3-8B:EMPTY
 - Image tools accept base64 inputs for remote clients; pass exactly one of `image_path` or `image_base64` (use `base_image_base64`/`overlay_image_base64` for `OverlayImages_Tool`).
 - GroundingDINO runs as a separate model server; set `GROUNDING_DINO_SERVER_URL` and launch `./src/tools/grounding_dino/run_grounding_dino_server.sh` (requires `torch`, `torchvision`, and `transformers`).
 - OCR runs as a separate PaddleOCR-VL server; set `OCR_SERVER_URL` and launch `./src/tools/ocr/run_ocr_server.sh` (requires `transformers>=5.0` and `torch`; downloads `PaddlePaddle/PaddleOCR-VL-1.5` weights on first run; uses CUDA when available).
-- Depth runs as a separate Depth-Anything server; set `DEPTH_ANYTHING_SERVER_URL` and launch `./src/tools/depth/run_depth_anything_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
-- Subserver ports can be overridden via env vars: SAM3 uses `SAM3_HOST`/`SAM3_PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`.
+- Depth_Estimation runs as a separate Depth-Anything server; set `DEPTH_ESTIMATION_SERVER_URL` and launch `./src/tools/depth_estimation/run_depth_estimation_server.sh` (requires `torch` and `transformers`, optional `matplotlib` for Inferno colormap).
+- Subserver ports can be overridden via env vars: SAM3 uses `SAM3_HOST`/`SAM3_PORT`, GroundingDINO uses `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`, Depth_Estimation uses `DEPTH_ESTIMATION_HOST`/`DEPTH_ESTIMATION_PORT`.
 - Heavy tool wrappers surface subserver error messages (status + detail) and truncate large payloads.
 - Use `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable and report their health.
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url). Optional `LLM_DIRECT_MODEL_API_KEYS` and `LLM_DIRECT_API_KEY` default to `EMPTY` for no auth. Base URLs may include `/v1`; if omitted, `/v1` is appended automatically.

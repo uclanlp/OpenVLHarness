@@ -78,7 +78,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
   - `./src/tools/sam3_segment/run_sam3_server.sh`
   - `./src/tools/grounding_dino/run_grounding_dino_server.sh`
   - `./src/tools/ocr/run_ocr_server.sh`
-  - `./src/tools/depth/run_depth_anything_server.sh`
+  - `./src/tools/depth_estimation/run_depth_estimation_server.sh`
 
 ## Adding a New Tool (Workflow)
 1) Check relevant implementations in `reference/` and confirm the intended behavior/inputs/outputs before coding.
@@ -142,7 +142,7 @@ Run these from `mini_vlm_toolkit/tool_infra`.
   - `SAM3_SERVER_URL`
   - `GROUNDING_DINO_SERVER_URL`
   - `OCR_SERVER_URL` (PaddleOCR-VL; tune via `OCR_MODEL_ID`, `OCR_DEVICE`, `OCR_TORCH_DTYPE` on the server)
-  - `DEPTH_ANYTHING_SERVER_URL` (colormap via `DEPTH_ANYTHING_COLORMAP`, optional `matplotlib`)
+  - `DEPTH_ESTIMATION_SERVER_URL` (colormap via `DEPTH_ESTIMATION_COLORMAP`, optional `matplotlib`)
 - API key files are read from:
   - `src/tools/gemini_google_search/google_api_key`
   - `src/tools/serper_google_search/serper_api_key`

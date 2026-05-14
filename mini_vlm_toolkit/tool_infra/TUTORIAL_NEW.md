@@ -17,11 +17,11 @@ Run these steps from the tool infra root and set `PYTHONPATH="$(pwd)/src"` so im
   - `src/tools/sam3_segment/run_sam3_server.sh`
   - `src/tools/grounding_dino/run_grounding_dino_server.sh`
   - `src/tools/ocr/run_ocr_server.sh`
-  - `src/tools/depth/run_depth_anything_server.sh`
+  - `src/tools/depth_estimation/run_depth_estimation_server.sh`
 - Subserver ports can be overridden via env vars: SAM3 uses
   `SAM3_HOST`/`SAM3_PORT`, GroundingDINO uses
   `GROUNDING_DINO_HOST`/`GROUNDING_DINO_PORT`, OCR uses `OCR_HOST`/`OCR_PORT`,
-  Depth uses `DEPTH_ANYTHING_HOST`/`DEPTH_ANYTHING_PORT`. Use
+  Depth_Estimation uses `DEPTH_ESTIMATION_HOST`/`DEPTH_ESTIMATION_PORT`. Use
   `python scripts/scan_server_status.py` to confirm tool/subtool servers are reachable.
 - `scripts/print_tools.py`: pretty-print tool metadata from a running tool server (useful for quick inspection).
 - `LLM_Direct_Generator_Tool` reads `LLM_DIRECT_MODEL_BASE_URLS` (model:base_url) plus optional

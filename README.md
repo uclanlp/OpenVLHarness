@@ -9,7 +9,7 @@
 | Tool | Description |
 | --- | --- |
 | `Crop_Tool` | Crop an image using 0-1000 normalized or pixel coordinates. |
-| `Depth_Tool` | Estimate depth from an image using a Depth-Anything server. |
+| `Depth_Estimation_Tool` | Estimate depth from an image using a Depth-Anything server. |
 | `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
 | `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
 | `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
