@@ -132,4 +132,6 @@ def is_counting(dataset_name: str) -> bool:
         "CountBenchQA", "CountQA",
         "FSC147_train", "FSC147_val", "FSC147_test",
         "PixmoCount_train", "PixmoCount_val", "PixmoCount_test",
+        "FSCD_LVIS_count_train", "FSCD_LVIS_count_val", "FSCD_LVIS_count_test",
+        "FSCD_LVIS_unseen_count_train", "FSCD_LVIS_unseen_count_test",
     }
