@@ -1676,6 +1676,21 @@ def test_prompt_version_v2_prefix_and_system_prompt():
     assert updated[-1]["content"] == "Question: Count the objects."
 
 
+def test_prompt_version_openai_v1_native_tool_prompt():
+    agent = _build_agent()
+    agent.prompt_version = "openai_v1"
+    agent.system_prompt = agent._construct_system_message()
+
+    assert "native function-calling interface" in agent.system_prompt
+    assert "<tool_call>" not in agent.system_prompt
+    assert "output only:" in agent.system_prompt
+    assert "openai_v1" in BaseAgentWithTools._ALLOWED_PROMPT_VERSIONS
+
+    content = "<answer>B</answer>"
+    answer = agent._extract_final_answer_from_content(content)
+    assert answer == "B"
+
+
 def test_extract_final_answer_from_v2_action_input():
     agent = _build_agent()
     agent.prompt_version = "v2"
@@ -1995,6 +2010,7 @@ if __name__ == "__main__":
     test_run_returns_fail_msg_when_iterations_exhausted()
     test_normalize_execute_payload_strict_ok_parsing()
     test_prompt_version_v2_prefix_and_system_prompt()
+    test_prompt_version_openai_v1_native_tool_prompt()
     test_extract_final_answer_from_v2_action_input()
     test_extract_final_answer_from_v1_scaffold_only_returns_empty()
     test_extract_final_answer_from_v2_scaffold_only_returns_empty()
@@ -2024,6 +2040,7 @@ if __name__ == "__main__":
     print("PASS: test_run_returns_fail_msg_when_iterations_exhausted")
     print("PASS: test_normalize_execute_payload_strict_ok_parsing")
     print("PASS: test_prompt_version_v2_prefix_and_system_prompt")
+    print("PASS: test_prompt_version_openai_v1_native_tool_prompt")
     print("PASS: test_extract_final_answer_from_v2_action_input")
     print("PASS: test_extract_final_answer_from_v1_scaffold_only_returns_empty")
     print("PASS: test_extract_final_answer_from_v2_scaffold_only_returns_empty")
