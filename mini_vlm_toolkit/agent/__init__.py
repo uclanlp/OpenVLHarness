@@ -1,5 +1,6 @@
 from .base import APIAgent, BaseAgent, BaseAgentWithTools, BaseAgentWithToolsV2, BaseAgentWithToolsV3
 from .base_with_code import BaseAgentWithToolsAndCode
+from .api_with_tools import APIAgentWithTools
 from .rag import BaseAgentWithRAG
 from .config import load_agent_config
 
@@ -13,6 +14,7 @@ AVAILABLE_AGENTS = {
     'BaseAgent': BaseAgent,
     'BaseAgentWithTools': BaseAgentWithTools,
     'BaseAgentWithToolsAndCode': BaseAgentWithToolsAndCode,
+    'APIAgentWithTools': APIAgentWithTools,
     'BaseAgentWithToolsV2': BaseAgentWithToolsV2,
     'BaseAgentWithToolsV3': BaseAgentWithToolsV3,
     'BaseAgentWithRAG': BaseAgentWithRAG,
