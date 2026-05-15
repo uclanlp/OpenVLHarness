@@ -144,7 +144,14 @@ from .utils.visbrowse_bench_judge import (
 # scores. Exists for cross-benchmark consistency studies (VDR / LIVEVQA /
 # BCVL use the same style).
 # ---------------------------------------------------------------------------
-_VDR_JUDGE_PROMPT = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
+# NOTE: This is the OLD paraphrased VDR judge prompt — kept as ``_BK`` for
+# reference. The paper-exact VDR prompt (with ``[Deep Research Report]``
+# field and ``correct: yes/no\\nreasoning: ...`` plain-text output) lives
+# in ``dataset/utils/judge_vdr.py`` and is reached via
+# ``MMDR_JUDGE_PROMPT=judge_vdr``. This inline copy still drives the legacy
+# ``enable_vdr_aux: true`` aux-judge path; do not remove without first
+# migrating that path to ``utils/judge_vdr.py``.
+_VDR_JUDGE_PROMPT_BK = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
 
 [Question]
 {question}
@@ -233,7 +240,7 @@ def _grade_item_judge_rs(model, item):
     Sends ``JUDGE_RS_SYSTEM_PROMPT`` + ``JUDGE_RS_USER_PROMPT`` as
     separate roles via ``grade_with_judge_rs`` helper. All ground-truth
     variants are passed as ``Candidate Answers`` (Rule 10 — match any →
-    correct). Opt-in via env ``MVT_JUDGE_PROMPT=judge_rs``.
+    correct). Opt-in via env ``MMDR_JUDGE_PROMPT=judge_rs``.
     """
     from .utils.judge_rs import grade_with_judge_rs
 
@@ -260,6 +267,36 @@ def _grade_item_judge_rs(model, item):
     )
 
 
+def _grade_item_judge_vdr(model, item):
+    """Judge_VDR variant of ``_grade_item`` (VDR paper contains-based judge,
+    plain-text output). All ground-truth variants are joined into a single
+    ``[Correct Answer]`` field. Opt-in via env ``MMDR_JUDGE_PROMPT=judge_vdr``.
+    """
+    from .utils.judge_vdr import grade_with_judge_vdr
+
+    prediction = str(item.get('prediction', ''))
+    gt_list = item.get('ground_truth_list', '')
+    question = item.get('question', '')
+
+    if isinstance(gt_list, str):
+        try:
+            gt_list = json.loads(gt_list)
+        except Exception:
+            gt_list = [gt_list]
+    if not gt_list:
+        return dict(correct=0, extracted_answer='', reasoning='Empty ground truth')
+
+    try:
+        parsed = grade_with_judge_vdr(model, question, gt_list, prediction)
+    except Exception as e:
+        return dict(correct=0, extracted_answer='', reasoning=f'judge_vdr error: {e}')
+    return dict(
+        correct=int(parsed['correct']),
+        extracted_answer='',
+        reasoning=str(parsed.get('reasoning', ''))[:500],
+    )
+
+
 def _grade_item_vdr(model, item):
     """Auxiliary VDR-style contains-based binary judge.
 
@@ -279,7 +316,7 @@ def _grade_item_vdr(model, item):
         return dict(verdict='error', reasoning='empty ground_truth_list')
 
     formatted_target = ' OR '.join(f'"{str(gt)}"' for gt in gt_list)
-    prompt = _VDR_JUDGE_PROMPT.format(
+    prompt = _VDR_JUDGE_PROMPT_BK.format(
         question=question,
         correct_answer=formatted_target,
         response=prediction,
@@ -482,12 +519,14 @@ class VisBrowseBenchDataset(ImageBaseDataset):
 
         # Judge selection: env var > judge_kwargs > 'vbb' default (paper protocol)
         judge_name = (
-            os.environ.get('MVT_JUDGE_PROMPT')
+            os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.pop('judge_prompt', None)
             or 'vbb'
         ).strip().lower()
-        if judge_name not in ('vbb', 'judge_rs'):
-            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'vbb' or 'judge_rs'")
+        if judge_name not in ('vbb', 'judge_rs', 'judge_vdr'):
+            raise ValueError(
+                f"Unknown judge_prompt {judge_name!r}; expected 'vbb', 'judge_rs', or 'judge_vdr'"
+            )
         judge_kwargs.pop('judge_prompt', None)
 
         model = build_judge(**judge_kwargs)
@@ -504,6 +543,11 @@ class VisBrowseBenchDataset(ImageBaseDataset):
             grade_stem = '_vbb_grade_judge_rs'
             detail_stem = '_vbb_detail_judge_rs'
             acc_stem = '_vbb_acc_judge_rs'
+        elif judge_name == 'judge_vdr':
+            grade_fn = _grade_item_judge_vdr
+            grade_stem = '_vbb_grade_judge_vdr'
+            detail_stem = '_vbb_detail_judge_vdr'
+            acc_stem = '_vbb_acc_judge_vdr'
         else:
             grade_fn = _grade_item
             grade_stem = '_vbb_grade'

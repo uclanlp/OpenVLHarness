@@ -50,7 +50,14 @@ from .utils.judge_rs import (
 # Output is written to a separate ``_bcvl_vdr.json`` file and does NOT
 # override the primary original-protocol scores.
 # ---------------------------------------------------------------------------
-_VDR_JUDGE_PROMPT = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
+# NOTE: This is the OLD paraphrased VDR judge prompt — kept as ``_BK`` for
+# reference. The paper-exact VDR prompt (with ``[Deep Research Report]``
+# field and ``correct: yes/no\\nreasoning: ...`` plain-text output) lives
+# in ``dataset/utils/judge_vdr.py`` and is reached via
+# ``MMDR_JUDGE_PROMPT=judge_vdr``. This inline copy still drives the legacy
+# ``enable_vdr_aux: true`` aux-judge path; do not remove without first
+# migrating that path to ``utils/judge_vdr.py``.
+_VDR_JUDGE_PROMPT_BK = """You are an impartial judge evaluating whether an AI assistant's answer contains the correct answer.
 
 [Question]
 {question}
@@ -89,8 +96,9 @@ def _grade_item(model, item, judge_name: str = 'hle'):
       - ``'hle'`` (default): paper-protocol HLE_JUDGE_PROMPT (extract +
         binary correct yes/no JSON). Reported numbers match the
         BrowseComp-VL paper.
-      - ``'judge_rs'``: Rui's iterative judge protocol (more lenient, MM-DR
-        11-rule pair). For exploratory comparison.
+      - ``'judge_rs'``: MMSearch-R1 paper judge (10-rule, XML output).
+        For exploratory comparison.
+      - ``'judge_vdr'``: VDR paper contains-based judge (plain-text output).
 
     Returns a dict with keys: correct (1 or 0), extracted_answer, reasoning.
     """
@@ -128,6 +136,23 @@ def _grade_item(model, item, judge_name: str = 'hle'):
         ]
         parser = parse_judge_rs_judgement
         unparseable_sentinel = 'judge_rs failed to parse'
+        use_role_split = True
+    elif judge_name == 'judge_vdr':
+        # Judge_VDR schema: question + correct_answer (variants joined with |) +
+        # response. Single-turn user prompt (no system role); contains-based
+        # binary verdict in plain-text ``correct: yes/no\nreasoning: ...`` format.
+        from .utils.judge_vdr import JUDGE_VDR_PROMPT, parse_judge_vdr_judgement
+        rest = [str(x) for x in gt_list[1:] if str(x).strip()]
+        correct_text = ' | '.join([str(correct_answer)] + rest) if rest else str(correct_answer)
+        msgs_role_split = [
+            {"role": "user", "content": [{"type": "text", "value": JUDGE_VDR_PROMPT.format(
+                question=str(question),
+                correct_answer=correct_text,
+                response=prediction,
+            )}]},
+        ]
+        parser = parse_judge_vdr_judgement
+        unparseable_sentinel = 'judge_vdr failed to parse'
         use_role_split = True
     else:
         prompt = JUDGE_PROMPT.format(
@@ -189,7 +214,7 @@ def _grade_item_vdr(model, item):
         return dict(verdict='error', reasoning='empty ground_truth_list')
 
     correct_answer = gt_list[0]
-    prompt = _VDR_JUDGE_PROMPT.format(
+    prompt = _VDR_JUDGE_PROMPT_BK.format(
         question=question,
         correct_answer=correct_answer,
         response=prediction,
@@ -294,17 +319,18 @@ class BrowseCompVLDataset(ImageBaseDataset):
         # the single source of truth; no per-evaluator default).
         # Optional alternative judge protocol. Default = paper-protocol HLE.
         # Override via judge_kwargs['judge_prompt'] = 'judge_rs' OR env
-        # MVT_JUDGE_PROMPT=judge_rs. Filename suffix '_judge_rs' is added
+        # MMDR_JUDGE_PROMPT=judge_rs. Filename suffix '_judge_rs' is added
         # to scoring artifacts so HLE + Judge_RS results coexist in the
         # same run dir without overwriting each other.
         judge_name = (
-            os.environ.get('MVT_JUDGE_PROMPT')
+            os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.pop('judge_prompt', None)
             or 'hle'
         ).lower()
-        if judge_name not in ('hle', 'judge_rs'):
+        if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
             raise ValueError(
-                f"Unknown judge_prompt {judge_name!r}; supported: 'hle' (default), 'judge_rs'"
+                f"Unknown judge_prompt {judge_name!r}; "
+                f"supported: 'hle' (default), 'judge_rs', 'judge_vdr'"
             )
         judge_suffix = '' if judge_name == 'hle' else f'_{judge_name}'
         model = build_judge(**judge_kwargs)

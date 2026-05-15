@@ -644,10 +644,11 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     Reuses the standard `build_judge` + `track_progress_rich` pattern from
     other datasets (e.g. MathVista in image_vqa.py).
 
-    Judge prompt is selected by env var ``MVT_JUDGE_PROMPT`` or
-    ``judge_kwargs['judge_prompt']``: ``'hle'`` (default) | ``'judge_rs'``.
-    Cache + score files are suffixed with ``_judge_rs`` when that variant
-    is active so HLE and Judge_RS results coexist on the same run dir.
+    Judge prompt is selected by env var ``MMDR_JUDGE_PROMPT`` or
+    ``judge_kwargs['judge_prompt']``: ``'hle'`` (default) | ``'judge_rs'`` |
+    ``'judge_vdr'``. Cache + score files are suffixed with ``_judge_rs`` /
+    ``_judge_vdr`` when those variants are active so the three results
+    coexist on the same run dir.
     """
     from .utils import build_judge
     from ..utils.mp_util import track_progress_rich
@@ -662,12 +663,14 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
 
     # Judge prompt selection: env var > judge_kwargs > default 'hle'
     judge_name = (
-        os.environ.get('MVT_JUDGE_PROMPT')
+        os.environ.get('MMDR_JUDGE_PROMPT')
         or judge_kwargs_local.pop('judge_prompt', None)
         or 'hle'
     ).strip().lower()
-    if judge_name not in ('hle', 'judge_rs'):
-        raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+    if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
+        raise ValueError(
+            f"Unknown judge_prompt {judge_name!r}; expected 'hle', 'judge_rs', or 'judge_vdr'"
+        )
     # Drop the kwarg (if not popped above) so it doesn't reach OpenAIWrapper.
     judge_kwargs_local.pop('judge_prompt', None)
 
@@ -677,6 +680,9 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     if judge_name == 'judge_rs':
         judge_one_fn = _mmsearch_judge_one_judge_rs
         cache_stem = "_mmsearch_llm_judge_judge_rs_cache"
+    elif judge_name == 'judge_vdr':
+        judge_one_fn = _mmsearch_judge_one_judge_vdr
+        cache_stem = "_mmsearch_llm_judge_judge_vdr_cache"
     else:
         judge_one_fn = _mmsearch_judge_one
         cache_stem = "_mmsearch_llm_judge_cache"
@@ -758,7 +764,12 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
         "subfield": by_subfield,
     }
 
-    score_stem = "_mmsearch_llm_judge_judge_rs" if judge_name == 'judge_rs' else "_mmsearch_llm_judge"
+    if judge_name == 'judge_rs':
+        score_stem = "_mmsearch_llm_judge_judge_rs"
+    elif judge_name == 'judge_vdr':
+        score_stem = "_mmsearch_llm_judge_judge_vdr"
+    else:
+        score_stem = "_mmsearch_llm_judge"
     judge_score_file = get_intermediate_file_path(eval_file, score_stem, "json")
     dump(judge_summary, judge_score_file)
     return judge_summary, verdicts
@@ -863,7 +874,7 @@ def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
 
 # Judge_RS variant: same row signature, but uses the multimodal-search-r1
 # judge prompt (system + user as separate roles) and the v2 XML output
-# parser. Switched in via env var MVT_JUDGE_PROMPT=judge_rs (per-call,
+# parser. Switched in via env var MMDR_JUDGE_PROMPT=judge_rs (per-call,
 # NOT a global default — HLE remains the default judge for MMSearch).
 from .utils.judge_rs import (
     JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
@@ -924,6 +935,70 @@ def _mmsearch_judge_one_judge_rs(judge, row) -> Dict[str, Any]:
         if parsed.get("correct") == 1:
             return {"verdict": "correct", "raw_response": str(answer)[:200]}
         if parsed.get("reasoning") != "judge_rs failed to parse":
+            return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
+        return {"verdict": "error", "raw_response": str(answer)[:200]}
+    except Exception as exc:
+        return {"verdict": "error", "raw_response": f"exception: {exc}"}
+
+
+# Optional alternate judge — VDR paper "contains-based" binary judge.
+# Switched in via env MMDR_JUDGE_PROMPT=judge_vdr (per-call, NOT a global
+# default — HLE remains MMSearch's default).
+from .utils.judge_vdr import JUDGE_VDR_PROMPT, parse_judge_vdr_judgement
+
+
+def _mmsearch_judge_one_judge_vdr(judge, row) -> Dict[str, Any]:
+    """Judge a single MMSearch prediction using the Judge_VDR v1 prompt.
+
+    Judge_VDR uses a single-turn user prompt (no system/user split — VDR
+    paper's prompt is one flat instruction) and a plain-text
+    ``correct: yes/no\\nreasoning: ...`` output format.
+    """
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+
+    pred_extracted = _extract_mmsearch_answer(pred)
+
+    alts_raw = row.get("alternative_gt_answers", [])
+    alts: List[str] = []
+    if isinstance(alts_raw, list):
+        alts = [str(a) for a in alts_raw if a]
+    elif isinstance(alts_raw, str) and alts_raw.strip():
+        s = alts_raw.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                import json as _json
+                parsed_alts = _json.loads(s)
+                if isinstance(parsed_alts, list):
+                    alts = [str(a) for a in parsed_alts if a]
+            except Exception:
+                alts = [s]
+        else:
+            alts = [s]
+
+    # VDR prompt has no candidate_answers slot — join all alternatives into
+    # the single [Correct Answer] field with " | " separator.
+    correct_text = " | ".join([gt[:500]] + [str(a)[:500] for a in alts]) if alts else gt[:500]
+
+    if not pred_extracted.strip():
+        return {"verdict": "incorrect", "raw_response": ""}
+
+    user_prompt = JUDGE_VDR_PROMPT.format(
+        question=question[:1000],
+        correct_answer=correct_text,
+        response=pred_extracted[:2000],
+    )
+    msgs = [{"role": "user", "content": [{"type": "text", "value": user_prompt}]}]
+
+    try:
+        code, answer, _ = judge.generate_inner(msgs)
+        if code != 0:
+            return {"verdict": "error", "raw_response": str(answer)[:200]}
+        parsed = parse_judge_vdr_judgement(str(answer))
+        if parsed.get("correct") == 1:
+            return {"verdict": "correct", "raw_response": str(answer)[:200]}
+        if parsed.get("reasoning") != "judge_vdr failed to parse":
             return {"verdict": "incorrect", "raw_response": str(answer)[:200]}
         return {"verdict": "error", "raw_response": str(answer)[:200]}
     except Exception as exc:
