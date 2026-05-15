@@ -104,8 +104,8 @@ INPUT_SCHEMA = {
             "minItems": 1,
             "maxItems": MAX_URLS,
             "description": (
-                "List of webpage URLs to visit and extract content from. "
-                "Accepts URLs up to the configured maximum. "
+                f"List of webpage URLs to visit and extract content from. "
+                f"Up to {MAX_URLS} URLs per call. "
                 "Each URL should be a valid HTTP(S) link. "
                 "If a URL lacks a scheme, 'https://' is automatically prepended."
             ),
@@ -152,17 +152,17 @@ class Webpage_Visit_Tool(BaseTool):
                 "a search tool. Do NOT use this tool for web search or URL "
                 "discovery; use Text_Search_Tool or Image_Search_Tool first to "
                 "find relevant URLs, then pass those URLs here.\n\n"
-                "The tool processes each URL independently: fetches the page content "
-                "via Serper Scrape (transient errors retried up to "
-                f"{SERPER_MAX_RETRIES} times with exponential backoff; 4xx errors "
-                "fail fast), truncates overly long content, and runs LLM "
-                "extraction to produce structured output with 'evidence' "
-                "(relevant quotes/paraphrases) and 'summary' (concise connection "
-                "to the goal)."
+                "The tool processes each URL independently: fetches the page content, "
+                "truncates overly long content, and runs LLM extraction to produce "
+                "structured output with 'evidence' (relevant quotes/paraphrases) "
+                "and 'summary' (concise connection to the goal). Transient network "
+                "failures are auto-retried; pages that block scraping (Cloudflare, "
+                "captcha, etc.) or that respond with permanent errors return a "
+                "structured failure message with suggestions for recovery."
             ),
             tool_version="1.0.0",
             input_types={
-                "urls": "list[str] - webpage URL(s) to visit (1 to configured max)",
+                "urls": f"list[str] - webpage URL(s) to visit (1 to {MAX_URLS} per call)",
                 "goal": "str - goal or query guiding content extraction",
             },
             input_schema=INPUT_SCHEMA,
@@ -282,14 +282,88 @@ class Webpage_Visit_Tool(BaseTool):
             return f"https://{url}"
         return url
 
+    # --- Anti-bot challenge detection ---
+    # Cloudflare / hCaptcha / DataDome / Turnstile servers usually return
+    # HTTP 200 with a small challenge body, so ``response.raise_for_status``
+    # doesn't catch them — but the body is essentially useless to the LLM
+    # extractor (it's JavaScript + "verify you're human" text). Detect
+    # these heuristically and treat the page as failed so the agent gets
+    # a structured "blocked, try a different source" message instead of
+    # a gibberish summary.
+    _ANTIBOT_TITLE_MARKERS = (
+        "just a moment",          # Cloudflare
+        "attention required",     # Cloudflare / Imperva
+        "please verify",
+        "are you human",
+        "verifying you are human", # Cloudflare
+        "checking your browser",   # Cloudflare interstitial
+        "access denied",
+        "request unsuccessful",    # DataDome
+        "captcha",
+    )
+    _ANTIBOT_BODY_MARKERS = (
+        "cf-browser-verification",
+        "cf-challenge",
+        "challenge-platform",
+        "captcha-bypass",
+        "h-captcha",
+        "g-recaptcha",
+        "turnstile",
+        "datadome",
+        "px-captcha",
+        "perimeterx",
+    )
+    _ANTIBOT_BODY_MAX_LEN = 4000
+
+    @classmethod
+    def _looks_like_anti_bot(cls, content: str, metadata: Dict[str, Any]) -> Optional[str]:
+        """Return a short reason string if ``content`` smells like a bot
+        challenge page (200 OK but useless), else None.
+
+        Heuristic: short body (< 4000 chars, since real article pages are
+        typically much longer) + at least one anti-bot fingerprint in
+        either the title or the body. Both signals required so we don't
+        false-positive on legitimate short pages that happen to mention
+        e.g. "captcha".
+        """
+        if not isinstance(content, str):
+            return None
+        body = content
+        body_lower = body[:cls._ANTIBOT_BODY_MAX_LEN].lower()
+        title = ""
+        if isinstance(metadata, dict):
+            title = str(metadata.get("title") or metadata.get("og:title") or "").lower()
+        title_hit = next((m for m in cls._ANTIBOT_TITLE_MARKERS if m in title), None)
+        body_hit = next((m for m in cls._ANTIBOT_BODY_MARKERS if m in body_lower), None)
+        # Only treat as anti-bot if the body is short AND we have at
+        # least one strong fingerprint. Long bodies that mention these
+        # keywords are usually legitimate articles ABOUT bot detection.
+        if len(body) < cls._ANTIBOT_BODY_MAX_LEN and (title_hit or body_hit):
+            indicator = title_hit or body_hit
+            return (
+                f"anti-bot challenge page detected (200 OK but body looks like a "
+                f"verification interstitial, indicator: {indicator!r})"
+            )
+        return None
+
     def _fetch_page_serper(self, url: str) -> Dict[str, Any]:
-        """Fetch page content via Serper Scrape API (scrape.serper.dev)."""
+        """Fetch page content via Serper Scrape API (scrape.serper.dev).
+
+        Detects anti-bot 200-OK responses (Cloudflare challenge / captcha
+        interstitial pages) and raises ``RuntimeError`` with a clear
+        explanation so the calling layer can format a structured failure
+        for the agent. This is in addition to the explicit HTTP error
+        path in ``_fetch_page`` which already handles 4xx / 5xx.
+        """
         client = self._get_client()
         data = client.scrape(url)
         text = data.get("text", "")
-        metadata = data.get("metadata", {})
+        metadata = data.get("metadata", {}) or {}
         if not text:
             raise RuntimeError("Serper Scrape returned empty text")
+        anti_bot = self._looks_like_anti_bot(text, metadata)
+        if anti_bot:
+            raise RuntimeError(anti_bot)
         return {
             "content": text,
             "description": metadata.get("description", "") or metadata.get("og:description", ""),
@@ -456,9 +530,93 @@ class Webpage_Visit_Tool(BaseTool):
 
     @staticmethod
     def _format_failure(url: str, goal: str, reason: str) -> str:
+        """Render a single-URL fetch failure as an agent-readable block.
+
+        Includes cross-tool suggestions so the agent has a recovery path
+        instead of just "Unable to retrieve". Self-inclusion preserved:
+        the agent may also re-call Webpage_Visit_Tool on a DIFFERENT URL
+        from the same prior search result set.
+        """
+        reason_lower = reason.lower()
+        # Classify the failure to give a tighter recovery hint
+        is_anti_bot = "anti-bot" in reason_lower or "challenge" in reason_lower
+        is_blocked = is_anti_bot or "403" in reason or "401" in reason or "blocked" in reason_lower
+        is_not_found = "404" in reason
+        is_empty = (
+            "empty text" in reason_lower
+            or "essentially-empty" in reason_lower
+            or "empty body" in reason_lower
+            or "no content" in reason_lower
+        )
+        is_transient = (
+            "transient" in reason_lower
+            or "timeout" in reason_lower
+            or " 429" in reason
+            or " 500" in reason
+            or " 502" in reason
+            or " 503" in reason
+            or " 504" in reason
+        )
+
+        if is_anti_bot:
+            tight_hint = (
+                "The page returned a Cloudflare / captcha / anti-bot interstitial instead of "
+                "real content. Re-fetching the same URL will NOT help — the source actively "
+                "blocks scrapers. Pick a different source for the same fact."
+            )
+        elif is_blocked:
+            tight_hint = (
+                "Access is blocked (HTTP 401 / 403 or equivalent). Re-fetching the same URL "
+                "will NOT help — the source requires auth or actively denies the scraper. "
+                "Pick a different source."
+            )
+        elif is_not_found:
+            tight_hint = (
+                "URL not found (HTTP 404). The page has been moved or deleted. Pick a "
+                "different URL from the search results, or re-search to find a fresher source."
+            )
+        elif is_empty:
+            tight_hint = (
+                "The page returned HTTP 200 (success) but with essentially no extractable text "
+                "content. This typically means: (a) the page is JavaScript-only and the scraper "
+                "saw an empty shell rather than the rendered DOM, (b) the source silently "
+                "blocked the scraper by returning a blank body instead of an explicit challenge "
+                "page, or (c) the URL points to a non-HTML resource (PDF / binary / image-only "
+                "page) that the scraper can't extract text from. Re-fetching the same URL will "
+                "return the same empty body; pick a different source."
+            )
+        elif is_transient:
+            tight_hint = (
+                "Transient failure (5xx / 429 / timeout) after 3 retries. The source MAY be "
+                "back online in a minute; retrying this URL once more after a short pause is "
+                "reasonable. If it fails again, switch to a different source."
+            )
+        else:
+            tight_hint = (
+                "Cause unclear (see Reason line). Re-fetching the same URL is unlikely to "
+                "help; switch source or tool."
+            )
+
         output = f"The useful information in {url} for user goal {goal or 'N/A'} as follows: \n\n"
         output += "Evidence in page: \n" + reason + "\n\n"
-        output += "Summary: \nUnable to retrieve webpage content. Please check the link or try again later.\n\n"
+        output += (
+            "Summary: \n"
+            "FETCH FAILED.\n\n"
+            f"Reason: {reason}\n"
+            f"Diagnosis: {tight_hint}\n\n"
+            "Suggested next actions for the agent:\n\n"
+            "  - Tool switches (the agent may also re-call this same Webpage_Visit_Tool on a "
+            "DIFFERENT URL — nothing is excluded just because the current URL failed):\n"
+            "    - Webpage_Visit_Tool(urls=[<a different webpage_url_N>], goal=...)\n"
+            "        Try a different URL from the same search results. If the prior search had "
+            "multiple results and only this one fetched, the answer may be on another one of them.\n"
+            "    - Text_Search_Tool(query=<rephrased>, search_type=<search|news|scholar|...>)\n"
+            "        Re-search to surface fresher / non-blocked sources for the same fact. "
+            "If the failing URL was the only result, the search query may have been too narrow.\n"
+            "    - Image_Search_Tool(image_id=<input_image_N | tool_generated_image_N>)\n"
+            "        If your question is fundamentally about identifying an image, switch to "
+            "reverse image search — bypasses the failing webpage entirely.\n\n"
+        )
         return output
 
     # ------------------------------------------------------------------
