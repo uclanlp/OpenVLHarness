@@ -1040,12 +1040,14 @@ class LIVEVQA_v2(ImageBaseDataset):
 
         # Judge selection: env var > judge_kwargs > 'hle' default
         judge_name = (
-            os.environ.get('MVT_JUDGE_PROMPT')
+            os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.pop('judge_prompt', None)
             or 'hle'
         ).strip().lower()
-        if judge_name not in ('hle', 'judge_rs'):
-            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+        if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
+            raise ValueError(
+                f"Unknown judge_prompt {judge_name!r}; expected 'hle', 'judge_rs', or 'judge_vdr'"
+            )
         judge_kwargs.pop('judge_prompt', None)
 
         model = build_judge(**judge_kwargs)
@@ -1083,6 +1085,16 @@ class LIVEVQA_v2(ImageBaseDataset):
                        f"reasoning={parsed.get('reasoning', '')[:200]}")
                 return dict(hit=int(parsed['correct']), log=log)
 
+            if judge_name == 'judge_vdr':
+                from .utils.judge_vdr import grade_with_judge_vdr
+                try:
+                    parsed = grade_with_judge_vdr(model, question, gt_list, pred)
+                except Exception as e:
+                    return dict(hit=0, log=f'judge_vdr error: {e}')
+                log = (f"verdict={parsed['correct']} "
+                       f"reasoning={parsed.get('reasoning', '')[:200]}")
+                return dict(hit=int(parsed['correct']), log=log)
+
             # HLE path
             ca = str(gt_list[0])
             prompt = HLE_JUDGE_PROMPT.format(
@@ -1105,7 +1117,12 @@ class LIVEVQA_v2(ImageBaseDataset):
                 retry -= 1
             return dict(hit=0, log=f'judge unparseable: {str(last)[:200]}' if last else 'judge unreachable')
 
-        grade_stem = '_livevqa_v2_grade_judge_rs' if judge_name == 'judge_rs' else '_livevqa_v2_grade'
+        if judge_name == 'judge_rs':
+            grade_stem = '_livevqa_v2_grade_judge_rs'
+        elif judge_name == 'judge_vdr':
+            grade_stem = '_livevqa_v2_grade_judge_vdr'
+        else:
+            grade_stem = '_livevqa_v2_grade'
         result_file = get_intermediate_file_path(eval_file, grade_stem, 'pkl')
         result_cache = load(result_file) if osp.exists(result_file) else {}
         items_to_grade = []
@@ -1149,7 +1166,12 @@ class LIVEVQA_v2(ImageBaseDataset):
                 rows.append(_row(sub, data[data['subset'] == sub]))
 
         acc = pd.DataFrame(rows)
-        acc_stem = '_livevqa_v2_acc_judge_rs' if judge_name == 'judge_rs' else '_livevqa_v2_acc'
+        if judge_name == 'judge_rs':
+            acc_stem = '_livevqa_v2_acc_judge_rs'
+        elif judge_name == 'judge_vdr':
+            acc_stem = '_livevqa_v2_acc_judge_vdr'
+        else:
+            acc_stem = '_livevqa_v2_acc'
         score_file = get_intermediate_file_path(eval_file, acc_stem, 'csv')
         dump(acc, score_file)
         logger.info(f'LIVEVQA_v2 accuracy saved to {score_file}')

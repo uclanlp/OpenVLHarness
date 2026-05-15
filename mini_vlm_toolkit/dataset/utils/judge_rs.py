@@ -1,5 +1,11 @@
 """Judge_RS — Rui's iterative LLM-judge prompt family.
 
+NAMING ALIAS: when Rui refers to "MMSearch-R1 judge" / "MMSearch R1 judge"
+in conversation, that is THIS judge (``judge_rs``). The active v2 prompt is
+the appendix prompt from the MMSearch-R1 / multimodal-search-r1 paper
+(arXiv 2506.20670). The module name stays ``judge_rs`` for backward
+compatibility — only the natural-language nickname differs.
+
 v2 (``v2_20260428``) is ported from the multimodal-search-r1 paper
 (arXiv 2506.20670, paper appendix). Adds a reasoning step (XML-tagged
 ``<judge>`` + ``<reason>``) and an image-aware rule (Rule 9 lets
@@ -16,7 +22,7 @@ v1 (``v1_20260425``) is byte-exact ported from
 for reproducibility / rollback; not exported as the active prompt.
 
 Used by: ``browsecomp_vl`` when ``judge_kwargs['judge_prompt'] = 'judge_rs'``
-(or env ``MVT_JUDGE_PROMPT=judge_rs``). Other datasets (mmsearch /
+(or env ``MMDR_JUDGE_PROMPT=judge_rs``). Other datasets (mmsearch /
 simplevqa_en / livevqa_v2) not yet hooked up — pending after BCVL
 results validate v2.
 

@@ -270,6 +270,9 @@ class SimpleVQA_EN(SimpleVQA):
         from mini_vlm_toolkit.dataset.utils.judge_rs import (
             JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
         )
+        from mini_vlm_toolkit.dataset.utils.judge_vdr import (
+            JUDGE_VDR_PROMPT, parse_judge_vdr_judgement,
+        )
         from mini_vlm_toolkit.dataset.utils.webwatcher_subset import (
             apply_webwatcher_subset,
         )
@@ -283,14 +286,21 @@ class SimpleVQA_EN(SimpleVQA):
 
         # Judge selection: env var > judge_kwargs > 'hle' default
         judge_name = (
-            _os.environ.get('MVT_JUDGE_PROMPT')
+            _os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.get('judge_prompt', None)
             or 'hle'
         ).strip().lower()
-        if judge_name not in ('hle', 'judge_rs'):
-            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+        if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
+            raise ValueError(
+                f"Unknown judge_prompt {judge_name!r}; expected 'hle', 'judge_rs', or 'judge_vdr'"
+            )
 
-        gpt_eval_filename = 'gpt_eval_judge_rs.json' if judge_name == 'judge_rs' else 'gpt_eval.json'
+        if judge_name == 'judge_rs':
+            gpt_eval_filename = 'gpt_eval_judge_rs.json'
+        elif judge_name == 'judge_vdr':
+            gpt_eval_filename = 'gpt_eval_judge_vdr.json'
+        else:
+            gpt_eval_filename = 'gpt_eval.json'
         fout = open(str(Path(result_file).parent) + '/' + gpt_eval_filename, 'w', encoding='utf-8')
 
         from .utils.judge_util import resolve_judge_max_tokens
@@ -336,6 +346,24 @@ class SimpleVQA_EN(SimpleVQA):
                     )
                     raw = response.choices[0].message.content or ""
                     parsed = parse_judge_rs_judgement(raw)
+                except Exception:
+                    parsed = {"correct": 0, "extracted_answer": "", "reasoning": "judge api exception", "confidence": 0}
+            elif judge_name == 'judge_vdr':
+                # VDR paper prompt — single user message, contains-based.
+                prompt = JUDGE_VDR_PROMPT.format(
+                    question=str(question),
+                    correct_answer=str(answer),
+                    response=str(model_response),
+                )
+                try:
+                    response = client.chat.completions.create(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0,
+                        max_tokens=max_tokens,
+                    )
+                    raw = response.choices[0].message.content or ""
+                    parsed = parse_judge_vdr_judgement(raw)
                 except Exception:
                     parsed = {"correct": 0, "extracted_answer": "", "reasoning": "judge api exception", "confidence": 0}
             else:

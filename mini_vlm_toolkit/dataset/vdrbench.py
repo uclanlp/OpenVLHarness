@@ -226,7 +226,7 @@ def _judge_one(judge, row) -> Dict[str, Any]:
 
 
 def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
-    """Judge_RS variant. Opt-in via env ``MVT_JUDGE_PROMPT=judge_rs``."""
+    """Judge_RS variant. Opt-in via env ``MMDR_JUDGE_PROMPT=judge_rs``."""
     from .utils.judge_rs import grade_with_judge_rs
 
     question = str(row.get("question", ""))
@@ -252,10 +252,38 @@ def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
     return {"verdict": verdict, "raw_response": str(parsed.get("reasoning", ""))[:200]}
 
 
+def _judge_one_judge_vdr(judge, row) -> Dict[str, Any]:
+    """Judge_VDR variant. Opt-in via env ``MMDR_JUDGE_PROMPT=judge_vdr``."""
+    from .utils.judge_vdr import grade_with_judge_vdr
+
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+    pred_extracted = _extract_answer(pred)
+
+    try:
+        parsed = grade_with_judge_vdr(
+            judge, question, gt, pred_extracted or pred,
+        )
+    except Exception as e:
+        logger.warning("VDR-Bench Judge_VDR error: %s", e)
+        return {"verdict": "error", "raw_response": ""}
+
+    if parsed["correct"] == 1:
+        verdict = "correct"
+    elif parsed.get("reasoning") in (
+            "judge_vdr failed to parse", "judge unreachable after retries"):
+        verdict = "error"
+    else:
+        verdict = "incorrect"
+    return {"verdict": verdict, "raw_response": str(parsed.get("reasoning", ""))[:200]}
+
+
 def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, Any]):
-    """Switch between HLE (default) and Judge_RS via env
-    ``MVT_JUDGE_PROMPT`` or ``judge_kwargs['judge_prompt']``.
-    Cache + score files are suffixed with ``_judge_rs`` when active.
+    """Switch between HLE (default), Judge_RS, and Judge_VDR via env
+    ``MMDR_JUDGE_PROMPT`` or ``judge_kwargs['judge_prompt']``.
+    Cache + score files are suffixed with ``_judge_rs`` / ``_judge_vdr`` when
+    those variants are active.
     """
     from .utils import build_judge
     from ..utils.mp_util import track_progress_rich
@@ -267,12 +295,14 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     # the single source of truth; no per-evaluator default).
 
     judge_name = (
-        os.environ.get('MVT_JUDGE_PROMPT')
+        os.environ.get('MMDR_JUDGE_PROMPT')
         or judge_kwargs_local.pop('judge_prompt', None)
         or 'hle'
     ).strip().lower()
-    if judge_name not in ('hle', 'judge_rs'):
-        raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+    if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
+        raise ValueError(
+            f"Unknown judge_prompt {judge_name!r}; expected 'hle', 'judge_rs', or 'judge_vdr'"
+        )
     judge_kwargs_local.pop('judge_prompt', None)
 
     judge = build_judge(**judge_kwargs_local)
@@ -281,6 +311,9 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     if judge_name == 'judge_rs':
         judge_one_fn = _judge_one_judge_rs
         cache_stem = "_vdrbench_llm_judge_judge_rs_cache"
+    elif judge_name == 'judge_vdr':
+        judge_one_fn = _judge_one_judge_vdr
+        cache_stem = "_vdrbench_llm_judge_judge_vdr_cache"
     else:
         judge_one_fn = _judge_one
         cache_stem = "_vdrbench_llm_judge_cache"
@@ -343,7 +376,12 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
         "category": by_category,
     }
 
-    score_stem = "_vdrbench_llm_judge_judge_rs" if judge_name == 'judge_rs' else "_vdrbench_llm_judge"
+    if judge_name == 'judge_rs':
+        score_stem = "_vdrbench_llm_judge_judge_rs"
+    elif judge_name == 'judge_vdr':
+        score_stem = "_vdrbench_llm_judge_judge_vdr"
+    else:
+        score_stem = "_vdrbench_llm_judge"
     judge_score_file = get_intermediate_file_path(eval_file, score_stem, "json")
     dump(judge_summary, judge_score_file)
     return judge_summary, verdicts

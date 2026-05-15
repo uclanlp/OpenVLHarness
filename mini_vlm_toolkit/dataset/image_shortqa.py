@@ -110,7 +110,7 @@ def Judge_RS_auxeval(model, item):
     Sends ``JUDGE_RS_SYSTEM_PROMPT`` + ``JUDGE_RS_USER_PROMPT`` as
     separate roles via ``grade_with_judge_rs`` helper. Returns the
     same ``{hit, log}`` shape so the downstream aggregation is
-    drop-in compatible. Opt-in via env ``MVT_JUDGE_PROMPT=judge_rs``.
+    drop-in compatible. Opt-in via env ``MMDR_JUDGE_PROMPT=judge_rs``.
     """
     from .utils.judge_rs import grade_with_judge_rs
 
@@ -135,6 +135,35 @@ def Judge_RS_auxeval(model, item):
     return dict(hit=int(parsed['correct']), log=log)
 
 
+def Judge_VDR_auxeval(model, item):
+    """Judge_VDR variant of ``HLE_style_auxeval`` (VDR paper contains-based
+    judge, plain-text output). Returns the same ``{hit, log}`` shape so
+    downstream aggregation is drop-in compatible. Opt-in via env
+    ``MMDR_JUDGE_PROMPT=judge_vdr``.
+    """
+    from .utils.judge_vdr import grade_with_judge_vdr
+
+    item = item.iloc[0] if isinstance(item, pd.DataFrame) else item
+    question = str(item.get('question', ''))
+    answer = item.get('answer', '')
+    if isinstance(answer, str) and answer.strip().startswith('[') and answer.strip().endswith(']'):
+        try:
+            answer = eval(answer)
+        except Exception:
+            answer = [answer]
+    if not isinstance(answer, list):
+        answer = [answer]
+    response = str(item.get('prediction', ''))
+
+    try:
+        parsed = grade_with_judge_vdr(model, question, answer, response)
+    except Exception as e:
+        return dict(hit=0, log=f'judge_vdr error: {e}')
+
+    log = f"verdict={parsed['correct']} reasoning={parsed.get('reasoning','')[:200]}"
+    return dict(hit=int(parsed['correct']), log=log)
+
+
 class ImageShortQADataset(ImageBaseDataset):
     TYPE = 'Short'
 
@@ -151,6 +180,9 @@ class ImageShortQADataset(ImageBaseDataset):
         # FVQA training split (== MMSearch-R1 fvqa_train). TSV produced by
         # `sft/data/download_train_datasets.py --action to_tsv --dataset fvqa`.
         'FVQA_train': '',
+        # Phase 0 hand-curated Wikidata seed for multimodal multi-hop validation.
+        # TSV produced by /tmp/build_gen_seed_v0.py from /tmp/sparql_*.json + keepers.json.
+        'Gen_Seed_V0': '',
     }
 
     DATASET_MD5 = {
@@ -191,17 +223,22 @@ class ImageShortQADataset(ImageBaseDataset):
 
         # Judge selection: env var > judge_kwargs > 'hle' default
         judge_name = (
-            os.environ.get('MVT_JUDGE_PROMPT')
+            os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.pop('judge_prompt', None)
             or 'hle'
         ).strip().lower()
-        if judge_name not in ('hle', 'judge_rs'):
-            raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+        if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
+            raise ValueError(
+                f"Unknown judge_prompt {judge_name!r}; expected 'hle', 'judge_rs', or 'judge_vdr'"
+            )
         judge_kwargs.pop('judge_prompt', None)
 
-        storage_stem = '_judge_judge_rs' if judge_name == 'judge_rs' else '_judge'
-        tmp_stem = '_tmp_judge_rs' if judge_name == 'judge_rs' else '_tmp'
-        acc_stem = '_acc_judge_rs' if judge_name == 'judge_rs' else '_acc'
+        if judge_name == 'judge_rs':
+            storage_stem, tmp_stem, acc_stem = '_judge_judge_rs', '_tmp_judge_rs', '_acc_judge_rs'
+        elif judge_name == 'judge_vdr':
+            storage_stem, tmp_stem, acc_stem = '_judge_judge_vdr', '_tmp_judge_vdr', '_acc_judge_vdr'
+        else:
+            storage_stem, tmp_stem, acc_stem = '_judge', '_tmp', '_acc'
         storage = get_intermediate_file_path(eval_file, storage_stem)
         tmp_file = get_intermediate_file_path(eval_file, tmp_stem, 'pkl')
 
@@ -235,7 +272,7 @@ class ImageShortQADataset(ImageBaseDataset):
                 if len(lines):
                     # For ``hle``: use HLE-style binary judge (matches
                     # WebWatcher / BCVL / paper protocol). When
-                    # ``MVT_JUDGE_PROMPT=judge_rs`` is set, swap to the
+                    # ``MMDR_JUDGE_PROMPT=judge_rs`` is set, swap to the
                     # multimodal-search-r1 Judge_RS prompt with role-split
                     # system+user. All other ImageShortQA datasets
                     # (LiveMMBench_*, PathVQA, Infoseek_GDM_train,
@@ -243,10 +280,12 @@ class ImageShortQADataset(ImageBaseDataset):
                     # Comprehensive_auxeval path which handles MCQ vs
                     # ShortQA dispatch (Judge_RS only wired for hle).
                     if self.dataset_name == 'hle':
-                        auxeval_fn = (
-                            Judge_RS_auxeval if judge_name == 'judge_rs'
-                            else HLE_style_auxeval
-                        )
+                        if judge_name == 'judge_rs':
+                            auxeval_fn = Judge_RS_auxeval
+                        elif judge_name == 'judge_vdr':
+                            auxeval_fn = Judge_VDR_auxeval
+                        else:
+                            auxeval_fn = HLE_style_auxeval
                     else:
                         auxeval_fn = Comprehensive_auxeval
                     res = track_progress_rich(

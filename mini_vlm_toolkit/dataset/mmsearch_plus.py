@@ -264,7 +264,7 @@ def _judge_one(judge, row) -> Dict[str, Any]:
 def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
     """Judge_RS variant of ``_judge_one``. Uses role-split system+user
     via ``grade_with_judge_rs`` helper. Opt-in via env var
-    ``MVT_JUDGE_PROMPT=judge_rs`` or ``judge_kwargs['judge_prompt']='judge_rs'``.
+    ``MMDR_JUDGE_PROMPT=judge_rs`` or ``judge_kwargs['judge_prompt']='judge_rs'``.
     """
     from .utils.judge_rs import grade_with_judge_rs
 
@@ -293,10 +293,43 @@ def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
     return {"verdict": verdict, "raw_response": str(parsed.get("reasoning", ""))[:200]}
 
 
+def _judge_one_judge_vdr(judge, row) -> Dict[str, Any]:
+    """Judge_VDR variant of ``_judge_one``. Uses VDR paper's contains-based
+    prompt via ``grade_with_judge_vdr`` helper. Opt-in via env var
+    ``MMDR_JUDGE_PROMPT=judge_vdr`` or ``judge_kwargs['judge_prompt']='judge_vdr'``.
+    """
+    from .utils.judge_vdr import grade_with_judge_vdr
+
+    question = str(row.get("question", ""))
+    gt = str(row.get("answer", ""))
+    pred = str(row.get("prediction", "") or "")
+    pred_extracted = _extract_answer(pred)
+    alt = _parse_alts(row.get("alternative_gt_answers", []))
+    correct_answer_list = [gt] + alt
+
+    try:
+        parsed = grade_with_judge_vdr(
+            judge, question, correct_answer_list, pred_extracted or pred,
+        )
+    except Exception as e:
+        logger.warning("MMSearch-Plus Judge_VDR error: %s", e)
+        return {"verdict": "error", "raw_response": ""}
+
+    if parsed["correct"] == 1:
+        verdict = "correct"
+    elif parsed.get("reasoning") in (
+            "judge_vdr failed to parse", "judge unreachable after retries"):
+        verdict = "error"
+    else:
+        verdict = "incorrect"
+    return {"verdict": verdict, "raw_response": str(parsed.get("reasoning", ""))[:200]}
+
+
 def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, Any]):
-    """Run LLM judge. Switch between HLE (default) and Judge_RS via
-    env var ``MVT_JUDGE_PROMPT`` or ``judge_kwargs['judge_prompt']``.
-    Cache + score files are suffixed with ``_judge_rs`` when active.
+    """Run LLM judge. Switch between HLE (default), Judge_RS, and Judge_VDR via
+    env var ``MMDR_JUDGE_PROMPT`` or ``judge_kwargs['judge_prompt']``.
+    Cache + score files are suffixed with ``_judge_rs`` / ``_judge_vdr`` when
+    those variants are active.
     """
     from .utils import build_judge
     from ..utils.mp_util import track_progress_rich
@@ -308,12 +341,14 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     # the single source of truth; no per-evaluator default).
 
     judge_name = (
-        os.environ.get('MVT_JUDGE_PROMPT')
+        os.environ.get('MMDR_JUDGE_PROMPT')
         or judge_kwargs_local.pop('judge_prompt', None)
         or 'hle'
     ).strip().lower()
-    if judge_name not in ('hle', 'judge_rs'):
-        raise ValueError(f"Unknown judge_prompt {judge_name!r}; expected 'hle' or 'judge_rs'")
+    if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
+        raise ValueError(
+            f"Unknown judge_prompt {judge_name!r}; expected 'hle', 'judge_rs', or 'judge_vdr'"
+        )
     judge_kwargs_local.pop('judge_prompt', None)
 
     judge = build_judge(**judge_kwargs_local)
@@ -322,6 +357,9 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     if judge_name == 'judge_rs':
         judge_one_fn = _judge_one_judge_rs
         cache_stem = "_mmsearchplus_llm_judge_judge_rs_cache"
+    elif judge_name == 'judge_vdr':
+        judge_one_fn = _judge_one_judge_vdr
+        cache_stem = "_mmsearchplus_llm_judge_judge_vdr_cache"
     else:
         judge_one_fn = _judge_one
         cache_stem = "_mmsearchplus_llm_judge_cache"
@@ -372,7 +410,12 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
         "correct": n_correct, "incorrect": n_incorrect, "error": n_error,
         "difficulty": by_difficulty, "category": by_category, "subtask": by_subtask,
     }
-    score_stem = "_mmsearchplus_llm_judge_judge_rs" if judge_name == 'judge_rs' else "_mmsearchplus_llm_judge"
+    if judge_name == 'judge_rs':
+        score_stem = "_mmsearchplus_llm_judge_judge_rs"
+    elif judge_name == 'judge_vdr':
+        score_stem = "_mmsearchplus_llm_judge_judge_vdr"
+    else:
+        score_stem = "_mmsearchplus_llm_judge"
     dump(summary, get_intermediate_file_path(eval_file, score_stem, "json"))
     return summary, verdicts
 
