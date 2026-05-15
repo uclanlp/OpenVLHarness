@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 
@@ -187,6 +188,59 @@ def _http_image_url(url: object) -> str:
     return s if s.lower().startswith(("http://", "https://")) else ""
 
 
+def _display_domain(item: Dict[str, Any], link: str) -> str:
+    """Return a short domain label for a search result.
+
+    Prefers Serper's pre-cleaned ``displayLink`` (e.g. ``www.reddit.com``) and
+    falls back to ``urlparse(link).netloc``. Strips the leading ``www.``.
+    """
+    display = item.get("displayLink")
+    if isinstance(display, str) and display.strip():
+        candidate = display.strip()
+    else:
+        try:
+            candidate = urlparse(str(link or "")).netloc or ""
+        except Exception:
+            candidate = ""
+    candidate = candidate.lower()
+    if candidate.startswith("www."):
+        candidate = candidate[4:]
+    return candidate
+
+
+def _display_url_compact(item: Dict[str, Any], link: str, max_len: int = 80) -> str:
+    """Return ``domain/slug-bearing path`` with scheme / ``www.`` / query stripped.
+
+    Keeps the URL's path (which often carries the answer entity — e.g. the
+    Wikipedia slug ``/wiki/Apple_Inc.`` or the news article title slug) so
+    the model can use it as a direct semantic cue, while still being shorter
+    than the full ``https://...`` URL.
+
+    If the resulting string exceeds ``max_len`` chars (long Reddit / FB /
+    deep query URLs), middle-truncate to keep the informative tail.
+    """
+    if not isinstance(link, str) or not link.strip():
+        return _display_domain(item, link)
+    try:
+        parsed = urlparse(link)
+    except Exception:
+        return _display_domain(item, link)
+    host = (parsed.netloc or "").lower().removeprefix("www.")
+    path = parsed.path or ""
+    compact = (host + path).rstrip("/")
+    if not compact:
+        return _display_domain(item, link)
+    if len(compact) <= max_len:
+        return compact
+    # Long URL: keep host and the last segment (usually the slug carrying
+    # the entity name), with "..." in between.
+    tail_seg = path.rstrip("/").rsplit("/", 1)[-1] if path else ""
+    if tail_seg and (len(host) + 4 + len(tail_seg)) <= max_len + 10:
+        return f"{host}/.../{tail_seg}"
+    # Fallback: straight head truncation.
+    return compact[: max_len - 3] + "..."
+
+
 def format_search_results(search_type: str, data: Dict[str, Any], max_results: int = 10) -> str:
     """Format raw Serper response into agent-readable text."""
     formatter = _FORMATTERS.get(search_type, _format_generic)
@@ -265,7 +319,15 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
             or _http_image_url(item.get("imageUrl"))
         )
         lines.append(f"{i}. {title}")
-        lines.append(f"   URL: {link}")
+        # Emit ``domain/slug-bearing-path`` + full URL on one line. The path
+        # portion is kept plainly (no scheme/query) so the slug remains visible
+        # as a semantic cue (e.g. ``en.wikipedia.org/wiki/Apple_Inc.``), which
+        # the agent can read directly without expanding the URL.
+        url_compact = _display_url_compact(item, link)
+        if url_compact and link:
+            lines.append(f"   Source: {url_compact}   {link}")
+        elif link:
+            lines.append(f"   URL: {link}")
         if snippet:
             lines.append(f"   {snippet}")
         if extra:
@@ -309,7 +371,11 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
         snippet = item.get("snippet", "")
         thumbnail = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         lines.append(f"{i}. {title}")
-        lines.append(f"   URL: {link}")
+        url_compact = _display_url_compact(item, link)
+        if url_compact and link:
+            lines.append(f"   Source: {url_compact}   {link}")
+        elif link:
+            lines.append(f"   URL: {link}")
         # ImageStateMemory routes URLs trailed by ` <img>` directly
         # into the image registry as ``tool_generated_image_N``.
         if thumbnail:
