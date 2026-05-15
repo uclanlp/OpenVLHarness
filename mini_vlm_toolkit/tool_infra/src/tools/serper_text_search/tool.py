@@ -75,10 +75,88 @@ INPUT_SCHEMA = {
     "additionalProperties": False,
 }
 
-# --- LLM summarization prompt ---
-# The LLM receives raw search results and generates a coherent summary
-# with inline citation markers [1], [2], ... and a Citations block at the end.
-SEARCH_SUMMARIZE_PROMPT = """You are a research assistant. Summarize the following search results into a coherent, informative response to the user's query. Your summary must be grounded in the search results — do NOT add information that is not present in the results.
+# --- LLM summarization prompt (rerank + top-K filter + summarize) ---
+# Split into system (static role + rules + format) and user (per-call data).
+# Semantics: the LLM acts as a curator. It reranks raw results by relevance,
+# strictly filters out off-topic / low-quality / near-duplicate items, and
+# keeps AT MOST K of the survivors. If filtering wipes out everything (0
+# survivors), the LLM emits an explicit "no relevant results" response with
+# concrete next-step hints (query rewrites + tool switches) so the agent
+# can recover without guessing.
+
+SEARCH_SUMMARIZE_SYSTEM_PROMPT = """You are a research assistant. Your job is to curate web search results for a downstream agent. You do three things, in order:
+
+1. **Rerank** the raw search results by how directly they help answer the user's query. Order from most useful to least useful.
+2. **Filter to top-K**: keep AT MOST K results, where K is given in the user message. Drop results that are off-topic, low-quality, near-duplicates of a higher-ranked result, or do not contribute new information. If fewer than K results are useful, keep only the useful ones — do NOT pad to reach K.
+3. **Summarize** using ONLY the kept results, with inline citation markers [1], [2], ... numbered in your final ranking order (NOT the original Serper order).
+
+# Grounding rules
+- Ground every claim in the kept results. Never invent information.
+- Preserve factual details (dates, names, numbers, URLs) exactly as they appear in the results, even if they seem to contradict the query.
+- If after filtering you have nothing useful, say so honestly. Do not fabricate.
+
+# When filtering produces zero useful results
+If after reranking and filtering NOT a single result is useful enough to keep (none directly address the query, all are off-topic / low-quality / dead-ends), do NOT fabricate a summary. Instead, emit the structured fallback below so the calling agent can pick a different next action.
+
+You must include BOTH a query-rewrite suggestion AND a tool-switch suggestion. Each suggestion must be specific and actionable, not a near-rephrasing of the current attempt.
+
+Format:
+
+NO RELEVANT RESULTS
+
+Why each raw result was rejected:
+- [1] <title> — <reason it was rejected, e.g. off-topic, wrong subject, language/region mismatch, near-duplicate of [N]>
+- [2] <title> — <reason>
+...
+
+Suggested next actions for the agent:
+
+  Query rewrites (1-3 concrete alternatives, each meaningfully different):
+  - <alternative query 1> (rationale: <one short reason it should work better>)
+  - <alternative query 2> (rationale: ...)
+
+  Tool switches (1-2 concrete alternatives, when applicable):
+  - <tool name>(<key args>) — <one short reason this tool would help>
+    Available search_type values for Text_Search_Tool: search, images, news, scholar, maps, places, shopping, patents.
+    Pick whichever best matches the query intent — e.g.:
+      - search   → general web pages (default)
+      - images   → looking for visual references / pictures
+      - news     → current events, recent happenings
+      - scholar  → academic papers, citations
+      - maps     → location lookup, coordinates, directions
+      - places   → local businesses, restaurants, hotels
+      - shopping → product listings, prices, comparisons
+      - patents  → patent filings, IP / inventions
+    e.g. "Text_Search_Tool(query=..., search_type=scholar)" if the topic is academic and the current type=search returned consumer pages
+    e.g. "Text_Search_Tool(query=..., search_type=news)" if the topic is current events
+    e.g. "Image_Search_Tool(image_url=...)" — pass EXACTLY ONE of ``image_url`` (public HTTP(S) URL), ``image_path`` (absolute local path), or ``image_base64`` (encoded bytes); schema is oneOf, never combine
+    e.g. "Webpage_Visit_Tool(urls=[<url1>, <url2>, ...], goal=<what to extract>)" — ``urls`` is a list (1 to MAX_URLS, default 5); ``goal`` is required and guides what the LLM extracts from each page
+
+# Output format (when at least one result is useful)
+<concise summary using ONLY the kept results, with inline [N] citations>
+
+Citations:
+[1] <title> - <url>     (← most relevant)
+[2] <title> - <url>
+...                     (at most K entries)
+
+# Type-specific citation rules
+- search / scholar / patents / news: Citations list page title and page URL (default format above).
+- images: Preserve the trailing ` <img>` marker after each image URL EXACTLY as it appears in the raw results — it is a framework signal consumed by downstream tools (Image_Search_Tool, ImageStateMemory). Dropping it breaks image-URL routing. Use the citation format: [N] <title> | Image: <image_url> <img> | Source: <page_url>
+- maps: Include place name, address, rating, and phone number directly in the summary. No URL citation block needed.
+- places: Include name, address, and rating directly in the summary. No URL citation block needed.
+- shopping: Include product name and price in the summary; cite source URL.
+"""
+
+SEARCH_SUMMARIZE_USER_TEMPLATE = """Query: {query}
+
+Search Results (Type: {search_type}):
+{raw_results}
+
+Keep AT MOST {keep_k} (i.e. K = {keep_k}) results after reranking and filtering. Summarize only those."""
+
+# Backup of the prior single-prompt version, kept for rollback.
+SEARCH_SUMMARIZE_PROMPT_BK = """You are a research assistant. Summarize the following search results into a coherent, informative response to the user's query. Your summary must be grounded in the search results — do NOT add information that is not present in the results.
 
 ## User Query
 {query}
@@ -220,6 +298,12 @@ class Text_Search_Tool(BaseTool):
         self._llm_summarize = os.getenv("SEARCH_LLM_SUMMARIZE", "false").strip().lower() in ("true", "1", "yes")
         self._llm_max_tokens = int(os.getenv("SEARCH_LLM_MAX_TOKENS", "4096"))
         self._num_results = int(os.getenv("SEARCH_NUM_RESULTS", "10"))
+        # Top-K kept by the LLM curator after reranking (separate from
+        # ``num_results``: Serper still fetches ``num_results`` raw items;
+        # ``keep_k`` only caps the LLM's final output. Defaults to 3 —
+        # tight enough to force real ranking, loose enough to leave room
+        # for the agent's downstream multi-round search.
+        self._keep_k = int(os.getenv("SEARCH_KEEP_K", "3"))
         self._client: Optional[SerperClient] = None
 
     def _get_client(self) -> SerperClient:
@@ -239,17 +323,29 @@ class Text_Search_Tool(BaseTool):
     # ------------------------------------------------------------------
 
     def _summarize_with_llm(
-        self, query: str, search_type: str, raw_results: str,
+        self, query: str, search_type: str, raw_results: str, *, keep_k: int,
     ) -> str:
-        """Pass raw search results through LLM to produce summary + citations."""
-        prompt = SEARCH_SUMMARIZE_PROMPT.format(
+        """Pass raw search results through LLM to produce summary + citations.
+
+        Uses a system/user split:
+        * ``SEARCH_SUMMARIZE_SYSTEM_PROMPT`` — static curator role + rerank /
+          filter / summarize rules + output format (cached server-side).
+        * ``SEARCH_SUMMARIZE_USER_TEMPLATE`` — per-call data: query,
+          search_type, raw results, top-K cap.
+        """
+        user_prompt = SEARCH_SUMMARIZE_USER_TEMPLATE.format(
             query=query,
             search_type=search_type,
             raw_results=raw_results,
+            keep_k=keep_k,
         )
         try:
             result = self.llm_engine.generate(
-                prompt, max_tokens=self._llm_max_tokens, temperature=0.0, top_p=1.0,
+                user_prompt,
+                system_prompt=SEARCH_SUMMARIZE_SYSTEM_PROMPT,
+                max_tokens=self._llm_max_tokens,
+                temperature=0.0,
+                top_p=1.0,
             )
             stripped = strip_think_tags(result or "")
             # Empty / whitespace-only LLM output is not a useful summary —
@@ -264,6 +360,50 @@ class Text_Search_Tool(BaseTool):
         except Exception as exc:
             logger.warning("LLM summarization failed (%s), returning raw results", exc)
             return raw_results
+
+    # ------------------------------------------------------------------
+    # Empty-result fallback (Serper returned 0 raw items)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_no_raw_results(query: str, search_type: str) -> str:
+        """Return a structured ``NO RELEVANT RESULTS`` message for the agent.
+
+        Mirrors the LLM-side fallback (when filtering wipes out all results)
+        so the agent sees ONE consistent shape regardless of whether the
+        emptiness came from Serper or from the LLM curator. No LLM call —
+        suggestions are static / generic since we have no useful raw data
+        to ground a query rewrite on.
+        """
+        # Keep ``ALL_SEARCH_TYPES`` quoted in-line so a future renaming /
+        # reorder is a one-line edit and stays in sync with the Text_Search
+        # tool's actual capabilities.
+        type_list = ", ".join(ALL_SEARCH_TYPES)
+        return (
+            f"[Search Results — Type: {search_type}]\n"
+            "NO RELEVANT RESULTS\n\n"
+            f"Reason: Serper returned 0 raw results for query={query!r} (search_type={search_type}).\n\n"
+            "Suggested next actions for the agent:\n\n"
+            "  Query rewrites:\n"
+            "  - Try a broader / more general phrasing of the same intent\n"
+            "  - Try keywords / entity names instead of a full natural-language question\n"
+            "  - Try a different language (e.g. switch en ↔ zh) if the entity has a localized name\n"
+            "  - Drop highly specific qualifiers (year, version, region) that may have over-constrained the match\n\n"
+            "  Tool switches:\n"
+            f"  - Text_Search_Tool(query=..., search_type=<one of: {type_list}>)\n"
+            "      Try a different search_type whose vertical fits the intent better — e.g. ``news`` for current "
+            "events, ``scholar`` for academic, ``maps`` / ``places`` for locations, ``shopping`` for products, "
+            "``patents`` for inventions, ``images`` for visual references.\n"
+            "  - Image_Search_Tool(image_url=...)\n"
+            "      Reverse image search (Google Lens) when a relevant image is available. "
+            "Pass EXACTLY ONE of ``image_url`` (public HTTP(S) URL), ``image_path`` (absolute local path), "
+            "or ``image_base64`` (encoded bytes); the schema is oneOf — never combine them.\n"
+            "  - Webpage_Visit_Tool(urls=[<url1>, ..., <urlN>], goal=<what to extract from the page>)\n"
+            "      If specific URL(s) are already known, fetch and extract content directly. "
+            "Both arguments are required: ``urls`` is a list of 1 to 5 HTTP(S) links "
+            "(WEBPAGE_VISIT_MAX_URLS env var raises the cap), and ``goal`` is the extraction "
+            "intent that guides the per-page LLM extractor.\n"
+        )
 
     # ------------------------------------------------------------------
     # Gemini Google Search integration
@@ -366,11 +506,13 @@ class Text_Search_Tool(BaseTool):
 
         raw_formatted = format_search_results(resolved_type, data, max_results=num_results)
         if not raw_formatted:
-            return f"[Search Results — Type: {resolved_type}]\n(No results found)"
+            return self._format_no_raw_results(query, resolved_type)
 
         # --- LLM summarization ---
         if self._llm_summarize:
-            summary = self._summarize_with_llm(query, resolved_type, raw_formatted)
+            summary = self._summarize_with_llm(
+                query, resolved_type, raw_formatted, keep_k=self._keep_k,
+            )
             return f"[Search Results — Type: {resolved_type}]\n{summary}"
 
         return f"[Search Results — Type: {resolved_type}]\n{raw_formatted}"
