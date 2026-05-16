@@ -1,51 +1,30 @@
 #!/usr/bin/env python3
-"""Prepare the ODinW-13 *full-detection* TSV for mini-vlm-toolkit evaluation.
+"""Prepare ODinW-13 full-detection TSVs for mini-vlm-toolkit evaluation.
 
-This is the Phase-1.5 sibling of ``prepare_odinw.py``.  Where the original
-script emits one row per **positive** (image, category) annotation group,
-this script emits one row per (image, category) **pair** in the domain —
-including negative pairs (no annotations) which get ``answer="[]"``.
-
-That gives a TSV that can be evaluated as standard ODinW-13 detection
-(every image queried against every category in its domain), matching the
-GLIP / Grounding DINO reporting convention.
+For each requested split (val / test / train), emits one row per
+(image, category) pair within each ODinW-13 domain — positive if any
+annotations exist, negative (``answer="[]"``) otherwise.  That matches
+the GLIP / Grounding DINO reporting convention (every image queried
+against every category in its domain).
 
 Usage:
 
     python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw_full \\
         --glip-dir /path/to/GLIP \\
         [--output-dir $LMUData] \\
-        [--num-images-per-domain N] \\
-        [--image-ids-file path/to/subset.json] \\
-        [--splits test val]
-
-Subsetting:
-  --num-images-per-domain N   keep only the first N image_ids per domain
-                              (sorted ascending, deterministic).  Mathematically
-                              the right strategy for ODinW-13's macro-mean
-                              over domains: each per-domain AP is unbiased,
-                              so the outer mean is unbiased.
-  --image-ids-file PATH       JSON: {"<domain_name>": [image_id, ...]} for
-                              explicit reproducible subsets.
+        [--splits val test]
 
 Row ordering:
-  Rows are sorted by (domain_index_in_ODINW_13_CONFIGS, image_id, category_id)
-  so all rows for one (domain, image_id) are contiguous.  This is what makes
-  ``--num-examples`` slicing or interrupted runs leave whole images either
-  fully complete or fully absent — atomic-image semantics.
+  Rows are sorted by (domain_index, image_id, category_id) so all rows for
+  one (domain, image_id) are contiguous — preserves atomic-image semantics
+  for interrupted runs.
 
-Output:
-  ${output_dir}/ODinW13_bbox_val_full.tsv
+Output (one TSV per split):
+  ${output_dir}/ODinW13_bbox_<split>.tsv
 
-Schema (same as prepare_odinw.py output):
+Schema:
   index, image_path, question, answer, category_id, category_name,
   image_width, image_height, num_instances, annotation_ids, domain, split, areas
-
-Note: ``--shuffle`` and ``--num-examples`` on ``run_benchmark.py`` are NOT
-recommended on the full TSV — they break atomic-image semantics.  Use
-``--num-images-per-domain`` here instead.  The eval-time completeness
-filter (in ``mini_vlm_toolkit.dataset.eval_bridge``) is a safety net for
-mid-run kills, not a sampler.
 """
 
 import argparse
@@ -53,17 +32,11 @@ import json
 import logging
 import os
 import sys
+from collections import defaultdict
 from typing import Dict, List, Optional
 
 import pandas as pd
-
-# Reuse helpers from the original script.
-from mini_vlm_toolkit.dataset.scripts.prepare_odinw import (
-    ODINW_13_CONFIGS,
-    bbox_xywh_to_normalised_xyxy,
-    build_bbox_question,
-    load_all_configs,
-)
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,37 +46,106 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def _select_image_ids(
-    domain_name: str,
-    coco_image_ids_sorted: List[int],
-    num_images_per_domain: Optional[int],
-    image_ids_file_data: Optional[Dict[str, List[int]]],
-) -> List[int]:
-    """Resolve which image_ids to emit for one domain (in order)."""
-    if image_ids_file_data and domain_name in image_ids_file_data:
-        wanted = list(image_ids_file_data[domain_name])
-        # Intersect with what's actually in the JSON, preserving the
-        # caller's requested order.
-        valid = set(coco_image_ids_sorted)
-        return [iid for iid in wanted if iid in valid]
-    if num_images_per_domain is not None:
-        return coco_image_ids_sorted[:num_images_per_domain]
-    return coco_image_ids_sorted
+ODINW_13_CONFIGS = [
+    'AerialMaritimeDrone_large',
+    'Aquarium_Aquarium_Combined.v2-raw-1024.coco',
+    'CottontailRabbits',
+    'EgoHands_generic',
+    'NorthAmericaMushrooms_North_American_Mushrooms.v1-416x416.coco',
+    'Packages_Raw',
+    'PascalVOC',
+    'Raccoon_Raccoon.v2-raw.coco',
+    'ShellfishOpenImages_raw',
+    'VehiclesOpenImages_416x416',
+    'pistols_export',
+    'pothole',
+    'thermalDogsAndPeople',
+]
+
+
+def parse_glip_config(yaml_path: str, dataset_root: str):
+    """Parse a GLIP ODinW config YAML; return (domain_name, splits_dict)."""
+    with open(yaml_path) as f:
+        cfg = yaml.safe_load(f)
+
+    domain_name = os.path.splitext(os.path.basename(yaml_path))[0]
+    register = cfg.get('DATASETS', {}).get('REGISTER', {})
+
+    override_cats = None
+    override_str = cfg.get('DATASETS', {}).get('OVERRIDE_CATEGORY', '')
+    if override_str:
+        try:
+            override_cats = json.loads(override_str)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    splits: Dict[str, dict] = {}
+    for split_key, split_info in register.items():
+        if split_key not in ('train', 'val', 'test'):
+            continue
+        ann_abs = os.path.join(dataset_root, split_info.get('ann_file', ''))
+        if not os.path.isfile(ann_abs):
+            log.warning(f'  [{domain_name}] Annotation file not found: {ann_abs}')
+            continue
+        splits[split_key] = {
+            'ann_file': ann_abs,
+            'categories': override_cats,
+        }
+    return domain_name, splits
+
+
+def load_all_configs(glip_dir: str, config_names: List[str], benchmark_label: str):
+    """Load and parse all configs for a benchmark. Returns domain→splits dict."""
+    config_dir_13 = os.path.join(glip_dir, 'configs', 'odinw_13')
+    config_dir_35 = os.path.join(glip_dir, 'configs', 'odinw_35')
+    dataset_root = os.path.join(glip_dir, 'DATASET')
+
+    all_domains: Dict[str, dict] = {}
+    for cfg_name in config_names:
+        yaml_path = os.path.join(config_dir_35, f'{cfg_name}.yaml')
+        if not os.path.isfile(yaml_path):
+            yaml_path = os.path.join(config_dir_13, f'{cfg_name}.yaml')
+        if not os.path.isfile(yaml_path):
+            log.warning(f'Config not found for {cfg_name}, skipping.')
+            continue
+        domain_name, splits = parse_glip_config(yaml_path, dataset_root)
+        if splits:
+            all_domains[domain_name] = splits
+            log.info(f'  [{benchmark_label}] {domain_name}: {list(splits.keys())}')
+        else:
+            log.warning(f'  [{benchmark_label}] {domain_name}: no valid splits found')
+    return all_domains
+
+
+def bbox_xywh_to_normalised_xyxy(bbox, img_w, img_h):
+    """Convert COCO bbox [x, y, w, h] (abs pixels) → [x1, y1, x2, y2] on 0-1000."""
+    x, y, w, h = bbox
+    return [
+        round(x / img_w * 1000.0, 2),
+        round(y / img_h * 1000.0, 2),
+        round((x + w) / img_w * 1000.0, 2),
+        round((y + h) / img_h * 1000.0, 2),
+    ]
+
+
+def build_bbox_question(category_name: str) -> str:
+    return (
+        f"Locate all instances of '{category_name}' in this image. "
+        f"For each instance, output a bounding box as [x1, y1, x2, y2] "
+        f"where coordinates are normalised on a 0-1000 scale "
+        f"(with (0,0) as the top-left corner and (1000,1000) as the bottom-right corner). "
+        f"Your answer should be a list of lists. "
+        f"If there are no instances of '{category_name}' in the image, "
+        f"output an empty list [] as your answer."
+    )
 
 
 def process_domain_split_full(
     domain_name: str,
     split_key: str,
     split_info: dict,
-    num_images_per_domain: Optional[int],
-    image_ids_file_data: Optional[Dict[str, List[int]]],
 ) -> List[dict]:
-    """Emit full-detection rows for one (domain, split).
-
-    Every (chosen image, category) pair becomes a row — positive if any
-    annotations exist, negative otherwise.  Rows sorted by (image_id,
-    category_id) within the domain.
-    """
+    """Emit full-detection rows for one (domain, split): every (image, category)."""
     ann_file = split_info['ann_file']
     override_cats = split_info.get('categories')
 
@@ -118,25 +160,16 @@ def process_domain_split_full(
         categories = list(coco.get('categories', []))
     categories = sorted(categories, key=lambda c: int(c['id']))
 
-    # Group annotations by (image_id, category_id) — same key as
-    # prepare_odinw.process_domain_split, lets us look up positives in O(1).
-    from collections import defaultdict
     groups: Dict[tuple, list] = defaultdict(list)
     for ann in coco.get('annotations', []):
         groups[(ann['image_id'], ann['category_id'])].append(ann)
 
-    image_ids_sorted = sorted(images_by_id.keys())
-    chosen_image_ids = _select_image_ids(
-        domain_name, image_ids_sorted, num_images_per_domain, image_ids_file_data,
-    )
-
     rows: List[dict] = []
-    for image_id in chosen_image_ids:
+    for image_id in sorted(images_by_id.keys()):
         img = images_by_id[image_id]
         img_w = img['width']
         img_h = img['height']
-        img_filename = img['file_name']
-        image_path = f'{domain_name}/{img_filename}'
+        image_path = f'{domain_name}/{img["file_name"]}'
 
         for cat in categories:
             cat_id = int(cat['id'])
@@ -148,11 +181,9 @@ def process_domain_split_full(
                     bbox_xywh_to_normalised_xyxy(a['bbox'], img_w, img_h)
                     for a in anns
                 ]
-                ann_ids = [a['id'] for a in anns]
-                areas = [round(a.get('area', 0), 2) for a in anns]
                 answer_str = json.dumps(norm_bboxes)
-                ann_ids_str = ','.join(str(a) for a in ann_ids)
-                areas_str = json.dumps(areas)
+                ann_ids_str = ','.join(str(a['id']) for a in anns)
+                areas_str = json.dumps([round(a.get('area', 0), 2) for a in anns])
                 num_instances = len(anns)
             else:
                 answer_str = '[]'
@@ -175,55 +206,41 @@ def process_domain_split_full(
                 'split': split_key,
                 'areas': areas_str,
             })
-
-    # rows are already in (image_id, category_id) order because we iterate
-    # chosen_image_ids ascending and categories sorted by id.
     return rows
 
 
-def generate_full_tsv(
+def generate_split_tsv(
     all_domains: Dict[str, dict],
     output_dir: str,
     benchmark_label: str,
-    splits: List[str],
-    num_images_per_domain: Optional[int],
-    image_ids_file_data: Optional[Dict[str, List[int]]],
+    split_key: str,
 ) -> Optional[str]:
-    """Emit one full-detection TSV per benchmark, e.g. ODinW13_bbox_val_full.tsv.
+    """Emit a single full-detection TSV for one split.
 
-    Bundles ``splits`` rows into the val-side TSV (matching prepare_odinw.py
-    convention where val and test both go into _val.tsv).  Returns the
-    written path or None if nothing was emitted.
+    Filename: ``<benchmark>_bbox_<split>.tsv``
     """
     domain_order = {name: i for i, name in enumerate(ODINW_13_CONFIGS)}
     all_rows: List[dict] = []
 
     for domain_name in ODINW_13_CONFIGS:
         if domain_name not in all_domains:
-            log.warning(f'  [{benchmark_label}-full] domain {domain_name!r} not found; skipping')
+            log.warning(f'  [{benchmark_label}/{split_key}] domain {domain_name!r} not found; skipping')
             continue
         splits_dict = all_domains[domain_name]
-        for split_key in splits:
-            if split_key not in splits_dict:
-                log.warning(
-                    f'  [{benchmark_label}-full] {domain_name}: split {split_key!r} not in YAML, skipping'
-                )
-                continue
-            split_info = splits_dict[split_key]
-            log.info(f'  Processing {domain_name}/{split_key} (full)...')
-            rows = process_domain_split_full(
-                domain_name, split_key, split_info,
-                num_images_per_domain, image_ids_file_data,
+        if split_key not in splits_dict:
+            log.warning(
+                f'  [{benchmark_label}/{split_key}] {domain_name}: split not in YAML, skipping'
             )
-            log.info(f'    → {len(rows)} rows')
-            all_rows.extend(rows)
+            continue
+        log.info(f'  Processing {domain_name}/{split_key}...')
+        rows = process_domain_split_full(domain_name, split_key, splits_dict[split_key])
+        log.info(f'    → {len(rows)} rows')
+        all_rows.extend(rows)
 
     if not all_rows:
-        log.warning(f'  [{benchmark_label}-full] No rows emitted; nothing to write.')
+        log.warning(f'  [{benchmark_label}/{split_key}] No rows emitted; nothing to write.')
         return None
 
-    # Final sort: domain_index in ODINW_13_CONFIGS, then image_id, then cat_id.
-    # image_id is recovered from the index column ("<domain>_<split>_<id>_<cat>").
     def _sort_key(r):
         return (
             domain_order.get(r['domain'], 9999),
@@ -232,17 +249,7 @@ def generate_full_tsv(
         )
     all_rows.sort(key=_sort_key)
 
-    # Output filename:
-    #   <benchmark>_bbox_<split_label>_full<size_suffix>.tsv
-    # split_label: 'train' if --splits == ['train'] only, else 'val' (the val
-    #              TSV bundles val + test rows by Phase 1 convention).
-    # size_suffix: '_n<N>' when --num-images-per-domain is set, else '_all'.
-    if list(splits) == ['train']:
-        split_label = 'train'
-    else:
-        split_label = 'val'
-    size_suffix = f'_n{num_images_per_domain}' if num_images_per_domain else '_all'
-    out_filename = f'{benchmark_label}_bbox_{split_label}_full{size_suffix}.tsv'
+    out_filename = f'{benchmark_label}_bbox_{split_key}.tsv'
     out_path = os.path.join(output_dir, out_filename)
     df = pd.DataFrame(all_rows)
     df.to_csv(out_path, sep='\t', index=False)
@@ -253,27 +260,18 @@ def generate_full_tsv(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Prepare ODinW-13 full-detection TSV (one row per (image, category) per domain).',
+        description='Prepare ODinW-13 full-detection TSVs (one row per (image, category) per domain).',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument('--glip-dir', required=True,
                         help='Path to the GLIP repository root.')
     parser.add_argument('--output-dir', default=None,
-                        help='Output directory for the TSV (default: $LMUData).')
+                        help='Output directory for the TSVs (default: $LMUData).')
     parser.add_argument(
-        '--num-images-per-domain', type=int, default=None,
-        help='Per-domain image cap. Each domain emits min(N, |images_d|) × k_d rows. '
-             'Default: no cap (all images).',
-    )
-    parser.add_argument(
-        '--image-ids-file', type=str, default=None,
-        help='Optional JSON path of explicit per-domain image_ids: '
-             '{"<domain_name>": [image_id, ...]}. Overrides --num-images-per-domain.',
-    )
-    parser.add_argument(
-        '--splits', nargs='+', default=['test'],
-        help='Which COCO splits from the GLIP YAML REGISTER to include. '
-             'Default: test (matches the ODinW-13 reporting convention).',
+        '--splits', nargs='+', default=['val', 'test'],
+        choices=['train', 'val', 'test'],
+        help='Which COCO splits from the GLIP YAML REGISTER to emit. One TSV per split. '
+             'Default: val test.',
     )
     args = parser.parse_args()
 
@@ -288,35 +286,24 @@ def main():
         log.error(f'GLIP directory not found: {glip_dir}')
         sys.exit(1)
 
-    image_ids_file_data: Optional[Dict[str, List[int]]] = None
-    if args.image_ids_file:
-        if not os.path.isfile(args.image_ids_file):
-            log.error(f'--image-ids-file not found: {args.image_ids_file}')
-            sys.exit(1)
-        with open(args.image_ids_file) as f:
-            image_ids_file_data = json.load(f)
-        log.info(f'Loaded image-ids subset for {len(image_ids_file_data)} domains.')
-
     log.info('=' * 60)
     log.info('Step 1: Parsing GLIP configs (ODinW-13)')
     log.info('=' * 60)
     domains_13 = load_all_configs(glip_dir, ODINW_13_CONFIGS, 'ODinW-13')
 
     log.info('=' * 60)
-    log.info('Step 2: Generating full-detection TSV')
+    log.info('Step 2: Generating full-detection TSVs')
     log.info('=' * 60)
-    out_path = generate_full_tsv(
-        domains_13, output_dir, 'ODinW13', args.splits,
-        args.num_images_per_domain, image_ids_file_data,
-    )
+    written: List[str] = []
+    for split_key in args.splits:
+        out_path = generate_split_tsv(domains_13, output_dir, 'ODinW13', split_key)
+        if out_path:
+            written.append(out_path)
 
     log.info('=' * 60)
     log.info('Done!')
-    if out_path:
-        log.info(f'  TSV: {out_path}')
-        log.info(f'  Run with: python run_benchmark.py --data ODinW13_bbox_val_full ...')
-        log.info('  Note: do NOT use --shuffle or --num-examples; subset at prepare time.')
-        log.info('  Recommend --save-html 0 (one HTML per row × many rows = many files).')
+    for p in written:
+        log.info(f'  TSV: {p}')
 
 
 if __name__ == '__main__':

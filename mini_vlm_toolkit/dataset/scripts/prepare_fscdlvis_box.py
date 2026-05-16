@@ -42,7 +42,7 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
-from mini_vlm_toolkit.dataset.scripts.prepare_odinw import (
+from mini_vlm_toolkit.dataset.scripts.prepare_odinw_full import (
     bbox_xywh_to_normalised_xyxy,
     build_bbox_question,
 )

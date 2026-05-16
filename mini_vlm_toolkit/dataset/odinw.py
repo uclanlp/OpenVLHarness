@@ -1,25 +1,22 @@
-"""ODinW (Object Detection in the Wild) dataset class for bbox evaluation.
+"""ODinW-13 (Object Detection in the Wild) dataset class for bbox evaluation.
 
-Covers ODinW-13 (and ODinW-35 by the same code path).  ODinW has bbox
-annotations only (no segmentation masks), so a single class suffices.
+ODinW has bbox annotations only (no segmentation masks), so a single
+class suffices.
 
 Pre-generated TSV files are produced by:
-    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw_full
 
 TSV naming:
-    ODinW13_bbox_train.tsv / ODinW13_bbox_val.tsv
-    ODinW35_bbox_train.tsv / ODinW35_bbox_val.tsv
+    ODinW13_bbox_train.tsv / ODinW13_bbox_val.tsv / ODinW13_bbox_test.tsv
 
-Each row is a unique (image, category) pair within a domain.  The val TSV
-contains both ``val`` and ``test`` rows (whichever splits the source
-dataset provides); the per-row ``split`` column distinguishes them.
+Each row is a unique (image, category) pair within a domain — full
+detection, so negatives (no instances) are also represented.
 
-Evaluation uses **per-domain ``pycocotools.COCOeval``** with results
-averaged across the 13 domains (the ODinW-13 reporting convention used by
-GLIP / Grounding DINO).  Phase 1 is category-conditioned: for each domain
-the GT JSON is filtered to the (image_id, category_id) pairs present in
-the TSV before COCOeval runs.  Phase 1.5 will introduce a full-detection
-TSV variant and skip this filtering.
+Evaluation uses per-domain ``pycocotools.COCOeval`` with results averaged
+across the 13 domains (the ODinW-13 reporting convention used by GLIP /
+Grounding DINO).  GT is NOT filtered to predicted (image, cat) pairs; a
+per-image completeness filter drops incomplete images so partial runs
+don't artificially deflate AP.
 
 Usage:
     python run_benchmark.py --data ODinW13_bbox_val ...
@@ -208,8 +205,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
     filtered to (image_id, category_id) pairs present in the TSV.
 
     Supported dataset names:
-        ODinW13_bbox_train, ODinW13_bbox_val,
-        ODinW35_bbox_train, ODinW35_bbox_val
+        ODinW13_bbox_train, ODinW13_bbox_val, ODinW13_bbox_test
     """
 
     TYPE = 'GROUNDING'
@@ -218,44 +214,14 @@ class ODinWBBoxDataset(ImageBaseDataset):
     DATASET_URL = {
         'ODinW13_bbox_train': '',
         'ODinW13_bbox_val': '',
-        # Legacy un-suffixed full-detection names (kept for backwards compat).
-        'ODinW13_bbox_train_full': '',
-        'ODinW13_bbox_val_full': '',
-        # Phase 1.5+ canonical naming: ``_n<N>`` for capped, ``_all`` for
-        # unbounded.  Registered speculatively so a user can prepare a new
-        # variant via ``prepare_odinw_full.py --num-images-per-domain N``
-        # and run with ``--data <name>`` without touching this file.
-        'ODinW13_bbox_val_full_n5':     '',
-        'ODinW13_bbox_val_full_n10':    '',
-        'ODinW13_bbox_val_full_n20':    '',
-        'ODinW13_bbox_val_full_n50':    '',
-        'ODinW13_bbox_val_full_n100':   '',
-        'ODinW13_bbox_val_full_n200':   '',
-        'ODinW13_bbox_val_full_all':    '',
-        # Domains where the Qwen3-VL-8B agent underperforms SAM3 most (per
-        # 2026-05-11 ODinW13_bbox_val_full_all eval): NorthAmericaMushrooms
-        # (Δ AP -12.5) and thermalDogsAndPeople (Δ AP -9.6).
-        'ODinW13_bbox_val_full_challenging': '',
-        'ODinW13_bbox_val_full_challenging_test': '',
-        'ODinW13_bbox_train_full_n5':   '',
-        'ODinW13_bbox_train_full_n10':  '',
-        'ODinW13_bbox_train_full_n20':  '',
-        'ODinW13_bbox_train_full_n50':  '',
-        'ODinW13_bbox_train_full_n100': '',
-        'ODinW13_bbox_train_full_n200': '',
-        'ODinW13_bbox_train_full_n500': '',
-        'ODinW13_bbox_train_full_all':  '',
-        # ODinW-35 (legacy, untouched).
-        'ODinW35_bbox_train': '',
-        'ODinW35_bbox_val': '',
+        'ODinW13_bbox_test': '',
     }
     DATASET_MD5 = {}
 
     SCORE_MODE = 'constant'              # 'constant' | 'original'
-    # EVAL_SCOPE is auto-detected per evaluate() call from the dataset name.
-    # ``ODinW13_bbox_val_full`` (and any name ending in ``_full``) means
-    # full-detection (Phase 1.5); everything else is category_conditioned.
-    EVAL_SCOPE = 'category_conditioned'  # legacy class default; superseded at runtime
+    # All registered ODinW datasets are full-detection (one row per
+    # (image, category) pair within each domain, with negatives).
+    EVAL_SCOPE = 'full_detection'
 
     def build_prompt(self, line):
         """Build the inference prompt: image + question text from TSV."""
@@ -271,7 +237,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
         """Evaluate bbox predictions with ``pycocotools.COCOeval`` per domain.
 
         Reports AP, AP50, AP75, APs, APm, APl per domain plus a simple mean
-        across domains (``ODinW13_average`` / ``ODinW35_average``).
+        across domains (``ODinW13_average``).
 
         Outputs alongside ``eval_file``:
           * ``..._metrics.json`` — full per-domain + average metrics blob.
@@ -308,18 +274,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
         modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
 
-        # Phase 1.5: derive eval_scope from dataset name.  Names containing
-        # the ``full`` token (matches ``..._bbox_val_full``,
-        # ``..._bbox_val_full_n50``, ``..._bbox_val_full_all``, etc.)
-        # trigger the full-detection path: GT is NOT filtered to the
-        # prediction's (image, cat) pairs, and a per-image completeness
-        # filter drops incomplete images so partial runs don't artificially
-        # deflate AP.
-        eval_scope = (
-            'full_detection'
-            if 'full' in self.dataset_name.split('_')
-            else 'category_conditioned'
-        )
+        eval_scope = 'full_detection'
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
@@ -590,11 +545,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 avg = {k: 0.0 for k in metric_keys}
             test_keys = [d for d in per_domain if d.endswith('/test')]
 
-            avg_label = (
-                'ODinW13_average' if 'ODinW13' in self.dataset_name
-                else 'ODinW35_average' if 'ODinW35' in self.dataset_name
-                else 'ODinW_average'
-            )
+            avg_label = 'ODinW13_average'
 
             # Phase 2: emit sidecar diagnostics if we used real SAM3 scores.
             sidecar_diag = None
