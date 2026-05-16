@@ -518,17 +518,12 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         r.pop('category_id', None)
                     all_per_row.extend(domain_per_row)
 
-            # Average across domains using the **test** split only.  This matches
-            # the ODinW-13 reporting convention used by GLIP / Grounding DINO.
-            # The val TSV bundles both val and test rows (per prepare_odinw.py);
-            # both are reported per-domain but only test feeds the average.
-            # Skip -1 ("no data") entries when averaging so APs/APm/APl don't
-            # get pulled down by domains that have no small/medium/large boxes.
+            # 13-domain macro-mean. Each TSV holds exactly one split, so
+            # ``per_domain`` already contains exactly one entry per domain
+            # (keyed ``<domain>/<split>``). Skip -1 ("no data") entries so
+            # APs/APm/APl aren't pulled down by domains with no small/
+            # medium/large boxes.
             metric_keys = ['AP', 'AP50', 'AP75', 'APs', 'APm', 'APl']
-            avg_source = (
-                [d for d in per_domain if d.endswith('/test')]
-                or list(per_domain.keys())
-            )
 
             def _mean_skip_missing(vals):
                 valid = [float(v) for v in vals if v is not None and float(v) >= 0]
@@ -536,14 +531,13 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     return -1.0
                 return float(np.mean(valid))
 
-            if avg_source:
+            if per_domain:
                 avg = {
-                    k: _mean_skip_missing([per_domain[d][k] for d in avg_source])
+                    k: _mean_skip_missing([d[k] for d in per_domain.values()])
                     for k in metric_keys
                 }
             else:
                 avg = {k: 0.0 for k in metric_keys}
-            test_keys = [d for d in per_domain if d.endswith('/test')]
 
             avg_label = 'ODinW13_average'
 
@@ -569,8 +563,9 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 'eval_scope': eval_scope,
                 'num_predictions_total': len(all_preds),
                 'domain_splits_evaluated': domain_splits_evaluated,
-                'average_split': 'test' if test_keys else (
-                    domain_splits_evaluated[0].split('/', 1)[1] if domain_splits_evaluated else None
+                'average_split': (
+                    domain_splits_evaluated[0].split('/', 1)[1]
+                    if domain_splits_evaluated else None
                 ),
                 'per_domain': per_domain,
                 avg_label: avg,
