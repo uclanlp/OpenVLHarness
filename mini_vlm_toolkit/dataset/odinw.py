@@ -212,16 +212,60 @@ class ODinWBBoxDataset(ImageBaseDataset):
     MODALITY = 'IMAGE'
 
     DATASET_URL = {
+        # Full-detection (one row per (image, category) including negatives).
         'ODinW13_bbox_train': '',
         'ODinW13_bbox_val': '',
         'ODinW13_bbox_test': '',
+        # Qwen2.5-VL protocol: positives-only, per-image class filtering.
+        # All four toggle combinations are registered so any can be loaded
+        # without re-editing this file. See
+        # mini_vlm_toolkit/dataset/scripts/prepare_odinw_full_qwen25.py.
+        'ODinW13_bbox_val_qwen25': '',
+        'ODinW13_bbox_val_qwen25_raw': '',
+        'ODinW13_bbox_val_qwen25_adapted': '',
+        'ODinW13_bbox_val_qwen25_adapted_raw': '',
+        'ODinW13_bbox_test_qwen25': '',
+        'ODinW13_bbox_test_qwen25_raw': '',
+        'ODinW13_bbox_test_qwen25_adapted': '',
+        'ODinW13_bbox_test_qwen25_adapted_raw': '',
     }
     DATASET_MD5 = {}
 
     SCORE_MODE = 'constant'              # 'constant' | 'original'
-    # All registered ODinW datasets are full-detection (one row per
-    # (image, category) pair within each domain, with negatives).
+    # Default eval scope: full-detection (the canonical Phase-1.5 path).
+    # Qwen2.5 variants override to ``category_conditioned`` at evaluate()
+    # time via ``_resolve_eval_scope``.
     EVAL_SCOPE = 'full_detection'
+
+    @staticmethod
+    def _resolve_eval_scope(dataset_name: str) -> str:
+        """Qwen2.5 variants are positives-only -> category_conditioned eval."""
+        if '_qwen25' in dataset_name:
+            return 'category_conditioned'
+        return 'full_detection'
+
+    @staticmethod
+    def _resolve_coords_space(dataset_name: str) -> str:
+        """Qwen-faithful variants emit 0-1000 normalised coordinates inside
+        the ``bbox_2d`` JSON (empirically verified for Qwen3-VL-8B on
+        2026-05-17 — output e.g. ``[370, 367, 534, 662]`` matches GT
+        ``[367.79, 350.96, 533.65, 657.45]`` on a 416x416 image). Force
+        ``norm1k`` so values pass through ``_normalise_boxes`` unscaled. The
+        ``auto`` heuristic would also work here in the common case, but
+        ``norm1k`` is explicit and avoids surprises if a degenerate output
+        produces a single number >1024 that would otherwise trigger the
+        pixel-coord branch. Adapted variants and full-detection TSVs ask
+        the model for 0-1000 normalised coords directly; they pass through
+        ``auto`` (which detects and handles either scale).
+
+        Historical note: Qwen2.5-VL was documented as emitting pixel-space
+        ``bbox_2d``; Qwen3-VL switched to 0-1000 normalised. The legacy
+        ``pixel`` mode is preserved on ``_normalise_boxes`` for future
+        Qwen2.5 reproductions.
+        """
+        if '_qwen25' in dataset_name and '_adapted' not in dataset_name:
+            return 'norm1k'
+        return 'auto'
 
     def build_prompt(self, line):
         """Build the inference prompt: image + question text from TSV."""
@@ -274,7 +318,8 @@ class ODinWBBoxDataset(ImageBaseDataset):
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
         modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
 
-        eval_scope = 'full_detection'
+        eval_scope = self._resolve_eval_scope(self.dataset_name)
+        coords_space = self._resolve_coords_space(self.dataset_name)
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
@@ -362,6 +407,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
                 preds = build_coco_predictions(
                     rows, score_mode=score_mode, score_lookup=score_lookup,
+                    coords_space=coords_space,
                 )
                 all_preds.extend(preds)
 

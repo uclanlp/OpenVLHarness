@@ -84,6 +84,7 @@ def build_coco_predictions(
     rows: Iterable,
     score_mode: str = "constant",
     score_lookup: Optional[Callable] = None,
+    coords_space: str = "auto",
 ) -> List[Dict]:
     """Build a flat COCO/LVIS-format predictions list from TSV-style rows.
 
@@ -100,6 +101,10 @@ def build_coco_predictions(
         fall back to ``1.0`` if it returns None.
     score_lookup : callable(row, parsed_box_xyxy_norm1k) -> float | None
         Phase 2 hook (sidecar SAM3 scores). Ignored in Phase 1.
+    coords_space : {"auto", "pixel", "norm1k"}
+        Forwarded to ``_normalise_boxes``. Default ``"auto"`` uses the
+        magnitude heuristic; pass ``"pixel"`` for Qwen-VL ``bbox_2d``
+        output on small images where the heuristic would misclassify.
     """
     if score_mode not in ("constant", "original"):
         raise ValueError(f"Unknown score_mode: {score_mode!r}")
@@ -141,7 +146,7 @@ def build_coco_predictions(
             continue
 
         # Canonicalise to 0-1000 xyxy regardless of the model's emitted scale.
-        boxes_norm = _normalise_boxes(boxes, image_w, image_h)
+        boxes_norm = _normalise_boxes(boxes, image_w, image_h, coords_space=coords_space)
 
         for norm_box in boxes_norm:
             xywh_list = boxes_norm1k_to_abs_xywh([norm_box], image_w, image_h)
