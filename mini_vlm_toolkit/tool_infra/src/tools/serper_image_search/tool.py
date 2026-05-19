@@ -47,6 +47,30 @@ logger = logging.getLogger(__name__)
 #       window into the rank-K+1..N results.
 # The LLM NEVER outputs URLs or ref tokens — URL / image-ref integrity
 # is guaranteed by construction.
+#
+# The text-only and multimodal system prompts share their entire tail
+# (suggested_next_actions guidance + output rules + no-rank-leak rule +
+# examples) — extracted here to keep the two prompts in lockstep.
+_IMAGE_SEARCH_SUMMARIZE_TAIL_RULES = """When ``kept_indices`` is non-empty, ``suggested_next_actions`` is OPTIONAL. Emit it only if the kept matches still leave the visual question under-answered. Otherwise leave it as an empty list.
+
+Available next actions for ``suggested_next_actions`` (the agent may also re-call THIS tool — Image_Search_Tool itself — with a different image_id; nothing is excluded just because it is the same tool that produced this result):
+- Image_Search_Tool(image_id=<input_image_N | tool_generated_image_N>) — same tool, useful when (a) the agent should first call Zoom_In_Tool / Visual_Grounding_Tool to crop or isolate the subject, THEN reverse-search the new sub-image (pass the resulting ``tool_generated_image_N``), or (b) the agent has another available image_id that is a better visual cue for the same question.
+- Text_Search_Tool(query=<text query>, search_type=<search|scholar|patents|news|images|maps|places|shopping>) — switch to text search; useful when the question is fundamentally about a textual fact that the image alone doesn't resolve (entity name, date, attribute, comparison).
+- Webpage_Visit_Tool(urls=[webpage_url_N], goal=<concrete goal>) — deep-read a specific URL the agent has already received in a prior tool result (URL must be a runtime ref, not a raw https:// string).
+
+When writing entries in ``suggested_next_actions``, keep ``N`` as a literal placeholder when you refer to ``webpage_url_N`` / ``tool_generated_image_N`` / ``input_image_N`` — never substitute a specific number, since you do not see the agent's reference registry.
+
+When emitting ``suggested_next_actions`` (whether ``kept_indices`` is empty or not), pick whichever subset of the three options above genuinely helps; do not artificially exclude this tool from its own suggestion list. For the empty-kept fallback, always include AT LEAST one concrete next action so the agent can recover without guessing.
+
+Output rules:
+- Output ONLY the JSON object. No markdown fences, no prefix, no suffix.
+- ``kept_indices`` values MUST be valid 1-based ranks present in the raw input's numbered visual-match list. Out-of-range values are silently dropped.
+- ``summary`` is plain prose. Do NOT include ``[N]`` citation markers, do NOT include raw URLs (``https://...``), do NOT include ``webpage_url_N`` or ``tool_generated_image_N`` reference tokens. Preserve names / numbers / dates verbatim from the source results.
+- ``summary`` MUST NOT reference candidates by their rank number (no "Candidate 5", "rank 3", "match 2", "candidates 4-7", etc.). The agent only sees the top-K survivors after your rerank — any rank-number reference is meaningless to it. **DO still synthesize information from ALL raw candidates including the non-kept ones** — that is the summary's primary purpose. Just attribute facts by *entity / source / publisher* rather than rank position. Examples — ✗ "Candidate 5 (BBC Radio 3) shows Dialogues des Carmelites"  →  ✓ "A BBC Radio 3 broadcast page identifies the scene as Dialogues des Carmelites"; ✗ "candidates 3-7 confirm Eiffel Tower"  →  ✓ "Multiple sources (Wikipedia, a Reddit thread, a Pinterest pin) corroborate the Eiffel Tower identification". Information value > attribution style; if a low-rank match has a useful disambiguator, include the disambiguator even if you can only name the source as "one source" / "a forum post".
+- NEVER fabricate facts. If the raw matches don't address some aspect of the visual identity, omit it from ``summary`` rather than inventing.
+"""
+
+
 IMAGE_SEARCH_SUMMARIZE_SYSTEM_PROMPT = """You are a visual-match summarizer. Given raw reverse image search (Google Lens) results and (implicitly) the query image, do exactly three things:
 
 1. RERANK the numbered matches by how likely each one identifies the same subject as the query image, or otherwise provides useful context for the agent.
@@ -74,23 +98,7 @@ If NO match is useful (all unrelated subjects / low-confidence), emit:
   ]
 }
 
-When ``kept_indices`` is non-empty, ``suggested_next_actions`` is OPTIONAL. Emit it only if the kept matches still leave the visual question under-answered. Otherwise leave it as an empty list.
-
-Available next actions for ``suggested_next_actions`` (the agent may also re-call THIS tool — Image_Search_Tool itself — with a different image_id; nothing is excluded just because it is the same tool that produced this result):
-- Image_Search_Tool(image_id=<input_image_N | tool_generated_image_N>) — same tool, useful when (a) the agent should first call Zoom_In_Tool / Visual_Grounding_Tool to crop or isolate the subject, THEN reverse-search the new sub-image (pass the resulting ``tool_generated_image_N``), or (b) the agent has another available image_id that is a better visual cue for the same question.
-- Text_Search_Tool(query=<text query>, search_type=<search|scholar|patents|news|images|maps|places|shopping>) — switch to text search; useful when the question is fundamentally about a textual fact that the image alone doesn't resolve (entity name, date, attribute, comparison).
-- Webpage_Visit_Tool(urls=[webpage_url_N], goal=<concrete goal>) — deep-read a specific URL the agent has already received in a prior tool result (URL must be a runtime ref, not a raw https:// string).
-
-When writing entries in ``suggested_next_actions``, keep ``N`` as a literal placeholder when you refer to ``webpage_url_N`` / ``tool_generated_image_N`` / ``input_image_N`` — never substitute a specific number, since you do not see the agent's reference registry.
-
-When emitting ``suggested_next_actions`` (whether ``kept_indices`` is empty or not), pick whichever subset of the three options above genuinely helps; do not artificially exclude this tool from its own suggestion list. For the empty-kept fallback, always include AT LEAST one concrete next action so the agent can recover without guessing.
-
-Output rules:
-- Output ONLY the JSON object. No markdown fences, no prefix, no suffix.
-- ``kept_indices`` values MUST be valid 1-based ranks present in the raw input's numbered visual-match list. Out-of-range values are silently dropped.
-- ``summary`` is plain prose. Do NOT include ``[N]`` citation markers, do NOT include raw URLs (``https://...``), do NOT include ``webpage_url_N`` or ``tool_generated_image_N`` reference tokens. Preserve names / numbers / dates verbatim from the source results.
-- NEVER fabricate facts. If the raw matches don't address some aspect of the visual identity, omit it from ``summary`` rather than inventing.
-"""
+""" + _IMAGE_SEARCH_SUMMARIZE_TAIL_RULES
 
 IMAGE_SEARCH_SUMMARIZE_USER_PROMPT = """Visual Search Results:
 {raw_results}
@@ -135,23 +143,7 @@ If NO match is useful (all show unrelated subjects / low-confidence / image-text
   ]
 }
 
-When ``kept_indices`` is non-empty, ``suggested_next_actions`` is OPTIONAL. Emit it only if the kept matches still leave the visual question under-answered. Otherwise leave it as an empty list.
-
-Available next actions for ``suggested_next_actions`` (the agent may also re-call THIS tool — Image_Search_Tool itself — with a different image_id; nothing is excluded just because it is the same tool that produced this result):
-- Image_Search_Tool(image_id=<input_image_N | tool_generated_image_N>) — same tool, useful when (a) the agent should first call Zoom_In_Tool / Visual_Grounding_Tool to crop or isolate the subject, THEN reverse-search the new sub-image (pass the resulting ``tool_generated_image_N``), or (b) the agent has another available image_id that is a better visual cue for the same question.
-- Text_Search_Tool(query=<text query>, search_type=<search|scholar|patents|news|images|maps|places|shopping>) — switch to text search; useful when the question is fundamentally about a textual fact that the image alone doesn't resolve (entity name, date, attribute, comparison).
-- Webpage_Visit_Tool(urls=[webpage_url_N], goal=<concrete goal>) — deep-read a specific URL the agent has already received in a prior tool result (URL must be a runtime ref, not a raw https:// string).
-
-When writing entries in ``suggested_next_actions``, keep ``N`` as a literal placeholder when you refer to ``webpage_url_N`` / ``tool_generated_image_N`` / ``input_image_N`` — never substitute a specific number, since you do not see the agent's reference registry.
-
-When emitting ``suggested_next_actions`` (whether ``kept_indices`` is empty or not), pick whichever subset of the three options above genuinely helps; do not artificially exclude this tool from its own suggestion list. For the empty-kept fallback, always include AT LEAST one concrete next action so the agent can recover without guessing.
-
-Output rules:
-- Output ONLY the JSON object. No markdown fences, no prefix, no suffix.
-- ``kept_indices`` values MUST be valid 1-based ranks present in the raw input's numbered visual-match list. Out-of-range values are silently dropped.
-- ``summary`` is plain prose. Do NOT include ``[N]`` citation markers, do NOT include raw URLs (``https://...``), do NOT include ``webpage_url_N`` or ``tool_generated_image_N`` reference tokens. Preserve names / numbers / dates verbatim from the source results.
-- NEVER fabricate facts. If the raw matches don't address some aspect of the visual identity, omit it from ``summary`` rather than inventing.
-"""
+""" + _IMAGE_SEARCH_SUMMARIZE_TAIL_RULES
 
 
 IMAGE_SEARCH_MULTIMODAL_USER_PROMPT_HEADER = (
