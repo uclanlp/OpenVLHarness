@@ -723,7 +723,23 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_maps(data: Dict[str, Any], max_results: int) -> str:
-    """Format /maps responses (places array with rich location data)."""
+    """Format /maps responses (places array with rich location data).
+
+    Serper /maps fields per item (verified on a 20-result probe 2026-05-19):
+      always: title, address, latitude, longitude, rating, ratingCount,
+              type, types, openingHours, thumbnailUrl, cid, fid, placeId
+      ~95%:   priceLevel
+      ~70%:   website
+      ~50%:   phoneNumber
+      ~30%:   description
+
+    Emit a Webpage_Visit-able URL on every item: prefer ``website`` (the
+    real business homepage), fall back to ``cid`` → Google Maps deeplink
+    (always available). Without this fallback, ~30% of /maps results had
+    no URL at all, blocking follow-up. ``openingHours`` is omitted
+    intentionally — a 7-day dict per result inflates context badly;
+    Webpage_Visit on the emitted URL is the cheaper way to fetch hours.
+    """
     items = data.get("places", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -734,6 +750,9 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
         place_type = item.get("type", "")
         phone = item.get("phoneNumber", "")
         website = item.get("website", "")
+        description = item.get("description", "")
+        price_level = item.get("priceLevel", "")
+        cid = item.get("cid", "")
         img_url = _http_image_url(item.get("thumbnailUrl")) or _http_image_url(item.get("imageUrl"))
         lines.append(f"{i}. {title}")
         if place_type:
@@ -742,10 +761,18 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   Address: {address}")
         if rating:
             lines.append(f"   Rating: {rating}" + (f" ({count} reviews)" if count else ""))
+        if price_level:
+            lines.append(f"   Price level: {price_level}")
         if phone:
             lines.append(f"   Phone: {phone}")
+        # Prefer the real business homepage; fall back to Google Maps
+        # deeplink via ``cid`` so every result has a follow-up URL.
         if website:
             lines.append(f"   Website: {website}")
+        elif cid:
+            lines.append(f"   URL: https://www.google.com/maps?cid={cid}")
+        if description:
+            lines.append(f"   Description: {description}")
         # ImageStateMemory routes URLs trailed by ` <img>` directly
         # into the image registry as ``tool_generated_image_N``.
         if img_url:
@@ -754,6 +781,13 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_places(data: Dict[str, Any], max_results: int) -> str:
+    """Format /places responses.
+
+    Serper /places returns: title, address, latitude, longitude, rating,
+    ratingCount, priceLevel, category, cid.  Notably absent (vs /maps):
+    phoneNumber, website, thumbnailUrl.  ``cid`` is the Google Maps place
+    id — emit it as a deeplink URL so Webpage_Visit_Tool can follow up.
+    """
     items = data.get("places", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -761,15 +795,35 @@ def _format_places(data: Dict[str, Any], max_results: int) -> str:
         address = item.get("address", "")
         rating = item.get("rating", "")
         count = item.get("ratingCount", "")
+        category = item.get("category", "")
+        price_level = item.get("priceLevel", "")
+        cid = item.get("cid", "")
+        lat = item.get("latitude", "")
+        lng = item.get("longitude", "")
         lines.append(f"{i}. {title}")
+        if category:
+            lines.append(f"   Category: {category}")
         if address:
             lines.append(f"   Address: {address}")
         if rating:
             lines.append(f"   Rating: {rating}" + (f" ({count} reviews)" if count else ""))
+        if price_level:
+            lines.append(f"   Price level: {price_level}")
+        if cid:
+            lines.append(f"   URL: https://www.google.com/maps?cid={cid}")
+        if lat and lng:
+            lines.append(f"   Coords: {lat}, {lng}")
     return "\n".join(lines)
 
 
 def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
+    """Format /shopping responses.
+
+    Serper /shopping returns: title, source, link, price, imageUrl,
+    rating, ratingCount, productId.  ``rating`` + ``ratingCount`` are
+    primary product-quality signals; emit them so price-comparison
+    queries get review context, not just price.
+    """
     items = data.get("shopping", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -777,12 +831,16 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
         price = item.get("price", "")
         link = item.get("link", "")
         source = item.get("source", "")
+        rating = item.get("rating", "")
+        count = item.get("ratingCount", "")
         # Shopping items frequently carry data: URLs (~75% on /shopping);
         # _http_image_url filters those out so we don't bloat agent context.
         img_url = _http_image_url(item.get("imageUrl")) or _http_image_url(item.get("thumbnailUrl"))
         lines.append(f"{i}. {title}")
         if price:
             lines.append(f"   Price: {price}")
+        if rating:
+            lines.append(f"   Rating: {rating}" + (f" ({count} reviews)" if count else ""))
         if link:
             lines.append(f"   URL: {link}")
         if source:
