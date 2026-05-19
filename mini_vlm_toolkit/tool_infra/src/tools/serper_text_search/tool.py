@@ -148,6 +148,7 @@ Output rules:
 - Output ONLY the JSON object. No markdown fences, no prefix, no suffix.
 - ``kept_indices`` values MUST be valid 1-based ranks present in the raw input's numbered organic list. Out-of-range values are silently dropped; do not waste a slot on a hallucinated rank.
 - ``summary`` is plain prose. Do NOT include ``[N]`` citation markers, do NOT include raw URLs (``https://...``), do NOT include ``webpage_url_N`` or ``tool_generated_image_N`` reference tokens. Preserve numbers / names / dates verbatim from the source results.
+- ``summary`` MUST NOT reference results by their rank number (no "Result 7", "rank 3", "results 4-9", "the second result", etc.). The agent only sees the top-K survivors after your rerank — any rank-number reference is meaningless to it. **DO still synthesize information from ALL raw results including the non-kept ones** — that is the summary's primary purpose. Just attribute facts by *source / publisher / domain / title fragment* rather than rank position. Examples — ✗ "Result 7 from the Stanford lecture notes describes latent vectors"  →  ✓ "Stanford lecture notes describe latent vectors as foundational to 3D generation"; ✗ "results 3-9 mention the Forbidden City"  →  ✓ "Multiple sources (a Reddit thread, an arXiv paper, a Wikipedia entry) corroborate the Forbidden City reference". Information value > attribution style; if a low-rank result has a useful disambiguator, include it even if you can only name the source as "one source" / "a forum post" / "a 2025 paper".
 - NEVER fabricate facts. If the raw results don't address some aspect of the query, omit it from ``summary`` rather than inventing.
 """
 
@@ -210,6 +211,7 @@ Output rules:
 - Output ONLY the JSON object. No markdown fences, no prefix, no suffix.
 - ``kept_indices`` values MUST be valid 1-based ranks present in the raw input's numbered list. Out-of-range values are silently dropped.
 - ``summary`` is plain prose. Do NOT include ``[N]`` citation markers, do NOT include raw URLs, do NOT include ``webpage_url_N`` or ``tool_generated_image_N`` reference tokens. Preserve names / numbers / dates verbatim.
+- ``summary`` MUST NOT reference candidates by their rank number (no "Candidate 5", "rank 3", "match 2", "candidates 4-7", etc.). The agent only sees the top-K survivors after your rerank — any rank-number reference is meaningless to it. **DO still synthesize information from ALL candidates including the non-kept ones** — that is the summary's primary purpose. Just attribute facts by *entity / source / publisher* rather than rank position. Examples — ✗ "Candidate 5 (BBC Radio 3) shows Dialogues des Carmelites"  →  ✓ "A BBC Radio 3 broadcast page identifies the scene as Dialogues des Carmelites"; ✗ "candidates 3-7 confirm Eiffel Tower"  →  ✓ "Multiple sources (Wikipedia, a Reddit thread, a Pinterest pin) corroborate the Eiffel Tower identification". Information value > attribution style; if a low-rank match has a useful disambiguator, include the disambiguator even if you can only name the source as "one source" / "a forum post".
 - NEVER fabricate facts.
 """
 
@@ -521,11 +523,11 @@ def _render_summarized_results(
     kept_indices = kept_indices[:keep_k]
 
     suggested_queries = parsed.get("suggested_queries") or []
-    suggested_tools = parsed.get("suggested_next_actions") or []
+    suggested_next_actions = parsed.get("suggested_next_actions") or []
     if not isinstance(suggested_queries, list):
         suggested_queries = []
-    if not isinstance(suggested_tools, list):
-        suggested_tools = []
+    if not isinstance(suggested_next_actions, list):
+        suggested_next_actions = []
 
     # Branch 1: empty (NO RELEVANT RESULTS fallback)
     if not kept_indices:
@@ -540,10 +542,10 @@ def _render_summarized_results(
             lines.append("Suggested query rewrites:")
             for q in suggested_queries:
                 lines.append(f"- {q}")
-        if suggested_tools:
+        if suggested_next_actions:
             lines.append("")
             lines.append("Suggested next actions:")
-            for t in suggested_tools:
+            for t in suggested_next_actions:
                 lines.append(f"- {t}")
         return "\n".join(lines)
 
@@ -579,10 +581,10 @@ def _render_summarized_results(
             lines.append("Suggested query rewrites:")
             for q in suggested_queries:
                 lines.append(f"- {q}")
-        if suggested_tools:
+        if suggested_next_actions:
             lines.append("")
             lines.append("Suggested next actions:")
-            for t in suggested_tools:
+            for t in suggested_next_actions:
                 lines.append(f"- {t}")
         return "\n".join(lines)
 
@@ -599,10 +601,10 @@ def _render_summarized_results(
         out_lines.append("Suggested query rewrites:")
         for q in suggested_queries:
             out_lines.append(f"- {q}")
-    if suggested_tools:
+    if suggested_next_actions:
         out_lines.append("")
         out_lines.append("Suggested next actions:")
-        for t in suggested_tools:
+        for t in suggested_next_actions:
             out_lines.append(f"- {t}")
 
     return "\n".join(out_lines)
