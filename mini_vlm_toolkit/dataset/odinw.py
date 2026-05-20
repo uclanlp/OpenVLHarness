@@ -4,7 +4,7 @@ ODinW has bbox annotations only (no segmentation masks), so a single
 class suffices.
 
 Pre-generated TSV files are produced by:
-    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw_full
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw
 
 TSV naming:
     ODinW13_bbox_train.tsv / ODinW13_bbox_val.tsv / ODinW13_bbox_test.tsv
@@ -219,7 +219,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
         # Qwen2.5-VL protocol: positives-only, per-image class filtering.
         # All four toggle combinations are registered so any can be loaded
         # without re-editing this file. See
-        # mini_vlm_toolkit/dataset/scripts/prepare_odinw_full_qwen25.py.
+        # mini_vlm_toolkit/dataset/scripts/prepare_odinw_qwen25.py.
         'ODinW13_bbox_val_qwen25': '',
         'ODinW13_bbox_val_qwen25_raw': '',
         'ODinW13_bbox_val_qwen25_adapted': '',
@@ -228,6 +228,14 @@ class ODinWBBoxDataset(ImageBaseDataset):
         'ODinW13_bbox_test_qwen25_raw': '',
         'ODinW13_bbox_test_qwen25_adapted': '',
         'ODinW13_bbox_test_qwen25_adapted_raw': '',
+        # Qwen3-VL protocol: all-categories-at-once, one row per image.
+        # Model emits a JSON list of {bbox_2d, label} records; labels are
+        # resolved to category_ids via the row's dataset_classes column.
+        # See mini_vlm_toolkit/dataset/scripts/prepare_odinw_qwen3.py.
+        'ODinW13_bbox_val_qwen3': '',
+        'ODinW13_bbox_val_qwen3_mmdet': '',
+        'ODinW13_bbox_test_qwen3': '',
+        'ODinW13_bbox_test_qwen3_mmdet': '',
     }
     DATASET_MD5 = {}
 
@@ -239,7 +247,19 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
     @staticmethod
     def _resolve_eval_scope(dataset_name: str) -> str:
-        """Qwen2.5 variants are positives-only -> category_conditioned eval."""
+        """Qwen variants need positives-only / multilabel paths.
+
+        * ``_qwen25``: positives-only, per-image class filtering ->
+          category_conditioned eval (GT restricted to queried pairs).
+        * ``_qwen3``: one row per image, all-classes-joined prompt; the
+          response itself names the classes -> qwen3_multilabel eval
+          (GT scoped by image_id; per-row prediction parsed for multiple
+          labels each mapped to a category_id).
+        * everything else: full_detection (one row per (image, cat) with
+          negatives explicitly in scope).
+        """
+        if '_qwen3' in dataset_name:
+            return 'qwen3_multilabel'
         if '_qwen25' in dataset_name:
             return 'category_conditioned'
         return 'full_detection'
@@ -263,6 +283,8 @@ class ODinWBBoxDataset(ImageBaseDataset):
         ``pixel`` mode is preserved on ``_normalise_boxes`` for future
         Qwen2.5 reproductions.
         """
+        if '_qwen3' in dataset_name:
+            return 'norm1k'
         if '_qwen25' in dataset_name and '_adapted' not in dataset_name:
             return 'norm1k'
         return 'auto'
@@ -349,6 +371,12 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 'image_width': m_row.get('image_width'),
                 'image_height': m_row.get('image_height'),
                 'category_id': m_row.get('category_id'),
+                # Qwen3 multi-label rows carry the prompted vocabulary in
+                # ``dataset_classes`` (a JSON list of {id, name} records);
+                # build_coco_predictions consumes it to resolve labels to
+                # category_ids. Older TSVs don't have this column — pandas
+                # returns NaN/None and downstream code handles it.
+                'dataset_classes': m_row.get('dataset_classes'),
                 'prediction': p_row.get('prediction', ''),
             })
         if skipped:
@@ -361,22 +389,40 @@ class ODinWBBoxDataset(ImageBaseDataset):
         domains_seen = sorted({d for d, _ in rows_by_domain_split.keys()})
         gt_path_map = _build_odinw_gt_path_map(domains_seen)
 
-        # Phase 1.5: build expected-pair sets from the SOURCE TSV per
+        # Phase 1.5+: build expected-pair sets from the SOURCE TSV per
         # (domain, split). These are the (image_id, category_id) pairs the
         # model was supposed to be queried about, regardless of whether
-        # inference completed each one. Used by the completeness filter.
+        # inference completed each one. Used by the completeness filter
+        # (full_detection / qwen3_multilabel) and by GT image_id filtering.
+        #
+        # Single-class rows (full_detection): one pair per row from
+        # ``category_id``. Multi-label rows (qwen3): expand the row to
+        # (image_id, every cat_id in dataset_classes).
         expected_pairs_by_ds: Dict[Tuple[str, str], set] = defaultdict(set)
-        if eval_scope == 'full_detection':
+        if eval_scope in ('full_detection', 'qwen3_multilabel'):
             for idx, m_row in meta.iterrows():
                 d = str(m_row.get('domain', 'unknown'))
                 s = str(m_row.get('split', 'test'))
                 iid = parse_image_id_from_index(str(idx))
+                if iid is None:
+                    continue
                 try:
                     cid = int(m_row['category_id'])
-                except (TypeError, ValueError, KeyError):
-                    continue
-                if iid is not None:
                     expected_pairs_by_ds[(d, s)].add((iid, cid))
+                    continue
+                except (TypeError, ValueError, KeyError):
+                    pass
+                # Multi-label row: explode by dataset_classes.
+                try:
+                    dataset_classes = json.loads(m_row.get('dataset_classes') or '[]')
+                except (json.JSONDecodeError, TypeError):
+                    dataset_classes = []
+                for c in dataset_classes:
+                    if isinstance(c, dict) and 'id' in c:
+                        try:
+                            expected_pairs_by_ds[(d, s)].add((iid, int(c['id'])))
+                        except (TypeError, ValueError):
+                            continue
 
         # ── Per-mode loop ───────────────────────────────────────────────
         primary_summary = None
@@ -408,6 +454,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 preds = build_coco_predictions(
                     rows, score_mode=score_mode, score_lookup=score_lookup,
                     coords_space=coords_space,
+                    mode='qwen3_multilabel' if eval_scope == 'qwen3_multilabel' else 'single',
                 )
                 all_preds.extend(preds)
 
@@ -438,16 +485,15 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         remap_ann_ids=True,
                     )
                 else:
-                    # Phase 1.5 full detection: restrict GT by **image_id**
-                    # (not by (image, cat) pair).  This preserves images
-                    # that have zero annotations (negative-only images) so
-                    # the model's hallucinated boxes on those images get
-                    # counted as FPs by COCOeval — the correct full-
-                    # detection semantics.  Filtering by pair would drop
-                    # those images and trigger the
-                    # ``Results do not correspond to current coco set``
-                    # assertion when the model emitted any prediction
-                    # there.
+                    # full_detection or qwen3_multilabel: restrict GT by
+                    # **image_id** (not by (image, cat) pair). This
+                    # preserves images that have zero annotations for some
+                    # queried classes so the model's hallucinated boxes on
+                    # those classes get counted as FPs by COCOeval — the
+                    # correct full-detection / open-vocabulary semantics.
+                    # Filtering by pair would drop those images and trigger
+                    # the ``Results do not correspond to current coco set``
+                    # assertion when the model emitted any prediction there.
                     tsv_image_ids_for_ds = {
                         iid for (iid, _cid)
                         in expected_pairs_by_ds.get((domain, split), set())
@@ -475,16 +521,23 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     for new_id, ann in enumerate(filtered_gt['annotations'], start=1):
                         ann['id'] = new_id
 
-                # Phase 1.5: completeness filter. In full-detection mode, drop
-                # any (image_id) whose full set of expected category queries
-                # wasn't completed (i.e. inference was killed mid-image).
+                # Completeness filter. Drops any (image_id) whose full set
+                # of expected category queries wasn't completed (i.e.
+                # inference was killed mid-image).
+                #   * full_detection: one row per (image, cat); a missing
+                #     row means that (image, cat) pair wasn't queried.
+                #   * qwen3_multilabel: one row per image with all classes
+                #     in one prompt; a non-empty prediction implies every
+                #     class for that image was effectively answered (the
+                #     model chose which ones to emit boxes for). An empty
+                #     prediction drops the whole image.
                 completion_summary: Dict = {
                     'images_total': len(filtered_gt['images']),
                     'images_completed': len(filtered_gt['images']),
                     'images_dropped': 0,
                     'dropped_image_ids': [],
                 }
-                if eval_scope == 'full_detection':
+                if eval_scope in ('full_detection', 'qwen3_multilabel'):
                     expected_pairs = expected_pairs_by_ds.get((domain, split), set())
                     completed_pairs = set()
                     for r in rows:
@@ -496,19 +549,36 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         if not str(pv).strip():
                             continue
                         iid = parse_image_id_from_index(r['index'])
+                        if iid is None:
+                            continue
+                        # Single-class row: read category_id directly.
                         try:
                             cid = int(r['category_id'])
-                        except (TypeError, ValueError):
-                            continue
-                        if iid is not None:
                             completed_pairs.add((iid, cid))
+                            continue
+                        except (TypeError, ValueError):
+                            pass
+                        # Multi-label row: a non-empty prediction implies
+                        # every class for this image was queried. Mark all
+                        # (iid, cat_id) pairs from dataset_classes as
+                        # completed so drop_incomplete_images keeps the image.
+                        try:
+                            dataset_classes = json.loads(r.get('dataset_classes') or '[]')
+                        except (json.JSONDecodeError, TypeError):
+                            dataset_classes = []
+                        for c in dataset_classes:
+                            if isinstance(c, dict) and 'id' in c:
+                                try:
+                                    completed_pairs.add((iid, int(c['id'])))
+                                except (TypeError, ValueError):
+                                    continue
                     preds, filtered_gt, completion_summary = drop_incomplete_images(
                         preds, filtered_gt, expected_pairs, completed_pairs,
                     )
                     if completion_summary['images_dropped']:
                         logger.warning(
                             'ODinW [%s/%s]: dropped %d/%d images for incomplete '
-                            'category coverage (full-detection partial-run safety net).',
+                            'category coverage (partial-run safety net).',
                             domain, split,
                             completion_summary['images_dropped'],
                             completion_summary['images_total'],
@@ -544,7 +614,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
                 # Per-row instance diagnostics for this (domain, split).
                 # Collapse (domain, split, image_id, category_id) into a
-                # single ``trajectory_file`` matching prepare_odinw_full's
+                # single ``trajectory_file`` matching prepare_odinw's
                 # row index format: ``<domain>_<split>_<image_id>_<category_id>.json``.
                 # That string is the basename used by full_trajectories/
                 # and raw_trajectories/, so users can cross-reference
@@ -553,10 +623,19 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     domain_per_row = extract_per_row_diagnostics(
                         evaluator_obj, iou_threshold=0.5, area_label='all',
                     )
+                    # Index basename layout depends on the TSV: per-class
+                    # rows store one trajectory per (image, category); qwen3
+                    # multi-label rows store one trajectory per image (the
+                    # same trajectory is referenced by every per-class
+                    # diagnostic row for that image).
+                    qwen3_layout = (eval_scope == 'qwen3_multilabel')
                     for r in domain_per_row:
-                        basename = (
-                            f"{domain}_{split}_{r['image_id']}_{r['category_id']}.json"
-                        )
+                        if qwen3_layout:
+                            basename = f"{domain}_{split}_{r['image_id']}.json"
+                        else:
+                            basename = (
+                                f"{domain}_{split}_{r['image_id']}_{r['category_id']}.json"
+                            )
                         r['trajectory_file'] = resolve_trajectory_path(
                             eval_file, basename
                         )

@@ -8,7 +8,7 @@ agent_kwargs:
   model: "Qwen/Qwen3-VL-8B-Instruct"
   timeout: 600
   custom_prompt: false
-  max_tokens: 2048
+  max_tokens: 12800
   temperature: 0.0
   top_p: 1.0
   repetition_penalty: 1.0

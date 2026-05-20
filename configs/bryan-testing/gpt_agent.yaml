@@ -1,0 +1,18 @@
+# Example APIAgent configuration for official OpenAI GPT-5.
+agent_name: APIAgent
+agent_config_version: v1_0215
+
+agent_kwargs:
+  base: "https://api.openai.com"
+  key: "empty"  # loaded from OPENAI_API_KEY (or MODEL_API_KEY) in repo-root .env
+  model: "gpt-5-2025-08-07"
+  timeout: 600
+  custom_prompt: false
+  max_tokens: 12800
+  temperature: 0.0
+  top_p: 1.0
+  repetition_penalty: 1.0
+  reasoning_effort: "medium"
+  retry: 3
+  verbose: true
+  extra_body: {}

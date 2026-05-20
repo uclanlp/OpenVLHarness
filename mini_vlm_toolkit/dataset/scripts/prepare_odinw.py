@@ -9,7 +9,7 @@ against every category in its domain).
 
 Usage:
 
-    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw_full \\
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw \\
         --glip-dir /path/to/GLIP \\
         [--output-dir $LMUData] \\
         [--splits val test]

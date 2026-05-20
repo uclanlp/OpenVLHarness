@@ -99,6 +99,10 @@ _DISPATCH = {
     "ODinW13_bbox_test_qwen25_raw": _from_category_name,
     "ODinW13_bbox_test_qwen25_adapted": _from_category_name,
     "ODinW13_bbox_test_qwen25_adapted_raw": _from_category_name,
+    "ODinW13_bbox_val_qwen3": _from_category_name,
+    "ODinW13_bbox_val_qwen3_mmdet": _from_category_name,
+    "ODinW13_bbox_test_qwen3": _from_category_name,
+    "ODinW13_bbox_test_qwen3_mmdet": _from_category_name,
     # Counting.
     "CountBenchQA": _from_how_many,
     "FSC147_train": _from_how_many,

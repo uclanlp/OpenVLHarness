@@ -84,7 +84,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from mini_vlm_toolkit.dataset.scripts.prepare_odinw_full import build_bbox_question
+from mini_vlm_toolkit.dataset.scripts.prepare_odinw import build_bbox_question
 
 logging.basicConfig(
     level=logging.INFO,

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare ODinW-13 TSVs that follow the Qwen2.5-VL evaluation protocol.
 
-This is the sibling of ``prepare_odinw_full.py``. The key differences vs the
+This is the sibling of ``prepare_odinw.py``. The key differences vs the
 full-detection TSVs:
 
   * **Positives-only.** One row per (image, category) pair *that actually has
@@ -32,7 +32,7 @@ from the default (mmdet classes + Qwen2.5 prompt):
 
 Usage:
 
-    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw_full_qwen25 \\
+    python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw_qwen25 \\
         --glip-dir /path/to/GLIP \\
         [--output-dir $LMUData] \\
         [--splits val test] \\
@@ -58,7 +58,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from mini_vlm_toolkit.dataset.scripts.prepare_odinw_full import (
+from mini_vlm_toolkit.dataset.scripts.prepare_odinw import (
     ODINW_13_CONFIGS,
     bbox_xywh_to_normalised_xyxy,
     build_bbox_question,
