@@ -72,13 +72,17 @@ def process_tool_output(payload, prepared, tool_metadata=None):
                 "image_height": _safe_int(orig_h, default=0),
             }
 
+        # Agent-visible coords are rounded to integer (no decimals). The
+        # sidecar in `tool_detection` still carries full-precision pixel
+        # boxes, which the evaluator uses for AP after IoU-matching the
+        # agent's echoed (rounded) box back to its source candidate.
         detections = [
             {
                 "bbox_2d": [
-                    min(max(round(box[0] / orig_w * 1000, 2), 0), 1000),
-                    min(max(round(box[1] / orig_h * 1000, 2), 0), 1000),
-                    min(max(round(box[2] / orig_w * 1000, 2), 0), 1000),
-                    min(max(round(box[3] / orig_h * 1000, 2), 0), 1000),
+                    min(max(round(box[0] / orig_w * 1000), 0), 1000),
+                    min(max(round(box[1] / orig_h * 1000), 0), 1000),
+                    min(max(round(box[2] / orig_w * 1000), 0), 1000),
+                    min(max(round(box[3] / orig_h * 1000), 0), 1000),
                 ],
                 "label": prompt,
             }
