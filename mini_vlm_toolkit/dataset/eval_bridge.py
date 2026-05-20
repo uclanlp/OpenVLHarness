@@ -120,6 +120,67 @@ def parse_image_id_from_index(index: str) -> Optional[int]:
             return None
 
 
+def _xyxy_pixel_to_clipped_xywh(
+    box: Sequence[float], image_w: float, image_h: float,
+) -> Optional[List[float]]:
+    """Clip a pixel xyxy box to image bounds, fix inverted coords, drop
+    zero-area, and return xywh. Returns None if the box is degenerate.
+    """
+    if box is None or len(box) < 4:
+        return None
+    x1 = max(0.0, min(float(box[0]), float(image_w)))
+    y1 = max(0.0, min(float(box[1]), float(image_h)))
+    x2 = max(0.0, min(float(box[2]), float(image_w)))
+    y2 = max(0.0, min(float(box[3]), float(image_h)))
+    x_min, x_max = (x1, x2) if x1 <= x2 else (x2, x1)
+    y_min, y_max = (y1, y2) if y1 <= y2 else (y2, y1)
+    w = x_max - x_min
+    h = y_max - y_min
+    if w <= 0 or h <= 0:
+        return None
+    return [x_min, y_min, w, h]
+
+
+def _log_degenerate_sidecar_box(
+    *,
+    output_dir: Optional[str],
+    index: str,
+    image_w: float,
+    image_h: float,
+    matched_box_xyxy: Sequence[float],
+    agent_box_norm1k: Sequence[float],
+) -> None:
+    """Emit a very loud error when a sidecar-matched box collapses to
+    zero area after clipping.
+
+    This branch is "shouldn't ever happen" territory — a sidecar
+    candidate that matched the agent's box at IoU>=0.5 but then
+    clipped to zero implies either (a) SAM3 returned a zero-area or
+    out-of-bounds box, or (b) the recorded image dims disagree with
+    the sidecar's coordinate space. We want it to be impossible to
+    miss in a results folder.
+    """
+    msg = (
+        "[DEGENERATE_SIDECAR_BOX] index=%s image_dims=(%s,%s) "
+        "sidecar_box_xyxy=%s agent_box_xyxy_norm1k=%s"
+        % (index, image_w, image_h, list(matched_box_xyxy), list(agent_box_norm1k))
+    )
+    banner = "!" * 80
+    logger.error("\n%s\n%s\n%s", banner, msg, banner)
+    if not output_dir:
+        return
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        log_path = os.path.join(output_dir, "DEGENERATE_SIDECAR_BOXES.log")
+        with open(log_path, "a") as f:
+            f.write(msg + "\n")
+    except OSError as exc:  # noqa: BLE001
+        logger.error(
+            "Failed to write DEGENERATE_SIDECAR_BOXES.log under %r: %r",
+            output_dir, exc,
+        )
+
+
 def boxes_norm1k_to_abs_xywh(
     boxes_xyxy_norm1k: Sequence[Sequence[float]],
     image_w: float,
@@ -159,6 +220,7 @@ def build_coco_predictions(
     score_lookup: Optional[Callable] = None,
     coords_space: str = "auto",
     mode: str = "single",
+    output_dir: Optional[str] = None,
 ) -> List[Dict]:
     """Build a flat COCO/LVIS-format predictions list from TSV-style rows.
 
@@ -174,9 +236,11 @@ def build_coco_predictions(
         pandas Series rows work directly.
     score_mode : {"constant", "original"}
         ``"constant"`` — every prediction gets ``score=1.0``.
-        ``"original"`` — use ``score_lookup`` to recover a per-box score;
-        fall back to ``1.0`` if it returns None.
-    score_lookup : callable(row, parsed_box_xyxy_norm1k) -> float | None
+        ``"original"`` — use ``score_lookup`` to recover both the per-box
+        score and the matched sidecar box (full SAM3 pixel precision);
+        unmatched boxes fall back to score ``0.5`` and the agent's box.
+    score_lookup : callable(row, parsed_box_xyxy_norm1k)
+                   -> (score: float, box_xyxy_pixels: list[float]) | None
         Phase 2 hook (sidecar SAM3 scores). Ignored in Phase 1.
     coords_space : {"auto", "pixel", "norm1k"}
         Forwarded to ``_normalise_boxes``. Default ``"auto"`` uses the
@@ -190,6 +254,11 @@ def build_coco_predictions(
         classes. Labels are resolved to category_ids via the row's
         ``dataset_classes`` column (case-insensitive); unknown labels
         are dropped (matches shipped Qwen3-VL eval).
+    output_dir : str, optional
+        Directory in which to drop a ``DEGENERATE_SIDECAR_BOXES.log``
+        sentinel file if a sidecar-matched box collapses to zero area
+        after clipping (a "shouldn't ever happen" condition we want to
+        notice loudly). If ``None``, only a ``logger.error`` is emitted.
     """
     if score_mode not in ("constant", "original"):
         raise ValueError(f"Unknown score_mode: {score_mode!r}")
@@ -256,25 +325,45 @@ def build_coco_predictions(
         boxes_norm = _normalise_boxes(raw_boxes, image_w, image_h, coords_space=coords_space)
 
         for norm_box, cat_id in zip(boxes_norm, per_box_cat_id):
-            xywh_list = boxes_norm1k_to_abs_xywh([norm_box], image_w, image_h)
-            if not xywh_list:
-                continue
-            xywh = xywh_list[0]
-
+            # Decide score, and whether the COCO bbox should come from the
+            # sidecar match (full pixel precision) or the agent's echoed box.
+            xywh: Optional[List[float]] = None
             if score_mode == "constant":
                 score = 1.0
             else:  # "original"
-                score = None
+                match = None
                 if score_lookup is not None:
                     try:
-                        score = score_lookup(row, norm_box)
+                        match = score_lookup(row, norm_box)
                     except Exception as exc:  # noqa: BLE001
                         logger.debug(
                             "score_lookup raised %r for index %r", exc, index
                         )
-                        score = None
-                if score is None:
+                        match = None
+                if match is None:
                     score = 0.5
+                else:
+                    score, matched_box_xyxy = match
+                    xywh = _xyxy_pixel_to_clipped_xywh(
+                        matched_box_xyxy, image_w, image_h,
+                    )
+                    if xywh is None:
+                        _log_degenerate_sidecar_box(
+                            output_dir=output_dir,
+                            index=index,
+                            image_w=image_w,
+                            image_h=image_h,
+                            matched_box_xyxy=matched_box_xyxy,
+                            agent_box_norm1k=norm_box,
+                        )
+                    # If the sidecar box is degenerate after clipping, fall
+                    # through to the agent's box below.
+
+            if xywh is None:
+                xywh_list = boxes_norm1k_to_abs_xywh([norm_box], image_w, image_h)
+                if not xywh_list:
+                    continue
+                xywh = xywh_list[0]
 
             preds.append(
                 {
@@ -855,9 +944,11 @@ def build_sam3_score_lookup(
     tool_detections_dir: str,
     iou_threshold: float = 0.5,
 ):
-    """Phase 2 score recovery for ``score_mode='original'``.
+    """Phase 2 score + box recovery for ``score_mode='original'``.
 
-    Returns a callable ``score_lookup(row, parsed_box_xyxy_norm1k) -> float | None``
+    Returns a callable
+    ``score_lookup(row, parsed_box_xyxy_norm1k)
+        -> (score: float, box_xyxy_pixels: list[float]) | None``
     suitable for ``build_coco_predictions``.  Uses the per-row sidecar
     JSONs written by the inference loop at
     ``tool_detections_dir/<row_index>.json`` (Phase 2 spec).
@@ -869,8 +960,9 @@ def build_sam3_score_lookup(
       3. Convert the agent's parsed box (still in 0-1000 xyxy) to
          absolute pixel xyxy using the row's image dimensions.
       4. Match against the candidate pool by IoU.  If max IoU >= the
-         threshold, return that candidate's score; else return None
-         (the caller falls back to 1.0).
+         threshold, return that candidate's ``(score, box_xyxy_pixels)``;
+         else return None (the caller falls back to the agent's box
+         and a constant score).
 
     The returned callable also exposes a ``counters`` dict with
     ``hits`` / ``misses`` / ``rows_with_sidecar`` / ``rows_without_sidecar``
@@ -937,6 +1029,7 @@ def build_sam3_score_lookup(
         ]
 
         best_score = None
+        best_box: Optional[List[float]] = None
         best_iou = -1.0
         for entry in sidecar:
             boxes = entry.get("boxes_xyxy_pixels") or []
@@ -948,9 +1041,14 @@ def build_sam3_score_lookup(
                 if iou > best_iou:
                     best_iou = iou
                     best_score = float(cand_score)
-        if best_iou >= iou_threshold and best_score is not None:
+                    best_box = [float(v) for v in cand_box[:4]]
+        if (
+            best_iou >= iou_threshold
+            and best_score is not None
+            and best_box is not None
+        ):
             counters["hits"] += 1
-            return best_score
+            return best_score, best_box
         counters["misses"] += 1
         return None
 
