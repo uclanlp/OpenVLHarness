@@ -86,8 +86,14 @@ def _parse_bbox_array_from_text(text: str) -> List[List[float]]:
                 if isinstance(item, list) and len(item) >= 4:
                     boxes.append([float(v) for v in item[:4]])
                 elif isinstance(item, dict):
-                    # Handle {"bbox": [x1,y1,x2,y2]} format
-                    bbox = item.get('bbox', item.get('bounding_box', None))
+                    # Dict-wrapped boxes. ``bbox_2d`` is Qwen-VL's native format;
+                    # ``bbox`` / ``bounding_box`` are common alternatives. The
+                    # accompanying ``label`` field (if any) is ignored — for
+                    # category-conditioned eval the queried class is fixed by
+                    # the row.
+                    bbox = item.get('bbox_2d',
+                                    item.get('bbox',
+                                             item.get('bounding_box', None)))
                     if isinstance(bbox, list) and len(bbox) >= 4:
                         boxes.append([float(v) for v in bbox[:4]])
             if boxes:
@@ -126,10 +132,25 @@ def _parse_bbox_array_from_text(text: str) -> List[List[float]]:
     return []
 
 
-def _normalise_boxes(boxes: List[List[float]], img_w: float, img_h: float) -> List[List[float]]:
+def _normalise_boxes(
+    boxes: List[List[float]],
+    img_w: float,
+    img_h: float,
+    coords_space: str = "auto",
+) -> List[List[float]]:
     """Ensure boxes are on a 0-1000 normalised coordinate scale (Qwen-style).
 
-    Heuristic:
+    Parameters
+    ----------
+    coords_space : {"auto", "pixel", "norm1k"}
+        ``"auto"`` (default) uses the magnitude heuristic below. ``"pixel"``
+        forces interpretation as absolute pixel coordinates of the original
+        image (mandatory when the model output is Qwen-VL ``bbox_2d``
+        pixel-space JSON *and* images are small enough that the heuristic
+        would misclassify pixel boxes as already-normalised). ``"norm1k"``
+        forces pass-through of values already on the 0-1000 scale.
+
+    Heuristic (coords_space="auto"):
       • max <= 1.5            → legacy 0-1 normalised input; rescale to 0-1000.
       • max <= 1024           → already on the 0-1000 scale; pass through.
                                 The 24-unit slop covers floating-point overshoot
@@ -141,23 +162,26 @@ def _normalise_boxes(boxes: List[List[float]], img_w: float, img_h: float) -> Li
     if not boxes:
         return boxes
 
-    max_val = max(max(abs(v) for v in box) for box in boxes)
+    def _pixel_to_norm1k(box):
+        return [
+            box[0] / img_w * 1000.0, box[1] / img_h * 1000.0,
+            box[2] / img_w * 1000.0, box[3] / img_h * 1000.0,
+        ]
 
+    if coords_space == "pixel":
+        return [_pixel_to_norm1k(box) for box in boxes]
+    if coords_space == "norm1k":
+        return [[float(v) for v in box] for box in boxes]
+    if coords_space != "auto":
+        raise ValueError(f"Unknown coords_space: {coords_space!r}")
+
+    max_val = max(max(abs(v) for v in box) for box in boxes)
     if max_val <= 1.5:
-        # Legacy 0-1 normalised; rescale to 0-1000
         return [[v * 1000.0 for v in box] for box in boxes]
     elif max_val <= 1024:
-        # Already on the 0-1000 scale (e.g. Qwen models)
         return [[float(v) for v in box] for box in boxes]
     else:
-        # Absolute pixel coordinates → 0-1000
-        normalised = []
-        for box in boxes:
-            normalised.append([
-                box[0] / img_w * 1000.0, box[1] / img_h * 1000.0,
-                box[2] / img_w * 1000.0, box[3] / img_h * 1000.0,
-            ])
-        return normalised
+        return [_pixel_to_norm1k(box) for box in boxes]
 
 
 def _compute_iou(box1: List[float], box2: List[float]) -> float:

@@ -29,22 +29,95 @@ from .lvis import _normalise_boxes, _parse_bbox_array_from_text
 logger = logging.getLogger(__name__)
 
 
+def _parse_qwen3_multilabel_predictions(
+    text: str,
+    label_to_cat_id: Dict[str, int],
+) -> List[Tuple[List[float], int]]:
+    """Parse Qwen3-VL multi-label output into [(bbox_xyxy, category_id), ...].
+
+    Qwen3-VL emits a JSON list like
+    ``[{"bbox_2d": [x1,y1,x2,y2], "label": "..."}, ...]``. Labels are
+    mapped case-insensitively to category IDs via ``label_to_cat_id``;
+    entries whose label is not in the dataset vocabulary are dropped
+    (this is the same "drop unknown labels" semantics as the shipped
+    ``Qwen3-VL/evaluation/ODinW-13/run_odinw.py eval``).
+
+    Boxes are returned in the **raw** coordinate scale the model emitted —
+    the caller is responsible for normalisation (so the ``coords_space``
+    override in ``build_coco_predictions`` still applies).
+    """
+    import ast
+    import re
+
+    if not isinstance(text, str) or not text.strip():
+        return []
+
+    clean = text.strip()
+    md_match = re.search(r'```(?:json)?\s*(.*?)```', clean, re.DOTALL)
+    if md_match:
+        clean = md_match.group(1).strip()
+
+    parsed = None
+    try:
+        parsed = json.loads(clean)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        # Fallback: Qwen sometimes mixes single/double quotes — ast handles it.
+        try:
+            parsed = ast.literal_eval(clean)
+        except (ValueError, SyntaxError):
+            return []
+
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+    if not isinstance(parsed, list):
+        return []
+
+    results: List[Tuple[List[float], int]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        bbox = item.get("bbox_2d") or item.get("bbox") or item.get("bounding_box")
+        if not isinstance(bbox, list) or len(bbox) < 4:
+            continue
+        label = item.get("label", "")
+        if not isinstance(label, str):
+            continue
+        cat_id = label_to_cat_id.get(label.lower())
+        if cat_id is None:
+            continue
+        try:
+            bbox_floats = [float(v) for v in bbox[:4]]
+        except (TypeError, ValueError):
+            continue
+        results.append((bbox_floats, int(cat_id)))
+    return results
+
+
 def parse_image_id_from_index(index: str) -> Optional[int]:
     """Parse the numeric image_id from a TSV row index.
 
-    LVIS  : ``val_<image_id>_<category_id>``
-    ODinW : ``<domain>_<split>_<image_id>_<category_id>``  (domain may
-             contain underscores, so we split from the right.)
+    Three layouts are supported:
+      LVIS / ODinW per-class : ``val_<image_id>_<category_id>``
+                               or ``<domain>_<split>_<image_id>_<category_id>``
+      ODinW Qwen3-VL one-row-per-image : ``<domain>_<split>_<image_id>``
+                                          (no category suffix)
+
+    We first try the per-class layout (image_id at the second-to-last
+    segment); if that segment isn't numeric, we fall back to the
+    one-row-per-image layout (image_id at the last segment).
 
     Returns None on parse failure.
     """
     parts = str(index).rsplit("_", 2)
-    if len(parts) < 3:
+    if len(parts) < 2:
         return None
     try:
         return int(parts[-2])
     except ValueError:
-        return None
+        try:
+            return int(parts[-1])
+        except ValueError:
+            return None
 
 
 def boxes_norm1k_to_abs_xywh(
@@ -84,6 +157,8 @@ def build_coco_predictions(
     rows: Iterable,
     score_mode: str = "constant",
     score_lookup: Optional[Callable] = None,
+    coords_space: str = "auto",
+    mode: str = "single",
 ) -> List[Dict]:
     """Build a flat COCO/LVIS-format predictions list from TSV-style rows.
 
@@ -91,18 +166,35 @@ def build_coco_predictions(
     ----------
     rows : iterable of dict-like
         Each row must support ``.get()`` / ``__getitem__`` for keys:
-        ``index``, ``image_width``, ``image_height``, ``category_id``,
-        ``prediction``.  pandas Series rows (from ``DataFrame.iterrows``)
-        work directly.
+        ``index``, ``image_width``, ``image_height``, ``prediction``.
+        In ``mode='single'`` also: ``category_id`` (one per row).
+        In ``mode='qwen3_multilabel'`` also: ``dataset_classes`` (a JSON
+        list of ``{"id":N, "name":"X"}`` records covering the prompted
+        vocabulary, used to resolve the model's per-box ``label`` field).
+        pandas Series rows work directly.
     score_mode : {"constant", "original"}
         ``"constant"`` — every prediction gets ``score=1.0``.
         ``"original"`` — use ``score_lookup`` to recover a per-box score;
         fall back to ``1.0`` if it returns None.
     score_lookup : callable(row, parsed_box_xyxy_norm1k) -> float | None
         Phase 2 hook (sidecar SAM3 scores). Ignored in Phase 1.
+    coords_space : {"auto", "pixel", "norm1k"}
+        Forwarded to ``_normalise_boxes``. Default ``"auto"`` uses the
+        magnitude heuristic; pass ``"pixel"`` for Qwen-VL ``bbox_2d``
+        output on small images where the heuristic would misclassify.
+    mode : {"single", "qwen3_multilabel"}
+        ``"single"`` (default): one (image, category) per row; model
+        emits a list of boxes all sharing the row's ``category_id``.
+        ``"qwen3_multilabel"``: one image per row; model emits
+        ``[{"bbox_2d": [...], "label": "..."}, ...]`` covering multiple
+        classes. Labels are resolved to category_ids via the row's
+        ``dataset_classes`` column (case-insensitive); unknown labels
+        are dropped (matches shipped Qwen3-VL eval).
     """
     if score_mode not in ("constant", "original"):
         raise ValueError(f"Unknown score_mode: {score_mode!r}")
+    if mode not in ("single", "qwen3_multilabel"):
+        raise ValueError(f"Unknown mode: {mode!r}")
 
     preds: List[Dict] = []
 
@@ -111,12 +203,6 @@ def build_coco_predictions(
         image_id = parse_image_id_from_index(index)
         if image_id is None:
             logger.debug("Could not parse image_id from index %r, skipping.", index)
-            continue
-
-        try:
-            category_id = int(row["category_id"])
-        except (KeyError, TypeError, ValueError):
-            logger.debug("Missing/bad category_id for index %r, skipping.", index)
             continue
 
         try:
@@ -136,14 +222,40 @@ def build_coco_predictions(
         pred_text = str(pv)
         if not pred_text.strip():
             continue
-        boxes = _parse_bbox_array_from_text(pred_text)
-        if not boxes:
-            continue
+
+        # Parse model output into (raw_box, category_id) tuples. In
+        # single-class mode every box shares the row's category_id; in
+        # multi-label mode labels are resolved via dataset_classes.
+        if mode == "qwen3_multilabel":
+            try:
+                dataset_classes = json.loads(row.get("dataset_classes") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                dataset_classes = []
+            label_to_cat_id = {
+                str(c["name"]).lower(): int(c["id"])
+                for c in dataset_classes
+                if isinstance(c, dict) and "name" in c and "id" in c
+            }
+            raw_pairs = _parse_qwen3_multilabel_predictions(pred_text, label_to_cat_id)
+            if not raw_pairs:
+                continue
+            raw_boxes = [bp[0] for bp in raw_pairs]
+            per_box_cat_id = [bp[1] for bp in raw_pairs]
+        else:
+            try:
+                category_id = int(row["category_id"])
+            except (KeyError, TypeError, ValueError):
+                logger.debug("Missing/bad category_id for index %r, skipping.", index)
+                continue
+            raw_boxes = _parse_bbox_array_from_text(pred_text)
+            if not raw_boxes:
+                continue
+            per_box_cat_id = [category_id] * len(raw_boxes)
 
         # Canonicalise to 0-1000 xyxy regardless of the model's emitted scale.
-        boxes_norm = _normalise_boxes(boxes, image_w, image_h)
+        boxes_norm = _normalise_boxes(raw_boxes, image_w, image_h, coords_space=coords_space)
 
-        for norm_box in boxes_norm:
+        for norm_box, cat_id in zip(boxes_norm, per_box_cat_id):
             xywh_list = boxes_norm1k_to_abs_xywh([norm_box], image_w, image_h)
             if not xywh_list:
                 continue
@@ -167,7 +279,7 @@ def build_coco_predictions(
             preds.append(
                 {
                     "image_id": image_id,
-                    "category_id": category_id,
+                    "category_id": cat_id,
                     "bbox": xywh,
                     "score": float(score),
                 }

@@ -1,25 +1,22 @@
-"""ODinW (Object Detection in the Wild) dataset class for bbox evaluation.
+"""ODinW-13 (Object Detection in the Wild) dataset class for bbox evaluation.
 
-Covers ODinW-13 (and ODinW-35 by the same code path).  ODinW has bbox
-annotations only (no segmentation masks), so a single class suffices.
+ODinW has bbox annotations only (no segmentation masks), so a single
+class suffices.
 
 Pre-generated TSV files are produced by:
     python -m mini_vlm_toolkit.dataset.scripts.prepare_odinw
 
 TSV naming:
-    ODinW13_bbox_train.tsv / ODinW13_bbox_val.tsv
-    ODinW35_bbox_train.tsv / ODinW35_bbox_val.tsv
+    ODinW13_bbox_train.tsv / ODinW13_bbox_val.tsv / ODinW13_bbox_test.tsv
 
-Each row is a unique (image, category) pair within a domain.  The val TSV
-contains both ``val`` and ``test`` rows (whichever splits the source
-dataset provides); the per-row ``split`` column distinguishes them.
+Each row is a unique (image, category) pair within a domain — full
+detection, so negatives (no instances) are also represented.
 
-Evaluation uses **per-domain ``pycocotools.COCOeval``** with results
-averaged across the 13 domains (the ODinW-13 reporting convention used by
-GLIP / Grounding DINO).  Phase 1 is category-conditioned: for each domain
-the GT JSON is filtered to the (image_id, category_id) pairs present in
-the TSV before COCOeval runs.  Phase 1.5 will introduce a full-detection
-TSV variant and skip this filtering.
+Evaluation uses per-domain ``pycocotools.COCOeval`` with results averaged
+across the 13 domains (the ODinW-13 reporting convention used by GLIP /
+Grounding DINO).  GT is NOT filtered to predicted (image, cat) pairs; a
+per-image completeness filter drops incomplete images so partial runs
+don't artificially deflate AP.
 
 Usage:
     python run_benchmark.py --data ODinW13_bbox_val ...
@@ -208,54 +205,89 @@ class ODinWBBoxDataset(ImageBaseDataset):
     filtered to (image_id, category_id) pairs present in the TSV.
 
     Supported dataset names:
-        ODinW13_bbox_train, ODinW13_bbox_val,
-        ODinW35_bbox_train, ODinW35_bbox_val
+        ODinW13_bbox_train, ODinW13_bbox_val, ODinW13_bbox_test
     """
 
     TYPE = 'GROUNDING'
     MODALITY = 'IMAGE'
 
     DATASET_URL = {
+        # Full-detection (one row per (image, category) including negatives).
         'ODinW13_bbox_train': '',
         'ODinW13_bbox_val': '',
-        # Legacy un-suffixed full-detection names (kept for backwards compat).
-        'ODinW13_bbox_train_full': '',
-        'ODinW13_bbox_val_full': '',
-        # Phase 1.5+ canonical naming: ``_n<N>`` for capped, ``_all`` for
-        # unbounded.  Registered speculatively so a user can prepare a new
-        # variant via ``prepare_odinw_full.py --num-images-per-domain N``
-        # and run with ``--data <name>`` without touching this file.
-        'ODinW13_bbox_val_full_n5':     '',
-        'ODinW13_bbox_val_full_n10':    '',
-        'ODinW13_bbox_val_full_n20':    '',
-        'ODinW13_bbox_val_full_n50':    '',
-        'ODinW13_bbox_val_full_n100':   '',
-        'ODinW13_bbox_val_full_n200':   '',
-        'ODinW13_bbox_val_full_all':    '',
-        # Domains where the Qwen3-VL-8B agent underperforms SAM3 most (per
-        # 2026-05-11 ODinW13_bbox_val_full_all eval): NorthAmericaMushrooms
-        # (Δ AP -12.5) and thermalDogsAndPeople (Δ AP -9.6).
-        'ODinW13_bbox_val_full_challenging': '',
-        'ODinW13_bbox_val_full_challenging_test': '',
-        'ODinW13_bbox_train_full_n5':   '',
-        'ODinW13_bbox_train_full_n10':  '',
-        'ODinW13_bbox_train_full_n20':  '',
-        'ODinW13_bbox_train_full_n50':  '',
-        'ODinW13_bbox_train_full_n100': '',
-        'ODinW13_bbox_train_full_n200': '',
-        'ODinW13_bbox_train_full_n500': '',
-        'ODinW13_bbox_train_full_all':  '',
-        # ODinW-35 (legacy, untouched).
-        'ODinW35_bbox_train': '',
-        'ODinW35_bbox_val': '',
+        'ODinW13_bbox_test': '',
+        # Qwen2.5-VL protocol: positives-only, per-image class filtering.
+        # All four toggle combinations are registered so any can be loaded
+        # without re-editing this file. See
+        # mini_vlm_toolkit/dataset/scripts/prepare_odinw_qwen25.py.
+        'ODinW13_bbox_val_qwen25': '',
+        'ODinW13_bbox_val_qwen25_raw': '',
+        'ODinW13_bbox_val_qwen25_adapted': '',
+        'ODinW13_bbox_val_qwen25_adapted_raw': '',
+        'ODinW13_bbox_test_qwen25': '',
+        'ODinW13_bbox_test_qwen25_raw': '',
+        'ODinW13_bbox_test_qwen25_adapted': '',
+        'ODinW13_bbox_test_qwen25_adapted_raw': '',
+        # Qwen3-VL protocol: all-categories-at-once, one row per image.
+        # Model emits a JSON list of {bbox_2d, label} records; labels are
+        # resolved to category_ids via the row's dataset_classes column.
+        # See mini_vlm_toolkit/dataset/scripts/prepare_odinw_qwen3.py.
+        'ODinW13_bbox_val_qwen3': '',
+        'ODinW13_bbox_val_qwen3_mmdet': '',
+        'ODinW13_bbox_test_qwen3': '',
+        'ODinW13_bbox_test_qwen3_mmdet': '',
     }
     DATASET_MD5 = {}
 
     SCORE_MODE = 'constant'              # 'constant' | 'original'
-    # EVAL_SCOPE is auto-detected per evaluate() call from the dataset name.
-    # ``ODinW13_bbox_val_full`` (and any name ending in ``_full``) means
-    # full-detection (Phase 1.5); everything else is category_conditioned.
-    EVAL_SCOPE = 'category_conditioned'  # legacy class default; superseded at runtime
+    # Default eval scope: full-detection (the canonical Phase-1.5 path).
+    # Qwen2.5 variants override to ``category_conditioned`` at evaluate()
+    # time via ``_resolve_eval_scope``.
+    EVAL_SCOPE = 'full_detection'
+
+    @staticmethod
+    def _resolve_eval_scope(dataset_name: str) -> str:
+        """Qwen variants need positives-only / multilabel paths.
+
+        * ``_qwen25``: positives-only, per-image class filtering ->
+          category_conditioned eval (GT restricted to queried pairs).
+        * ``_qwen3``: one row per image, all-classes-joined prompt; the
+          response itself names the classes -> qwen3_multilabel eval
+          (GT scoped by image_id; per-row prediction parsed for multiple
+          labels each mapped to a category_id).
+        * everything else: full_detection (one row per (image, cat) with
+          negatives explicitly in scope).
+        """
+        if '_qwen3' in dataset_name:
+            return 'qwen3_multilabel'
+        if '_qwen25' in dataset_name:
+            return 'category_conditioned'
+        return 'full_detection'
+
+    @staticmethod
+    def _resolve_coords_space(dataset_name: str) -> str:
+        """Qwen-faithful variants emit 0-1000 normalised coordinates inside
+        the ``bbox_2d`` JSON (empirically verified for Qwen3-VL-8B on
+        2026-05-17 — output e.g. ``[370, 367, 534, 662]`` matches GT
+        ``[367.79, 350.96, 533.65, 657.45]`` on a 416x416 image). Force
+        ``norm1k`` so values pass through ``_normalise_boxes`` unscaled. The
+        ``auto`` heuristic would also work here in the common case, but
+        ``norm1k`` is explicit and avoids surprises if a degenerate output
+        produces a single number >1024 that would otherwise trigger the
+        pixel-coord branch. Adapted variants and full-detection TSVs ask
+        the model for 0-1000 normalised coords directly; they pass through
+        ``auto`` (which detects and handles either scale).
+
+        Historical note: Qwen2.5-VL was documented as emitting pixel-space
+        ``bbox_2d``; Qwen3-VL switched to 0-1000 normalised. The legacy
+        ``pixel`` mode is preserved on ``_normalise_boxes`` for future
+        Qwen2.5 reproductions.
+        """
+        if '_qwen3' in dataset_name:
+            return 'norm1k'
+        if '_qwen25' in dataset_name and '_adapted' not in dataset_name:
+            return 'norm1k'
+        return 'auto'
 
     def build_prompt(self, line):
         """Build the inference prompt: image + question text from TSV."""
@@ -271,7 +303,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
         """Evaluate bbox predictions with ``pycocotools.COCOeval`` per domain.
 
         Reports AP, AP50, AP75, APs, APm, APl per domain plus a simple mean
-        across domains (``ODinW13_average`` / ``ODinW35_average``).
+        across domains (``ODinW13_average``).
 
         Outputs alongside ``eval_file``:
           * ``..._metrics.json`` — full per-domain + average metrics blob.
@@ -308,18 +340,8 @@ class ODinWBBoxDataset(ImageBaseDataset):
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
         modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
 
-        # Phase 1.5: derive eval_scope from dataset name.  Names containing
-        # the ``full`` token (matches ``..._bbox_val_full``,
-        # ``..._bbox_val_full_n50``, ``..._bbox_val_full_all``, etc.)
-        # trigger the full-detection path: GT is NOT filtered to the
-        # prediction's (image, cat) pairs, and a per-image completeness
-        # filter drops incomplete images so partial runs don't artificially
-        # deflate AP.
-        eval_scope = (
-            'full_detection'
-            if 'full' in self.dataset_name.split('_')
-            else 'category_conditioned'
-        )
+        eval_scope = self._resolve_eval_scope(self.dataset_name)
+        coords_space = self._resolve_coords_space(self.dataset_name)
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
@@ -349,6 +371,12 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 'image_width': m_row.get('image_width'),
                 'image_height': m_row.get('image_height'),
                 'category_id': m_row.get('category_id'),
+                # Qwen3 multi-label rows carry the prompted vocabulary in
+                # ``dataset_classes`` (a JSON list of {id, name} records);
+                # build_coco_predictions consumes it to resolve labels to
+                # category_ids. Older TSVs don't have this column — pandas
+                # returns NaN/None and downstream code handles it.
+                'dataset_classes': m_row.get('dataset_classes'),
                 'prediction': p_row.get('prediction', ''),
             })
         if skipped:
@@ -361,22 +389,40 @@ class ODinWBBoxDataset(ImageBaseDataset):
         domains_seen = sorted({d for d, _ in rows_by_domain_split.keys()})
         gt_path_map = _build_odinw_gt_path_map(domains_seen)
 
-        # Phase 1.5: build expected-pair sets from the SOURCE TSV per
+        # Phase 1.5+: build expected-pair sets from the SOURCE TSV per
         # (domain, split). These are the (image_id, category_id) pairs the
         # model was supposed to be queried about, regardless of whether
-        # inference completed each one. Used by the completeness filter.
+        # inference completed each one. Used by the completeness filter
+        # (full_detection / qwen3_multilabel) and by GT image_id filtering.
+        #
+        # Single-class rows (full_detection): one pair per row from
+        # ``category_id``. Multi-label rows (qwen3): expand the row to
+        # (image_id, every cat_id in dataset_classes).
         expected_pairs_by_ds: Dict[Tuple[str, str], set] = defaultdict(set)
-        if eval_scope == 'full_detection':
+        if eval_scope in ('full_detection', 'qwen3_multilabel'):
             for idx, m_row in meta.iterrows():
                 d = str(m_row.get('domain', 'unknown'))
                 s = str(m_row.get('split', 'test'))
                 iid = parse_image_id_from_index(str(idx))
+                if iid is None:
+                    continue
                 try:
                     cid = int(m_row['category_id'])
-                except (TypeError, ValueError, KeyError):
-                    continue
-                if iid is not None:
                     expected_pairs_by_ds[(d, s)].add((iid, cid))
+                    continue
+                except (TypeError, ValueError, KeyError):
+                    pass
+                # Multi-label row: explode by dataset_classes.
+                try:
+                    dataset_classes = json.loads(m_row.get('dataset_classes') or '[]')
+                except (json.JSONDecodeError, TypeError):
+                    dataset_classes = []
+                for c in dataset_classes:
+                    if isinstance(c, dict) and 'id' in c:
+                        try:
+                            expected_pairs_by_ds[(d, s)].add((iid, int(c['id'])))
+                        except (TypeError, ValueError):
+                            continue
 
         # ── Per-mode loop ───────────────────────────────────────────────
         primary_summary = None
@@ -407,6 +453,8 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
                 preds = build_coco_predictions(
                     rows, score_mode=score_mode, score_lookup=score_lookup,
+                    coords_space=coords_space,
+                    mode='qwen3_multilabel' if eval_scope == 'qwen3_multilabel' else 'single',
                 )
                 all_preds.extend(preds)
 
@@ -437,16 +485,15 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         remap_ann_ids=True,
                     )
                 else:
-                    # Phase 1.5 full detection: restrict GT by **image_id**
-                    # (not by (image, cat) pair).  This preserves images
-                    # that have zero annotations (negative-only images) so
-                    # the model's hallucinated boxes on those images get
-                    # counted as FPs by COCOeval — the correct full-
-                    # detection semantics.  Filtering by pair would drop
-                    # those images and trigger the
-                    # ``Results do not correspond to current coco set``
-                    # assertion when the model emitted any prediction
-                    # there.
+                    # full_detection or qwen3_multilabel: restrict GT by
+                    # **image_id** (not by (image, cat) pair). This
+                    # preserves images that have zero annotations for some
+                    # queried classes so the model's hallucinated boxes on
+                    # those classes get counted as FPs by COCOeval — the
+                    # correct full-detection / open-vocabulary semantics.
+                    # Filtering by pair would drop those images and trigger
+                    # the ``Results do not correspond to current coco set``
+                    # assertion when the model emitted any prediction there.
                     tsv_image_ids_for_ds = {
                         iid for (iid, _cid)
                         in expected_pairs_by_ds.get((domain, split), set())
@@ -474,16 +521,23 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     for new_id, ann in enumerate(filtered_gt['annotations'], start=1):
                         ann['id'] = new_id
 
-                # Phase 1.5: completeness filter. In full-detection mode, drop
-                # any (image_id) whose full set of expected category queries
-                # wasn't completed (i.e. inference was killed mid-image).
+                # Completeness filter. Drops any (image_id) whose full set
+                # of expected category queries wasn't completed (i.e.
+                # inference was killed mid-image).
+                #   * full_detection: one row per (image, cat); a missing
+                #     row means that (image, cat) pair wasn't queried.
+                #   * qwen3_multilabel: one row per image with all classes
+                #     in one prompt; a non-empty prediction implies every
+                #     class for that image was effectively answered (the
+                #     model chose which ones to emit boxes for). An empty
+                #     prediction drops the whole image.
                 completion_summary: Dict = {
                     'images_total': len(filtered_gt['images']),
                     'images_completed': len(filtered_gt['images']),
                     'images_dropped': 0,
                     'dropped_image_ids': [],
                 }
-                if eval_scope == 'full_detection':
+                if eval_scope in ('full_detection', 'qwen3_multilabel'):
                     expected_pairs = expected_pairs_by_ds.get((domain, split), set())
                     completed_pairs = set()
                     for r in rows:
@@ -495,19 +549,36 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         if not str(pv).strip():
                             continue
                         iid = parse_image_id_from_index(r['index'])
+                        if iid is None:
+                            continue
+                        # Single-class row: read category_id directly.
                         try:
                             cid = int(r['category_id'])
-                        except (TypeError, ValueError):
-                            continue
-                        if iid is not None:
                             completed_pairs.add((iid, cid))
+                            continue
+                        except (TypeError, ValueError):
+                            pass
+                        # Multi-label row: a non-empty prediction implies
+                        # every class for this image was queried. Mark all
+                        # (iid, cat_id) pairs from dataset_classes as
+                        # completed so drop_incomplete_images keeps the image.
+                        try:
+                            dataset_classes = json.loads(r.get('dataset_classes') or '[]')
+                        except (json.JSONDecodeError, TypeError):
+                            dataset_classes = []
+                        for c in dataset_classes:
+                            if isinstance(c, dict) and 'id' in c:
+                                try:
+                                    completed_pairs.add((iid, int(c['id'])))
+                                except (TypeError, ValueError):
+                                    continue
                     preds, filtered_gt, completion_summary = drop_incomplete_images(
                         preds, filtered_gt, expected_pairs, completed_pairs,
                     )
                     if completion_summary['images_dropped']:
                         logger.warning(
                             'ODinW [%s/%s]: dropped %d/%d images for incomplete '
-                            'category coverage (full-detection partial-run safety net).',
+                            'category coverage (partial-run safety net).',
                             domain, split,
                             completion_summary['images_dropped'],
                             completion_summary['images_total'],
@@ -543,7 +614,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
 
                 # Per-row instance diagnostics for this (domain, split).
                 # Collapse (domain, split, image_id, category_id) into a
-                # single ``trajectory_file`` matching prepare_odinw_full's
+                # single ``trajectory_file`` matching prepare_odinw's
                 # row index format: ``<domain>_<split>_<image_id>_<category_id>.json``.
                 # That string is the basename used by full_trajectories/
                 # and raw_trajectories/, so users can cross-reference
@@ -552,10 +623,19 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     domain_per_row = extract_per_row_diagnostics(
                         evaluator_obj, iou_threshold=0.5, area_label='all',
                     )
+                    # Index basename layout depends on the TSV: per-class
+                    # rows store one trajectory per (image, category); qwen3
+                    # multi-label rows store one trajectory per image (the
+                    # same trajectory is referenced by every per-class
+                    # diagnostic row for that image).
+                    qwen3_layout = (eval_scope == 'qwen3_multilabel')
                     for r in domain_per_row:
-                        basename = (
-                            f"{domain}_{split}_{r['image_id']}_{r['category_id']}.json"
-                        )
+                        if qwen3_layout:
+                            basename = f"{domain}_{split}_{r['image_id']}.json"
+                        else:
+                            basename = (
+                                f"{domain}_{split}_{r['image_id']}_{r['category_id']}.json"
+                            )
                         r['trajectory_file'] = resolve_trajectory_path(
                             eval_file, basename
                         )
@@ -563,17 +643,12 @@ class ODinWBBoxDataset(ImageBaseDataset):
                         r.pop('category_id', None)
                     all_per_row.extend(domain_per_row)
 
-            # Average across domains using the **test** split only.  This matches
-            # the ODinW-13 reporting convention used by GLIP / Grounding DINO.
-            # The val TSV bundles both val and test rows (per prepare_odinw.py);
-            # both are reported per-domain but only test feeds the average.
-            # Skip -1 ("no data") entries when averaging so APs/APm/APl don't
-            # get pulled down by domains that have no small/medium/large boxes.
+            # 13-domain macro-mean. Each TSV holds exactly one split, so
+            # ``per_domain`` already contains exactly one entry per domain
+            # (keyed ``<domain>/<split>``). Skip -1 ("no data") entries so
+            # APs/APm/APl aren't pulled down by domains with no small/
+            # medium/large boxes.
             metric_keys = ['AP', 'AP50', 'AP75', 'APs', 'APm', 'APl']
-            avg_source = (
-                [d for d in per_domain if d.endswith('/test')]
-                or list(per_domain.keys())
-            )
 
             def _mean_skip_missing(vals):
                 valid = [float(v) for v in vals if v is not None and float(v) >= 0]
@@ -581,20 +656,15 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     return -1.0
                 return float(np.mean(valid))
 
-            if avg_source:
+            if per_domain:
                 avg = {
-                    k: _mean_skip_missing([per_domain[d][k] for d in avg_source])
+                    k: _mean_skip_missing([d[k] for d in per_domain.values()])
                     for k in metric_keys
                 }
             else:
                 avg = {k: 0.0 for k in metric_keys}
-            test_keys = [d for d in per_domain if d.endswith('/test')]
 
-            avg_label = (
-                'ODinW13_average' if 'ODinW13' in self.dataset_name
-                else 'ODinW35_average' if 'ODinW35' in self.dataset_name
-                else 'ODinW_average'
-            )
+            avg_label = 'ODinW13_average'
 
             # Phase 2: emit sidecar diagnostics if we used real SAM3 scores.
             sidecar_diag = None
@@ -618,8 +688,9 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 'eval_scope': eval_scope,
                 'num_predictions_total': len(all_preds),
                 'domain_splits_evaluated': domain_splits_evaluated,
-                'average_split': 'test' if test_keys else (
-                    domain_splits_evaluated[0].split('/', 1)[1] if domain_splits_evaluated else None
+                'average_split': (
+                    domain_splits_evaluated[0].split('/', 1)[1]
+                    if domain_splits_evaluated else None
                 ),
                 'per_domain': per_domain,
                 avg_label: avg,
