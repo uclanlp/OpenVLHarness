@@ -25,7 +25,7 @@ agent_kwargs:
   retry: 3
   verbose: true
   # debug_tool_loop: true
-  tool_base: "http://localhost:8103"
+  tool_base: "http://localhost:8102"
   tool_choice: "auto"
   tool_list:
     - "Visual_Grounding_Tool"
