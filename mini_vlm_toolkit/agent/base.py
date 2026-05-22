@@ -9,6 +9,7 @@ from .utils import _get_json, pretty_print_msgs
 from .constant import PROMPT_REGISTRY
 from ..memory import PersistentStateMemory, build_persistent_state_memory
 from ..utils.api_utils import (
+    _normalize_models_endpoint,
     chat_completion_request,
     filter_kwargs_for_endpoint,
     tool_execute_request,
@@ -125,7 +126,9 @@ class BaseAgent:
         self.base = base
         key_text = str(key or "").strip()
         is_empty_key = key_text.lower() in {"", "empty", "none", "null"}
-        is_openai_official_base = "api.openai.com" in str(base or "").lower()
+        base_lower = str(base or "").lower()
+        is_openai_official_base = "api.openai.com" in base_lower
+        is_gemini_official_base = "generativelanguage.googleapis.com" in base_lower
         if is_openai_official_base and is_empty_key:
             key_text = ""
             for env_name in ("OPENAI_API_KEY", "MODEL_API_KEY"):
@@ -137,6 +140,18 @@ class BaseAgent:
                 raise ValueError(
                     "OpenAI API key is required for https://api.openai.com. "
                     "Set OPENAI_API_KEY in the repo-root .env file, or pass key explicitly."
+                )
+        elif is_gemini_official_base and is_empty_key:
+            key_text = ""
+            for env_name in ("GOOGLE_API_KEY", "GEMINI_API_KEY"):
+                env_value = os.getenv(env_name, "").strip()
+                if env_value:
+                    key_text = env_value
+                    break
+            if not key_text.strip():
+                raise ValueError(
+                    "Google API key is required for generativelanguage.googleapis.com. "
+                    "Set GOOGLE_API_KEY in ~/.bashrc or the repo-root .env file, or pass key explicitly."
                 )
         self.key = key_text if key_text else key
         self.model = model
@@ -165,7 +180,7 @@ class BaseAgent:
             self.default_kwargs["reasoning_effort"] = self.reasoning_effort
 
         # check if server is reachable
-        models_url = f"{self.base.rstrip('/')}/v1/models"
+        models_url = _normalize_models_endpoint(self.base)
         health_headers = {"Content-Type": "application/json"}
         key_text = str(self.key or "").strip()
         if key_text and key_text.lower() not in {"empty", "none", "null"}:
