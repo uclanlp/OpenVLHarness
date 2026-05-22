@@ -415,6 +415,7 @@ class _FSCDBBoxBase(ImageBaseDataset):
 
             preds = build_coco_predictions(
                 rows, score_mode=score_mode, score_lookup=score_lookup,
+                output_dir=osp.dirname(eval_file),
             )
 
             pred_path = get_intermediate_file_path(

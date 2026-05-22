@@ -487,6 +487,7 @@ class LVISBBoxDataset(ImageBaseDataset):
                 rows,
                 score_mode=score_mode,
                 score_lookup=score_lookup,
+                output_dir=osp.dirname(eval_file),
             )
             logger.info(
                 '[LVIS %s] Built %d predictions across %d rows.',

@@ -455,6 +455,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
                     rows, score_mode=score_mode, score_lookup=score_lookup,
                     coords_space=coords_space,
                     mode='qwen3_multilabel' if eval_scope == 'qwen3_multilabel' else 'single',
+                    output_dir=osp.dirname(eval_file),
                 )
                 all_preds.extend(preds)
 
