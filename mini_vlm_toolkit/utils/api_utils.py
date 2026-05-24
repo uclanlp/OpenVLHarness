@@ -236,7 +236,23 @@ def _normalize_chat_endpoint(
         return f"{trimmed}/chat/completions"
     elif trimmed.endswith("completions"):
         return trimmed
+    elif trimmed.endswith("/v1beta/openai"):
+        # Google Gemini's OpenAI-compat endpoint: chat/completions is mounted
+        # directly under /v1beta/openai (no extra /v1 segment).
+        return f"{trimmed}/chat/completions"
     return f"{trimmed}/v1/chat/completions"
+
+
+def _normalize_models_endpoint(
+    base_url: str,
+) -> str:
+    """Models-listing URL used for startup health checks."""
+    trimmed = base_url.rstrip("/")
+    if trimmed.endswith("/v1beta/openai"):
+        return f"{trimmed}/models"
+    if trimmed.endswith("/v1"):
+        return f"{trimmed}/models"
+    return f"{trimmed}/v1/models"
 
 
 def _normalize_embeddings_endpoint(
@@ -265,6 +281,14 @@ def _is_openai_chat_endpoint(endpoint: str) -> bool:
     except Exception:
         return False
     return (parsed.netloc or "").lower() == "api.openai.com"
+
+
+def _is_gemini_chat_endpoint(endpoint: str) -> bool:
+    try:
+        parsed = urlparse(str(endpoint))
+    except Exception:
+        return False
+    return (parsed.netloc or "").lower() == "generativelanguage.googleapis.com"
 
 
 def _is_gpt5_family_model(model: Optional[str]) -> bool:
@@ -412,8 +436,11 @@ def chat_completion_request(
     resolved_api_key = api_key or get_model_api_key(model)
     endpoint = _normalize_chat_endpoint(resolved_base_url)
     is_openai_endpoint = _is_openai_chat_endpoint(endpoint)
+    is_gemini_endpoint = _is_gemini_chat_endpoint(endpoint)
     is_gpt5_model = _is_gpt5_family_model(model)
     is_openai_native = is_openai_endpoint or is_gpt5_model
+    # Hosted providers that strictly reject unknown fields (OpenAI, Gemini).
+    is_strict_endpoint = is_openai_native or is_gemini_endpoint
 
     payload: Dict[str, Any] = {"model": model, "messages": attach_images(messages, image_paths or [])}
     if temperature is not None:
@@ -424,7 +451,7 @@ def chat_completion_request(
             payload["max_completion_tokens"] = max_tokens
         else:
             payload["max_tokens"] = max_tokens
-    if repetition_penalty is not None and not is_openai_native:
+    if repetition_penalty is not None and not is_strict_endpoint:
         payload["repetition_penalty"] = repetition_penalty
     if reasoning_effort is not None and is_gpt5_model:
         payload["reasoning_effort"] = reasoning_effort
@@ -433,13 +460,13 @@ def chat_completion_request(
     if stop is not None:
         payload["stop"] = stop
     if tools:
-        payload["tools"] = _sanitize_tools_for_openai(tools) if is_openai_native else tools
+        payload["tools"] = _sanitize_tools_for_openai(tools) if is_strict_endpoint else tools
         if tool_choice:
             payload["tool_choice"] = tool_choice
     if response_format:
         payload["response_format"] = response_format
     if extra_body:
-        if is_openai_native:
+        if is_strict_endpoint:
             cleaned_extra_body = _sanitize_openai_extra_body(extra_body, is_gpt5=is_gpt5_model)
         else:
             # Internal orchestration field; vLLM logs a warning for unknown keys.

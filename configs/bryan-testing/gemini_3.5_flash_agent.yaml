@@ -1,0 +1,17 @@
+# APIAgent configuration for Google Gemini 3.5 Flash via the
+# OpenAI-compatible endpoint (https://generativelanguage.googleapis.com/v1beta/openai/).
+agent_name: APIAgent
+agent_config_version: v1_0215
+
+agent_kwargs:
+  base: "https://generativelanguage.googleapis.com/v1beta/openai"
+  key: "empty"  # loaded from GOOGLE_API_KEY (or GEMINI_API_KEY) in ~/.bashrc / repo-root .env
+  model: "gemini-3.5-flash-preview"  # confirm exact ID against Google docs
+  timeout: 600
+  custom_prompt: false
+  max_tokens: 12800
+  temperature: 0.0
+  top_p: 1.0
+  retry: 3
+  verbose: true
+  extra_body: {}
