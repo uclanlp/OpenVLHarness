@@ -9,6 +9,7 @@ from .utils import _get_json, pretty_print_msgs
 from .constant import PROMPT_REGISTRY
 from ..memory import PersistentStateMemory, build_persistent_state_memory
 from ..utils.api_utils import (
+    _normalize_chat_endpoint,
     _normalize_models_endpoint,
     chat_completion_request,
     filter_kwargs_for_endpoint,
@@ -156,7 +157,7 @@ class BaseAgent:
         self.key = key_text if key_text else key
         self.model = model
         self.timeout = timeout
-        self.api_base = os.path.join(self.base, "v1/chat/completions")
+        self.api_base = _normalize_chat_endpoint(self.base)
         self.logger = get_logger("BaseAgent")
         self.custom_prompt = custom_prompt
         self.system_prompt = None
