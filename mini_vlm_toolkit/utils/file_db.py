@@ -364,6 +364,74 @@ def mark_done(work_dir: str, idx: Any) -> None:
     os.close(fd)
 
 
+def _dir_size_bytes(path: str) -> int:
+    """Best-effort recursive byte count. Unreadable entries are skipped."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += osp.getsize(osp.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def is_safe_to_cleanup(
+    work_dir: str,
+    *,
+    result_file_exists: bool,
+    expected_n: int,
+    has_failures: bool,
+    stale_seconds: int = DEFAULT_STALE_SECONDS,
+) -> Tuple[bool, str]:
+    """Decide whether the per-example file-db under ``work_dir`` can be deleted.
+
+    Returns ``(ok, reason)``. The heavy inputs (whether the aggregated
+    prediction file exists, whether any FAIL_MSG rows remain) are computed by
+    the caller and passed in, so this stays dependency-light and unit-testable.
+    All of the following must hold:
+
+      * the aggregated prediction file exists (durable copy of every record),
+      * no FAIL_MSG rows remain (preserve the db so failures can be retried
+        in place via ``--ignore-failed`` without rebuilding from the xlsx),
+      * no live worker still holds a claim on this work_dir,
+      * every expected example has a committed done flag (full coverage).
+    """
+    if not result_file_exists:
+        return False, "aggregated result file not found"
+    if has_failures:
+        return False, "FAIL_MSG rows present; preserving db for retry"
+    fresh = load_fresh_claims(work_dir, stale_seconds=stale_seconds)
+    if fresh:
+        return False, f"{len(fresh)} live claim(s) present"
+    done = len(load_done_set(work_dir))
+    if done < expected_n:
+        return False, f"incomplete coverage: {done}/{expected_n} done flags"
+    return True, "ok"
+
+
+def cleanup(work_dir: str) -> dict:
+    """Idempotently remove the per-example file-db (``results/``, ``_done/``,
+    ``_claims/``) under ``work_dir``.
+
+    Safe to call when the layout is already gone. Never raises: filesystem
+    errors are swallowed because the run's durable outputs (the aggregated
+    xlsx, ``full_trajectories/``, etc.) live elsewhere and are untouched.
+    Returns ``{"removed": [<abs paths removed>], "freed_bytes": <int>}``.
+    """
+    targets = [_results_root(work_dir), _done_dir(work_dir), _claim_dir(work_dir)]
+    removed = []
+    freed = 0
+    for path in targets:
+        if not osp.isdir(path):
+            continue
+        freed += _dir_size_bytes(path)
+        shutil.rmtree(path, ignore_errors=True)
+        if not osp.exists(path):
+            removed.append(path)
+    return {"removed": removed, "freed_bytes": freed}
+
+
 @contextmanager
 def claim_and_heartbeat(
     work_dir: str,
