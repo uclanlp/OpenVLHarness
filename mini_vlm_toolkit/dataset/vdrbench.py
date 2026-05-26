@@ -428,14 +428,23 @@ class VDRBench(ImageBaseDataset):
         hf_ds = _load_hf_dataset(dataset)
         df = hf_ds.to_pandas()
 
-        img_root = osp.join(lmu_root, "images", "VDRBench")
+        # Per-dataset namespace (testmini vs Full share NOTHING).
+        # Pre-2026-05-23 used "images/VDRBench" for both → cache pollution:
+        # Full's `<row_idx>.jpg` was served to testmini's same-idx row,
+        # which is a different sample. All VDRBench scores before this fix
+        # were random-image noise.
+        img_root = osp.join(lmu_root, "images", dataset)
         os.makedirs(img_root, exist_ok=True)
 
         def _cache_image(idx, row):
             img = row.get("image", None)
             if img is None:
                 return []
-            filename = f"{idx}.jpg"
+            # Filename is the sample's unique id ("hard_People_1428_3.jpg")
+            # — not numeric row position — so re-orderings or cross-dataset
+            # loads can never silently serve the wrong image.
+            sample_id = str(row.get("id", idx))
+            filename = f"{sample_id}.jpg"
             path = osp.join(img_root, filename)
             if not osp.exists(path):
                 if not _save_image(img, path):
