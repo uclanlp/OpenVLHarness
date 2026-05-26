@@ -133,6 +133,91 @@ def test_load_done_set_empty_when_dir_missing():
         assert file_db.load_done_set(work_dir) == set()
 
 
+# --------------------------------------------------------------------------
+# cleanup / is_safe_to_cleanup
+# --------------------------------------------------------------------------
+
+def _seed_committed_run(work_dir, n=10):
+    """Commit n records and leave a claim dir, mimicking a finished run."""
+    file_db.ensure_layout(work_dir)
+    for i in range(n):
+        file_db.commit_atomic(work_dir, f"item_{i}", {"prediction": str(i)})
+
+
+def test_cleanup_removes_all_three_dirs():
+    with tempfile.TemporaryDirectory() as work_dir:
+        _seed_committed_run(work_dir, n=5)
+        assert os.path.isdir(file_db._results_root(work_dir))
+        assert os.path.isdir(file_db._done_dir(work_dir))
+        assert os.path.isdir(file_db._claim_dir(work_dir))
+
+        summary = file_db.cleanup(work_dir)
+
+        assert not os.path.exists(file_db._results_root(work_dir))
+        assert not os.path.exists(file_db._done_dir(work_dir))
+        assert not os.path.exists(file_db._claim_dir(work_dir))
+        assert len(summary["removed"]) == 3
+        assert summary["freed_bytes"] > 0
+
+
+def test_cleanup_is_idempotent_on_missing_layout():
+    with tempfile.TemporaryDirectory() as work_dir:
+        summary = file_db.cleanup(work_dir)  # nothing there yet
+        assert summary["removed"] == []
+        assert summary["freed_bytes"] == 0
+
+
+def test_is_safe_to_cleanup_happy_path():
+    with tempfile.TemporaryDirectory() as work_dir:
+        _seed_committed_run(work_dir, n=10)
+        ok, reason = file_db.is_safe_to_cleanup(
+            work_dir, result_file_exists=True, expected_n=10, has_failures=False,
+        )
+        assert ok, reason
+
+
+def test_is_safe_to_cleanup_blocks_without_result_file():
+    with tempfile.TemporaryDirectory() as work_dir:
+        _seed_committed_run(work_dir, n=10)
+        ok, reason = file_db.is_safe_to_cleanup(
+            work_dir, result_file_exists=False, expected_n=10, has_failures=False,
+        )
+        assert not ok
+        assert "result file" in reason
+
+
+def test_is_safe_to_cleanup_blocks_on_failures():
+    with tempfile.TemporaryDirectory() as work_dir:
+        _seed_committed_run(work_dir, n=10)
+        ok, reason = file_db.is_safe_to_cleanup(
+            work_dir, result_file_exists=True, expected_n=10, has_failures=True,
+        )
+        assert not ok
+        assert "FAIL_MSG" in reason
+
+
+def test_is_safe_to_cleanup_blocks_on_incomplete_coverage():
+    with tempfile.TemporaryDirectory() as work_dir:
+        _seed_committed_run(work_dir, n=5)
+        ok, reason = file_db.is_safe_to_cleanup(
+            work_dir, result_file_exists=True, expected_n=10, has_failures=False,
+        )
+        assert not ok
+        assert "coverage" in reason
+
+
+def test_is_safe_to_cleanup_blocks_on_live_claim():
+    with tempfile.TemporaryDirectory() as work_dir:
+        _seed_committed_run(work_dir, n=10)
+        # A fresh, unreleased claim simulates a concurrent live worker.
+        assert file_db.claim(work_dir, "item_99")
+        ok, reason = file_db.is_safe_to_cleanup(
+            work_dir, result_file_exists=True, expected_n=10, has_failures=False,
+        )
+        assert not ok
+        assert "live claim" in reason
+
+
 def test_load_fresh_claims_excludes_stale():
     with tempfile.TemporaryDirectory() as work_dir:
         file_db.claim(work_dir, "fresh")

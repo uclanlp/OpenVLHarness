@@ -11,7 +11,12 @@ import datetime
 from mini_vlm_toolkit.smp import *
 from mini_vlm_toolkit import infer_video_job, infer_image_job
 from mini_vlm_toolkit.utils import load_judge_config
+from mini_vlm_toolkit.utils import file_db
 from mini_vlm_toolkit.utils.eval_injection import merge_eval_into_trajectories
+
+# Matches FAIL_MSG in mini_vlm_toolkit.inference_image / .inference_video; the
+# sentinel prediction written when an example fails to produce an answer.
+FAIL_MSG = 'Failed to obtain answer via API.'
 from mini_vlm_toolkit.utils.run_identity import (
     parse_yaml_mapping,
     require_config_version,
@@ -287,6 +292,17 @@ if __name__ == "__main__":
              'read/written directly under this directory. Useful for re-evaluating a completed run '
              '(e.g. with --mode eval to apply LLM judge to an existing inference output).'
     )
+    parser.add_argument(
+        '--keep-file-db', action='store_true',
+        help='Keep the per-example file-db (results/, _done/, _claims/) after a '
+             'fully-evaluated run. By default (--mode all only), once inference + '
+             'evaluation complete and the aggregated prediction file is written, '
+             'these are deleted to reclaim disk; the xlsx and full_trajectories/ '
+             'are kept and remain sufficient for eval, error analysis, and the '
+             'visualizer. Cleanup is also skipped when failures remain (retryable '
+             'via --ignore-failed) or a concurrent worker is still active. Set the '
+             'env var MVTK_KEEP_FILE_DB=1 to disable globally.'
+    )
     args = parser.parse_args()
 
     # --mode eval always needs an existing run with pred files
@@ -513,3 +529,49 @@ if __name__ == "__main__":
                 logger.warning(
                     f"[eval_injection] failed for dataset {dataset_name}: {exc}"
                 )
+
+            # Auto-cleanup the per-example file-db once a run is fully
+            # evaluated. Only on --mode all (inference + eval both ran this
+            # invocation) so eval-only / infer-only never delete it. Never
+            # fatal: the xlsx + full_trajectories are the durable outputs.
+            keep_db = args.keep_file_db or os.getenv("MVTK_KEEP_FILE_DB") in ("1", "true", "True")
+            if args.mode == "all" and not keep_db:
+                try:
+                    db_work_dir = os.path.dirname(result_file)
+                    try:
+                        pred_data = load(result_file)
+                        if isinstance(pred_data, list):
+                            import pandas as pd
+                            pred_data = pd.DataFrame(pred_data)
+                        preds = pred_data.get("prediction", [])
+                        has_failures = any(FAIL_MSG in str(p) for p in preds)
+                        expected_n = len(dataset.data)
+                    except Exception as exc:
+                        # If we can't introspect the result file, err on the
+                        # side of keeping the db.
+                        has_failures, expected_n = True, 0
+                        logger.warning(
+                            f"[file-db cleanup] could not read {result_file}: {exc}; "
+                            "preserving db"
+                        )
+                    ok, reason = file_db.is_safe_to_cleanup(
+                        db_work_dir,
+                        result_file_exists=os.path.exists(result_file),
+                        expected_n=expected_n,
+                        has_failures=has_failures,
+                    )
+                    if ok:
+                        summary = file_db.cleanup(db_work_dir)
+                        logger.info(
+                            f"[file-db cleanup] {dataset_name}: removed "
+                            f"results/_done/_claims, freed "
+                            f"{summary['freed_bytes'] / 1e9:.2f} GB"
+                        )
+                    else:
+                        logger.info(
+                            f"[file-db cleanup] skipped for {dataset_name}: {reason}"
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        f"[file-db cleanup] failed for dataset {dataset_name}: {exc}"
+                    )
