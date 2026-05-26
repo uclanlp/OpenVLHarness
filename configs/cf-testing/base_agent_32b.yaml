@@ -1,0 +1,26 @@
+# Example agent configuration
+agent_name: BaseAgent
+agent_config_version: v1_0215
+
+agent_kwargs:
+  base: "http://localhost:8444"
+  key: "empty"
+  model: "Qwen/Qwen3-VL-32B-Instruct"
+  timeout: 600
+  custom_prompt: false
+  max_tokens: 2048
+  temperature: 0.7
+  top_p: 0.95
+  repetition_penalty: 1.0
+  retry: 3
+  verbose: false
+  # Optional provider-specific fields:
+  # extra_body: {}
+  # BaseAgentWithTools only:
+  # tool_choice: "auto"
+  # tool_list: null  # default: null (use all tools). Example subset: ["Python_Executor_Tool", "Visual_Grounding_Tool"]
+  # prompt_version: "v1"  # optional: "v1" or "v2"
+  # reasoning_effort: "medium"  # optional OpenAI GPT-5 knob
+  # persistent_state_memory:
+  #   name: "image"  # default memory for BaseAgentWithTools
+  #   emit_policy: "always"  # "always" (default) or "on_change"

@@ -16,7 +16,9 @@ _TOOL_NAME_TO_BINDING_PREFIX = {
     "GroundingDINO_Tool": "grounding",
     "Visual_Grounding_Tool": "segment",
     "Depth_Estimation_Tool": "depth",
+    "Camera_Trajectory_Tool": "camera_trajectory",
     "OCR_Tool": "ocr",
+    "Tracking_Tool": "tracking",
 }
 
 _TOOL_RESULT_FIELDS: Dict[str, Dict[str, Any]] = {
@@ -34,8 +36,22 @@ _TOOL_RESULT_FIELDS: Dict[str, Dict[str, Any]] = {
         "include": ["depth_meters_b64", "depth_shape", "colormap", "size"],
         "exclude": ["depth_map_base64"],
     },
+    "Camera_Trajectory_Tool": {
+        "include": [
+            "intrinsics", "extrinsics", "image_ids", "num_images",
+            "cameras", "coordinate_system", "reference_image_id",
+        ],
+        "exclude": ["bird_eye_view_image_base64"],
+    },
     "OCR_Tool": {
         "include": ["texts", "results"],
+    },
+    "Tracking_Tool": {
+        "include": [
+            "status", "target", "image_ids", "tracks", "movement",
+            "ambiguities",
+        ],
+        "exclude": ["grounding_images"],
     },
 }
 
@@ -56,8 +72,17 @@ _FIELD_DESCRIPTIONS: Dict[Tuple[str, str], str] = {
     ("Depth_Estimation_Tool", "depth_shape"): "[height, width] of depth map",
     ("Depth_Estimation_Tool", "colormap"): "colormap used for depth visualization",
     ("Depth_Estimation_Tool", "size"): "[width, height] of source image",
+    ("Camera_Trajectory_Tool", "intrinsics"): "per-image 3x3 camera intrinsic matrices (ndarray shape=(N,3,3))",
+    ("Camera_Trajectory_Tool", "extrinsics"): "per-image 3x4 world-to-camera matrices (OpenCV/COLMAP), ndarray shape=(N,3,4)",
+    ("Camera_Trajectory_Tool", "image_ids"): "ordered runtime image IDs aligned with intrinsics/extrinsics",
+    ("Camera_Trajectory_Tool", "num_images"): "number of images processed",
+    ("Camera_Trajectory_Tool", "cameras"): "per-image dicts (in reference frame): camera_center_delta, movement_summary, forward_direction, rotation_summary, yaw_deg, pitch_deg",
+    ("Camera_Trajectory_Tool", "coordinate_system"): "human-readable coordinate convention used for cameras",
+    ("Camera_Trajectory_Tool", "reference_image_id"): "image_id of the reference frame (always image_ids[0])",
     ("OCR_Tool", "texts"): "recognized text strings",
     ("OCR_Tool", "results"): "OCR results with text, confidence, and bbox",
+    ("Tracking_Tool", "tracks"): "selected target detections across images",
+    ("Tracking_Tool", "movement"): "2D movement and relative depth change summary",
 }
 
 
@@ -207,6 +232,14 @@ def _extract_binding_value(
             del extracted["depth_meters_b64"]
         except Exception:
             pass
+
+    if tool_name == "Camera_Trajectory_Tool":
+        for key in ("intrinsics", "extrinsics"):
+            if key in extracted:
+                try:
+                    extracted[key] = np.asarray(extracted[key], dtype=np.float32)
+                except Exception:
+                    pass
 
     return extracted
 

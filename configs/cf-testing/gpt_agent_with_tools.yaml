@@ -17,7 +17,7 @@ agent_kwargs:
   verbose: true
   extra_body: {}
 
-  tool_base: "http://localhost:8103"
+  tool_base: "http://localhost:8101"
   tool_choice: "auto"
   tool_list:
     - "Visual_Grounding_Tool"
@@ -28,6 +28,7 @@ agent_kwargs:
     - "Webpage_Visit_Tool"
     - "Image_Search_Tool"
     - "Text_Search_Tool"
+    - "Camera_Trajectory_Tool"
   prompt_version: "openai_v1"
   persistent_state_memory:
     emit_policy: "always"

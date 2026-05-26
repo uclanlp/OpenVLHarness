@@ -2,6 +2,7 @@ import base64
 import io
 import os
 import tempfile
+from typing import List
 
 import numpy as np
 import torch
@@ -131,10 +132,51 @@ async def depth(
         "depth_meters_b64": depth_meters_b64,
         "depth_shape": [height, width],
         "depth_map_base64": depth_map_base64,
+        "intrinsics": prediction.intrinsics.astype(float).tolist(),
+        "extrinsics": prediction.extrinsics.astype(float).tolist(),
         "colormap": colormap_used,
         "model_id": MODEL_ID,
         "device": DEVICE,
         "size": [height, width],
+    }
+
+
+@app.post("/v1/pose")
+async def pose(images: List[UploadFile] = File(...)):
+    if not images or len(images) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least two images are required for camera pose estimation",
+        )
+
+    pil_images = []
+    image_sizes = []
+    for upload in images:
+        payload = await upload.read()
+        if not payload:
+            raise HTTPException(
+                status_code=400, detail=f"image payload is empty: {upload.filename}"
+            )
+        try:
+            pil_image = Image.open(io.BytesIO(payload)).convert("RGB")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid image {upload.filename}: {exc}",
+            ) from exc
+        pil_images.append(pil_image)
+        image_sizes.append([pil_image.size[1], pil_image.size[0]])  # [H, W]
+
+    process_res = max(max(img.size) for img in pil_images)
+    prediction = MODEL.inference(pil_images, process_res=process_res)
+
+    return {
+        "intrinsics": prediction.intrinsics.astype(float).tolist(),
+        "extrinsics": prediction.extrinsics.astype(float).tolist(),
+        "num_images": len(pil_images),
+        "image_sizes": image_sizes,
+        "model_id": MODEL_ID,
+        "device": DEVICE,
     }
 
 

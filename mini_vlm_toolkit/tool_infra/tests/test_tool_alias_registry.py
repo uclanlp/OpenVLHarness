@@ -1,6 +1,8 @@
 import contextlib
 import types
 
+import requests
+
 import tool_registry.loader as loader
 from tools.base import BaseTool
 
@@ -180,11 +182,37 @@ def test_strict_module_sanity_failure_raises_in_auto_mode():
     raise AssertionError("Expected strict module sanity failure to raise RuntimeError")
 
 
+def test_model_server_backed_tools_register_without_startup_health_probe():
+    original_get_tool_modules = loader._get_tool_modules
+    original_requests_get = requests.get
+
+    def fake_get_tool_modules():
+        return [
+            "tools.sam3_segment.tool",
+            "tools.depth_estimation.tool",
+        ], False
+
+    def fail_get(*args, **kwargs):
+        raise AssertionError("registry load should not probe model server health")
+
+    loader._get_tool_modules = fake_get_tool_modules
+    requests.get = fail_get
+    try:
+        tool_instances, _tool_metadata = loader.load_tools()
+    finally:
+        loader._get_tool_modules = original_get_tool_modules
+        requests.get = original_requests_get
+
+    assert "Visual_Grounding_Tool" in tool_instances
+    assert "Depth_Estimation_Tool" in tool_instances
+
+
 def main():
     test_load_tools_registers_explicit_and_snake_case_aliases()
     test_alias_collision_raises()
     test_invalid_alias_raises()
     test_strict_module_sanity_failure_raises_in_auto_mode()
+    test_model_server_backed_tools_register_without_startup_health_probe()
     print("Tool alias registry tests completed.")
 
 

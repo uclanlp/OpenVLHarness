@@ -9,8 +9,6 @@ from .utils import _get_json, pretty_print_msgs
 from .constant import PROMPT_REGISTRY
 from ..memory import PersistentStateMemory, build_persistent_state_memory
 from ..utils.api_utils import (
-    _normalize_chat_endpoint,
-    _normalize_models_endpoint,
     chat_completion_request,
     filter_kwargs_for_endpoint,
     tool_execute_request,
@@ -127,9 +125,7 @@ class BaseAgent:
         self.base = base
         key_text = str(key or "").strip()
         is_empty_key = key_text.lower() in {"", "empty", "none", "null"}
-        base_lower = str(base or "").lower()
-        is_openai_official_base = "api.openai.com" in base_lower
-        is_gemini_official_base = "generativelanguage.googleapis.com" in base_lower
+        is_openai_official_base = "api.openai.com" in str(base or "").lower()
         if is_openai_official_base and is_empty_key:
             key_text = ""
             for env_name in ("OPENAI_API_KEY", "MODEL_API_KEY"):
@@ -142,22 +138,10 @@ class BaseAgent:
                     "OpenAI API key is required for https://api.openai.com. "
                     "Set OPENAI_API_KEY in the repo-root .env file, or pass key explicitly."
                 )
-        elif is_gemini_official_base and is_empty_key:
-            key_text = ""
-            for env_name in ("GOOGLE_API_KEY", "GEMINI_API_KEY"):
-                env_value = os.getenv(env_name, "").strip()
-                if env_value:
-                    key_text = env_value
-                    break
-            if not key_text.strip():
-                raise ValueError(
-                    "Google API key is required for generativelanguage.googleapis.com. "
-                    "Set GOOGLE_API_KEY in ~/.bashrc or the repo-root .env file, or pass key explicitly."
-                )
         self.key = key_text if key_text else key
         self.model = model
         self.timeout = timeout
-        self.api_base = _normalize_chat_endpoint(self.base)
+        self.api_base = os.path.join(self.base, "v1/chat/completions")
         self.logger = get_logger("BaseAgent")
         self.custom_prompt = custom_prompt
         self.system_prompt = None
@@ -181,7 +165,7 @@ class BaseAgent:
             self.default_kwargs["reasoning_effort"] = self.reasoning_effort
 
         # check if server is reachable
-        models_url = _normalize_models_endpoint(self.base)
+        models_url = f"{self.base.rstrip('/')}/v1/models"
         health_headers = {"Content-Type": "application/json"}
         key_text = str(self.key or "").strip()
         if key_text and key_text.lower() not in {"empty", "none", "null"}:
@@ -614,7 +598,7 @@ class APIAgent(BaseAgent):
 
 
 class BaseAgentWithTools(BaseAgent):
-    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct", "openai_v1")
+    _ALLOWED_PROMPT_VERSIONS = ("v1", "v2", "v3", "v4", "v5", "v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct", "v7_instruct", "v8_instruct", "openai_v1")
     _LEGACY_RUNTIME_ENV_KEYS = ("runtime_environment_hooks", "runtime_environment_emit_policy")
     _DEFAULT_PERSISTENT_STATE_MEMORY_SPEC = {
         "emit_policy": "always",
@@ -1157,7 +1141,7 @@ class BaseAgentWithTools(BaseAgent):
                     return non_scaffold[fa_match.end():].strip()
 
         # Strict <answer> extraction for prompts that use that tag.
-        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct", "openai_v1"):
+        if prompt_version in ("v1_instruct", "v1_thinking", "v2_instruct", "v2_thinking", "v3_instruct", "v4_instruct", "v5_instruct", "v6_instruct", "v7_instruct", "v8_instruct", "openai_v1"):
             answer_match = re.search(r"<answer>(.*?)</answer>", content, flags=re.DOTALL | re.IGNORECASE)
             if answer_match:
                 return answer_match.group(1).strip()

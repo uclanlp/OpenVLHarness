@@ -294,7 +294,16 @@ def build_image_registry_from_inputs(images: ImagesState, question: Any) -> Dict
 
 def _is_image_id_key(key: Any) -> bool:
     key_lower = str(key).lower()
+    if key_lower.startswith("_"):
+        return False
     return key_lower.endswith("_id") and "image" in key_lower
+
+
+def _is_image_ids_key(key: Any) -> bool:
+    key_lower = str(key).lower()
+    if key_lower.startswith("_"):
+        return False
+    return key_lower.endswith("_ids") and "image" in key_lower
 
 
 def _resolve_image_ids_in_args(
@@ -314,6 +323,55 @@ def _resolve_image_ids_in_args(
                 )
 
         for id_key in list(value.keys()):
+            if _is_image_ids_key(id_key):
+                base64_key = f"{id_key[:-4]}_base64s"
+                if value.get(base64_key):
+                    continue
+
+                raw_ids = value.get(id_key)
+                if not isinstance(raw_ids, list):
+                    continue
+
+                resolved_urls = []
+                unresolved = []
+                for raw_id in raw_ids:
+                    if not isinstance(raw_id, str) or not raw_id.strip():
+                        unresolved.append(raw_id)
+                        continue
+                    data_url, matched_ref, fallback_mode = (
+                        resolve_registry_image_data_url(images, raw_id)
+                    )
+                    if data_url:
+                        resolved_urls.append(data_url)
+                        rewrite_item = {
+                            "field": f"{path}.{id_key}",
+                            "target_field": f"{path}.{base64_key}",
+                            "original": raw_id,
+                        }
+                        if matched_ref:
+                            rewrite_item["image_ref"] = matched_ref
+                        if fallback_mode:
+                            rewrite_item["fallback_mode"] = fallback_mode
+                        rewrites.append(rewrite_item)
+                    else:
+                        unresolved.append(raw_id)
+
+                if unresolved:
+                    errors.append(
+                        {
+                            "field": f"{path}.{id_key}",
+                            "value": unresolved,
+                            "reason": "unresolved_image_reference",
+                            "available_image_ids": list(images.registry.keys()),
+                        }
+                    )
+                    continue
+
+                value[base64_key] = resolved_urls
+                value[f"_{id_key}"] = list(raw_ids)
+                value.pop(id_key, None)
+                continue
+
             if not _is_image_id_key(id_key):
                 continue
             base64_key = f"{id_key[:-3]}_base64"
