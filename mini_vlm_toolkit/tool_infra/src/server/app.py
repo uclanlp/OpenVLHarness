@@ -70,6 +70,7 @@ BACKEND_LIMITS = {
     # cheap searches even though both share the Serper API quota.
     "webpage_visit_llm":  int(os.environ.get("WEBPAGE_VISIT_MAX_CONCURRENCY", "8")),
     "web_search":         int(os.environ.get("WEB_SEARCH_MAX_CONCURRENCY", "4")),
+    "vllm_server":        int(os.environ.get("VLLM_SERVER_MAX_CONCURRENCY", "10")),
 }
 # Built lazily inside the running event loop so they bind to uvicorn's loop
 # (asyncio.Semaphore binds on first await). Construction is idempotent.
@@ -96,6 +97,7 @@ TOOL_BACKEND = {
     "Webpage_Visit_Tool":      "webpage_visit_llm",
     "Image_Search_Tool":       "web_search",
     "Text_Search_Tool":        "web_search",
+    "Python_Coding_Agent_Tool": "vllm_server",
 }
 
 
@@ -876,15 +878,19 @@ def execute_tool_request(request: ExecuteRequest):
 
 
 def _resolve_backend_name(tool_name):
-    # Map a requested tool name to its backend key. Lookup is exact in
-    # tool_metadata, then case-insensitive, then aliased→canonical. Tools that
-    # don't resolve cleanly here just bypass the gate (no backend → no sem),
-    # which matches the "don't slow down tools we don't know about" intent.
+    # Map a requested tool name to its backend key. Lookup mirrors
+    # _resolve_execute_tool: exact, then case-insensitive, then normalized
+    # (separator-insensitive, optional "tool" suffix). Without the normalized
+    # stage, requests like "visualgrounding" execute but skip the sem gate.
     if tool_name in tool_metadata:
         return TOOL_BACKEND.get(_canonical_registry_name(tool_name))
     lower = tool_name.lower()
     for registered in tool_metadata:
         if registered.lower() == lower:
+            return TOOL_BACKEND.get(_canonical_registry_name(registered))
+    requested_lookup_keys = _tool_lookup_keys(tool_name)
+    for registered in tool_metadata:
+        if _tool_lookup_keys(registered) & requested_lookup_keys:
             return TOOL_BACKEND.get(_canonical_registry_name(registered))
     return None
 
