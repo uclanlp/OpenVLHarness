@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import copy
 import datetime
@@ -6,10 +7,12 @@ import logging
 import math
 from typing import Optional
 import os
+import anyio.to_thread
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import re
+from starlette.concurrency import run_in_threadpool
 from tool_registry.loader import load_tools
 
 app = FastAPI()
@@ -51,6 +54,51 @@ SENSITIVE_ENV_PATTERNS = (
     "PASSWORD",
     "CREDENTIAL",
 )
+
+# Per-backend concurrency gates. Heavy tools that share a downstream backend
+# (depth GPU, SAM3, GroundingDINO, OCR) acquire the corresponding semaphore
+# *before* entering the threadpool, so excess requests park on the event loop
+# instead of holding threadpool slots needed by /health and other cheap routes.
+BACKEND_LIMITS = {
+    "depth_server":       int(os.environ.get("DEPTH_SERVER_MAX_CONCURRENCY", "1")),
+    "sam3_server":        int(os.environ.get("SAM3_SERVER_MAX_CONCURRENCY", "1")),
+    "grounding_server":   int(os.environ.get("GROUNDING_SERVER_MAX_CONCURRENCY", "2")),
+    "ocr_server":         int(os.environ.get("OCR_SERVER_MAX_CONCURRENCY", "10")),
+    # I/O-bound external HTTP buckets. Higher limits than GPU backends since
+    # slots mostly wait on sockets. Split webpage-visit (LLM-dominated, slow)
+    # from web search (Serper-dominated, fast) so slow visits don't starve
+    # cheap searches even though both share the Serper API quota.
+    "webpage_visit_llm":  int(os.environ.get("WEBPAGE_VISIT_MAX_CONCURRENCY", "8")),
+    "web_search":         int(os.environ.get("WEB_SEARCH_MAX_CONCURRENCY", "4")),
+    "vllm_server":        int(os.environ.get("VLLM_SERVER_MAX_CONCURRENCY", "10")),
+}
+# Built lazily inside the running event loop so they bind to uvicorn's loop
+# (asyncio.Semaphore binds on first await). Construction is idempotent.
+BACKEND_SEMAPHORES: dict = {}
+BACKEND_IN_FLIGHT = {backend: 0 for backend in BACKEND_LIMITS}
+
+
+def _ensure_backend_semaphores():
+    if not BACKEND_SEMAPHORES:
+        for backend, limit in BACKEND_LIMITS.items():
+            BACKEND_SEMAPHORES[backend] = asyncio.Semaphore(limit)
+
+# Canonical tool name -> backend key. Aliases are resolved to canonical first.
+# Tracking_Tool is a composite that calls both SAM3 and depth in-process; we
+# gate it under depth_server only (its SAM3 sub-call stays uncoordinated with
+# direct /execute SAM3 traffic, as agreed).
+TOOL_BACKEND = {
+    "Camera_Trajectory_Tool":  "depth_server",
+    "Depth_Estimation_Tool":   "depth_server",
+    "Tracking_Tool":           "depth_server",
+    "Visual_Grounding_Tool":   "sam3_server",
+    "GroundingDINO_Tool":      "grounding_server",
+    "OCR_Tool":                "ocr_server",
+    "Webpage_Visit_Tool":      "webpage_visit_llm",
+    "Image_Search_Tool":       "web_search",
+    "Text_Search_Tool":        "web_search",
+    "Python_Coding_Agent_Tool": "vllm_server",
+}
 
 
 def _is_sensitive_env_key(key):
@@ -507,12 +555,12 @@ class ExecuteRequest(BaseModel):
 
 
 @app.get("/tools")
-def list_tools():
+async def list_tools():
     return tool_metadata
 
 
 @app.get("/health")
-def health_check():
+async def health_check():
     canonical_count, alias_count = _count_tools()
     return {
         "status": "ok",
@@ -524,12 +572,11 @@ def health_check():
 
 
 @app.get("/env")
-def env_snapshot():
+async def env_snapshot():
     return get_runtime_env_snapshot()
 
 
-@app.get("/jsonschema")
-def list_tools_jsonschema():
+def _build_tool_jsonschemas():
     json_schemas = []
     for tool_name in sorted(tool_metadata):
         metadata = tool_metadata[tool_name]
@@ -548,26 +595,70 @@ def list_tools_jsonschema():
     return json_schemas
 
 
+@app.get("/jsonschema")
+async def list_tools_jsonschema():
+    return _build_tool_jsonschemas()
+
+
 _LLM_IMAGE_ID_DESCRIPTION = (
     "A runtime image ID from Environment Update messages, "
     "e.g. input_image_1 or tool_generated_image_1."
+)
+_LLM_IMAGE_IDS_DESCRIPTION = (
+    "Ordered runtime image IDs from Environment Update messages, "
+    "e.g. [\"input_image_1\", \"input_image_2\"]. The framework resolves "
+    "them to image bytes before dispatch."
 )
 
 
 def _project_required_for_llm(required, rename_map):
     if not isinstance(required, list):
         return required
-    return [rename_map.get(item, item) for item in required if not _is_image_base64_key(item)]
+    return [
+        rename_map.get(item, item)
+        for item in required
+        if not _is_image_base64_key(item) and not _is_internal_runtime_key(item)
+    ]
 
 
 def _is_image_base64_key(key):
     key_lower = str(key).lower()
-    return key_lower.endswith("_base64") and "image" in key_lower
+    return (
+        (key_lower.endswith("_base64") or key_lower.endswith("_base64s"))
+        and "image" in key_lower
+    )
+
+
+def _is_internal_runtime_key(key):
+    return str(key).startswith("_")
 
 
 def _is_image_path_key(key):
     key_lower = str(key).lower()
-    return key_lower.endswith("_path") and "image" in key_lower
+    if "image" not in key_lower:
+        return False
+    return key_lower.endswith("_path") or key_lower.endswith("_paths")
+
+
+def _project_schema_node_for_llm(node):
+    if not isinstance(node, dict):
+        return node
+    if node.get("type") == "object" or "properties" in node:
+        return _project_parameters_for_llm(node)
+    projected = copy.deepcopy(node)
+    if "oneOf" in projected and isinstance(projected["oneOf"], list):
+        projected["oneOf"] = [
+            _project_schema_node_for_llm(branch)
+            for branch in projected["oneOf"]
+            if not (
+                isinstance(branch, dict)
+                and isinstance(branch.get("required"), list)
+                and any(_is_image_base64_key(item) for item in branch["required"])
+            )
+        ]
+    if "items" in projected:
+        projected["items"] = _project_schema_node_for_llm(projected["items"])
+    return projected
 
 
 def _project_oneof_branches_for_llm(branches, rename_map):
@@ -613,17 +704,26 @@ def _project_parameters_for_llm(parameters):
     rename_map = {}
     new_properties = {}
     for name, spec in properties.items():
+        if _is_internal_runtime_key(name):
+            continue
         if _is_image_base64_key(name):
             continue
         if _is_image_path_key(name):
-            new_name = name[: -len("_path")] + "_id"
+            if name.lower().endswith("_paths"):
+                new_name = name[: -len("_paths")] + "_ids"
+                default_spec = {"type": "array", "items": {"type": "string"}}
+                description = _LLM_IMAGE_IDS_DESCRIPTION
+            else:
+                new_name = name[: -len("_path")] + "_id"
+                default_spec = {"type": "string"}
+                description = _LLM_IMAGE_ID_DESCRIPTION
             rename_map[name] = new_name
-            new_spec = spec if isinstance(spec, dict) else {"type": "string"}
+            new_spec = spec if isinstance(spec, dict) else default_spec
             new_spec = copy.deepcopy(new_spec)
-            new_spec["description"] = _LLM_IMAGE_ID_DESCRIPTION
+            new_spec["description"] = description
             new_properties[new_name] = new_spec
         else:
-            new_properties[name] = spec
+            new_properties[name] = _project_schema_node_for_llm(spec)
     projected["properties"] = new_properties
 
     if "required" in projected:
@@ -687,17 +787,9 @@ def _project_parameters_for_llm(parameters):
     return projected
 
 
-@app.get("/llm-schema")
-def list_tools_llm_schema():
-    """Agent-facing projection of /jsonschema.
-
-    Hides the wire-level base64 inputs (the agent's resolver populates those
-    from runtime image IDs) and renames image_path / *_image_path properties
-    to image_id / *_image_id so the LLM-facing field names match what the
-    model is actually asked to produce.
-    """
+def _build_tool_llm_schemas():
     projected = []
-    for entry in list_tools_jsonschema():
+    for entry in _build_tool_jsonschemas():
         if not isinstance(entry, dict):
             projected.append(entry)
             continue
@@ -707,6 +799,18 @@ def list_tools_llm_schema():
             function["parameters"] = _project_parameters_for_llm(function["parameters"])
         projected.append(new_entry)
     return projected
+
+
+@app.get("/llm-schema")
+async def list_tools_llm_schema():
+    """Agent-facing projection of /jsonschema.
+
+    Hides the wire-level base64 inputs (the agent's resolver populates those
+    from runtime image IDs) and renames image_path / *_image_path properties
+    to image_id / *_image_id so the LLM-facing field names match what the
+    model is actually asked to produce.
+    """
+    return _build_tool_llm_schemas()
 
 def resolve_tool(tool_name):
     """Resolve a tool by name with case-insensitive fallback.
@@ -773,12 +877,116 @@ def execute_tool_request(request: ExecuteRequest):
     )
 
 
+def _resolve_backend_name(tool_name):
+    # Map a requested tool name to its backend key. Lookup mirrors
+    # _resolve_execute_tool: exact, then case-insensitive, then normalized
+    # (separator-insensitive, optional "tool" suffix). Without the normalized
+    # stage, requests like "visualgrounding" execute but skip the sem gate.
+    if tool_name in tool_metadata:
+        return TOOL_BACKEND.get(_canonical_registry_name(tool_name))
+    lower = tool_name.lower()
+    for registered in tool_metadata:
+        if registered.lower() == lower:
+            return TOOL_BACKEND.get(_canonical_registry_name(registered))
+    requested_lookup_keys = _tool_lookup_keys(tool_name)
+    for registered in tool_metadata:
+        if _tool_lookup_keys(registered) & requested_lookup_keys:
+            return TOOL_BACKEND.get(_canonical_registry_name(registered))
+    return None
+
+
+# Per-tool in-flight counter so we can see which tools are eating threadpool
+# slots — especially the ungated ones that don't show up in /backend-status.
+TOOL_IN_FLIGHT: dict = {}
+
+
+def _tool_inflight_inc(name):
+    TOOL_IN_FLIGHT[name] = TOOL_IN_FLIGHT.get(name, 0) + 1
+
+
+def _tool_inflight_dec(name):
+    if name in TOOL_IN_FLIGHT:
+        TOOL_IN_FLIGHT[name] -= 1
+        if TOOL_IN_FLIGHT[name] <= 0:
+            del TOOL_IN_FLIGHT[name]
+
+
+async def _run_execute_with_backend_limit(request: ExecuteRequest):
+    _ensure_backend_semaphores()
+    backend = _resolve_backend_name(request.tool_name)
+    sem = BACKEND_SEMAPHORES.get(backend) if backend else None
+    name = request.tool_name
+
+    if sem is None:
+        _tool_inflight_inc(name)
+        try:
+            return await run_in_threadpool(execute_tool_request, request)
+        finally:
+            _tool_inflight_dec(name)
+
+    # Wait at the sem before entering the threadpool. This keeps the
+    # threadpool free for /health and other cheap routes while heavy-tool
+    # callers queue on the event loop.
+    async with sem:
+        BACKEND_IN_FLIGHT[backend] += 1
+        _tool_inflight_inc(name)
+        try:
+            return await run_in_threadpool(execute_tool_request, request)
+        finally:
+            BACKEND_IN_FLIGHT[backend] -= 1
+            _tool_inflight_dec(name)
+
+
 @app.post("/execute")
-def execute_tool(request: ExecuteRequest):
-    payload, status_code = execute_tool_request(request)
+async def execute_tool(request: ExecuteRequest):
+    payload, status_code = await _run_execute_with_backend_limit(request)
     if status_code >= 400:
         return JSONResponse(status_code=status_code, content=payload)
     return payload
+
+
+@app.get("/backend-status")
+async def backend_status():
+    _ensure_backend_semaphores()
+    return {
+        backend: {
+            "limit": BACKEND_LIMITS[backend],
+            "in_flight": BACKEND_IN_FLIGHT[backend],
+            "available": BACKEND_LIMITS[backend] - BACKEND_IN_FLIGHT[backend],
+        }
+        for backend in BACKEND_LIMITS
+    }
+
+
+@app.get("/threadpool-info")
+async def threadpool_info():
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    return {
+        "total_tokens":     limiter.total_tokens,
+        "borrowed_tokens":  limiter.borrowed_tokens,
+        "available_tokens": limiter.available_tokens,
+    }
+
+
+@app.get("/tool-status")
+async def tool_status():
+    # Per-tool in-flight count. Each entry holds one threadpool slot, so the
+    # sum here should track /threadpool-info borrowed_tokens minus any slots
+    # held outside /execute. The "gated" flag tells you whether the tool is
+    # in TOOL_BACKEND (capacity-managed) or running freely against threadpool.
+    items = sorted(TOOL_IN_FLIGHT.items(), key=lambda kv: kv[1], reverse=True)
+    return {
+        "total_in_flight": sum(TOOL_IN_FLIGHT.values()),
+        "tools": [
+            {
+                "tool_name": name,
+                "in_flight": count,
+                "gated": _resolve_backend_name(name) is not None,
+                "backend": _resolve_backend_name(name),
+            }
+            for name, count in items
+        ],
+    }
 
 
 if __name__ == "__main__":
