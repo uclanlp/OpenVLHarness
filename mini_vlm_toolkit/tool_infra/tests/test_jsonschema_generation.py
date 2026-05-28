@@ -77,7 +77,7 @@ def test_jsonschema_uses_explicit_schema_when_available():
             fallback.tool_name: fallback.get_metadata(),
         }
     ):
-        schemas = server_app.list_tools_jsonschema()
+        schemas = server_app._build_tool_jsonschemas()
 
     explicit_schema = _find_schema(schemas, explicit.tool_name)
     explicit_params = explicit_schema["function"]["parameters"]
@@ -113,16 +113,114 @@ def test_invalid_input_schema_raises():
     }
     with _patch_metadata(invalid_metadata):
         try:
-            server_app.list_tools_jsonschema()
+            server_app._build_tool_jsonschemas()
         except ValueError as exc:
             assert "input_schema.type must be 'object'" in str(exc)
             return
     raise AssertionError("Expected ValueError for invalid input_schema")
 
 
+def test_llm_schema_projects_list_and_nested_image_fields():
+    metadata = {
+        "Synthetic_Spatial_Tool": {
+            "tool_name": "Synthetic_Spatial_Tool",
+            "tool_description": "Synthetic spatial schema.",
+            "input_types": {},
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "subject": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "image_path": {"type": "string"},
+                            "image_base64": {"type": "string"},
+                        },
+                    },
+                    "image_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "image_base64s": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "_image_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["subject"],
+                "additionalProperties": False,
+            },
+        }
+    }
+    with _patch_metadata(metadata):
+        schemas = server_app._build_tool_llm_schemas()
+
+    schema = _find_schema(schemas, "Synthetic_Spatial_Tool")
+    params = schema["function"]["parameters"]
+    assert "image_ids" in params["properties"]
+    assert "image_base64s" not in params["properties"]
+    assert "_image_ids" not in params["properties"]
+    subject_props = params["properties"]["subject"]["properties"]
+    assert "image_id" in subject_props
+    assert "image_path" not in subject_props
+    assert "image_base64" not in subject_props
+
+
+def test_llm_schema_projects_image_paths_plural_to_image_ids():
+    """Tracking_Tool-shaped schema: plural `image_paths` must project to `image_ids`."""
+    metadata = {
+        "Synthetic_Tracking_Tool": {
+            "tool_name": "Synthetic_Tracking_Tool",
+            "tool_description": "Synthetic plural-image schema.",
+            "input_types": {},
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string"},
+                    "image_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "image_base64s": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["target"],
+                "oneOf": [
+                    {"required": ["image_paths"]},
+                    {"required": ["image_base64s"]},
+                ],
+                "additionalProperties": False,
+            },
+        }
+    }
+    with _patch_metadata(metadata):
+        schemas = server_app._build_tool_llm_schemas()
+
+    schema = _find_schema(schemas, "Synthetic_Tracking_Tool")
+    params = schema["function"]["parameters"]
+    properties = params["properties"]
+    assert "image_ids" in properties
+    assert properties["image_ids"]["type"] == "array"
+    assert properties["image_ids"]["items"]["type"] == "string"
+    assert "image_paths" not in properties
+    assert "image_base64s" not in properties
+    # oneOf had two branches; the base64 branch is dropped, leaving a single
+    # branch that gets folded into required.
+    assert "oneOf" not in params
+    assert "image_ids" in params["required"]
+    assert "target" in params["required"]
+
+
 def main():
     test_jsonschema_uses_explicit_schema_when_available()
     test_invalid_input_schema_raises()
+    test_llm_schema_projects_list_and_nested_image_fields()
+    test_llm_schema_projects_image_paths_plural_to_image_ids()
     print("JSON schema generation tests completed.")
 
 
