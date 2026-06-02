@@ -11,20 +11,142 @@ Evaluation follows the original BrowseComp-VL protocol
   - Binary grading: correct (yes) or incorrect (no).
   - Reports accuracy per level (L1/L2), per domain, and overall.
 
-TSV files are produced by ``scripts/convert_browsecomp_vl.py`` and placed in
-``$LMUData/``.
+TSV files are auto-built from upstream JSONL + image data on first use
+(see ``_ensure_browsecompvl_data`` below). Override the upstream Git URL
+via env ``MMDR_BCVL_REPO`` (default
+https://github.com/Alibaba-NLP/DeepResearch).
 """
 
 import json
+import os
+import os.path as osp
 import re
+import subprocess
 
 import pandas as pd
 
 from .image_base import ImageBaseDataset
 from .utils import build_judge, DEBUG_MESSAGE
 from ..smp import *
-from ..smp.file import get_intermediate_file_path
+from ..smp.file import get_intermediate_file_path, LMUDataRoot
 from ..utils import track_progress_rich
+
+
+def _ensure_browsecompvl_data(lmu_root: str):
+    """Idempotently materialise BrowseComp-VL TSV + image data.
+
+    First call clones the upstream DeepResearch repo via sparse-checkout
+    (only the ``WebAgent/WebWatcher/browsecomp-vl/`` subdir, ~MB-scale)
+    into ``{lmu_root}/_bcvl_source/``, then merges the two level JSONLs
+    into a single TSV at ``{lmu_root}/BrowseCompVL.tsv``.
+
+    TSV columns (matches the historical hand-built layout):
+      index, question, answer, ground_truth_list, image_path,
+      category (L1/L2), l2-category (domain like TV/Other/...)
+
+    image_path stays as an absolute path into the cloned source tree
+    (no copy — saves disk).
+
+    Override the upstream repo via env ``MMDR_BCVL_REPO``.
+    """
+    tsv_path = osp.join(lmu_root, 'BrowseCompVL.tsv')
+    if osp.exists(tsv_path):
+        return tsv_path
+
+    cache_root = osp.join(lmu_root, '_bcvl_source')
+    bcvl_dir = osp.join(cache_root, 'WebAgent', 'WebWatcher', 'browsecomp-vl')
+    if not osp.exists(bcvl_dir):
+        repo_url = os.environ.get(
+            'MMDR_BCVL_REPO',
+            'https://github.com/Alibaba-NLP/DeepResearch.git',
+        )
+        print(f'[bcvl/auto-download] sparse-cloning {repo_url} → {cache_root}')
+        print('[bcvl/auto-download] (only WebAgent/WebWatcher/browsecomp-vl/ '
+              'subdir; ~MB scale + ~399 images)')
+        # --filter=blob:none + --sparse fetches only the metadata + the
+        # requested subdir. Falls back to a normal clone if sparse-checkout
+        # isn't supported by the local git binary (git < 2.25).
+        try:
+            subprocess.check_call([
+                'git', 'clone', '--depth=1', '--filter=blob:none', '--sparse',
+                repo_url, cache_root,
+            ])
+            subprocess.check_call([
+                'git', '-C', cache_root, 'sparse-checkout', 'set',
+                'WebAgent/WebWatcher/browsecomp-vl',
+            ])
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f'[bcvl/auto-download] sparse clone failed: {exc}. '
+                f'Manually clone DeepResearch then re-run, or set '
+                f'MMDR_BCVL_REPO to a mirror.'
+            ) from exc
+
+    bcvl_parent = osp.dirname(bcvl_dir)   # cache_root/WebAgent/WebWatcher
+
+    # Upstream ships images as tarballs (images/level1.tar +
+    # images/level2.tar); the jsonl image_path entries point at the
+    # *extracted* layout (browsecomp-vl/images/level1/level1_1.jpg).
+    # Tar members carry repo-root-relative paths like
+    # ``WebAgent/WebWatcher/browsecomp-vl/images/level1/level1_1.jpg``,
+    # so extract into ``cache_root`` (the sparse-clone root), not
+    # ``bcvl_parent`` (would double the WebAgent/WebWatcher prefix).
+    # Skip AppleDouble/macOS metadata members (``._*``).
+    import tarfile
+    images_root = osp.join(bcvl_dir, 'images')
+    for level_num in (1, 2):
+        tar_path = osp.join(images_root, f'level{level_num}.tar')
+        extracted_marker = osp.join(images_root, f'level{level_num}')
+        if osp.exists(tar_path) and not osp.isdir(extracted_marker):
+            print(f'[bcvl/auto-download] extracting {tar_path}')
+            with tarfile.open(tar_path, 'r') as tar:
+                members = [
+                    m for m in tar.getmembers()
+                    if not osp.basename(m.name).startswith('._')
+                ]
+                tar.extractall(cache_root, members=members)
+
+    rows = []
+    for level_name, jsonl_name in [('L1', 'bc_vl_level1.jsonl'),
+                                   ('L2', 'bc_vl_level2.jsonl')]:
+        jsonl_path = osp.join(bcvl_dir, jsonl_name)
+        if not osp.exists(jsonl_path):
+            raise FileNotFoundError(
+                f'[bcvl/auto-download] missing {jsonl_path} after sparse-clone'
+            )
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                rec = json.loads(line)
+                rel_img = rec.get('image_path', '')
+                # jsonl image_path is relative to WebAgent/WebWatcher
+                # (e.g. 'browsecomp-vl/images/level1/level1_1.jpg').
+                abs_img = osp.join(bcvl_parent, rel_img)
+                answers = rec.get('answers') or []
+                primary = str(answers[0]) if answers else ''
+                rows.append({
+                    'question': str(rec.get('question', '')),
+                    'answer': primary,
+                    'ground_truth_list': json.dumps(
+                        [str(a) for a in answers], ensure_ascii=False
+                    ),
+                    'image_path': abs_img,
+                    'category': level_name,
+                    'l2-category': str(rec.get('domain', '')),
+                })
+
+    import csv
+    cols = ['index', 'question', 'answer', 'ground_truth_list',
+            'image_path', 'category', 'l2-category']
+    with open(tsv_path, 'w', encoding='utf-8', newline='') as f:
+        w = csv.writer(f, delimiter='\t', quoting=csv.QUOTE_MINIMAL)
+        w.writerow(cols)
+        for i, r in enumerate(rows):
+            w.writerow([
+                i, r['question'], r['answer'], r['ground_truth_list'],
+                r['image_path'], r['category'], r['l2-category'],
+            ])
+    print(f'[bcvl/auto-download] wrote TSV: {tsv_path} ({len(rows)} rows)')
+    return tsv_path
 
 # ---------------------------------------------------------------------------
 # Judge prompt — shared HLE-style protocol, imported from utils/hle_judge.py
@@ -268,6 +390,12 @@ class BrowseCompVLDataset(ImageBaseDataset):
     @classmethod
     def supported_datasets(cls):
         return list(cls.DATASET_URL)
+
+    def load_data(self, dataset):
+        # First-use auto-prep: sparse-clone DeepResearch + build TSV.
+        if dataset == 'BrowseCompVL':
+            _ensure_browsecompvl_data(LMUDataRoot())
+        return super().load_data(dataset)
 
     # -- Prompt: open-ended VQA (question only) -----------------------------
 
