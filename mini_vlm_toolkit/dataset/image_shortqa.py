@@ -451,6 +451,93 @@ def _ensure_evqa_test_subset(lmu_root: str, dataset_name: str = 'EncyclopedicVQA
     return _ensure_evqa_subset(lmu_root, dataset_name, split='test', n_samples=2000)
 
 
+def _ensure_fvqa_subset(lmu_root: str, split: str = 'test'):
+    """Idempotently materialise the FVQA train/test split from HuggingFace.
+
+    Source: ``lmms-lab/FVQA`` (HuggingFace), same data as MMSearch-R1's
+    fvqa (``data_source: mmsearch_r1/fvqa_{split}``).
+
+    First call:
+    - downloads the HF dataset (~MB-scale text + image bytes per row)
+    - writes ``{lmu_root}/FVQA_{split}.tsv``
+    - extracts each row's first image to ``{lmu_root}/images/FVQA_{split}/<data_id>.jpg``
+
+    Idempotent: skip if TSV already exists.
+
+    Schema matches the existing TSV layout used by the framework:
+      index, question, answer, alternative_gt_answers, category, subfield, image_path
+
+    Override HF repo via env ``MMDR_FVQA_HF_REPO`` (default ``lmms-lab/FVQA``).
+    """
+    import os, csv, json
+    if split not in {'train', 'test'}:
+        raise ValueError(f'FVQA split must be train/test, got {split!r}')
+    tsv_path = osp.join(lmu_root, f'FVQA_{split}.tsv')
+    if osp.exists(tsv_path):
+        return tsv_path
+
+    from datasets import load_dataset
+    repo_id = os.environ.get('MMDR_FVQA_HF_REPO', 'lmms-lab/FVQA')
+    print(f'[fvqa/auto-download] loading HF dataset {repo_id} split={split} (one-time)')
+    ds = load_dataset(repo_id, split=split)
+    print(f'[fvqa/auto-download] loaded {len(ds)} rows; writing TSV + extracting images...')
+
+    img_dir = osp.join(lmu_root, 'images', f'FVQA_{split}')
+    os.makedirs(img_dir, exist_ok=True)
+
+    cols = ['index', 'question', 'answer', 'alternative_gt_answers',
+            'category', 'subfield', 'image_path']
+    n_rows = n_imgs = 0
+    with open(tsv_path, 'w', encoding='utf-8', newline='') as f:
+        w = csv.writer(f, delimiter='\t', quoting=csv.QUOTE_ALL)
+        w.writerow(cols)
+        for rec in ds:
+            data_id = str(rec.get('data_id') or '')
+            # Question lives in prompt[0].content; ground truth in
+            # reward_model.ground_truth; alternatives in candidate_answers.
+            prompt = rec.get('prompt') or []
+            question = ''
+            if hasattr(prompt, '__len__') and len(prompt) > 0 and isinstance(prompt[0], dict):
+                question = str(prompt[0].get('content', ''))
+            rm = rec.get('reward_model') or {}
+            if not isinstance(rm, dict):
+                rm = {}
+            gt = str(rm.get('ground_truth', ''))
+            alts_raw = rm.get('candidate_answers', '[]')
+            try:
+                alts_list = json.loads(alts_raw) if isinstance(alts_raw, str) else list(alts_raw or [])
+            except (json.JSONDecodeError, TypeError):
+                alts_list = list(alts_raw) if alts_raw else []
+            alts_json = json.dumps([str(a) for a in alts_list], ensure_ascii=False)
+            # Image: first entry of images list; HF gives PIL.Image or
+            # {bytes: ...}. Save as JPG.
+            imgs = rec.get('images') or []
+            img_bytes = None
+            if hasattr(imgs, '__len__') and len(imgs) > 0:
+                first_img = imgs[0]
+                if isinstance(first_img, dict):
+                    img_bytes = first_img.get('bytes')
+                else:
+                    # PIL.Image instance
+                    from io import BytesIO
+                    buf = BytesIO()
+                    first_img.save(buf, format='JPEG')
+                    img_bytes = buf.getvalue()
+            if not img_bytes:
+                continue
+            img_path = osp.join(img_dir, f'{data_id}.jpg')
+            if not osp.exists(img_path):
+                with open(img_path, 'wb') as imf:
+                    imf.write(img_bytes)
+                n_imgs += 1
+            # FVQA train has 'category' (search_required/search_free); test is None.
+            category = str(rec.get('category') or '') if rec.get('category') else ''
+            w.writerow([data_id, question, gt, alts_json, category, '', img_path])
+            n_rows += 1
+    print(f'[fvqa/auto-download] wrote TSV: {tsv_path} ({n_rows} rows, {n_imgs} new images)')
+    return tsv_path
+
+
 def _ensure_infoseek_test_subset(lmu_root: str, dataset_name: str = 'Infoseek_GDM_test'):
     """Idempotently materialise the paper-aligned 2K InfoSeek test subset.
 
@@ -695,8 +782,9 @@ class ImageShortQADataset(ImageBaseDataset):
         # this 2K subset is what the paper actually evaluates on.
         # Override URL via env MMDR_INFOSEEK_TEST_PARQUET_URL if needed.
         'Infoseek_GDM_test': '',
-        # FVQA splits (== MMSearch-R1 fvqa). TSV produced by
-        # `sft/data/download_train_datasets.py --action to_tsv --dataset fvqa --split {train|test}`.
+        # FVQA splits (== MMSearch-R1 fvqa). Auto-download from
+        # HuggingFace ``lmms-lab/FVQA`` on first use; writes TSV +
+        # extracts images. Override repo via env MMDR_FVQA_HF_REPO.
         'FVQA_train': '',
         'FVQA_test': '',
         # Encyclopedic-VQA test = random 2000 from full 5750 test (seed=42).
@@ -762,6 +850,14 @@ class ImageShortQADataset(ImageBaseDataset):
             _ensure_infoseek_val_subset(LMUDataRoot(),
                                         n_samples=3000, seed=42,
                                         dataset_name='Infoseek_GDM_val_3k')
+
+        # FVQA train + test: HuggingFace ``lmms-lab/FVQA`` auto-download
+        # (same data as MMSearch-R1 fvqa_{split}). First use grabs the
+        # HF dataset, writes TSV + extracts images. ~MB-scale, fast.
+        if dataset in ('FVQA_test', 'FVQA_train'):
+            from ..smp.file import LMUDataRoot
+            split = 'test' if dataset == 'FVQA_test' else 'train'
+            _ensure_fvqa_subset(LMUDataRoot(), split=split)
 
         # *_test_mini = 300 random sub of underlying full TSV (seed=42).
         # Ensure underlying full exists, then materialise the mini TSV.
