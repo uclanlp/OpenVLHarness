@@ -46,19 +46,19 @@
 #         --data RealWorldQA MMStar SimpleVQA VStarBench FREAK_MCQ FREAK_VQA HallusionBench MMSIBench_wo_circular EmbSpatialBench ERQA MindCubeBench_tiny_raw_qa OmniSpatialBench MMBench_DEV_EN_V11 RealXBench MMSearch \
 #         --num-proc 100
 
-python run_benchmark.py --config configs/cf-testing/v8_instruct.yaml --judge-config configs/cf-testing/judge.yaml \
-        --data MMSIBench_wo_circular ERQA MindCubeBench_tiny_raw_qa OmniSpatialBench SparBench_tiny EmbSpatialBench \
-        --num-proc 100
+# python run_benchmark.py --config configs/cf-testing/v8_instruct.yaml --judge-config configs/cf-testing/judge.yaml \
+#         --data MMSIBench_wo_circular ERQA MindCubeBench_tiny_raw_qa OmniSpatialBench SparBench_tiny EmbSpatialBench \
+#         --num-proc 100
 
 
 
 # python run_benchmark.py --config configs/cf-testing/gpt_agent_with_tools.yaml --judge-config configs/cf-testing/judge.yaml \
-#         --data RealXBench VStarBench FREAK_MCQ FREAK_VQA ERQA MMSIBench_wo_circular FSC147_val MindCubeBench_tiny_raw_qa RealWorldQA MMStar SimpleVQA HallusionBench EmbSpatialBench OmniSpatialBench MMBench_DEV_EN_V11 \
+#         --data RealXBench MMSearch VStarBench FREAK_MCQ FREAK_VQA ERQA MMSIBench_wo_circular FSC147_val MindCubeBench_tiny_raw_qa RealWorldQA MMStar SimpleVQA HallusionBench EmbSpatialBench OmniSpatialBench SparBench_tiny \
 #         --num-proc 10
 
-# python run_benchmark.py --config configs/cf-testing/gpt_agent.yaml --judge-config configs/cf-testing/judge.yaml \
-#         --data MMSIBench_wo_circular MindCubeBench_tiny_raw_qa OmniSpatialBench SparBench_tiny\
-#         --num-proc 10 --resume
+python run_benchmark.py --config configs/cf-testing/gpt_agent.yaml --judge-config configs/cf-testing/judge.yaml \
+        --data RealXBench MMSearch VStarBench FREAK_MCQ FREAK_VQA ERQA MMSIBench_wo_circular FSC147_val MindCubeBench_tiny_raw_qa RealWorldQA MMStar SimpleVQA HallusionBench EmbSpatialBench OmniSpatialBench SparBench_tiny \
+        --num-proc 10
 
 
 # python run_benchmark.py --config configs/cf-testing/base_agent.yaml --judge-config configs/cf-testing/judge.yaml \

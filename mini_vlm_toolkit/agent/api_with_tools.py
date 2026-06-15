@@ -25,6 +25,27 @@ from ..utils.api_utils import (
 )
 
 
+def _accumulate_usage(into: Dict[str, Any], src: Dict[str, Any]) -> None:
+    """Sum numeric leaves of `src` into `into`, recursing into nested dicts.
+
+    Used to aggregate per-turn Responses-API `usage` (input_tokens,
+    output_tokens, input_tokens_details.cached_tokens,
+    output_tokens_details.reasoning_tokens, total_tokens, ...) across a
+    multi-turn tool-calling run.
+    """
+    for key, value in src.items():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            into[key] = into.get(key, 0) + value
+        elif isinstance(value, dict):
+            nested = into.get(key)
+            if not isinstance(nested, dict):
+                nested = {}
+                into[key] = nested
+            _accumulate_usage(nested, value)
+
+
 class APIAgentWithTools(BaseAgentWithToolsAndCode):
     """OpenAI Responses-API tool-calling agent."""
 
@@ -329,6 +350,9 @@ class APIAgentWithTools(BaseAgentWithToolsAndCode):
         chat_history: List[Dict[str, Any]] = []
         final_answer: Optional[str] = None
         terminating_response: Optional[Dict[str, Any]] = None
+        usage_total: Dict[str, Any] = {}
+        usage_per_turn: List[Dict[str, Any]] = []
+        self._last_run_usage = None
 
         for i in range(self.max_iterations):
             if debug_tool_loop:
@@ -357,6 +381,10 @@ class APIAgentWithTools(BaseAgentWithToolsAndCode):
 
             if not isinstance(response, dict):
                 raise RuntimeError(f"Invalid responses payload type: {type(response).__name__}")
+            turn_usage = response.get("usage")
+            if isinstance(turn_usage, dict) and turn_usage:
+                usage_per_turn.append({"turn": i + 1, **cp.deepcopy(turn_usage)})
+                _accumulate_usage(usage_total, turn_usage)
             output_items = response.get("output") or []
             if not isinstance(output_items, list):
                 raise RuntimeError(f"Invalid responses payload: 'output' must be a list. {self._truncate_for_debug(response)}")
@@ -554,12 +582,23 @@ class APIAgentWithTools(BaseAgentWithToolsAndCode):
                 })
             terminating_response = response
             self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
+            self._last_run_usage = self._finalize_run_usage(usage_total, usage_per_turn)
             if return_messages:
                 return final_answer or self.fail_msg, chat_history, input_items, None
             return final_answer or self.fail_msg, chat_history
 
         # Out of iterations.
         self._last_tool_detections = list(getattr(run_memory, "tool_detections", []) or [])
+        self._last_run_usage = self._finalize_run_usage(usage_total, usage_per_turn)
         if return_messages:
             return self.fail_msg, chat_history, input_items, None
         return self.fail_msg, chat_history
+
+    @staticmethod
+    def _finalize_run_usage(
+        usage_total: Dict[str, Any],
+        usage_per_turn: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if not usage_total and not usage_per_turn:
+            return None
+        return {"total": usage_total}

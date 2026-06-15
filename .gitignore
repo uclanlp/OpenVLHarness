@@ -235,6 +235,7 @@ checkpoints/
 debug_dumps/
 .claude/
 analyze/
+harness-search/runs/
 
 # SFT module: track shared templates and code, ignore per-user files.
 # Configs and the dataset registry ship as `_example` templates; on first

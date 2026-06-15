@@ -11,8 +11,8 @@ agent_kwargs:
   model: "gpt-5-2025-08-07"
   timeout: 600
   custom_prompt: false
-  max_tokens: 12800
-  reasoning_effort: "medium"
+  max_tokens: 16000
+  reasoning_effort: "low"
   retry: 3
   verbose: true
   extra_body: {}

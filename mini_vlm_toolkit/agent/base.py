@@ -1930,15 +1930,19 @@ class BaseAgentWithTools(BaseAgent):
         }
         if raw_sft is not None:
             trajectory["raw_sft"] = raw_sft
+        extra_records = {
+            "trajectory": trajectory,
+            # Phase 2: SAM3 (and other detection-tool) per-call (boxes, scores)
+            # candidate sets, captured during the agent's tool loop. Empty for
+            # BaseAgent or for tool-use rows that didn't trigger a scoring tool.
+            "tool_detections": list(getattr(self, "_last_tool_detections", []) or []),
+        }
+        run_usage = getattr(self, "_last_run_usage", None)
+        if isinstance(run_usage, dict) and run_usage:
+            extra_records["usage"] = run_usage
         return {
             "prediction": final_answer,
-            "extra_records": {
-                "trajectory": trajectory,
-                # Phase 2: SAM3 (and other detection-tool) per-call (boxes, scores)
-                # candidate sets, captured during the agent's tool loop. Empty for
-                # BaseAgent or for tool-use rows that didn't trigger a scoring tool.
-                "tool_detections": list(getattr(self, "_last_tool_detections", []) or []),
-            },
+            "extra_records": extra_records,
         }
 
 
