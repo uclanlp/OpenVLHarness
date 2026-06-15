@@ -11,6 +11,8 @@ class ImageYORNDataset(ImageBaseDataset):
     DATASET_URL = {
         'MME': 'https://opencompass.openxlab.space/utils/VLMEval/MME.tsv',
         'HallusionBench': 'https://opencompass.openxlab.space/utils/VLMEval/HallusionBench.tsv',
+        'HallusionBench_val_train': '',
+        'HallusionBench_val_test': '',
         'POPE': 'https://opencompass.openxlab.space/utils/VLMEval/POPE.tsv',
         'AMBER': 'https://huggingface.co/datasets/yifanzhang114/AMBER_base64/resolve/main/AMBER.tsv',
         'VSR-zeroshot': (

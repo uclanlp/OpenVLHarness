@@ -236,6 +236,7 @@ debug_dumps/
 .claude/
 analyze/
 harness-search/runs/
+harness-optimization/
 
 # SFT module: track shared templates and code, ignore per-user files.
 # Configs and the dataset registry ship as `_example` templates; on first

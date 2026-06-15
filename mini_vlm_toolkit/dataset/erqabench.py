@@ -17,6 +17,8 @@ class ERQABench(ImageVQADataset):
 
     DATASET_URL = {
         'ERQA': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/ERQA.tsv',
+        'ERQA_val_train': '',
+        'ERQA_val_test': '',
     }
     DATASET_MD5 = {
         'ERQA': '40d45d4f0bb1852dbc68b28ee70d4ca5',

@@ -3182,7 +3182,7 @@ class CountQA(ImageVQADataset):
 
 class FREAKVQADataset(ImageVQADataset):
     TYPE = 'VQA'
-    DATASET_URL = {'FREAK_VQA': ''}
+    DATASET_URL = {'FREAK_VQA': '', 'FREAK_VQA_val_train': '', 'FREAK_VQA_val_test': ''}
     DATASET_MD5 = {}
 
     def _get_eval_method(self):

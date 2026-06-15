@@ -4,6 +4,8 @@ from ..smp import *
 
 
 def img_root_map(dataset):
+    if dataset.endswith(('_val_train', '_val_test')):
+        return img_root_map(dataset.rsplit('_val_', 1)[0])
     if 'MMBrowseComp' in dataset:
         return 'MMBrowseComp'
     if dataset == 'MMSearchPlus':
