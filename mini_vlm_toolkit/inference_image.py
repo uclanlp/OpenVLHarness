@@ -50,6 +50,9 @@ def _build_full_trajectory_payload(record, save_images, images_subdir):
     reasoning = (record.get("extra_records") or {}).get("reasoning")
     if reasoning:
         payload["reasoning"] = reasoning
+    usage = (record.get("extra_records") or {}).get("usage")
+    if isinstance(usage, dict) and usage:
+        payload["usage"] = copy.deepcopy(usage)
     complete_messages = build_complete_messages_from_trajectory(trajectory)
     if complete_messages is not None:
         payload["messages"] = complete_messages

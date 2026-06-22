@@ -92,6 +92,8 @@ class ImageMCQDataset(ImageBaseDataset):
         'MMStar_KO': 'https://huggingface.co/datasets/NCSOFT/K-MMStar/resolve/main/MMStar_KO.tsv',
         'MMStar_TR': 'https://huggingface.co/datasets/kesimeg/MMStar_tr/resolve/main/MMStar_TR.tsv',
         'RealWorldQA': 'https://opencompass.openxlab.space/utils/VLMEval/RealWorldQA.tsv',
+        'RealWorldQA_val_train': '',
+        'RealWorldQA_val_test': '',
         'MLLMGuard_DS': 'https://opencompass.openxlab.space/utils/VLMEval/MLLMGuard_DS.tsv',
         'BLINK': 'https://opencompass.openxlab.space/utils/VLMEval/BLINK.tsv',
         'BLINK_circular': 'https://opencompass.openxlab.space/utils/VLMEval/BLINK_circular.tsv',
@@ -114,6 +116,8 @@ class ImageMCQDataset(ImageBaseDataset):
         'MMStar_MINI': 'https://opencompass.openxlab.space/utils/TEST/MMStar_MINI.tsv',
         'AI2D_MINI': 'https://opencompass.openxlab.space/utils/TEST/AI2D_MINI.tsv',
         "VStarBench": "https://huggingface.co/datasets/xjtupanda/VStar_Bench/resolve/main/VStarBench.tsv",
+        'VStarBench_val_train': '',
+        'VStarBench_val_test': '',
         'PathMMU_VAL': 'https://huggingface.co/datasets/Pfei111/PathMMU/resolve/main/PathMMU_VAL.tsv',
         'PathMMU_TEST': 'https://huggingface.co/datasets/Pfei111/PathMMU/resolve/main/PathMMU_TEST.tsv',
         'CMMU_MCQ': 'https://huggingface.co/datasets/Pfei111/CMMU_VAL_MCQ/resolve/main/CMMU_VAL_MCQ.tsv',
@@ -2980,7 +2984,7 @@ class TopViewRS(ImageMCQDataset):
 
 class FREAKMCQDataset(ImageMCQDataset):
     TYPE = 'MCQ'
-    DATASET_URL = {'FREAK_MCQ': ''}
+    DATASET_URL = {'FREAK_MCQ': '', 'FREAK_MCQ_val_train': '', 'FREAK_MCQ_val_test': ''}
     DATASET_MD5 = {}
 
     def build_prompt(self, line):

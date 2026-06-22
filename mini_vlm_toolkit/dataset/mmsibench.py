@@ -31,7 +31,9 @@ class MMSIBench(ImageMCQDataset):
     # To avoid modifying upstream VLMEvalKit, we do NOT integrate the circular set here.
     # (Use the official pipeline if you need the circular split.)
     DATASET_URL = {
-        'MMSIBench_wo_circular': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/MMSIBench_wo_circular.tsv'  # noqa: E501
+        'MMSIBench_wo_circular': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/MMSIBench_wo_circular.tsv',  # noqa: E501
+        'MMSIBench_val_train': '',
+        'MMSIBench_val_test': '',
     }
 
     DATASET_MD5 = {

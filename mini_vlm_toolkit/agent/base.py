@@ -615,6 +615,7 @@ class BaseAgentWithTools(BaseAgent):
                 experience_file: Optional[str] = None,
                 instance_critique_dir: Optional[str] = None,
                 max_context_length: Optional[int] = None,
+                paired_sampling_seed: bool = False,
                 **kwargs):
         legacy_keys = [key for key in self._LEGACY_RUNTIME_ENV_KEYS if key in kwargs]
         if legacy_keys:
@@ -639,6 +640,10 @@ class BaseAgentWithTools(BaseAgent):
         self.tool_choice = tool_choice
         self.max_iterations = max_iterations
         self.max_context_length = max_context_length
+        # Common Random Numbers: when enabled, each request carries a per-instance
+        # seed derived from task_id, so two harness variants sample identically on
+        # any instance whose prompt the edit did not change. Off by default.
+        self.paired_sampling_seed = bool(paired_sampling_seed)
 
         if tool_list is not None:
             self.tools = {name: tool for name, tool in self.tools.items() if name in tool_list}
@@ -1410,6 +1415,30 @@ class BaseAgentWithTools(BaseAgent):
 
         return {"messages": messages_out, "images": image_entries}
 
+    def _paired_seed_base(self, task_id) -> Optional[int]:
+        """Stable per-instance seed base for Common Random Numbers.
+
+        Returns None unless ``paired_sampling_seed`` is enabled and a task_id is
+        available. The value depends only on task_id (not on the harness), so two
+        harness variants seed identically on the same instance. Process-salted
+        ``hash()`` is deliberately avoided so the seed is stable across runs.
+        """
+        if not getattr(self, "paired_sampling_seed", False) or task_id is None:
+            return None
+        import hashlib
+        import os
+        digest = hashlib.md5(str(task_id).encode("utf-8")).hexdigest()
+        base = int(digest[:8], 16) % 1_000_000_000
+        # Per-repeat salt: with k samples per instance the harness search sets
+        # HARNESS_SEARCH_SAMPLE_INDEX per repeat so the k runs differ, while parent
+        # and child share the same salt for sample j and stay paired. Defaults to 0.
+        try:
+            salt = int(os.environ.get("HARNESS_SEARCH_SAMPLE_INDEX", "0") or "0")
+        except ValueError:
+            salt = 0
+        # Keep within int range and leave headroom to add the per-turn index.
+        return (base + salt * 1_000_003) % 2_000_000_000
+
     # ------------------------------------------------------------------ #
     # Main loop
     # ------------------------------------------------------------------ #
@@ -1432,6 +1461,7 @@ class BaseAgentWithTools(BaseAgent):
         tool_choice = kwargs.pop("tool_choice", self.tool_choice)
         active_system_prompt = kwargs.pop("system_prompt", self.system_prompt)
         task_id = kwargs.pop("task_id", None)
+        paired_seed_base = self._paired_seed_base(task_id)
         endpoint_hint = f"{getattr(self, 'base', '')} {getattr(self, 'api_base', '')}".lower()
         is_openai_official = "api.openai.com" in endpoint_hint
         model_name = getattr(self, "model", "") or ""
@@ -1474,6 +1504,10 @@ class BaseAgentWithTools(BaseAgent):
         final_answer = None
         terminating_response = None
         for i in range(self.max_iterations):
+            # Per-turn CRN seed: deterministic in (task_id, turn) and identical
+            # across harness variants, so they stay in lockstep until an edit
+            # actually changes the prompt. None when paired sampling is disabled.
+            turn_seed = None if paired_seed_base is None else paired_seed_base + i
             if debug_tool_loop:
                 self.logger.info(f"[ToolLoop] turn={i + 1}/{self.max_iterations}, messages={len(msgs)}")
             if i == self.max_iterations - 1:
@@ -1497,6 +1531,7 @@ class BaseAgentWithTools(BaseAgent):
                     tools=model_tools,
                     tool_choice=tool_choice,
                     timeout_seconds=chat_timeout_seconds,
+                    seed=turn_seed,
                     **kwargs,
                 )
             except RuntimeError as e:
@@ -1514,6 +1549,7 @@ class BaseAgentWithTools(BaseAgent):
                         tools=None,
                         tool_choice="none",
                         timeout_seconds=chat_timeout_seconds,
+                        seed=turn_seed,
                         **kwargs,
                     )
                 else:
@@ -1761,6 +1797,7 @@ class BaseAgentWithTools(BaseAgent):
                         tools=final_model_tools,
                         tool_choice=final_tool_choice,
                         timeout_seconds=chat_timeout_seconds,
+                        seed=turn_seed,
                         **kwargs,
                     )
                     if not isinstance(final_response, dict):
@@ -1930,15 +1967,19 @@ class BaseAgentWithTools(BaseAgent):
         }
         if raw_sft is not None:
             trajectory["raw_sft"] = raw_sft
+        extra_records = {
+            "trajectory": trajectory,
+            # Phase 2: SAM3 (and other detection-tool) per-call (boxes, scores)
+            # candidate sets, captured during the agent's tool loop. Empty for
+            # BaseAgent or for tool-use rows that didn't trigger a scoring tool.
+            "tool_detections": list(getattr(self, "_last_tool_detections", []) or []),
+        }
+        run_usage = getattr(self, "_last_run_usage", None)
+        if isinstance(run_usage, dict) and run_usage:
+            extra_records["usage"] = run_usage
         return {
             "prediction": final_answer,
-            "extra_records": {
-                "trajectory": trajectory,
-                # Phase 2: SAM3 (and other detection-tool) per-call (boxes, scores)
-                # candidate sets, captured during the agent's tool loop. Empty for
-                # BaseAgent or for tool-use rows that didn't trigger a scoring tool.
-                "tool_detections": list(getattr(self, "_last_tool_detections", []) or []),
-            },
+            "extra_records": extra_records,
         }
 
 
