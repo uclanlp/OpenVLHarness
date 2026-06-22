@@ -11,7 +11,7 @@ agent_config_version: v1_0215
 agent_kwargs:
   base: "http://localhost:8333"
   key: "empty"
-  model: "Qwen/Qwen3-VL-8B-Instruct"
+  model: "Qwen/Qwen3-VL-32B-Instruct"
   timeout: 600
   custom_prompt: false
   max_tokens: 2048

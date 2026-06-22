@@ -158,6 +158,20 @@ def dataset_accuracy(state: State, dataset: str) -> Optional[float]:
     return None
 
 
+def val_score_of(state: State) -> Optional[float]:
+    return as_float(state.get("val_score"))
+
+
+def val_dataset_accuracy(state: State, dataset: str) -> Optional[float]:
+    scores = state.get("val_dataset_scores")
+    if isinstance(scores, dict):
+        value = scores.get(dataset)
+        if isinstance(value, dict):
+            return as_float(value.get("accuracy"))
+        return as_float(value)
+    return None
+
+
 def dataset_count_text(state: State, dataset: str) -> str:
     scores = state.get("dataset_scores")
     if not isinstance(scores, dict):
@@ -294,6 +308,35 @@ def proposal_label(state: State) -> str:
     if combo_size:
         return f"{proposal_id} ({combo_size})"
     return proposal_id
+
+
+def gate_of(state: State) -> Optional[Dict[str, Any]]:
+    gate = state.get("promotion_gate")
+    return gate if isinstance(gate, dict) else None
+
+
+def gate_num(value: Any) -> str:
+    """Compact gate count: ints (k=1) print as-is; fractional k>1 values round."""
+    if isinstance(value, bool) or not isinstance(value, float):
+        return str(value)
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def fmt_gate(gate: Optional[Dict[str, Any]]) -> str:
+    if not gate:
+        return '<span class="muted">-</span>'
+    if gate.get("reason") == "insufficient_paired_data":
+        return '<span class="tie" title="no shared paired instances">n/a</span>'
+    lcb = as_float(gate.get("lcb"))
+    promoted = bool(gate.get("promoted"))
+    cls = "pos" if promoted else "neg"
+    verdict = "promoted" if promoted else "gated"
+    lcb_text = f"{lcb:+.1f}" if lcb is not None else "-"
+    label = (
+        f"fixed {gate_num(gate.get('fixed'))} / broke {gate_num(gate.get('broke'))} "
+        f"/ net {gate_num(gate.get('net'))} / LCB {lcb_text} (z={gate.get('z')})"
+    )
+    return f'<span class="{cls}" title="{esc(label)}">{verdict} (LCB {lcb_text})</span>'
 
 
 def child_delta(state: State, states: Dict[str, State]) -> Optional[float]:
@@ -648,6 +691,7 @@ def render_report(
     campaign: Dict[str, Any],
     states: Dict[str, State],
     datasets: Sequence[str],
+    val_datasets: Sequence[str],
     top_k: int,
 ) -> str:
     evaluated = evaluated_states(states)
@@ -725,14 +769,37 @@ def render_report(
             "color": palette[index % len(palette)],
         })
 
-    best_line = svg_line_chart(
-        title="Overall score trend",
-        series=[
-            {"name": "best found", "points": best_points, "color": COLORS["best"]},
-            {"name": "selected pool mean", "points": pool_mean_points, "color": COLORS["pool"]},
-            {"name": "round best child", "points": round_best_points, "color": COLORS["round"], "dash": True},
-        ],
-    )
+    # Held-out validation of the best parent, recorded per completed round plus the baseline.
+    val_baseline_score = val_score_of(baseline)
+    val_points: List[Tuple[int, float]] = []
+    if val_baseline_score is not None:
+        val_points.append((0, float(val_baseline_score)))
+    validation_round_entries: List[Tuple[int, Dict[str, Any]]] = []
+    for round_num in sorted(round_states):
+        round_state = round_states[round_num]
+        if round_state.get("status") != "complete":
+            continue
+        validation = round_state.get("validation")
+        if not isinstance(validation, dict):
+            continue
+        round_val_score = as_float(validation.get("val_score"))
+        validation_round_entries.append((round_num, validation))
+        if round_val_score is not None:
+            val_points.append((round_num, float(round_val_score)))
+
+    best_series = [
+        {"name": "best found", "points": best_points, "color": COLORS["best"]},
+        {"name": "selected pool mean", "points": pool_mean_points, "color": COLORS["pool"]},
+        {"name": "round best child", "points": round_best_points, "color": COLORS["round"], "dash": True},
+    ]
+    if val_datasets:
+        best_series.append({
+            "name": "best-parent val (held-out)",
+            "points": val_points,
+            "color": "#7b4da2",
+            "dash": True,
+        })
+    best_line = svg_line_chart(title="Overall score trend", series=best_series)
     dataset_line = svg_line_chart(title="Dataset accuracy of best-found state", series=dataset_series)
     scatter = svg_scatter(
         title="Evaluated state score distribution",
@@ -787,6 +854,47 @@ def render_report(
             fmt_delta((best_value - base_value) if best_value is not None and base_value is not None else None),
         ])
 
+    # Held-out validation table: baseline row + one row per completed round's best parent.
+    def validation_row(label: str, state: Optional[State]) -> List[str]:
+        state = state or {}
+        state_id = str(state.get("state_id") or "")
+        held_out = val_score_of(state)
+        per_dataset = ", ".join(
+            f"{esc(dataset)}={fmt_pct(value)}"
+            for dataset in val_datasets
+            if (value := val_dataset_accuracy(state, dataset)) is not None
+        )
+        return [
+            esc(label),
+            link_for(campaign_root / "states" / state_id / "state.json", output_path, state_id) if state_id else "-",
+            fmt_pct(score_of(state)),
+            fmt_pct(held_out),
+            per_dataset or "-",
+            fmt_delta(
+                (held_out - val_baseline_score)
+                if held_out is not None and val_baseline_score is not None
+                else None
+            ),
+        ]
+
+    validation_rows: List[List[str]] = []
+    if val_datasets:
+        validation_rows.append(validation_row("base", baseline))
+        for round_num, validation in validation_round_entries:
+            best_state = states.get(str(validation.get("state_id")), {})
+            validation_rows.append(validation_row(f"r{round_num:03d}", best_state))
+
+    latest_val_score = (
+        as_float(validation_round_entries[-1][1].get("val_score"))
+        if validation_round_entries
+        else val_baseline_score
+    )
+    val_gain = (
+        latest_val_score - val_baseline_score
+        if latest_val_score is not None and val_baseline_score is not None
+        else None
+    )
+
     round_table_rows = []
     for item in round_rows:
         best_child = item["best_child"]
@@ -838,6 +946,7 @@ def render_report(
             esc(str(state.get("parent_state_id") or "-")),
             fmt_pct(score_of(state)),
             fmt_delta((score_of(state) - baseline_score) if score_of(state) is not None and baseline_score is not None else None),
+            fmt_gate(gate_of(state)),
             esc(state_dataset_summary(state, datasets)),
             esc(proposal_label(state)),
             esc(short_text(state.get("patch_summary"), 240)),
@@ -910,6 +1019,59 @@ def render_report(
             + ", ".join(f"r{round_num:03d}" for round_num in round_state_only)
             + ".</p>"
         )
+
+    val_card = ""
+    validation_section = ""
+    if val_datasets:
+        val_card = (
+            '<div class="card"><div class="label">Best Val (held-out)</div>'
+            f'<div class="value">{fmt_pct(latest_val_score)}</div>'
+            f'<div class="sub">vs baseline {fmt_delta(val_gain)} on {esc(", ".join(val_datasets))}</div></div>'
+        )
+        validation_section = f"""
+  <h2>Validation (held-out test)</h2>
+  <p class="muted">Best parent re-evaluated on <strong>{esc(", ".join(val_datasets))}</strong> after each round. These scores do not drive search ranking.</p>
+  <div class="panel">
+    {table(['round', 'best parent', 'search score (val_train)', 'held-out (val_test)', 'per-dataset held-out', 'delta vs baseline'], validation_rows) if validation_rows else '<div class="empty">No validation results recorded yet.</div>'}
+  </div>
+"""
+
+    # Paired LCB promotion gate: which evaluated children cleared the bar vs their parent.
+    gate_section = ""
+    gate_children = [
+        state for state in evaluated
+        if state.get("parent_state_id") and gate_of(state) is not None
+    ]
+    if gate_children:
+        gate_z_values = sorted({g.get("z") for state in gate_children if (g := gate_of(state)) is not None})
+        gate_z_text = ", ".join(str(z) for z in gate_z_values if z is not None) or "-"
+        promoted_count = sum(1 for state in gate_children if (gate_of(state) or {}).get("promoted"))
+        gated_count = len(gate_children) - promoted_count
+        gate_rows = []
+        for state in sorted(
+            gate_children,
+            key=lambda s: (round_of(s), -((gate_of(s) or {}).get("lcb") or -1e9), creation_index(s)),
+        ):
+            gate = gate_of(state) or {}
+            state_id = str(state.get("state_id") or "")
+            gate_rows.append([
+                link_for(campaign_root / "states" / state_id / "state.json", output_path, state_id),
+                f"r{round_of(state):03d}",
+                esc(str(state.get("parent_state_id") or "-")),
+                gate_num(gate.get("fixed")),
+                gate_num(gate.get("broke")),
+                gate_num(gate.get("net")),
+                gate_num(gate.get("discordant")),
+                fmt_score(as_float(gate.get("lcb"))),
+                fmt_gate(gate),
+            ])
+        gate_section = f"""
+  <h2>Promotion Gate (paired LCB)</h2>
+  <p class="muted">A child is promotable only when <code>(fixed - broke) - z*sqrt(fixed + broke) &gt; 0</code> vs its parent on the shared eval instances (z={esc(gate_z_text)}). Gated children stay out of the next pool regardless of raw accuracy. <strong>{promoted_count}</strong> promoted, <strong>{gated_count}</strong> gated.</p>
+  <div class="panel">
+    {table(['child', 'round', 'parent', 'fixed', 'broke', 'net', 'discordant', 'LCB', 'verdict'], gate_rows)}
+  </div>
+"""
 
     campaign_id = campaign.get("campaign_id") or campaign_root.name
     title = f"Harness Search Report - {campaign_id}"
@@ -1136,6 +1298,7 @@ def render_report(
     <div class="card"><div class="label">Relative Gain</div><div class="value">{f'{rel_gain * 100:.1f}%' if rel_gain is not None else '-'}</div><div class="sub">{esc(correct_delta_text or 'correct-count delta unavailable')}</div></div>
     <div class="card"><div class="label">Current Pool Mean</div><div class="value">{fmt_pct(current_pool_mean)}</div><div class="sub">best in pool {fmt_pct(current_pool_best)}</div></div>
     <div class="card"><div class="label">Evaluated States</div><div class="value">{len(evaluated)}</div><div class="sub">{esc(dict(status_counts))}</div></div>
+    {val_card}
   </section>
 
   <p class="callout">
@@ -1157,6 +1320,7 @@ def render_report(
   <div class="panel">
     {table(['dataset', 'baseline', 'best anywhere', 'best current-pool state', 'best gain'], dataset_rows)}
   </div>
+{validation_section}
 
   <h2>Round Outcomes</h2>
   <div class="panel">
@@ -1170,8 +1334,9 @@ def render_report(
 
   <h2>Top States</h2>
   <div class="panel">
-    {table(['state', 'round', 'parent', 'score', 'delta vs baseline', 'datasets', 'proposal', 'summary'], top_state_rows)}
+    {table(['state', 'round', 'parent', 'score', 'delta vs baseline', 'promotion gate', 'datasets', 'proposal', 'summary'], top_state_rows)}
   </div>
+{gate_section}
 
   <h2>Search Shape</h2>
   <div class="panel">
@@ -1223,6 +1388,7 @@ def main() -> int:
     campaign = load_campaign(campaign_root)
     states = load_states(campaign_root, campaign)
     datasets = collect_datasets(campaign, states)
+    val_datasets = [str(item) for item in campaign.get("val_datasets") or []]
     output_path = args.output.expanduser().resolve() if args.output else campaign_root / "search_report.html"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     report = render_report(
@@ -1231,6 +1397,7 @@ def main() -> int:
         campaign=campaign,
         states=states,
         datasets=datasets,
+        val_datasets=val_datasets,
         top_k=max(1, args.top_k),
     )
     output_path.write_text(report, encoding="utf-8")

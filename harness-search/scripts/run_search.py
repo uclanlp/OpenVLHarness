@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import select
 import signal
@@ -324,6 +325,154 @@ def aggregate_state_metrics(artifact_root: Path, datasets: List[str]) -> Dict[st
     }
 
 
+def load_instance_correctness(artifact_root: Path) -> Dict[str, bool]:
+    """Map each evaluated instance to its correctness, keyed by dataset::task_id.
+
+    Both parent and child are evaluated on the same deterministic head(N) slice of
+    the same datasets, so these keys line up across states and let us compare them
+    on a per-instance (paired) basis instead of on collapsed mean accuracy.
+    """
+    correctness: Dict[str, bool] = {}
+    if not artifact_root.exists():
+        return correctness
+    for path in artifact_root.glob("**/full_trajectories/*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        correct, _ = extract_eval(payload)
+        if correct is None:
+            continue
+        dataset = str(payload.get("dataset") or infer_dataset_from_path(path))
+        correctness[f"{dataset}::{path.stem}"] = bool(correct)
+    return correctness
+
+
+def aggregate_instance_passrates(sample_artifact_dirs: List[Path]) -> Dict[str, float]:
+    """Average per-instance correctness across k sample runs into a pass-rate.
+
+    Each sample dir is one full run_benchmark.py invocation of the same harness;
+    the key (dataset::task_id) lines up across samples and across states, so the
+    mean is the instance's pass-rate in [0, 1].
+    """
+    sums: Dict[str, float] = {}
+    counts: Dict[str, int] = {}
+    for artifact_dir in sample_artifact_dirs:
+        for key, correct in load_instance_correctness(artifact_dir).items():
+            sums[key] = sums.get(key, 0.0) + (1.0 if correct else 0.0)
+            counts[key] = counts.get(key, 0) + 1
+    return {key: sums[key] / counts[key] for key in sums}
+
+
+def metrics_from_passrates(passrates: Dict[str, float], datasets: List[str]) -> Dict[str, Any]:
+    """Dataset/overall scores from per-instance pass-rates (mean pass-rate)."""
+    grouped: Dict[str, List[float]] = {dataset: [] for dataset in datasets}
+    for key, rate in passrates.items():
+        dataset = key.split("::", 1)[0]
+        grouped.setdefault(dataset, []).append(rate)
+    rows: List[Dict[str, Any]] = []
+    dataset_scores: Dict[str, Dict[str, Any]] = {}
+    for dataset in datasets:
+        values = grouped.get(dataset, [])
+        if not values:
+            raise ValueError(f"no evaluable instances for dataset {dataset}")
+        accuracy = sum(values) / len(values)
+        row = {"dataset": dataset, "accuracy": accuracy, "correct": sum(values), "total": len(values)}
+        rows.append(row)
+        dataset_scores[dataset] = row
+    score = sum(row["accuracy"] for row in rows) / len(rows)
+    return {"score": score, "dataset_scores": dataset_scores, "rows": rows}
+
+
+def load_instance_scores(eval_dir: Path) -> Dict[str, float]:
+    """Per-instance pass-rate in [0, 1] for a state's evaluation.
+
+    Prefers the k-sample average in ``instance_scores.json``; falls back to the
+    single-run 0/1 correctness so older eval dirs (and k=1 runs) still work.
+    """
+    scores_path = eval_dir / "instance_scores.json"
+    if scores_path.exists():
+        try:
+            raw = json.loads(scores_path.read_text(encoding="utf-8"))
+            return {str(key): float(value) for key, value in raw.items()}
+        except Exception:
+            pass
+    return {key: (1.0 if correct else 0.0)
+            for key, correct in load_instance_correctness(eval_dir / "artifacts").items()}
+
+
+def compute_promotion_gate(
+    *,
+    states_root: Path,
+    parent_id: str,
+    child_id: str,
+    z: float,
+    eval_subdir: str = "eval",
+    samples: int = 1,
+) -> Dict[str, Any]:
+    """Paired McNemar-style lower-confidence-bound gate for a child vs its parent.
+
+    Over the shared instance set, `fixed` (c) = parent wrong -> child right and
+    `broke` (b) = parent right -> child wrong. The net count gain is c - b and the
+    only instances carrying information are the b + c discordant flips, whose
+    standard error is sqrt(b + c). We discount the measured gain by z standard
+    errors so that gains achieved through lots of noisy churn do not get promoted:
+
+        LCB(c - b) = (c - b) - z * sqrt(b + c)
+
+    The child is promotable only when LCB > 0. Missing paired data defaults to
+    promotable so the gate never silently drops everything on a partial run.
+    """
+    # k=1 keeps the integer McNemar counts exactly; k>1 generalizes a "flip" to the
+    # fractional pass-rate change d_i = child_rate - parent_rate. Averaging shrinks
+    # the noisy ~50% instances toward d_i~0 (out of the gate) while real fixes keep a
+    # large d_i, so net/discordant collapse to the existing formula at k=1.
+    if samples > 1:
+        parent_scores = load_instance_scores(states_root / parent_id / eval_subdir)
+        child_scores = load_instance_scores(states_root / child_id / eval_subdir)
+    else:
+        parent_scores = load_instance_correctness(states_root / parent_id / eval_subdir / "artifacts")
+        child_scores = load_instance_correctness(states_root / child_id / eval_subdir / "artifacts")
+    shared = sorted(set(parent_scores) & set(child_scores))
+    if not shared:
+        return {
+            "z": z,
+            "n_paired": 0,
+            "fixed": 0,
+            "broke": 0,
+            "net": 0,
+            "discordant": 0,
+            "se": 0.0,
+            "lcb": 0.0,
+            "promoted": True,
+            "reason": "insufficient_paired_data",
+        }
+    if samples > 1:
+        deltas = [child_scores[key] - parent_scores[key] for key in shared]
+        fixed = sum(d for d in deltas if d > 0)
+        broke = sum(-d for d in deltas if d < 0)
+    else:
+        fixed = sum(1 for key in shared if child_scores[key] and not parent_scores[key])
+        broke = sum(1 for key in shared if parent_scores[key] and not child_scores[key])
+    net = fixed - broke
+    discordant = fixed + broke
+    se = math.sqrt(discordant) if discordant else 0.0
+    lcb = net - z * se
+    promoted = lcb > 0
+    return {
+        "z": z,
+        "n_paired": len(shared),
+        "fixed": fixed,
+        "broke": broke,
+        "net": net,
+        "discordant": discordant,
+        "se": se,
+        "lcb": lcb,
+        "promoted": promoted,
+        "reason": "lcb_positive" if promoted else "lcb_not_positive",
+    }
+
+
 def parse_env_file(path: Path) -> Dict[str, str]:
     values: Dict[str, str] = {}
     if not path.exists():
@@ -362,7 +511,12 @@ def write_router_env_with_port(source_path: Path, target_path: Path, port: int) 
     target_path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
 
 
-def write_agent_config_with_tool_base(source_path: Path, target_path: Path, tool_base: str) -> None:
+def write_agent_config_with_tool_base(
+    source_path: Path,
+    target_path: Path,
+    tool_base: str,
+    paired_sampling_seed: bool = False,
+) -> None:
     if not source_path.exists():
         raise FileNotFoundError(f"agent config does not exist: {source_path}")
     config = yaml.safe_load(source_path.read_text(encoding="utf-8")) or {}
@@ -372,6 +526,9 @@ def write_agent_config_with_tool_base(source_path: Path, target_path: Path, tool
     if not isinstance(agent_kwargs, dict):
         raise ValueError(f"agent_kwargs must be a YAML mapping: {source_path}")
     agent_kwargs["tool_base"] = tool_base
+    if paired_sampling_seed:
+        # CRN: enable the per-instance fixed sampling seed in the eval harness.
+        agent_kwargs["paired_sampling_seed"] = True
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
@@ -387,7 +544,12 @@ def materialize_campaign_runtime_config(args: argparse.Namespace) -> None:
     router_env_path = config_dir / "router.env"
     agent_config_path = config_dir / "agent.yaml"
     write_router_env_with_port(source_router_env, router_env_path, router_port)
-    write_agent_config_with_tool_base(source_agent_config, agent_config_path, tool_base)
+    write_agent_config_with_tool_base(
+        source_agent_config,
+        agent_config_path,
+        tool_base,
+        paired_sampling_seed=bool(getattr(args, "paired_sampling_seed", False)),
+    )
 
     args.source_router_env_file = str(source_router_env)
     args.source_agent_config = str(source_agent_config)
@@ -421,7 +583,12 @@ def make_eval_runtime(args: argparse.Namespace, eval_dir: Path, router_port: Opt
     router_env_path = runtime_dir / "router.env"
     agent_config_path = runtime_dir / "agent.yaml"
     write_router_env_with_port(Path(args.source_router_env_file), router_env_path, router_port)
-    write_agent_config_with_tool_base(Path(args.source_agent_config), agent_config_path, tool_base)
+    write_agent_config_with_tool_base(
+        Path(args.source_agent_config),
+        agent_config_path,
+        tool_base,
+        paired_sampling_seed=bool(getattr(args, "paired_sampling_seed", False)),
+    )
     return {
         "router_port": router_port,
         "tool_base": tool_base,
@@ -472,6 +639,9 @@ def init_runbook(path: Path, *, args: argparse.Namespace, campaign_id: str, data
 | crossover_max_size | `{args.crossover_max_size}` |
 | pool_size | `{args.pool_size}` |
 | max_proposals | `{args.max_proposals}` |
+| lcb_gate_z | `{args.lcb_gate_z}` |
+| eval_samples_per_instance | `{args.eval_samples_per_instance}` |
+| paired_sampling_seed | `{args.paired_sampling_seed}` |
 | router_port | `{args.router_port}` |
 | tool_base | `{args.tool_base}` |
 | playground_max_tasks | `{args.playground_max_tasks}` |
@@ -861,12 +1031,17 @@ def evaluate_state(
     state_id: str,
     dry_run: bool,
     router_port: Optional[int] = None,
+    datasets: Optional[List[str]] = None,
+    eval_subdir: str = "eval",
+    metrics_prefix: str = "",
+    update_status: bool = True,
 ) -> Dict[str, Any]:
+    datasets = list(datasets) if datasets is not None else list(args.datasets)
     state_dir = args.states_root / state_id
-    eval_dir = state_dir / "eval"
+    eval_dir = state_dir / eval_subdir
     artifacts_dir = eval_dir / "artifacts"
     logs_dir = eval_dir / "logs"
-    scratch_repo = args.campaign_root / "scratch" / f"eval_{state_id}"
+    scratch_repo = args.campaign_root / "scratch" / f"{eval_subdir}_{state_id}"
     runtime = make_eval_runtime(args, eval_dir, None if dry_run else router_port)
     eval_state: Dict[str, Any] = {
         "state_id": state_id,
@@ -901,71 +1076,102 @@ def evaluate_state(
         if code != 0:
             raise RuntimeError("router restart failed")
 
-        command = [
-            sys.executable,
-            "run_benchmark.py",
-            "--config",
-            runtime["agent_config"],
-            "--judge-config",
-            args.judge_config,
-            "--data",
-            *args.datasets,
-            "--num-proc",
-            str(args.num_proc),
-            "--num-examples",
-            str(args.num_examples),
-            "--work-dir",
-            str(artifacts_dir),
-            "--run-tag",
-            state_id,
-            "--save-html",
-            "0",
-        ]
-        code = run_command(
-            command=command,
-            cwd=scratch_repo if not dry_run else REPO_ROOT,
-            state=eval_state,
-            label="benchmark",
-            dry_run=dry_run,
-            log_path=logs_dir / "benchmark.log",
-            env=runtime["benchmark_env"],
-            state_path=eval_state_path,
-        )
-        if code != 0:
-            raise RuntimeError("benchmark failed")
+        samples = max(1, int(getattr(args, "eval_samples_per_instance", 1) or 1))
+        sample_dirs: List[Path] = []
+        for sample_idx in range(samples):
+            run_artifacts = artifacts_dir if samples == 1 else (eval_dir / f"sample_{sample_idx}" / "artifacts")
+            command = [
+                sys.executable,
+                "run_benchmark.py",
+                "--config",
+                runtime["agent_config"],
+                "--judge-config",
+                args.judge_config,
+                "--data",
+                *datasets,
+                "--num-proc",
+                str(args.num_proc),
+                "--num-examples",
+                str(args.num_examples),
+                "--work-dir",
+                str(run_artifacts),
+                "--run-tag",
+                state_id if samples == 1 else f"{state_id}_s{sample_idx}",
+                "--save-html",
+                "0",
+            ]
+            # run_benchmark.py is unchanged; we just invoke it once per sample. The
+            # per-repeat salt makes CRN repeats differ while staying paired across
+            # parent/child; it is ignored when paired sampling is off.
+            sample_env = dict(runtime["benchmark_env"])
+            if samples > 1:
+                sample_env["HARNESS_SEARCH_SAMPLE_INDEX"] = str(sample_idx)
+            code = run_command(
+                command=command,
+                cwd=scratch_repo if not dry_run else REPO_ROOT,
+                state=eval_state,
+                label="benchmark" if samples == 1 else f"benchmark_s{sample_idx}",
+                dry_run=dry_run,
+                log_path=logs_dir / ("benchmark.log" if samples == 1 else f"benchmark_s{sample_idx}.log"),
+                env=sample_env,
+                state_path=eval_state_path,
+            )
+            if code != 0:
+                raise RuntimeError("benchmark failed")
+            sample_dirs.append(run_artifacts)
 
+        prefix = metrics_prefix
         if dry_run:
             metrics = {"score": None, "dataset_scores": {}, "rows": []}
-            update_state(state_dir, {"status": "dry_run", "eval_dir": str(eval_dir)})
+            dry_updates: Dict[str, Any] = {f"{prefix}eval_dir": str(eval_dir)}
+            if update_status:
+                dry_updates["status"] = "dry_run"
+            update_state(state_dir, dry_updates)
         else:
-            metrics = aggregate_state_metrics(artifacts_dir, args.datasets)
+            if len(sample_dirs) <= 1:
+                metrics = aggregate_state_metrics(artifacts_dir, datasets)
+            else:
+                passrates = aggregate_instance_passrates(sample_dirs)
+                write_json(eval_dir / "instance_scores.json", passrates)
+                metrics = metrics_from_passrates(passrates, datasets)
+                metrics["artifact_root"] = str(eval_dir)
+                metrics["samples_per_instance"] = len(sample_dirs)
             write_json(eval_dir / "performance_summary.json", metrics)
             write_json(eval_dir / "score.json", metrics)
-            update_state(
-                state_dir,
-                {
-                    "status": "evaluated",
-                    "score": metrics["score"],
-                    "dataset_scores": metrics["dataset_scores"],
-                    "eval_dir": str(eval_dir),
-                    "performance_summary": str(eval_dir / "performance_summary.json"),
-                    "evaluated_at": utcish_now(),
-                },
-            )
+            updates: Dict[str, Any] = {
+                f"{prefix}score": metrics["score"],
+                f"{prefix}dataset_scores": metrics["dataset_scores"],
+                f"{prefix}datasets": datasets,
+                f"{prefix}eval_dir": str(eval_dir),
+                f"{prefix}performance_summary": str(eval_dir / "performance_summary.json"),
+                f"{prefix}evaluated_at": utcish_now(),
+            }
+            if update_status:
+                updates["status"] = "evaluated"
+            update_state(state_dir, updates)
 
         eval_state["status"] = "dry_run" if dry_run else "complete"
         eval_state["metrics"] = metrics
     except Exception as exc:
         eval_state["status"] = "failed"
         eval_state["error"] = f"{type(exc).__name__}: {exc}"
-        update_state(
-            state_dir,
-            {
-                "status": "failed",
-                "failure_reason": eval_state["error"],
-                "eval_dir": str(eval_dir),
-            },
-        )
+        if update_status:
+            update_state(
+                state_dir,
+                {
+                    "status": "failed",
+                    "failure_reason": eval_state["error"],
+                    "eval_dir": str(eval_dir),
+                },
+            )
+        else:
+            update_state(
+                state_dir,
+                {
+                    f"{metrics_prefix}failure_reason": eval_state["error"],
+                    f"{metrics_prefix}eval_dir": str(eval_dir),
+                },
+            )
     finally:
         if not dry_run and scratch_repo.exists():
             stop_router(args, scratch_repo, eval_state, dry_run=False, runtime=runtime)
@@ -975,6 +1181,43 @@ def evaluate_state(
         write_json(eval_state_path, eval_state)
 
     return read_json(state_dir / "state.json")
+
+
+def run_validation(
+    *,
+    args: argparse.Namespace,
+    state_id: str,
+    context: str,
+    dry_run: bool,
+) -> Optional[Dict[str, Any]]:
+    """Evaluate a single state on the held-out --val-datasets without affecting search ranking."""
+    if not getattr(args, "val_datasets", None):
+        return None
+
+    state_dir = args.states_root / state_id
+    if not dry_run and getattr(args, "resume_mode", False):
+        existing = read_json(state_dir / "state.json") if (state_dir / "state.json").exists() else {}
+        if isinstance(existing.get("val_score"), (int, float)):
+            log(f"Resuming: skipping validation for {state_id} ({context}); val_score already present")
+            return existing
+
+    if not dry_run:
+        require_router_ports_available(
+            args,
+            [args.router_port],
+            f"validation of {state_id} ({context})",
+        )
+    log(f"Validating {state_id} on held-out datasets {args.val_datasets} ({context})")
+    return evaluate_state(
+        args=args,
+        state_id=state_id,
+        dry_run=dry_run,
+        router_port=None if dry_run else args.router_port,
+        datasets=args.val_datasets,
+        eval_subdir="val_eval",
+        metrics_prefix="val_",
+        update_status=False,
+    )
 
 
 def run_codex_analysis(
@@ -1562,16 +1805,72 @@ def run_round(
             campaign_state.setdefault("states", {})[child_payload["state_id"]] = child_payload
         parent_entry["status"] = "complete"
 
+    gate_z = getattr(args, "lcb_gate_z", None)
+    gated_out: set[str] = set()
+    if not dry_run and gate_z is not None:
+        for child in round_state["children"]:
+            child_id = child.get("state_id")
+            parent_id = child.get("parent_state_id")
+            if not child_id or child.get("status") != "evaluated":
+                continue
+            if not parent_id:
+                continue
+            gate = compute_promotion_gate(
+                states_root=args.states_root,
+                parent_id=parent_id,
+                child_id=child_id,
+                z=float(gate_z),
+                samples=max(1, int(getattr(args, "eval_samples_per_instance", 1) or 1)),
+            )
+            child["promotion_gate"] = gate
+            update_state(args.states_root / child_id, {"promotion_gate": gate})
+            campaign_state.setdefault("states", {})[child_id] = read_json(args.states_root / child_id / "state.json")
+            if not gate["promoted"]:
+                gated_out.add(child_id)
+                log(
+                    f"Gated out child {child_id} (parent {parent_id}): "
+                    f"fixed={gate['fixed']:.2g} broke={gate['broke']:.2g} net={gate['net']:.2g} "
+                    f"lcb={gate['lcb']:.2f} (z={gate['z']}, reason={gate['reason']})"
+                )
+
     joint_payloads = load_state_payloads(
         args.states_root,
         [state["state_id"] for state in pool]
-        + [child.get("state_id") for child in round_state["children"] if child.get("state_id")],
+        + [
+            child.get("state_id")
+            for child in round_state["children"]
+            if child.get("state_id") and child.get("state_id") not in gated_out
+        ],
     )
     next_pool = rank_states(joint_payloads, args.pool_size) if not dry_run else pool
+    round_state["gated_out_children"] = sorted(gated_out)
     round_state["next_pool"] = [state["state_id"] for state in next_pool]
     round_state["status"] = "dry_run" if dry_run else "complete"
     round_state_path = round_dir / "round_state.json"
     write_json(round_state_path, round_state)
+
+    if not (dry_run or args.skip_codex) and getattr(args, "val_datasets", None) and next_pool:
+        best_id = next_pool[0]["state_id"]
+        existing_validation = round_state.get("validation")
+        if (
+            isinstance(existing_validation, dict)
+            and existing_validation.get("state_id") == best_id
+            and isinstance(existing_validation.get("val_score"), (int, float))
+        ):
+            log(f"Resuming: validation for best parent {best_id} already recorded in {round_id}")
+        else:
+            log(f"Validating best parent {best_id} for {round_id}")
+            run_validation(args=args, state_id=best_id, context=round_id, dry_run=dry_run)
+            best_payload = read_json(args.states_root / best_id / "state.json")
+            round_state["best_state_id"] = best_id
+            round_state["validation"] = {
+                "state_id": best_id,
+                "val_score": best_payload.get("val_score"),
+                "val_dataset_scores": best_payload.get("val_dataset_scores"),
+                "val_datasets": args.val_datasets,
+            }
+            write_json(round_state_path, round_state)
+            campaign_state.setdefault("states", {})[best_id] = best_payload
 
     if not args.skip_codex:
         log(f"Running bookkeeper for {round_id}")
@@ -1583,6 +1882,13 @@ def run_round(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run harness tree search.")
     parser.add_argument("--datasets", nargs="+", default=["ERQA", "MMSIBench_wo_circular"])
+    parser.add_argument(
+        "--val-datasets",
+        nargs="+",
+        default=None,
+        help="Held-out datasets for validating the best parent after each round (uses --num-examples). "
+        "When omitted, no validation pass runs.",
+    )
     parser.add_argument("--num-examples", type=int, default=20)
     parser.add_argument("--num-rounds", type=int, default=1)
     parser.add_argument("--pool-size", type=int, default=3)
@@ -1658,6 +1964,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--playground-max-tasks", type=int, default=20)
     parser.add_argument("--playground-trials-per-task", type=int, default=5)
     parser.add_argument("--max-states-per-round", type=int, default=None)
+    parser.add_argument(
+        "--lcb-gate-z",
+        type=float,
+        default=None,
+        help="Enable the paired lower-confidence-bound promotion gate: a child may enter the "
+        "next pool only if (fixed - broke) - z*sqrt(fixed + broke) > 0 vs its parent on the "
+        "shared eval instances. Higher z is stricter; omit to disable the gate.",
+    )
+    parser.add_argument(
+        "--eval-samples-per-instance",
+        type=int,
+        default=1,
+        help="Evaluate each state k times (k separate run_benchmark.py invocations) and score "
+        "by per-instance pass-rate instead of a single 0/1. Reduces sampling noise ~1/sqrt(k) so "
+        "the gate and ranking see real edits, not luck. k=1 (default) is exactly today's behavior. "
+        "Compose with --paired-sampling-seed (CRN) for paired variance reduction.",
+    )
+    parser.add_argument(
+        "--paired-sampling-seed",
+        action="store_true",
+        help="CRN: enable a per-instance fixed sampling seed in the eval harness (injects "
+        "paired_sampling_seed: true into the materialized agent config). Parent and child then "
+        "sample identically on any instance the edit did not change, cancelling shared noise. "
+        "With k>1 each repeat gets a distinct, still-paired seed.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-codex", action="store_true")
     return parser.parse_args()
@@ -1691,6 +2022,7 @@ def setup_resume_campaign(args: argparse.Namespace) -> Tuple[Dict[str, Any], Pat
     args.base_repo = campaign_root / "base_repo"
     args.states_root = campaign_root / "states"
     args.datasets = list(campaign_state.get("datasets") or args.datasets)
+    args.val_datasets = list(campaign_state.get("val_datasets") or args.val_datasets or [])
     args.num_examples = int(campaign_state.get("num_examples", args.num_examples))
     args.num_proc = int(campaign_state.get("num_proc", args.num_proc))
     args.parallel_states = int(campaign_state.get("parallel_states", args.parallel_states))
@@ -1698,6 +2030,13 @@ def setup_resume_campaign(args: argparse.Namespace) -> Tuple[Dict[str, Any], Pat
     args.num_rounds = int(campaign_state.get("num_rounds", args.num_rounds))
     args.pool_size = int(campaign_state.get("pool_size", args.pool_size))
     args.max_proposals = int(campaign_state.get("max_proposals", args.max_proposals))
+    if args.lcb_gate_z is None and campaign_state.get("lcb_gate_z") is not None:
+        args.lcb_gate_z = float(campaign_state["lcb_gate_z"])
+    args.eval_samples_per_instance = int(
+        campaign_state.get("eval_samples_per_instance", args.eval_samples_per_instance)
+    )
+    if not args.paired_sampling_seed and campaign_state.get("paired_sampling_seed"):
+        args.paired_sampling_seed = True
     args.router_port = int(campaign_state.get("router_port", args.router_port))
     args.tool_base = str(campaign_state.get("tool_base") or f"http://localhost:{args.router_port}")
     args.router_env_file = str(campaign_state.get("router_env_file") or (campaign_root / "configs" / "router.env"))
@@ -1728,6 +2067,7 @@ def setup_new_campaign(args: argparse.Namespace) -> Tuple[Dict[str, Any], Path]:
     args.base_repo = campaign_root / "base_repo"
     args.states_root = campaign_root / "states"
     args.datasets = list(args.datasets)
+    args.val_datasets = list(args.val_datasets or [])
     materialize_campaign_runtime_config(args)
     if args.router_port + args.parallel_states - 1 > 65535:
         raise SystemExit("--router-port + --parallel-states - 1 must be <= 65535")
@@ -1741,6 +2081,7 @@ def setup_new_campaign(args: argparse.Namespace) -> Tuple[Dict[str, Any], Path]:
         "created_at": utcish_now(),
         "campaign_root": str(campaign_root),
         "datasets": args.datasets,
+        "val_datasets": args.val_datasets,
         "num_examples": args.num_examples,
         "num_proc": args.num_proc,
         "parallel_states": args.parallel_states,
@@ -1748,6 +2089,9 @@ def setup_new_campaign(args: argparse.Namespace) -> Tuple[Dict[str, Any], Path]:
         "num_rounds": args.num_rounds,
         "pool_size": args.pool_size,
         "max_proposals": args.max_proposals,
+        "lcb_gate_z": args.lcb_gate_z,
+        "eval_samples_per_instance": args.eval_samples_per_instance,
+        "paired_sampling_seed": bool(args.paired_sampling_seed),
         "router_port": args.router_port,
         "tool_base": args.tool_base,
         "router_env_file": args.router_env_file,
@@ -1840,6 +2184,10 @@ def main() -> int:
         raise SystemExit("--codex-exec-timeout-seconds must be >= 0")
     if args.codex_exec_retries < 0:
         raise SystemExit("--codex-exec-retries must be >= 0")
+    if args.lcb_gate_z is not None and args.lcb_gate_z < 0:
+        raise SystemExit("--lcb-gate-z must be >= 0 when set")
+    if args.eval_samples_per_instance < 1:
+        raise SystemExit("--eval-samples-per-instance must be >= 1")
 
     if args.resume_campaign_root is not None:
         campaign_state, campaign_state_path = setup_resume_campaign(args)
@@ -1866,6 +2214,12 @@ def main() -> int:
         base_state = evaluate_state(args=args, state_id="s0000", dry_run=args.dry_run)
         campaign_state["states"]["s0000"] = base_state
         write_json(campaign_state_path, campaign_state)
+
+        if not args.dry_run and base_state.get("status") == "evaluated" and args.val_datasets:
+            run_validation(args=args, state_id="s0000", context="baseline", dry_run=args.dry_run)
+            base_state = read_json(args.states_root / "s0000" / "state.json")
+            campaign_state["states"]["s0000"] = base_state
+            write_json(campaign_state_path, campaign_state)
 
     if base_state.get("status") not in {"evaluated", "dry_run"}:
         campaign_state["status"] = "failed"

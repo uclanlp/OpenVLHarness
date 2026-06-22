@@ -33,7 +33,8 @@ else
 fi
 
 "${PYTHON_CMD[@]}" harness-search/scripts/run_search.py \
-  --datasets ERQA MMSIBench_wo_circular \
+  --datasets ERQA_val_train MMSIBench_val_train \
+  --val-datasets ERQA_val_test MMSIBench_val_test \
   --num-examples "${N_EX_PER_DS}" \
   --num-proc "${NUM_PROC}" \
   --parallel-states "${PARALLEL_STATES}" \

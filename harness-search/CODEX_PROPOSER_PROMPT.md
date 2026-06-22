@@ -37,6 +37,36 @@ Do not propose changes outside this surface. Do not alter benchmark scoring,
 answer extraction, model routing, network behavior, image-processing
 algorithms, or tool execution semantics.
 
+## Generalization Constraints (read carefully)
+
+The evaluation slice is a small sample (`{num_examples}` per dataset) drawn from a
+much larger held-out test distribution. The search measures accuracy only on that
+small slice, so any change that exploits quirks of these specific instances will
+look good here and regress on the real test set. Selection now also applies a
+paired lower-confidence-bound gate, so changes that merely shuffle a few instances
+around for a tiny net gain will be rejected. Propose only changes that improve the
+harness for the *distribution*, not for the visible examples.
+
+Hard rules — a proposal that violates any of these is invalid:
+
+- Do NOT condition behavior on the dataset name, split, instance id, file name,
+  question text, or any identifier that ties logic to specific examples.
+- Do NOT hardcode, pattern-match, or bias toward specific answers, answer strings,
+  multiple-choice letters, or numeric values seen in the trajectories.
+- Do NOT encode example-specific facts, lookups, or "if you see X say Y" shortcuts.
+- Do NOT special-case a handful of failing instances; if a fix would only help the
+  specific instances you inspected, it is overfitting — discard it.
+
+Prefer instead:
+
+- Minimal, general edits with a clear mechanism that would plausibly help unseen
+  questions of the same kind (clearer instructions, better tool descriptions,
+  more robust output formatting, fixing a genuinely misleading prompt).
+- The smallest diff that achieves the intended general effect. When two proposals
+  are otherwise comparable, prefer the simpler/smaller one.
+- Changes whose benefit you can justify by a reusable reason, not by "it fixed
+  these N trajectories."
+
 ## Required Process
 
 1. Read `{analysis_summary}` first.
@@ -104,6 +134,10 @@ is for human review.
 - `edited_files`
 - `expected_effect`
 - `playground_evidence`
+- `generalization_rationale` — one or two sentences explaining the general
+  mechanism by which this change helps unseen instances of the same kind, not the
+  specific examples you inspected. Proposals that can only justify themselves by
+  the visible trajectories must not be emitted.
 
 ## Proposal Guidance
 
@@ -114,3 +148,7 @@ small, diverse proposals unless the parent state cannot be analyzed at all.
 Keep each proposal focused. Different proposals may edit different allowed
 files, or different parts of the same file, if that best explores the analysis
 signal.
+
+Every proposal must obey the Generalization Constraints above. Diversity of
+proposals should come from different *general* hypotheses about the harness, never
+from tuning to different subsets of the visible instances.

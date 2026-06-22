@@ -419,6 +419,7 @@ def chat_completion_request(
     repetition_penalty: Optional[float] = None,
     reasoning_effort: Optional[str] = None,
     top_p: Optional[float] = None,
+    seed: Optional[int] = None,
     stop: Optional[Iterable[str]] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Union[str, Dict[str, Any], None] = "auto", # can be "auto", "none", or a specific tool
@@ -457,6 +458,11 @@ def chat_completion_request(
         payload["reasoning_effort"] = reasoning_effort
     if top_p is not None:
         payload["top_p"] = top_p
+    if seed is not None:
+        # Per-request sampling seed (Common Random Numbers). vLLM and OpenAI both
+        # honor this on /chat/completions; identical (seed, prompt) -> identical
+        # sampled tokens, which cancels shared sampling noise in paired A/B evals.
+        payload["seed"] = int(seed)
     if stop is not None:
         payload["stop"] = stop
     if tools:
