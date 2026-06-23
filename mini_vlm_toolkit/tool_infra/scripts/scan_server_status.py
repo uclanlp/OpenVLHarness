@@ -81,6 +81,8 @@ def _identify_subtool(host, port):
             return "OCR", health
         if "colormap_default" in health:
             return "Depth Anything", health
+        if "aspect_ratio_default" in health:
+            return "Qwen Image", health
         if "model_id" in health and "device" in health:
             if "paddle" in health.get("model_id", "").lower():
                 return "OCR", health
@@ -172,6 +174,19 @@ def _format_subtool_details(name, details):
             parts.append(f"model_id: {model_id}")
         if device:
             parts.append(f"device: {device}")
+        return " | " + " | ".join(parts) if parts else ""
+
+    if name == "Qwen Image":
+        parts = []
+        model_id = details.get("model_id")
+        device = details.get("device")
+        aspect = details.get("aspect_ratio_default")
+        if model_id:
+            parts.append(f"model_id: {model_id}")
+        if device:
+            parts.append(f"device: {device}")
+        if aspect:
+            parts.append(f"aspect_ratio_default: {aspect}")
         return " | " + " | ".join(parts) if parts else ""
 
     if name == "vLLM":
