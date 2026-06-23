@@ -138,7 +138,16 @@ class Image_Generation_Tool(BaseTool):
         seed=None,
         server_url=None,
         timeout_seconds=300,
+        dump_dir=None,
     ):
+        """Generate an image.
+
+        ``dump_dir`` is an operator/ops parameter, NOT an agent-facing
+        field: it is intentionally absent from INPUT_SCHEMA so the LLM
+        never sees it and never decides where files land. Only callers
+        in trusted code paths (manual curl-equivalent, an experiment
+        runner, an explicit ops harness) should set it.
+        """
         if not prompt or not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt is required and must be a non-empty string")
         if aspect_ratio is not None and aspect_ratio not in ASPECT_RATIO_ENUM:
@@ -160,6 +169,8 @@ class Image_Generation_Tool(BaseTool):
             payload["aspect_ratio"] = str(aspect_ratio)
         if seed is not None:
             payload["seed"] = int(seed)
+        if dump_dir:
+            payload["dump_dir"] = str(dump_dir)
 
         response = requests.post(
             endpoint, json=payload, timeout=timeout_seconds
