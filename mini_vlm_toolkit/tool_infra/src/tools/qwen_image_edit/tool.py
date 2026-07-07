@@ -6,7 +6,10 @@ from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
 
 TOOL_NAME = "Image_Edit_Tool"
-DEFAULT_SERVER_URL = "http://127.0.0.1:8089"
+# NOTE: 8089 is Splunk's default management port — avoid it for tool servers
+# (it collides on any host running Splunk/splunkd). Overridable via
+# QWEN_IMAGE_EDIT_SERVER_URL.
+DEFAULT_SERVER_URL = "http://127.0.0.1:8090"
 
 INPUT_SCHEMA = {
     "type": "object",

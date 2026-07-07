@@ -268,7 +268,7 @@ def main():
     import uvicorn
 
     host = os.getenv("QWEN_IMAGE_EDIT_HOST", "127.0.0.1")
-    port = int(os.getenv("QWEN_IMAGE_EDIT_PORT", "8089"))
+    port = int(os.getenv("QWEN_IMAGE_EDIT_PORT", "8090"))
     uvicorn.run(app, host=host, port=port)
 
 
