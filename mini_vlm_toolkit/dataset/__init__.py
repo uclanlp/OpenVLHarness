@@ -48,6 +48,10 @@ from .mmsibench import MMSIBench
 from .livevqa import LIVEVQADataset, LIVEVQA_v2
 from .browsecomp_vl import BrowseCompVLDataset
 from .browsecomp_v3 import BrowseCompV3Dataset
+from .knowgen import KnowGenDataset
+from .wise import WISEDataset
+from .t2i_factualbench import T2IFactualBenchDataset
+from .factip import FactIPDataset
 from .visbrowse_bench import VisBrowseBenchDataset
 from .mindcubebench import MindCubeBench
 from .omnispatialbench import OmniSpatialBench
@@ -269,6 +273,10 @@ IMAGE_DATASET = [
     LIVEVQA_v2,
     BrowseCompVLDataset,
     BrowseCompV3Dataset,
+    KnowGenDataset,
+    WISEDataset,
+    T2IFactualBenchDataset,
+    FactIPDataset,
     VisBrowseBenchDataset,
     RealXBench,
     MMSearchPlus,
