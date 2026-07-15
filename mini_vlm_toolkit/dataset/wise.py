@@ -247,7 +247,20 @@ class WISEDataset(ImageBaseDataset):
         if isinstance(line, int):
             line = self.data.iloc[line]
         prompt = str(line.get('prompt', line.get('question', '')))
-        return [dict(type='text', value=prompt)]
+        # WISE is a text-to-image GENERATION task; the prompt is an implicit,
+        # knowledge-grounded description (not a question). Frame it explicitly as
+        # generation so the agent produces an image rather than answering in text
+        # (see personal memory gen_eval_framework_gaps: ~half of bare prompts got
+        # answered textually). The judge still scores against meta['prompt'].
+        instruction = (
+            'Text-to-image generation task. The description below is an implicit, '
+            'knowledge-grounded prompt: infer what must appear using world knowledge '
+            '(search for facts or visual references when helpful), then GENERATE an '
+            'image that realizes it. You MUST produce an image using the image '
+            'generation tool as your final result; do not answer with text only.\n\n'
+            f'Prompt to realize: {prompt}'
+        )
+        return [dict(type='text', value=instruction)]
 
     # -- Evaluation: WISE binary judge ------------------------------------
 
@@ -355,6 +368,7 @@ class WISEDataset(ImageBaseDataset):
             ('correct', 0),
             ('score', 0.0),
             ('reasoning', ''),
+            ('raw', ''),   # full judge response (was computed but not persisted)
         ]:
             data[col] = [
                 result_cache.get(str(idx), {}).get(col, default)

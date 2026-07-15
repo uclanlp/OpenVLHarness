@@ -314,7 +314,19 @@ class KnowGenDataset(ImageBaseDataset):
         if isinstance(line, int):
             line = self.data.iloc[line]
         prompt = str(line.get('prompt', line.get('question', '')))
-        return [dict(type='text', value=prompt)]
+        # KnowGen is a knowledge-grounded text-to-image GENERATION task. Frame the
+        # prompt explicitly as generation so the agent produces an image rather than
+        # answering in text (see memory gen_eval_framework_gaps). The judge still
+        # scores against meta['prompt'] + the GT reference image.
+        instruction = (
+            'Text-to-image generation task. The description below is an implicit, '
+            'knowledge-grounded prompt: infer what must appear using world knowledge '
+            '(search for facts or visual references when helpful), then GENERATE an '
+            'image that realizes it. You MUST produce an image using the image '
+            'generation tool as your final result; do not answer with text only.\n\n'
+            f'Prompt to realize: {prompt}'
+        )
+        return [dict(type='text', value=instruction)]
 
     # -- Evaluation: KnowGen judge only -----------------------------------
 
@@ -429,6 +441,7 @@ class KnowGenDataset(ImageBaseDataset):
             ('text_accuracy', 0.0),
             ('aesthetics', 0.0),
             ('text_accuracy_na', False),
+            ('rationale', ''),   # full judge rationale (was computed but not persisted)
             ('reasoning', ''),
         ]:
             data[col] = [
