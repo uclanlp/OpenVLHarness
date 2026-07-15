@@ -145,6 +145,11 @@ class Image_Edit_Tool(BaseTool):
     def execute(
         self,
         image_base64s=None,
+        _image_ids=None,  # framework-injected ref marker: the resolver rewrites the
+                          # LLM-facing ``image_ids`` -> ``image_base64s`` and preserves the
+                          # original refs here for provenance (see Camera_Trajectory_Tool,
+                          # test_spatial_image_resolution). Accept & ignore so execute()
+                          # doesn't raise "unexpected keyword argument '_image_ids'".
         edit_prompt=None,
         negative_prompt=None,
         seed=None,
