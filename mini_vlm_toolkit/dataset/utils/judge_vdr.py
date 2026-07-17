@@ -98,7 +98,7 @@ def parse_judge_vdr_judgement(response_text: str) -> dict:
         return dict(
             correct=1 if is_yes else 0,
             extracted_answer="",
-            reasoning=reasoning[:500],
+            reasoning=reasoning,
             confidence=100,
         )
 

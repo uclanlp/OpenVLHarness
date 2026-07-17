@@ -95,9 +95,9 @@ def parse_hle_judgement(response_text: str) -> dict:
     # Strategy 2: bare yes/no token
     raw = text.lower()
     if "correct: yes" in raw or raw in _YES_TOKENS:
-        return dict(correct=1, extracted_answer="", reasoning=text[:500], confidence=100)
+        return dict(correct=1, extracted_answer="", reasoning=text, confidence=100)
     if "correct: no" in raw or raw in _NO_TOKENS:
-        return dict(correct=0, extracted_answer="", reasoning=text[:500], confidence=100)
+        return dict(correct=0, extracted_answer="", reasoning=text, confidence=100)
 
     return dict(correct=0, extracted_answer="", reasoning="judge failed to parse", confidence=0)
 

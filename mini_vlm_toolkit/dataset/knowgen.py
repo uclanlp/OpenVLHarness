@@ -106,6 +106,7 @@ def _grade_item_judge_knowgen(model, item):
             text_accuracy_na=False,
             rationale='',
             reasoning=f'generated image missing: {gen_path!r}',
+            judge_raw='',
         )
     if not gt_path or not osp.isfile(gt_path):
         return dict(
@@ -118,6 +119,7 @@ def _grade_item_judge_knowgen(model, item):
             text_accuracy_na=False,
             rationale='',
             reasoning=f'GT image missing: {gt_path!r}',
+            judge_raw='',
         )
 
     messages = build_judge_knowgen_messages(
@@ -150,6 +152,7 @@ def _grade_item_judge_knowgen(model, item):
                 text_accuracy_na=parsed['text_accuracy_na'],
                 rationale=parsed['rationale'],
                 reasoning=parsed['reasoning'],
+                judge_raw=str(out),   # full raw judge output (for viz + offline debug)
             )
         retry -= 1
 
@@ -163,6 +166,8 @@ def _grade_item_judge_knowgen(model, item):
         text_accuracy_na=False,
         rationale='',
         reasoning=f'judge_knowgen unparseable: {str(last)[:200]}' if last else 'judge unreachable',
+        judge_raw=str(last) if last else '',   # keep full raw so truncation/parse
+        # failures are debuggable offline instead of lost to a 200-char preview.
     )
 
 
@@ -443,6 +448,7 @@ class KnowGenDataset(ImageBaseDataset):
             ('text_accuracy_na', False),
             ('rationale', ''),   # full judge rationale (was computed but not persisted)
             ('reasoning', ''),
+            ('judge_raw', ''),   # full raw judge output — enables viz + offline debug
         ]:
             data[col] = [
                 result_cache.get(str(idx), {}).get(col, default)

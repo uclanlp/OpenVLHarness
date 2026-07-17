@@ -282,7 +282,7 @@ def _grade_item_judge_t2i_factualbench(model, item):
             f'{f", I={integration_score}" if integration_score is not None else ""}'
             f' → metric={metric:.3f}'
         ),
-        raw=(concept_raws[0] if concept_raws else '')[:500],
+        raw=(concept_raws[0] if concept_raws else ''),
     )
 
 

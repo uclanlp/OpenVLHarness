@@ -184,6 +184,6 @@ def parse_judge_factip_judgement(content: str) -> Dict[str, Any]:
         aesthetics=scores["aesthetics"],
         text_relevance_ip=scores["text_relevance_ip"],
         overall_score=scores["overall_score"],
-        rationale=rationale[:500],
+        rationale=rationale,
         reasoning=reasoning,
     )

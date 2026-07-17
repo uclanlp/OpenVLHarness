@@ -244,7 +244,7 @@ def parse_judge_knowgen_judgement(content: str) -> Dict[str, Any]:
     try:
         obj = json.loads(text)
     except Exception:
-        # Fallback: greedy match of the first {...} block.
+        # Fallback 1: greedy match of the first {...} block.
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if m:
             snippet = m.group(0)
@@ -254,6 +254,28 @@ def parse_judge_knowgen_judgement(content: str) -> Dict[str, Any]:
                 obj = json.loads(snippet)
             except Exception:
                 obj = None
+
+    # Fallback 2: JSON is malformed (e.g. an unescaped newline/quote inside the
+    # rationale string — a common LLM mistake). Rather than throwing the whole
+    # verdict away and scoring 0 (which silently DEFLATES the benchmark), extract
+    # the four dimension scores + rationale directly with regex. Only used when
+    # JSON parsing failed; a normal well-formed response never reaches here.
+    if not isinstance(obj, dict):
+        salvaged: dict[str, Any] = {}
+        for k in _SCORE_KEYS:
+            mm = re.search(rf'"{k}"\s*:\s*(-?\d+(?:\.\d+)?)', text)
+            if mm:
+                salvaged[k] = float(mm.group(1))
+        na = re.search(r'"text_accuracy_na"\s*:\s*(true|false)', text, re.IGNORECASE)
+        if na:
+            salvaged["text_accuracy_na"] = na.group(1).lower() == "true"
+        rat = re.search(r'"rationale"\s*:\s*"(.*?)"\s*(?:,\s*"|\})', text, re.DOTALL)
+        if rat:
+            salvaged["rationale"] = rat.group(1).replace('\\n', '\n').replace('\\"', '"')
+        # Accept the salvage only if we recovered at least the four scores, so we
+        # never fabricate a passing verdict from noise.
+        if all(k in salvaged for k in _SCORE_KEYS):
+            obj = salvaged
 
     if not isinstance(obj, dict):
         return dict(
@@ -293,7 +315,9 @@ def parse_judge_knowgen_judgement(content: str) -> Dict[str, Any]:
         text_accuracy=scores["text_accuracy"],
         aesthetics=scores["aesthetics"],
         text_accuracy_na=text_accuracy_na,
-        rationale=rationale[:500],
+        # Store the FULL rationale (5-10 evidence-based sentences). No truncation:
+        # this is analysis data and must be preserved intact.
+        rationale=rationale,
         reasoning=reasoning,
     )
 

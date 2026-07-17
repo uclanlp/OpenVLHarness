@@ -331,12 +331,12 @@ def parse_concept_rating(content: str) -> Dict[str, Any]:
     m = re.search(r"Total\s*Rating\s*[::]?\s*([0-4])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(concept_score=s, raw=text[:500], reasoning=f"Total Rating: {s}")
+        return dict(concept_score=s, raw=text, reasoning=f"Total Rating: {s}")
     # Fallback: bare "Rating: N" or "Score: N"
     m = re.search(r"(?:Rating|Score)\s*[::]?\s*([0-4])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(concept_score=s, raw=text[:500], reasoning=f"Rating: {s}")
+        return dict(concept_score=s, raw=text, reasoning=f"Rating: {s}")
     return dict(concept_score=0, raw=text[:500], reasoning="unparseable concept rating")
 
 
@@ -346,7 +346,7 @@ def parse_task_score(content: str) -> Dict[str, Any]:
     m = re.search(r"Task\s*Score\s*[::]?\s*([01])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(task_score=s, raw=text[:500], reasoning=f"Task Score: {s}")
+        return dict(task_score=s, raw=text, reasoning=f"Task Score: {s}")
     return dict(task_score=0, raw=text[:500], reasoning="unparseable task score")
 
 
@@ -355,7 +355,7 @@ def parse_integration_score(content: str) -> Dict[str, Any]:
     m = re.search(r"Integration\s*Score\s*[::]?\s*([01])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(integration_score=s, raw=text[:500], reasoning=f"Integration Score: {s}")
+        return dict(integration_score=s, raw=text, reasoning=f"Integration Score: {s}")
     return dict(integration_score=0, raw=text[:500], reasoning="unparseable integration score")
 
 

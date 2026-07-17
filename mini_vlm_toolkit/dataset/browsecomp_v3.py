@@ -173,7 +173,7 @@ def _grade_item_judge_vdr(model, item):
         return dict(correct=0, reasoning=f'judge_vdr error: {e}')
     return dict(
         correct=int(parsed['correct']),
-        reasoning=str(parsed.get('reasoning', ''))[:500],
+        reasoning=str(parsed.get('reasoning', '')),
     )
 
 
@@ -192,7 +192,7 @@ def _grade_item_judge_rs(model, item):
         return dict(correct=0, reasoning=f'judge_rs error: {e}')
     return dict(
         correct=int(parsed['correct']),
-        reasoning=str(parsed.get('reasoning', ''))[:500],
+        reasoning=str(parsed.get('reasoning', '')),
     )
 
 
@@ -223,7 +223,7 @@ def _grade_item_hle(model, item):
             parsed = parse_hle_judgement(out)
             if parsed.get('reasoning') != 'judge failed to parse':
                 if parsed['correct']:
-                    return dict(correct=1, reasoning=str(parsed.get('reasoning', ''))[:500])
+                    return dict(correct=1, reasoning=str(parsed.get('reasoning', '')))
                 break  # parsed 'no' for this gt; try next gt
             retry -= 1
     return dict(correct=0, reasoning=str(last)[:500] if last else 'judge unreachable')
@@ -277,9 +277,9 @@ def _grade_item_judge_bcv3(model, item):
             return dict(
                 correct=int(parsed['correct']),
                 process_score=parsed['process_score'],
-                reasoning=str(parsed['verdict'].get('judge_reasoning', ''))[:500],
+                reasoning=str(parsed['verdict'].get('judge_reasoning', '')),
                 anomaly_flag=parsed.get('anomaly_flag', False),
-                anomaly_reason=str(parsed.get('anomaly_reason', ''))[:200],
+                anomaly_reason=str(parsed.get('anomaly_reason', '')),
                 confidence=parsed.get('confidence', ''),
                 verdict=parsed['verdict'],
             )

@@ -175,7 +175,7 @@ def parse_judge_wise_judgement(content: str) -> Dict[str, Any]:
             correct=s,
             score=float(s),
             reasoning=f"Score: {s}",
-            raw=text[:500],
+            raw=text,
         )
 
     # Fallback: bare single-line 0 or 1 (vllm_eval.py:71-73)
@@ -186,14 +186,14 @@ def parse_judge_wise_judgement(content: str) -> Dict[str, Any]:
             correct=s,
             score=float(s),
             reasoning=f"Score: {s} (bare-line fallback)",
-            raw=text[:500],
+            raw=text,
         )
 
     return dict(
         correct=0,
         score=None,
         reasoning="judge failed to parse",
-        raw=text[:500],
+        raw=text,
     )
 
 
