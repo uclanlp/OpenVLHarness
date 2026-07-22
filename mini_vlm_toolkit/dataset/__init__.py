@@ -53,6 +53,7 @@ from .wise import WISEDataset
 from .t2i_factualbench import T2IFactualBenchDataset
 from .factip import FactIPDataset
 from .visbrowse_bench import VisBrowseBenchDataset
+from .searchgen import SearchGenBenchDataset
 from .mindcubebench import MindCubeBench
 from .omnispatialbench import OmniSpatialBench
 from .sparbench import SparBench
@@ -278,6 +279,7 @@ IMAGE_DATASET = [
     T2IFactualBenchDataset,
     FactIPDataset,
     VisBrowseBenchDataset,
+    SearchGenBenchDataset,
     RealXBench,
     MMSearchPlus,
     VDRBench,
