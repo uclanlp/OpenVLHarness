@@ -115,20 +115,24 @@ class Image_Generation_Tool(BaseTool):
         )
 
     def sanity_check(self):
-        server_url = os.getenv(
-            "QWEN_IMAGE_SERVER_URL", DEFAULT_SERVER_URL
-        ).rstrip("/")
-        health_url = f"{server_url}/health"
-        try:
-            response = requests.get(health_url, timeout=5)
-        except Exception as exc:
-            return [f"Qwen-Image server unreachable at {health_url}: {exc}"]
-        if response.status_code != 200:
-            return [
-                f"Qwen-Image server unhealthy at {health_url}: "
-                f"{response.status_code}"
-            ]
-        return []
+        # Probe the SAME endpoint pool execute() uses (plural *_SERVER_URLS ->
+        # singular -> default). The tool is usable if ANY replica is healthy, so a
+        # data-parallel backend (or a remote DP node pool) passes the load-time check.
+        urls = resolve_endpoints(
+            "QWEN_IMAGE_SERVER_URLS", "QWEN_IMAGE_SERVER_URL", DEFAULT_SERVER_URL
+        )
+        errors = []
+        for base in urls:
+            health_url = f"{base.rstrip('/')}/health"
+            try:
+                response = requests.get(health_url, timeout=5)
+            except Exception as exc:
+                errors.append(f"{health_url}: {exc}")
+                continue
+            if response.status_code == 200:
+                return []  # at least one replica healthy -> tool usable
+            errors.append(f"{health_url}: HTTP {response.status_code}")
+        return [f"Qwen-Image server(s) unreachable: {'; '.join(errors)}"]
 
     def execute(
         self,
