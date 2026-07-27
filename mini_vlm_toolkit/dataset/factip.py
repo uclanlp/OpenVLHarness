@@ -114,6 +114,44 @@ def _resolve_seed_image(seed_url: str, images_root: str) -> str:
     return ''
 
 
+def _build_seed_index_map(images_root: str) -> Dict[str, Dict[str, str]]:
+    """Map sample ``index`` -> ``{'1': seed1_path, '2': seed2_path}``.
+
+    ``images.zip`` lays the seeds out as
+    ``images/images/<category>/<index>[_<n>]/seed{1,2}.png`` — i.e. the directory
+    basename is the sample INDEX (optionally suffixed ``_<n>``). The upstream
+    ``seed*_url`` hash filenames do NOT match the shipped filenames (the URL bucket
+    and the released zip use different naming), so index is the reliable join key.
+    The ``_<n>`` suffix is inconsistent between the metadata index and the zip dir,
+    so each dir is registered under BOTH its full name and its stripped hash; the
+    lookup (``_convert_benchmark``) tries the full index then the stripped one.
+    Built once per benchmark conversion (single walk).
+    """
+    def _strip(name: str) -> str:
+        if '_' in name:
+            head, tail = name.rsplit('_', 1)
+            if tail.isdigit():
+                return head
+        return name
+
+    out: Dict[str, Dict[str, str]] = {}
+    for dirpath, _dirs, files in os.walk(images_root):
+        base = osp.basename(dirpath)
+        seeds: Dict[str, str] = {}
+        for f in files:
+            fl = f.lower()
+            if fl.startswith('seed1.'):
+                seeds['1'] = osp.join(dirpath, f)
+            elif fl.startswith('seed2.'):
+                seeds['2'] = osp.join(dirpath, f)
+        if not seeds:
+            continue
+        for key in {base, _strip(base)}:
+            entry = out.setdefault(key, {})
+            entry.update(seeds)
+    return out
+
+
 def _grade_item_judge_factip(model, item):
     """Invoke the FactIP judge on one sample."""
     from .utils.judge_factip import (
@@ -239,6 +277,11 @@ class FactIPDataset(ImageBaseDataset):
         with open(meta_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
+        # Seed images join by sample INDEX (the zip directory key), NOT by the
+        # seed*_url hash — the URL bucket and the released images.zip use different
+        # filename hashes, so the URL-basename lookup finds nothing (all-zero judge).
+        seed_map = _build_seed_index_map(images_root)
+
         # data is a dict keyed by index hash → row dict
         if isinstance(data, dict):
             it = data.items()
@@ -253,8 +296,9 @@ class FactIPDataset(ImageBaseDataset):
             prompt = str(obj.get('image_prompt', ''))
             seed1_url = str(obj.get('seed1_url', ''))
             seed2_url = str(obj.get('seed2_url', ''))
-            seed1_local = _resolve_seed_image(seed1_url, images_root)
-            seed2_local = _resolve_seed_image(seed2_url, images_root)
+            _seeds = seed_map.get(idx) or seed_map.get(idx.rsplit('_', 1)[0], {})
+            seed1_local = _seeds.get('1', '') or _resolve_seed_image(seed1_url, images_root)
+            seed2_local = _seeds.get('2', '') or _resolve_seed_image(seed2_url, images_root)
 
             language = str(obj.get('language', 'en'))
             country = str(obj.get('country', ''))

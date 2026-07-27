@@ -14,8 +14,9 @@ Evaluation:
   - Overall score = mean of per-sample scores; per-category breakdown
     follows the paper's prompt_id ranges (see judge_wise.py).
 
-Data source: cloned WISE repo at ``/home/<user>/code/WISE/data_verified/``.
-Override via env var ``WISE_DATA_DIR`` (should contain merge.json).
+Data source: WISE ``data_verified/merge.json`` from the official GitHub repo
+(PKU-YuanGroup/WISE), cached under ``$LMUData/WISE/data_verified`` and
+auto-downloaded when absent. Override via env var ``WISE_DATA_DIR``.
 
 Record schema (cached TSV under ``$LMUData/WISE.tsv``):
   - ``index``       : str (prompt_id as string, "1"..."1000")
@@ -52,27 +53,77 @@ from ..utils import track_progress_rich
 
 
 # ---------------------------------------------------------------------------
-# Source data — local WISE repo (data_verified/merge.json)
+# Source data — WISE data_verified/merge.json. Default resolves under the shared
+# LMUData root (portable across checkouts: UCLA, Bolt, …); override with env
+# WISE_DATA_DIR. Auto-downloaded from the official GitHub repo when absent.
+# No machine-specific absolute paths.
 # ---------------------------------------------------------------------------
-_DEFAULT_WISE_DATA_DIR = '/home/<user>/code/WISE/data_verified'
 _MERGE_JSON = 'merge.json'
+
+# Official WISE benchmark repo (ICML 2026, PKU-YuanGroup). The verified prompt set
+# lives under data_verified/. Auto-download target when the data is not present.
+_WISE_GH_REPO = 'PKU-YuanGroup/WISE'
+_WISE_GH_BRANCH = 'main'
+_WISE_DATA_FILES = (
+    'merge.json',
+    'cultural_common_sense_verified.json',
+    'natural_science_verified.json',
+    'spatio-temporal_reasoning_verified.json',
+)
+
+
+def _default_wise_data_dir() -> str:
+    """Default WISE ``data_verified/`` dir, under the shared LMUData root."""
+    return osp.join(LMUDataRoot(), 'WISE', 'data_verified')
+
+
+def _download_wise_data(dst_dir: str) -> None:
+    """Download WISE ``data_verified/*`` from the official GitHub repo into
+    ``dst_dir``. Honours the ambient HTTP(S) proxy (Bolt egress). Raises on
+    failure so callers never proceed with missing data silently."""
+    import urllib.request
+
+    os.makedirs(dst_dir, exist_ok=True)
+    base = (f'https://raw.githubusercontent.com/{_WISE_GH_REPO}/'
+            f'{_WISE_GH_BRANCH}/data_verified')
+    # urllib picks up http_proxy/https_proxy from the environment automatically.
+    for fname in _WISE_DATA_FILES:
+        url = f'{base}/{fname}'
+        out = osp.join(dst_dir, fname)
+        if osp.isfile(out):
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=60) as resp:
+                data = resp.read()
+            with open(out, 'wb') as f:
+                f.write(data)
+        except Exception as e:
+            # merge.json is required; the per-category files are optional extras.
+            if fname == _MERGE_JSON:
+                raise RuntimeError(
+                    f'Failed to auto-download WISE {fname} from {url}: {e}. '
+                    'Check network/proxy egress, or manually place data_verified/ '
+                    'under $LMUData/WISE (or set env WISE_DATA_DIR).'
+                ) from e
 
 
 def _resolve_wise_data_dir() -> str:
-    """Return the local ``WISE/data_verified/`` directory.
+    """Return the ``WISE/data_verified/`` directory.
 
-    Priority: env var ``WISE_DATA_DIR`` → default local checkout path.
-    Errors with clear instructions if neither exists.
+    Priority: env var ``WISE_DATA_DIR`` → ``$LMUData/WISE/data_verified``. When
+    ``merge.json`` is absent it is auto-downloaded from the official GitHub repo
+    into that directory. Errors clearly if it cannot be obtained.
     """
-    d = os.environ.get('WISE_DATA_DIR', _DEFAULT_WISE_DATA_DIR)
+    d = os.environ.get('WISE_DATA_DIR') or _default_wise_data_dir()
     d = osp.abspath(d)
     merge_p = osp.join(d, _MERGE_JSON)
     if not osp.isfile(merge_p):
+        _download_wise_data(d)
+    if not osp.isfile(merge_p):
         raise FileNotFoundError(
-            f'WISE merge.json not found at {merge_p!r}. '
-            'Clone https://github.com/PKU-Alignment/WISE and either put it at '
-            f'{_DEFAULT_WISE_DATA_DIR} or set env var WISE_DATA_DIR to point at '
-            'its data_verified/ directory.'
+            f'WISE merge.json not found at {merge_p!r} and auto-download failed. '
+            f'Fetch data_verified/ from https://github.com/{_WISE_GH_REPO} and put it '
+            'under $LMUData/WISE (or set env var WISE_DATA_DIR to its data_verified/ dir).'
         )
     return d
 

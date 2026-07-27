@@ -61,7 +61,6 @@ from ..utils import track_progress_rich
 # ---------------------------------------------------------------------------
 # Source data
 # ---------------------------------------------------------------------------
-_DEFAULT_PROMPTS_DIR = '/home/<user>/code/T2I-FactualBench/data/prompts'
 _HF_REPO_ID = 'Sakeoffellow001/T2i_Factualbench'
 _TAR_NAME = 'concept_image.tar.gz'
 _TIER_FILES = {
@@ -71,14 +70,20 @@ _TIER_FILES = {
 }
 
 
+def _default_prompts_dir() -> str:
+    """Default T2I-FactualBench prompts dir, under the shared LMUData root
+    (portable across checkouts; override with env T2I_FACTUALBENCH_PROMPTS_DIR)."""
+    return osp.join(LMUDataRoot(), 'T2I-FactualBench', 'data', 'prompts')
+
+
 def _resolve_prompts_dir() -> str:
-    d = os.environ.get('T2I_FACTUALBENCH_PROMPTS_DIR', _DEFAULT_PROMPTS_DIR)
+    d = os.environ.get('T2I_FACTUALBENCH_PROMPTS_DIR') or _default_prompts_dir()
     d = osp.abspath(d)
     if not osp.isdir(d):
         raise FileNotFoundError(
             f'T2I-FactualBench prompts dir not found at {d!r}. '
-            'Clone https://github.com/Sakeoffellow001/T2I-FactualBench and either put it at '
-            f'{_DEFAULT_PROMPTS_DIR} or set env T2I_FACTUALBENCH_PROMPTS_DIR.'
+            'Clone https://github.com/Sakeoffellow001/T2I-FactualBench and either put it under '
+            '$LMUData/T2I-FactualBench or set env T2I_FACTUALBENCH_PROMPTS_DIR.'
         )
     return d
 
