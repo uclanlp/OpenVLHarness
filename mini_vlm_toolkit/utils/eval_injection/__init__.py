@@ -145,6 +145,11 @@ _REGISTRY: Dict[str, Tuple[Callable, Dict[str, Any]]] = {
             "raw_cols": ["f1_score", "task_type"],
         },
     ),
+    # --- PerceptionBench (open-ended, 0/1 LLM-judge) ---
+    "PerceptionBenchDataset": (
+        _adapters.mcq_result_adapter,
+        {"correct_col": "correct", "raw_cols": ["error_category", "reasoning"]},
+    ),
 }
 
 
