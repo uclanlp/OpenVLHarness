@@ -41,6 +41,8 @@ from .fscd import FSCD147BBoxDataset, FSCDLVISBBoxDataset
 from .simplevqa import SimpleVQA, SimpleVQA_EN
 from .embspatialbench import EmbSpatialBench
 from .erqabench import ERQABench
+from .activevision import ActiveVision
+from .babyvision import BabyVision
 from .robospatialbench import RoboSpatialBench
 from .mmsibench import MMSIBench
 from .livevqa import LIVEVQADataset, LIVEVQA_v2
@@ -275,6 +277,7 @@ IMAGE_DATASET = [
 
 # add by EASI team
 IMAGE_DATASET += [RefSpatialBench, EmbSpatialBench, ERQABench, RoboSpatialBench, MMSIBench, MindCubeBench, OmniSpatialBench, SparBench]
+IMAGE_DATASET += [ActiveVision, BabyVision]
 
 
 VIDEO_DATASET = [
