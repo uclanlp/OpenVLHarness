@@ -35,7 +35,6 @@ import glob
 import json
 import os
 import os.path as osp
-import tarfile
 import zipfile
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse

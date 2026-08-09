@@ -60,7 +60,6 @@ Upstream has no missing-image case — its generators always emit an image —
 but silently skipping such samples would inflate agent scores.
 """
 
-import glob
 import json
 import os
 import os.path as osp
@@ -122,8 +121,13 @@ def _ensure_reference_images(needed_rel_paths: List[str]) -> str:
             if osp.isfile(dst):
                 continue
             os.makedirs(osp.dirname(dst), exist_ok=True)
+            # extractfile() returns None for non-regular members (dirs, links);
+            # check before entering the context manager, and close it so we
+            # don't leak a file descriptor per extracted image.
             src = tf.extractfile(m)
-            with open(dst, 'wb') as f:
+            if src is None:
+                raise ValueError(f'tar member is not a regular file: {m.name}')
+            with src, open(dst, 'wb') as f:
                 f.write(src.read())
             n += 1
     still = [p for p in needed_rel_paths if not osp.isfile(osp.join(root, p))]

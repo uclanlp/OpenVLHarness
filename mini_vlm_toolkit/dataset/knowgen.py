@@ -291,11 +291,14 @@ class KnowGenDataset(ImageBaseDataset):
             # Strip leading "./" if present, then resolve absolute
             gt_rel = gt_rel.lstrip('./').lstrip('/')
             gt_abs = osp.join(snap_root, gt_rel)
-            if not osp.isfile(gt_abs):
-                # Some snapshots may prefix with just "gt_image/..." without "./"
-                alt = osp.join(snap_root, gt_rel.replace('gt_image/', 'gt_image/'))
-                if osp.isfile(alt):
-                    gt_abs = alt
+            if not osp.isfile(gt_abs) and gt_rel:
+                # Snapshot layouts vary (some nest gt_image/ one level deeper).
+                # Fall back to searching the snapshot for the GT basename.
+                cands = glob.glob(
+                    osp.join(snap_root, '**', osp.basename(gt_rel)), recursive=True
+                )
+                if cands:
+                    gt_abs = cands[0]
 
             rows.append({
                 'index': sample_id,

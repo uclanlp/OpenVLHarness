@@ -26,10 +26,7 @@ The raw four scores are surfaced in ``verdict`` for downstream analysis.
 
 from __future__ import annotations
 
-import base64
-import io
 import json
-import os
 import re
 from typing import Any, Dict, Optional
 
@@ -61,8 +58,8 @@ Output ONLY one valid JSON object with EXACTLY these keys:
   "faithfulness": number,
   "visual_correctness": number,
   "text_accuracy": number,
-  "aesthetics": number
-  "text_accuracy_na": boolean,
+  "aesthetics": number,
+  "text_accuracy_na": boolean
 }
 SCORING SCALE (VERY IMPORTANT):
 - Each score MUST be exactly one of: 0, 0.5, 1

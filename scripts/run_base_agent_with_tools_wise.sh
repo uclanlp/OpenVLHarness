@@ -21,7 +21,7 @@ cd "$ROOT_DIR"
 #   binary Score in {0, 1} per the paper's protocol. See
 #   dataset/utils/judge_wise.py for the byte-exact judge prompt.
 #
-# Data source: local WISE repo checkout at /home/<user>/code/WISE/data_verified/
+# Data source: a WISE repo checkout at $LMUData/WISE/data_verified/
 #   Override via env var WISE_DATA_DIR to point to a different checkout.
 #
 # Paper compare: Qwen-Image-Agent (arXiv 2606.26907) Table 2 reports:
@@ -79,6 +79,19 @@ else
   esac
 fi
 
+# Fail fast with a clear message: the preset paths above point at a local
+# configs/rui-testing/ tree that is not part of this repo, so a bare preset run
+# would otherwise die later with a confusing error.
+for _cfg_var in AGENT_CONFIG JUDGE_CONFIG; do
+  _cfg="${!_cfg_var}"
+  if [[ ! -f "$_cfg" ]]; then
+    echo "ERROR: $_cfg_var not found: $_cfg" >&2
+    echo "Pass CONFIG=<agent.yaml> / JUDGE_CONFIG=<judge.yaml> pointing at configs that exist" >&2
+    echo "in your checkout, e.g. CONFIG=configs/base_agent_with_tools.yaml" >&2
+    exit 1
+  fi
+done
+
 # WISE only supports judge_wise (no override).
 if [[ -n "${MMDR_JUDGE_PROMPT:-}" && "${MMDR_JUDGE_PROMPT}" != "judge_wise" ]]; then
   echo "WARNING: MMDR_JUDGE_PROMPT=${MMDR_JUDGE_PROMPT} overridden — WISE supports only judge_wise." >&2
@@ -99,7 +112,7 @@ _WISE_DIR="${WISE_DATA_DIR:-$_LMU/WISE/data_verified}"
 _WISE_TSV="$_LMU/WISE.tsv"
 if [[ ! -f "$_WISE_TSV" && ! -f "$_WISE_DIR/merge.json" ]]; then
   echo "ERROR: WISE data not found — need cached $_WISE_TSV OR $_WISE_DIR/merge.json" >&2
-  echo "Clone https://github.com/PKU-Alignment/WISE and set WISE_DATA_DIR to its data_verified/ dir (or provide the cached WISE.tsv)." >&2
+  echo "Clone https://github.com/PKU-YuanGroup/WISE and set WISE_DATA_DIR to its data_verified/ dir (or provide the cached WISE.tsv)." >&2
   exit 1
 fi
 
@@ -122,7 +135,7 @@ python run_benchmark.py \
   --num-proc "$NUM_PROC" \
   --incremental-json \
   --save-html "$SAVE_HTML" --save-images "$SAVE_IMAGES" \
-  ${SAVE_RAW_TRAJECTORY:+--save-raw-trajectory} \
+  $( [[ "$SAVE_RAW_TRAJECTORY" == "1" ]] && echo --save-raw-trajectory ) \
   ${NUM_EXAMPLES:+--num-examples "$NUM_EXAMPLES"} \
   ${SHUFFLE:+--shuffle} \
   --seed "$SEED" --run-tag "$RUN_TAG" \

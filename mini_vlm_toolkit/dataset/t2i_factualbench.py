@@ -15,8 +15,9 @@ tiers:
 
   Total: 3028 samples across all 3 tiers.
 
-Per-sample schema (source JSONL at
-``/home/<user>/code/T2I-FactualBench/data/prompts/<TIER>/prompt.jsonl``):
+Per-sample schema (source JSONL under
+``$LMUData/T2I-FactualBench/data/prompts/<TIER>/prompt.jsonl``; override the
+prompts directory via ``T2I_FACTUALBENCH_PROMPTS_DIR``):
   - ``concept``          : list[str] (len 1 for SKCM/SKCI, len 2 for MKCC)
   - ``type``             : list[str] (same length, category tag per concept)
   - ``sentence``         : str (the T2I prompt)
@@ -45,7 +46,6 @@ import glob
 import json
 import os
 import os.path as osp
-import re
 import tarfile
 from typing import Any, Dict, List, Optional
 
@@ -137,6 +137,24 @@ def _rewrite_ref_image_path(src: str, concept_root: str) -> str:
 # ---------------------------------------------------------------------------
 # Per-sample grader
 # ---------------------------------------------------------------------------
+
+def _join_raws(concept_raws: list, task_raw: str, integration_raw: str) -> str:
+    """Keep every sub-judge's raw output, labelled by which judge produced it.
+
+    A sample is graded by up to three judges (concept x N, task, integration),
+    so returning only the first concept raw would silently drop most of the
+    judge evidence needed to audit a score.
+    """
+    parts = []
+    for i, r in enumerate(concept_raws):
+        if r:
+            parts.append(f'[concept {i + 1}]\n{r}')
+    if task_raw:
+        parts.append(f'[task]\n{task_raw}')
+    if integration_raw:
+        parts.append(f'[integration]\n{integration_raw}')
+    return '\n\n'.join(parts)
+
 
 def _grade_item_judge_t2i_factualbench(model, item):
     """Run the 1-3 judge calls appropriate for the row's tier + task.
@@ -287,7 +305,7 @@ def _grade_item_judge_t2i_factualbench(model, item):
             f'{f", I={integration_score}" if integration_score is not None else ""}'
             f' → metric={metric:.3f}'
         ),
-        raw=(concept_raws[0] if concept_raws else ''),
+        raw=_join_raws(concept_raws, task_raw, integration_raw),
     )
 
 

@@ -27,7 +27,7 @@ Aggregation reference (WISE/calculate_verified.py):
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ def parse_judge_wise_judgement(content: str) -> Dict[str, Any]:
             correct   : int (0 or 1)
             score     : float (0.0 or 1.0), None if unparseable
             reasoning : str (short summary)
-            raw       : str (original content, truncated to 500 chars)
+            raw       : str (original judge content, untruncated)
     """
     text = (content or "").strip()
 

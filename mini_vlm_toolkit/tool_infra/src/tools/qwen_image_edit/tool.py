@@ -127,23 +127,21 @@ class Image_Edit_Tool(BaseTool):
         )
 
     def sanity_check(self):
-        # Probe the SAME endpoint pool execute() uses (plural *_SERVER_URLS ->
-        # singular -> default). Usable if ANY replica is healthy (DP-backend aware).
-        urls = resolve_endpoints(
-            "QWEN_IMAGE_EDIT_SERVER_URLS", "QWEN_IMAGE_EDIT_SERVER_URL", DEFAULT_SERVER_URL
-        )
-        errors = []
-        for base in urls:
-            health_url = f"{base.rstrip('/')}/health"
-            try:
-                response = requests.get(health_url, timeout=5)
-            except Exception as exc:
-                errors.append(f"{health_url}: {exc}")
-                continue
-            if response.status_code == 200:
-                return []
-            errors.append(f"{health_url}: HTTP {response.status_code}")
-        return [f"Qwen-Image-Edit server(s) unreachable: {'; '.join(errors)}"]
+        # Probe the same single endpoint execute() uses.
+        server_url = os.getenv(
+            "QWEN_IMAGE_EDIT_SERVER_URL", DEFAULT_SERVER_URL
+        ).rstrip("/")
+        health_url = f"{server_url}/health"
+        try:
+            response = requests.get(health_url, timeout=5)
+        except Exception as exc:
+            return [f"Qwen-Image-Edit server unreachable at {health_url}: {exc}"]
+        if response.status_code != 200:
+            return [
+                f"Qwen-Image-Edit server unhealthy at {health_url}: "
+                f"{response.status_code}"
+            ]
+        return []
 
     def execute(
         self,
