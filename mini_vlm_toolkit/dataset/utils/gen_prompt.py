@@ -1,30 +1,22 @@
-"""Shared harness prompt wrapper for the generation benchmarks.
+"""Shared prompt framing for the generation benchmarks.
 
-⛔ THIS CHANGES INFERENCE BEHAVIOUR AND BREAKS COMPARABILITY WITH BARE-PROMPT RUNS.
-It is a deliberate harness-protocol decision, recorded here rather than left implicit
-in five separate ``build_prompt`` methods.
+KnowGen / WISE / T2I-FactualBench / FactIP / SearchGen are text-to-image tasks: the
+judge scores a produced IMAGE, and a sample without one scores 0. Telling the agent to
+produce an image is therefore part of stating the task correctly, not an aid — a bare
+benchmark caption never says "generate this", so a bare-prompt run partly measures
+whether the agent guesses the task, which is not what any of these benchmarks are for.
+Our agent comes from search/understanding work and answers in text readily, so it was
+losing points for the framing rather than for the generation. That is what the early
+WISE 23.1% / KnowGen 19.4% numbers were largely made of.
 
-Why it exists
--------------
-KnowGen / WISE / T2I-FactualBench / FactIP / SearchGen are all text-to-image tasks whose
-judges score a produced IMAGE; a sample with no generated image is scored 0. Given only
-the bare benchmark prompt, an agent built for understanding tasks frequently answers in
-text and scores 0 for a harness reason rather than a modelling one -- that is the
-framework-is-understanding-centric gap behind the early WISE 23.1% / KnowGen 19.4%
-numbers.
+KnowGen and WISE were fixed on 2026-07-15; FactIP, SearchGen and T2I-FactualBench kept
+bare prompts, so five benchmarks ran under two protocols and their scores sat in the
+same table as if comparable. Those three were UNDER-measured by a harness defect; this
+module finishes the 07-15 change and gives all five one implementation.
 
-Why it is shared
-----------------
-KnowGen and WISE each grew their own copy of this wrapper while FactIP, SearchGen and
-T2I-FactualBench kept bare prompts, so three of the five were measured under a different
-protocol than the other two -- an inconsistency that is invisible in the result tables.
-One function, one decision.
-
-Comparability
--------------
-Numbers produced with the wrapper are NOT comparable to numbers produced without it.
-Set ``MVTK_GEN_BARE_PROMPT=1`` to send the bare benchmark prompt instead, which is what
-reproducing pre-wrapper results requires.
+``MVTK_GEN_BARE_PROMPT=1`` restores the bare prompt. It exists to reproduce pre-fix
+numbers or to match a paper's protocol exactly, not because the bare setting is the
+neutral one.
 """
 
 import os
@@ -46,7 +38,7 @@ def generation_prompt_mode() -> str:
 
 
 def wrap_generation_prompt(prompt: str) -> str:
-    """Frame ``prompt`` as an image-generation instruction.
+    """State the task: produce an image realizing ``prompt``.
 
     Returns the prompt unchanged under ``MVTK_GEN_BARE_PROMPT=1``.
     """

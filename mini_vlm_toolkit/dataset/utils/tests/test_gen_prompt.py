@@ -1,10 +1,10 @@
-"""The generation prompt wrapper is a protocol decision, so pin its behaviour.
+"""The generation benchmarks must all state the task the same way.
 
-It changes what the model is asked to do, and therefore what every generation number
-means. Two things must stay true: it is applied UNIFORMLY (KnowGen and WISE once had it
-while FactIP, SearchGen and T2I-FactualBench did not, which made three of the five
-benchmarks silently non-comparable to the other two), and it is switchable so pre-wrapper
-results can be reproduced on purpose.
+Asking for an image is part of stating a text-to-image task correctly, so the thing worth
+pinning is UNIFORMITY: KnowGen and WISE were fixed on 2026-07-15 while FactIP, SearchGen
+and T2I-FactualBench kept bare prompts, which left three of the five under-measured by a
+harness defect while their scores sat in the same table. Also pin the escape hatch, which
+exists to reproduce pre-fix numbers -- not because bare prompts are the neutral baseline.
 """
 
 import importlib.util
