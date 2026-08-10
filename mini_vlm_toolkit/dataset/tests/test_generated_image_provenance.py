@@ -19,18 +19,28 @@ import pathlib
 import tempfile
 import types
 
-# Load only the pure resolver helpers: importing the package would pull in pandas
-# and the rest of the eval stack, which this contract does not need.
-_SRC = (pathlib.Path(__file__).resolve().parents[1] / "knowgen.py").read_text()
-_START = _SRC.index("_GEN_TOOLS = (")
-_END = _SRC.index("\n\n\n", _SRC.index("# cannot attribute"))
-_STUB = (
-    "import glob, json, os, re\nimport os.path as osp\n"
-    "from typing import Optional\n\n" + _SRC[_START:_END]
+# ⛔ Import the REAL module, do not exec an extracted slice.
+# The first version of this file pulled the resolver's source out of knowgen.py and
+# exec'd it with its own injected `import re`. That masked a missing `import re` in
+# knowgen.py itself, which made the entire mini_vlm_toolkit.dataset package fail to
+# import -- every benchmark dead, and this suite still green. A test that supplies the
+# imports the module forgot cannot catch that class of bug.
+#
+# The package pulls in pandas and the rest of the eval stack, so skip cleanly when those
+# are absent rather than silently falling back to a slice.
+import pytest
+
+knowgen = pytest.importorskip(
+    "mini_vlm_toolkit.dataset.knowgen",
+    reason="needs the eval stack (pandas, validators, ...) installed",
 )
-_kg = types.ModuleType("kg_resolver")
-exec(compile(_STUB, "kg_resolver", "exec"), _kg.__dict__)
-resolve = _kg._resolve_generated_image
+resolve = knowgen._resolve_generated_image
+
+
+def test_dataset_package_imports():
+    """Guards the failure the slice-based version hid: a missing module-level import."""
+    import mini_vlm_toolkit.dataset  # noqa: F401
+
 
 GEN = "tool_output:Image_Generation_Tool"
 EDIT = "tool_output:Image_Edit_Tool"
@@ -77,11 +87,40 @@ def test_edit_tool_counts_as_generation():
     assert resolve(root, "T1") is not None
 
 
-def test_search_after_generation_is_not_attributed():
-    """The last saved file is a search result, so it must not be scored."""
+def test_search_after_generation_still_finds_the_generation():
+    """Our prompts encourage verifying by search AFTER generating.
+
+    Refusing whenever the newest ref is not a generation punished exactly those
+    better-behaved trajectories. The k-th tool ref maps to the k-th saved file, so the
+    generation is still locatable.
+    """
     root = _run_dir([("tool_generated_image_1", GEN),
                      ("tool_generated_image_2", SEARCH)], 2)
+    got = resolve(root, "T1")
+    assert got is not None and got.endswith("T1_0.png")
+
+
+def test_stale_files_from_an_earlier_run_are_refused():
+    """Provenance lists 2 images but the directory holds 5 -- leftovers from a previous
+    run. Filename-max would score the stale T1_4."""
+    root = _run_dir([("tool_generated_image_1", SEARCH),
+                     ("tool_generated_image_2", GEN)], 5)
     assert resolve(root, "T1") is None
+
+
+def test_input_images_are_counted_before_tool_images():
+    root = _run_dir([("input_image_1", "user_input"),
+                     ("tool_generated_image_1", GEN)], 2)
+    got = resolve(root, "T1")
+    assert got is not None and got.endswith("T1_1.png")
+
+
+def test_last_generation_wins_when_there_are_several():
+    root = _run_dir([("tool_generated_image_1", GEN),
+                     ("tool_generated_image_2", SEARCH),
+                     ("tool_generated_image_3", EDIT)], 3)
+    got = resolve(root, "T1")
+    assert got is not None and got.endswith("T1_2.png")
 
 
 def test_missing_provenance_refuses_to_guess():

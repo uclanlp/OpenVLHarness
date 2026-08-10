@@ -242,8 +242,15 @@ def task_prompt_mkcc(
 ) -> str:
     """Build the MKCC task-completeness prompt.
 
-    task_type ∈ {"interaction", "size", "differentiating"}.
-    concepts / types have len 2; additions varies by task.
+    task_type ∈ {"interaction", "size", "differentiating", "action",
+                 "background variation"}.
+    ⛔ The released MKCC split really does contain "action" (94 rows) and
+    "background variation" (54 rows) on top of the three obvious ones -- 148 of
+    its 800 rows. Verified against our own 3029-row judge detail sheet. An
+    earlier revision whitelisted only the first three and raised on the rest,
+    which crashed every full T2I run mid-grade (track_progress_rich re-raises,
+    and a resume hits the same rows again).
+    concepts / types have len 2+; additions varies by task.
     """
     c1, c2 = concepts[0], concepts[1]
     t1, t2 = types[0], types[1]
@@ -289,13 +296,55 @@ def task_prompt_mkcc(
             f"Task Score:\n"
             f"Reason:\n"
         )
+    if task_type == "action":
+        # Two-concept variant of the SKCI action rubric: the action is carried by the
+        # first concept, the second must still be present.
+        act = additions[0] if additions else "the specified action"
+        return (
+            f"You are provided with a generated image and two knowledge concepts: "
+            f"{t1} {c1} and {t2} {c2}, together with an action: {act}. Your task "
+            f"is to:\n"
+            f"1. Confirm Presence: check whether both {c1} and {c2} are present in "
+            f"the image. If either is missing, the Task Score should be 0.\n"
+            f"2. Confirm Action: if both are present, determine whether {c1} is "
+            f"either dynamically performing the action of {act} or is being "
+            f"dynamically acted upon in relation to {c2}. If so, the Task Score is "
+            f"1; otherwise, 0.\n"
+            f"Evaluation Order: first confirm the presence of both concepts, then "
+            f"verify the action.\n\n"
+            f"Output Format (Note: do not use any bold formatting):\n"
+            f"Task Score:\n"
+            f"Reason:\n"
+        )
+
+    if task_type in ("background variation", "variation"):
+        # Two-concept variant of the SKCI background rubric: one concept supplies the
+        # background attribute the other must appear against.
+        attr = additions[0] if additions else "the specified background"
+        return (
+            f"You are provided with a generated image and two knowledge concepts: "
+            f"{t1} {c1} and {t2} {c2}, together with an attribute related to the "
+            f"background: {attr}. Your task is to:\n"
+            f"1. Confirm Presence: check whether both {c1} and {c2} are present in "
+            f"the image. If either is missing, the Task Score should be 0.\n"
+            f"2. Confirm Background Attribute: if both are present, assess whether "
+            f"the related background exhibits the attribute {attr}. If it does, the "
+            f"Task Score should be 1; otherwise, 0.\n"
+            f"Evaluation Order: first confirm the presence of both concepts, then "
+            f"verify the background attribute.\n\n"
+            f"Output Format (Note: do not use any bold formatting):\n"
+            f"Task Score:\n"
+            f"Reason:\n"
+        )
+
     # differentiating
     if task_type != "differentiating":
         # Same reasoning as task_prompt_skci: a wrong rubric silently produces
         # a meaningless score, so reject unknown task types.
         raise ValueError(
             f'unknown MKCC task type {task_type!r}; expected one of '
-            '"interaction", "size", "differentiating"'
+            '"interaction", "size", "differentiating", "action", '
+            '"background variation"'
         )
     a1 = additions[0] if len(additions) > 0 else ""
     a2 = additions[1] if len(additions) > 1 else ""

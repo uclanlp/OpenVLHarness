@@ -40,6 +40,13 @@ import glob
 import json
 import os
 import os.path as osp
+# ⛔ Must be explicit: `from ..smp import *` does NOT re-export `re`, and the
+# provenance regex at module level made the whole mini_vlm_toolkit.dataset package
+# fail to import (NameError raised through dataset/__init__.py, killing EVERY
+# benchmark, not just KnowGen). pyflakes did flag it, as "'re' may be undefined,
+# or defined from star imports" -- a warning that is easy to dismiss as star-import
+# noise but was real here.
+import re
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -273,23 +280,44 @@ def _resolve_generated_image(pred_root: str, task_id: str) -> Optional[str]:
 
     prov = _image_provenance(pred_root, task_id)
     if prov is None:
-        # Provenance unknown (no trajectory json, or a trajectory written without
-        # the image memory module). Refuse rather than silently reintroducing the
-        # heuristic that scores retrieved images.
+        # Provenance unknown (no trajectory json, or one written without the image
+        # memory module). Refuse rather than silently reintroducing the heuristic that
+        # scored retrieved images.
         return None
 
+    # tool_generated_image_N is numbered in registration order, i.e. chronologically,
+    # and _replace_data_uris_with_files numbers <task_id>_<idx> in that same
+    # top-to-bottom message order. So the k-th tool-generated ref corresponds to the
+    # k-th saved file, and we can pick the file belonging to the LAST generation/edit
+    # ref rather than assuming it is the last file overall.
     tool_refs = sorted(
         ((int(m.group(1)), ref) for ref in prov
          for m in [re.match(r'^tool_generated_image_(\d+)$', ref)] if m),
         key=lambda t: t[0],
     )
-    gen_refs = [ref for _n, ref in tool_refs
-                if any(t in prov.get(ref, '') for t in _GEN_TOOLS)]
-    if not gen_refs:
-        return None                      # never generated an image
-    if tool_refs and tool_refs[-1][1] in gen_refs:
-        return last_file                 # newest tool output is the generation
-    return None                          # cannot attribute the last file
+    gen_positions = [i for i, (_n, ref) in enumerate(tool_refs)
+                     if any(t in prov.get(ref, '') for t in _GEN_TOOLS)]
+    if not gen_positions:
+        return None                      # the agent never generated an image
+
+    # ⛔ Do NOT fall back to "last file overall" once a generation exists. Two verified
+    # failure modes of that shortcut:
+    #   1) generate -> verify-by-search trajectories (refs [GEN, SEARCH]) scored 0 even
+    #      though a real generation existed -- and our prompts actively encourage
+    #      post-generation verification, so it punished the better-behaved runs;
+    #   2) files left in the images dir by an EARLIER run kept a higher numeric suffix,
+    #      so a fresh run that wrote T1_0..T1_1 was scored on a stale T1_4.
+    # Indexing by position fixes both, and the count check below catches the stale-file
+    # case that positional indexing alone cannot see.
+    n_tool = len(tool_refs)
+    n_input = sum(1 for ref in prov if ref.startswith('input_image_'))
+    expected = n_input + n_tool
+    if len(matches) != expected:
+        # The file set does not match this run's provenance -- almost always stale files
+        # from a previous run in the same directory. Refuse rather than guess.
+        return None
+    idx = n_input + gen_positions[-1]     # input images are written first, in order
+    return matches[idx] if idx < len(matches) else None
 
 
 # ---------------------------------------------------------------------------
