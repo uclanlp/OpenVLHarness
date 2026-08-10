@@ -175,16 +175,78 @@ def _grade_item_judge_knowgen(model, item):
 # Generated-image resolution from the run directory
 # ---------------------------------------------------------------------------
 
+_GEN_TOOLS = ("Image_Generation_Tool", "Image_Edit_Tool")
+_REF_SOURCE_LINE = re.compile(r"^-\s+(tool_generated_image_(\d+)|input_image_\d+):\s*(\S+)", re.M)
+
+
+def _iter_message_text(messages):
+    """Yield every text string in a persisted trajectory's messages."""
+    for msg in messages or []:
+        content = (msg or {}).get("content")
+        if isinstance(content, str):
+            yield content
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    v = part.get("text") or part.get("value")
+                    if isinstance(v, str):
+                        yield v
+
+
+def _image_provenance(pred_root: str, task_id: str):
+    """Read ref_id -> source for one task from its persisted trajectory.
+
+    The image memory module emits an environment-update block listing every
+    registered image and where it came from::
+
+        Currently available image IDs for tool calls:
+        - input_image_1: user_input
+        - tool_generated_image_1: tool_output:Text_Search_Tool
+        - tool_generated_image_2: tool_output:Image_Generation_Tool
+
+    That text is part of the saved trajectory, so provenance is recoverable for
+    old runs too -- no re-inference needed. Returns ``None`` when there is no
+    trajectory or no such block (i.e. provenance is genuinely unknown, which is
+    different from "known to have no generated image").
+    """
+    traj = osp.join(pred_root, 'full_trajectories', f'{task_id}.json')
+    if not osp.isfile(traj):
+        return None
+    try:
+        with open(traj) as f:
+            payload = json.load(f)
+    except Exception:
+        return None
+    prov = {}
+    for text in _iter_message_text(payload.get('messages')):
+        for ref, num, source in _REF_SOURCE_LINE.findall(text):
+            prov[ref] = source
+    return prov or None
+
+
 def _resolve_generated_image(pred_root: str, task_id: str) -> Optional[str]:
-    """Find the model's final generated image for a given task_id.
+    """Find the image the agent actually GENERATED for ``task_id``.
 
-    Convention: with ``--save-images files`` enabled in run_benchmark.py,
-    per-task images are decoded to ``<pred_root>/full_trajectories/images/
-    <task_id>_<idx>.<ext>``. The LAST file (highest idx) is the final
-    produced image (typically the output of the terminal Image_Edit_Tool
-    or Image_Generation_Tool call in a generation trajectory).
+    ⛔ Why this is not just "the last saved image": with ``--save-images files``
+    the trajectory writer decodes EVERY data-URI image in message order,
+    including the images returned by search/retrieval tools
+    (``reporting_utils._replace_data_uris_with_files`` walks all messages
+    "regardless of role"). Picking the highest numeric suffix therefore scored
+    the last RETRIEVED image as the model's generation -- so an agent that only
+    searched, and never generated anything, was credited with a real score. That
+    is a fabricated number, which is worse than a zero.
 
-    Returns None if no image file matches the task_id.
+    So the image is attributed through provenance (see ``_image_provenance``):
+      * no image-generation/edit tool output at all -> None, i.e. the agent did
+        not generate an image and the sample legitimately scores 0;
+      * the most recent tool output IS a generation/edit -> the last saved file
+        is that output;
+      * a generation exists but something else was produced afterwards -> the
+        file cannot be attributed, so return None rather than guess.
+
+    Set ``MVTK_GEN_IMAGE_LEGACY_LASTFILE=1`` to force the old last-file
+    heuristic. It exists only to REPRODUCE pre-fix numbers on purpose; it will
+    score retrieved images as generations.
     """
     img_dir = osp.join(pred_root, 'full_trajectories', 'images')
     if not osp.isdir(img_dir):
@@ -196,7 +258,6 @@ def _resolve_generated_image(pred_root: str, task_id: str) -> Optional[str]:
     if not matches:
         return None
 
-    # Sort by numeric suffix so `_10` > `_9`, then take the last file.
     def _sort_key(p: str):
         stem = osp.basename(p).rsplit('.', 1)[0]  # e.g., "123_5"
         try:
@@ -205,7 +266,30 @@ def _resolve_generated_image(pred_root: str, task_id: str) -> Optional[str]:
             return 0
 
     matches.sort(key=_sort_key)
-    return matches[-1]
+    last_file = matches[-1]
+
+    if os.environ.get('MVTK_GEN_IMAGE_LEGACY_LASTFILE') == '1':
+        return last_file
+
+    prov = _image_provenance(pred_root, task_id)
+    if prov is None:
+        # Provenance unknown (no trajectory json, or a trajectory written without
+        # the image memory module). Refuse rather than silently reintroducing the
+        # heuristic that scores retrieved images.
+        return None
+
+    tool_refs = sorted(
+        ((int(m.group(1)), ref) for ref in prov
+         for m in [re.match(r'^tool_generated_image_(\d+)$', ref)] if m),
+        key=lambda t: t[0],
+    )
+    gen_refs = [ref for _n, ref in tool_refs
+                if any(t in prov.get(ref, '') for t in _GEN_TOOLS)]
+    if not gen_refs:
+        return None                      # never generated an image
+    if tool_refs and tool_refs[-1][1] in gen_refs:
+        return last_file                 # newest tool output is the generation
+    return None                          # cannot attribute the last file
 
 
 # ---------------------------------------------------------------------------

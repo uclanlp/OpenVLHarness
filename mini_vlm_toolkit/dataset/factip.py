@@ -239,25 +239,12 @@ def _grade_item_judge_factip(model, item):
     )
 
 
-def _resolve_generated_image(pred_root: str, task_id: str) -> Optional[str]:
-    img_dir = osp.join(pred_root, 'full_trajectories', 'images')
-    if not osp.isdir(img_dir):
-        return None
-    matches: List[str] = []
-    for ext in ('png', 'jpg', 'jpeg', 'webp'):
-        matches.extend(glob.glob(osp.join(img_dir, f'{task_id}_*.{ext}')))
-    if not matches:
-        return None
-
-    def _sort_key(p: str):
-        stem = osp.basename(p).rsplit('.', 1)[0]
-        try:
-            return int(stem.rsplit('_', 1)[-1])
-        except Exception:
-            return 0
-
-    matches.sort(key=_sort_key)
-    return matches[-1]
+# Generated-image attribution is shared with KnowGen so all five generation
+# benchmarks agree on what counts as "the image the agent produced". This file
+# used to carry its own copy that took the highest numeric suffix, which scored
+# search/retrieval images as generations -- see knowgen._resolve_generated_image
+# for why that fabricates non-zero scores.
+from .knowgen import _resolve_generated_image  # noqa: F401  (re-exported)
 
 
 class FactIPDataset(ImageBaseDataset):
