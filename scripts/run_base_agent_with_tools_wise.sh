@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 # Usage:
 #   ./scripts/run_base_agent_with_tools_wise.sh [model_preset]
 # Examples:
-#   ./scripts/run_base_agent_with_tools_wise.sh                         # default: in-repo configs/base_agent_with_tools.yaml
+#   CONFIG=<agent.yaml> ./scripts/run_base_agent_with_tools_wise.sh      # required: a config with an image tool
 #   ./scripts/run_base_agent_with_tools_wise.sh v5-oh                   # openvl-harness aligned
 #   ./scripts/run_base_agent_with_tools_wise.sh gpt5                    # gpt-5 baseline for comparison
 #   NUM_EXAMPLES=20 ./scripts/run_base_agent_with_tools_wise.sh         # smoke
@@ -36,11 +36,14 @@ cd "$ROOT_DIR"
 #   v5-oh           -> configs/rui-testing/base_agent_with_tools_v5_oh_rui.yaml    (openvl-harness aligned)
 #   gpt5            -> configs/rui-testing/base_agent_with_tools-gpt5_rui.yaml     (gpt-5 comparison)
 
-# Default preset is the one config this repo actually ships, so a bare
-# invocation works in a clean checkout. The v5* / gpt5 presets below point at a
-# local configs/rui-testing/ tree that is NOT part of this repo; pass them (or
-# CONFIG=<yaml>) only if you have that tree.
-MODEL_PRESET="${1:-repo}"
+# ⛔ No usable default: WISE is a GENERATION benchmark, and no config shipped in
+# this repo can produce an image (configs/base_agent_with_tools.yaml restricts
+# tool_list to Crop/Visual_Grounding/OCR/Python/Zoom, and agent/base.py drops every
+# tool outside that list -- including Image_Generation_Tool). Defaulting to it would
+# start happily and then score every sample zero for a missing image, which is worse
+# than refusing to run. Pass CONFIG=<yaml> with an image tool, or a v5* preset if you
+# have the local configs/rui-testing/ tree.
+MODEL_PRESET="${1:-}"
 DATASET="${DATASET:-WISE}"
 # Judge config: prefer an in-repo default so the advertised bare invocation runs.
 if [[ -z "${JUDGE_CONFIG:-}" ]]; then
@@ -64,9 +67,6 @@ if [[ -n "${CONFIG:-}" ]]; then
   AGENT_CONFIG="$CONFIG"
 else
   case "$MODEL_PRESET" in
-    repo|default)
-      AGENT_CONFIG="configs/base_agent_with_tools.yaml"
-      ;;
     v5|tools-v5|v5-all|v5_all)
       AGENT_CONFIG="configs/rui-testing/base_agent_with_tools_v5_rui.yaml"
       ;;
@@ -84,9 +84,19 @@ else
     gpt5|gpt-5)
       AGENT_CONFIG="configs/rui-testing/base_agent_with_tools-gpt5_rui.yaml"
       ;;
+    "")
+      echo "ERROR: no agent config given." >&2
+      echo "  WISE is a text-to-image benchmark: the agent must be able to PRODUCE an" >&2
+      echo "  image, otherwise evaluate() finds none and scores every sample 0. That is" >&2
+      echo "  why there is no default here." >&2
+      echo "  Pass CONFIG=<agent.yaml> whose tool_list includes Image_Generation_Tool" >&2
+      echo "  (or Image_Edit_Tool), or a v5* preset if you have configs/rui-testing/." >&2
+      exit 1
+      ;;
     *)
       echo "Unknown model preset: $MODEL_PRESET"
-      echo "Supported presets: repo (default, in-repo config) | v5 | v5-under | v5-under-qwen | v5-oh | gpt5"
+      echo "Supported presets: v5 | v5-under | v5-under-qwen | v5-oh | gpt5"
+      echo "(no default: WISE needs a generation-capable config -- see the note above)"
       echo "Or pass CONFIG=<path-to-yaml> to use a custom config."
       exit 1
       ;;
@@ -105,6 +115,19 @@ for _cfg_var in AGENT_CONFIG JUDGE_CONFIG; do
     exit 1
   fi
 done
+
+# ⭐ Existence is not enough: the config must actually be able to generate. base.py
+# filters self.tools down to tool_list, so a config without an image tool reaches
+# evaluate() with nothing to score and reports 0 for every sample. Check the real
+# criterion (what tool_list contains) rather than trusting the file name.
+if ! grep -qE 'Image_(Generation|Edit)_Tool' "$AGENT_CONFIG"; then
+  echo "ERROR: $AGENT_CONFIG has no image-producing tool in tool_list." >&2
+  echo "  WISE scores a missing generated image as 0, so this run would report ~0.00" >&2
+  echo "  accuracy for reasons that have nothing to do with the model." >&2
+  echo "  Add Image_Generation_Tool (or Image_Edit_Tool) to tool_list, and make sure the" >&2
+  echo "  tool server exposes it." >&2
+  exit 1
+fi
 
 # WISE only supports judge_wise (no override).
 if [[ -n "${MMDR_JUDGE_PROMPT:-}" && "${MMDR_JUDGE_PROMPT}" != "judge_wise" ]]; then
