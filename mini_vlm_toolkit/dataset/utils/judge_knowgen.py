@@ -190,7 +190,9 @@ def build_judge_knowgen_user_message(
         f"Task prompt (image requirement):\n{prompt}\n\n"
         "Image 1: the **generated image** (to be evaluated).\n"
         "Image 2: the **ground-truth reference image**.\n\n"
-        "Output a single JSON object with the three scores and a short rationale."
+        "Output a single JSON object with the four dimension scores "
+        "(faithfulness, visual_correctness, text_accuracy, aesthetics), "
+        "the text_accuracy_na flag, and a short rationale."
     )
     items: list = [{"role": "user", "type": "text", "value": text}]
     for p in [generated_image_path, gt_image_path]:

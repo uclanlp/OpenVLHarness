@@ -179,8 +179,11 @@ def _grade_item_judge_searchgen(model, item):
         try_parse_judge_output,
     )
 
-    def _result(judged, comps, scores_json='', reasoning=''):
-        out = dict(judged=int(judged), scores_json=scores_json, reasoning=reasoning)
+    def _result(judged, comps, scores_json='', reasoning='', judge_raw=''):
+        # judge_raw:判分模型的**完整**回复。成功和失败都留,否则一旦分数可疑
+        # 就没有任何离线复盘的依据(截断/格式跑偏/被网关吞都只能靠它看出来)。
+        out = dict(judged=int(judged), scores_json=scores_json, reasoning=reasoning,
+                   judge_raw=judge_raw)
         for c in COMPONENTS:
             v = comps.get(c) if comps else None
             out[c] = float(v) if v is not None else None
@@ -242,12 +245,14 @@ def _grade_item_judge_searchgen(model, item):
                 reasoning=' '.join(
                     f'{c}={comps[c]:.2f}' for c in COMPONENTS if comps[c] is not None
                 ),
+                judge_raw=str(last or ''),
             )
         except Exception:
             retry -= 1
 
     return _result(False, None,
-                   reasoning=f'judge_searchgen unparseable: {str(last)[:200]}' if last else 'judge unreachable')
+                   reasoning=f'judge_searchgen unparseable: {str(last)[:200]}' if last else 'judge unreachable',
+                   judge_raw=str(last or ''))
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +470,7 @@ class SearchGenBenchDataset(ImageBaseDataset):
                     result_cache[k] = v
 
         # Populate per-component columns (None -> NaN = absent, skip policy)
-        for col in ['judged', 'scores_json', 'reasoning'] + COMPONENTS:
+        for col in ['judged', 'scores_json', 'reasoning', 'judge_raw'] + COMPONENTS:
             default = 0 if col == 'judged' else ('' if col in ('scores_json', 'reasoning') else None)
             data[col] = [
                 result_cache.get(str(idx), {}).get(col, default)

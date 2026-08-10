@@ -190,7 +190,8 @@ def _grade_item_judge_wise(model, item):
         correct=0,
         score=0.0,
         reasoning=f'judge_wise unparseable: {str(last)[:200]}' if last else 'judge unreachable',
-        raw=str(last or '')[:500],
+        # ⛔ 不截断:解析失败时最需要完整原文(尾部常带被截断的收尾语法)
+        raw=str(last or ''),
     )
 
 

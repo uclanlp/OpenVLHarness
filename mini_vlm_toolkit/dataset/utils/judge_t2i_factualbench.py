@@ -355,13 +355,15 @@ def parse_concept_rating(content: str) -> Dict[str, Any]:
     m = re.search(r"Total\s*Rating\s*[::]?\s*([0-4])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(concept_score=s, raw=text, reasoning=f"Total Rating: {s}")
+        return dict(concept_score=s, raw=text, reasoning=f"Total Rating: {s}", parsed_ok=True)
     # Fallback: bare "Rating: N" or "Score: N"
     m = re.search(r"(?:Rating|Score)\s*[::]?\s*([0-4])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(concept_score=s, raw=text, reasoning=f"Rating: {s}")
-    return dict(concept_score=0, raw=text[:500], reasoning="unparseable concept rating")
+        return dict(concept_score=s, raw=text, reasoning=f"Rating: {s}", parsed_ok=True)
+    # ⛔ 不截断:解析失败时**恰恰**最需要完整原文来定位(截断/格式跑偏/被网关吞)
+    return dict(concept_score=0, raw=text, reasoning="unparseable concept rating",
+                parsed_ok=False)
 
 
 def parse_task_score(content: str) -> Dict[str, Any]:
@@ -370,8 +372,8 @@ def parse_task_score(content: str) -> Dict[str, Any]:
     m = re.search(r"Task\s*Score\s*[::]?\s*([01])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(task_score=s, raw=text, reasoning=f"Task Score: {s}")
-    return dict(task_score=0, raw=text[:500], reasoning="unparseable task score")
+        return dict(task_score=s, raw=text, reasoning=f"Task Score: {s}", parsed_ok=True)
+    return dict(task_score=0, raw=text, reasoning="unparseable task score", parsed_ok=False)
 
 
 def parse_integration_score(content: str) -> Dict[str, Any]:
@@ -379,8 +381,10 @@ def parse_integration_score(content: str) -> Dict[str, Any]:
     m = re.search(r"Integration\s*Score\s*[::]?\s*([01])", text, re.IGNORECASE)
     if m:
         s = int(m.group(1))
-        return dict(integration_score=s, raw=text, reasoning=f"Integration Score: {s}")
-    return dict(integration_score=0, raw=text[:500], reasoning="unparseable integration score")
+        return dict(integration_score=s, raw=text, reasoning=f"Integration Score: {s}",
+                    parsed_ok=True)
+    return dict(integration_score=0, raw=text, reasoning="unparseable integration score",
+                parsed_ok=False)
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +393,7 @@ def parse_integration_score(content: str) -> Dict[str, Any]:
 
 def metric_for_tier(
     tier: str,
-    concept_score: int,
+    concept_score: float,
     task_score: Optional[int],
     integration_score: Optional[int],
 ) -> float:
@@ -400,7 +404,9 @@ def metric_for_tier(
       - SKCI: (Concept / 4 + Task) / 2
       - MKCC: (Concept / 4 + Task + Integration) / 3
     """
-    c = max(0, min(4, int(concept_score))) / 4.0
+    # concept_score 是多个 concept 评分的均值,可能是半步值(如 2.5)。
+    # ⛔ 绝不 int():两个 rating 2 和 3 会被压成 2,归一化贡献从 0.625 掉到 0.5。
+    c = max(0.0, min(4.0, float(concept_score))) / 4.0
     if tier == "SKCM":
         return c
     t = max(0, min(1, int(task_score or 0)))

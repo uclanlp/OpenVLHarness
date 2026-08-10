@@ -232,19 +232,29 @@ def _grade_item_judge_t2i_factualbench(model, item):
             raw='',
         )
 
-    def _generate_with_retry(messages):
+    def _generate_with_retry(messages, parser=None):
+        """Call the judge, retrying on API failure AND on parse failure.
+
+        ⛔ Retrying only on API errors is not enough: all three parsers map an
+        unparseable completion to score 0, so a malformed or truncated judge
+        response would be silently recorded as a genuine zero -- the exact
+        failure mode this grader is supposed to surface. When ``parser`` is
+        given, a response that it cannot parse also consumes a retry, and the
+        last response is returned only after every attempt is used up.
+        """
         retry = 3
         last = None
         while retry:
+            retry -= 1
             try:
                 out = model.generate(messages)
             except Exception as e:
                 out = f'Failed to obtain answer via API: {e}'
             if 'Failed to obtain answer via API' in str(out):
-                retry -= 1
                 continue
             last = out
-            return out
+            if parser is None or parser(str(out)).get('parsed_ok'):
+                return out
         return last or ''
 
     # ---- Concept judge: mean over each concept in the prompt --------
@@ -257,11 +267,12 @@ def _grade_item_judge_t2i_factualbench(model, item):
             generated_image_path=gen_path,
             concept_image_path=str(ref),
         )
-        out = _generate_with_retry(msgs)
+        out = _generate_with_retry(msgs, parse_concept_rating)
         parsed = parse_concept_rating(str(out))
         concept_scores.append(parsed['concept_score'])
         concept_raws.append(parsed['raw'])
-    concept_score = int(round(sum(concept_scores) / len(concept_scores))) if concept_scores else 0
+    # ⛔ 保留小数:rating 2 和 3 的均值是 2.5,int(round()) 会压成 2
+    concept_score = (sum(concept_scores) / len(concept_scores)) if concept_scores else 0.0
 
     # ---- Task judge: SKCI + MKCC ----------------------------------
     task_score = None
@@ -274,7 +285,7 @@ def _grade_item_judge_t2i_factualbench(model, item):
             type_=str(types[0]),
             addition=str(addition_str),
         )
-        out = _generate_with_retry(build_task_messages(ptext, gen_path))
+        out = _generate_with_retry(build_task_messages(ptext, gen_path), parse_task_score)
         parsed = parse_task_score(str(out))
         task_score = parsed['task_score']
         task_raw = parsed['raw']
@@ -285,7 +296,7 @@ def _grade_item_judge_t2i_factualbench(model, item):
             types=[str(t) for t in types[:2]],
             additions=[str(a) for a in additions],
         )
-        out = _generate_with_retry(build_task_messages(ptext, gen_path))
+        out = _generate_with_retry(build_task_messages(ptext, gen_path), parse_task_score)
         parsed = parse_task_score(str(out))
         task_score = parsed['task_score']
         task_raw = parsed['raw']
@@ -299,7 +310,7 @@ def _grade_item_judge_t2i_factualbench(model, item):
             types=[str(t) for t in types[:2]],
             sentence=sentence,
         )
-        out = _generate_with_retry(build_integration_messages(ptext, gen_path))
+        out = _generate_with_retry(build_integration_messages(ptext, gen_path), parse_integration_score)
         parsed = parse_integration_score(str(out))
         integration_score = parsed['integration_score']
         integration_raw = parsed['raw']
@@ -535,6 +546,8 @@ class T2IFactualBenchDataset(ImageBaseDataset):
             ('metric', 0.0),
             ('correct', 0),
             ('reasoning', ''),
+            # 判分原文必须落盘:三轮 judge 的完整回复是复盘错分的唯一证据
+            ('raw', ''),
         ]:
             data[col] = [
                 result_cache.get(str(idx), {}).get(col, default)

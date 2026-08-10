@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 # Usage:
 #   ./scripts/run_base_agent_with_tools_wise.sh [model_preset]
 # Examples:
-#   ./scripts/run_base_agent_with_tools_wise.sh                         # default: v5 umbrella + Qwen3-VL-8B
+#   ./scripts/run_base_agent_with_tools_wise.sh                         # default: in-repo configs/base_agent_with_tools.yaml
 #   ./scripts/run_base_agent_with_tools_wise.sh v5-oh                   # openvl-harness aligned
 #   ./scripts/run_base_agent_with_tools_wise.sh gpt5                    # gpt-5 baseline for comparison
 #   NUM_EXAMPLES=20 ./scripts/run_base_agent_with_tools_wise.sh         # smoke
@@ -36,9 +36,20 @@ cd "$ROOT_DIR"
 #   v5-oh           -> configs/rui-testing/base_agent_with_tools_v5_oh_rui.yaml    (openvl-harness aligned)
 #   gpt5            -> configs/rui-testing/base_agent_with_tools-gpt5_rui.yaml     (gpt-5 comparison)
 
-MODEL_PRESET="${1:-v5}"
+# Default preset is the one config this repo actually ships, so a bare
+# invocation works in a clean checkout. The v5* / gpt5 presets below point at a
+# local configs/rui-testing/ tree that is NOT part of this repo; pass them (or
+# CONFIG=<yaml>) only if you have that tree.
+MODEL_PRESET="${1:-repo}"
 DATASET="${DATASET:-WISE}"
-JUDGE_CONFIG="${JUDGE_CONFIG:-configs/rui-testing/judge_rui.yaml}"
+# Judge config: prefer an in-repo default so the advertised bare invocation runs.
+if [[ -z "${JUDGE_CONFIG:-}" ]]; then
+  if [[ -f configs/rui-testing/judge_rui.yaml ]]; then
+    JUDGE_CONFIG=configs/rui-testing/judge_rui.yaml
+  else
+    JUDGE_CONFIG=configs/judge.yaml
+  fi
+fi
 NUM_PROC="${NUM_PROC:-4}"
 SAVE_HTML="${SAVE_HTML:-10}"
 SAVE_RAW_TRAJECTORY="${SAVE_RAW_TRAJECTORY:-1}"  # default ON; override with SAVE_RAW_TRAJECTORY= bash ... to disable
@@ -53,6 +64,9 @@ if [[ -n "${CONFIG:-}" ]]; then
   AGENT_CONFIG="$CONFIG"
 else
   case "$MODEL_PRESET" in
+    repo|default)
+      AGENT_CONFIG="configs/base_agent_with_tools.yaml"
+      ;;
     v5|tools-v5|v5-all|v5_all)
       AGENT_CONFIG="configs/rui-testing/base_agent_with_tools_v5_rui.yaml"
       ;;
@@ -72,7 +86,7 @@ else
       ;;
     *)
       echo "Unknown model preset: $MODEL_PRESET"
-      echo "Supported presets: v5 (default) | v5-under | v5-under-qwen | v5-oh | gpt5"
+      echo "Supported presets: repo (default, in-repo config) | v5 | v5-under | v5-under-qwen | v5-oh | gpt5"
       echo "Or pass CONFIG=<path-to-yaml> to use a custom config."
       exit 1
       ;;
@@ -98,9 +112,17 @@ if [[ -n "${MMDR_JUDGE_PROMPT:-}" && "${MMDR_JUDGE_PROMPT}" != "judge_wise" ]]; 
 fi
 export MMDR_JUDGE_PROMPT="judge_wise"
 
-# Ensure --save-images files is set (needed for generated image resolution)
+# evaluate() resolves the generated image off disk, so anything other than
+# "files" guarantees every sample scores 0. Warning is not enough for a mode
+# that reaches evaluate() -- fail before burning a whole run.
 if [[ "$SAVE_IMAGES" != "files" ]]; then
-  echo "WARNING: SAVE_IMAGES=${SAVE_IMAGES} — WISE evaluate() requires 'files' to resolve generated images from disk." >&2
+  if [[ "$MODE" == "all" || "$MODE" == "eval" ]]; then
+    echo "ERROR: SAVE_IMAGES=${SAVE_IMAGES} but MODE=${MODE} runs evaluate(),"  >&2
+    echo "       which resolves generated images from disk — every sample would score 0." >&2
+    echo "       Set SAVE_IMAGES=files (or use MODE=infer)." >&2
+    exit 1
+  fi
+  echo "WARNING: SAVE_IMAGES=${SAVE_IMAGES} — evaluate() would not resolve generated images." >&2
 fi
 
 # Verify WISE data is reachable. WISE runs from the cached $LMUData/WISE.tsv when
@@ -110,10 +132,13 @@ fi
 _LMU="${LMUData:-$HOME/LMUData}"
 _WISE_DIR="${WISE_DATA_DIR:-$_LMU/WISE/data_verified}"
 _WISE_TSV="$_LMU/WISE.tsv"
+# ⛔ Do NOT exit when both caches are absent: WISEDataset._resolve_wise_data_dir()
+# downloads merge.json from PKU-YuanGroup/WISE on a first clean run, and bailing
+# out here would make that documented auto-download unreachable. Inform only.
 if [[ ! -f "$_WISE_TSV" && ! -f "$_WISE_DIR/merge.json" ]]; then
-  echo "ERROR: WISE data not found — need cached $_WISE_TSV OR $_WISE_DIR/merge.json" >&2
-  echo "Clone https://github.com/PKU-YuanGroup/WISE and set WISE_DATA_DIR to its data_verified/ dir (or provide the cached WISE.tsv)." >&2
-  exit 1
+  echo "NOTE: no cached $_WISE_TSV and no $_WISE_DIR/merge.json — the loader will" >&2
+  echo "      auto-download from https://github.com/PKU-YuanGroup/WISE. Set WISE_DATA_DIR" >&2
+  echo "      to an existing data_verified/ checkout to skip the download." >&2
 fi
 
 echo "Running BaseAgentWithToolsAndCode on WISE-Verified"

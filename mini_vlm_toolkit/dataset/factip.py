@@ -438,6 +438,8 @@ class FactIPDataset(ImageBaseDataset):
             ('text_relevance_ip', 0),
             ('overall_score', 0),
             ('reasoning', ''),
+            # judge 要求输出 rationale,必须落盘,否则每个分数背后的依据就丢了
+            ('rationale', ''),
         ]:
             data[col] = [
                 result_cache.get(str(idx), {}).get(col, default)
