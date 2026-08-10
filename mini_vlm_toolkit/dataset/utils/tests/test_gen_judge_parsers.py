@@ -194,3 +194,49 @@ def test_searchgen_keeps_legal_references():
     for legal in ("A &amp; B", "A &lt; B", "A &gt; B", "A &quot; B",
                   "A &apos; B", "A &#169; B", "A &#x00A9; B"):
         assert repair(legal) == legal, f"{legal} is valid XML and must survive"
+
+# --------------------------------------------------------------------------
+# Out-of-protocol scores must be parse failures, not clamped into range
+# --------------------------------------------------------------------------
+
+def test_knowgen_rejects_scores_outside_the_allowed_set():
+    """faithfulness: 9 used to be clipped to 1, and 0.7 accepted as-is.
+
+    Both make the verdict look valid, so the caller stops retrying and the
+    benchmark records a score the judge never gave.
+    """
+    for bad in (9, -1, 0.7, "high"):
+        out = parse_judge_knowgen_judgement(json.dumps({
+            "rationale": "x", "faithfulness": bad, "visual_correctness": 1,
+            "text_accuracy": 1, "aesthetics": 1, "text_accuracy_na": False,
+        }))
+        assert not out["verdict"], f"faithfulness={bad!r} must be a parse failure"
+
+
+def test_knowgen_accepts_exactly_the_three_legal_values():
+    for good in (0, 0.5, 1):
+        out = parse_judge_knowgen_judgement(json.dumps({
+            "rationale": "x", "faithfulness": good, "visual_correctness": good,
+            "text_accuracy": good, "aesthetics": good, "text_accuracy_na": False,
+        }))
+        assert out["verdict"], f"{good} is legal and must be accepted"
+        assert out["faithfulness"] == float(good)
+
+
+def test_factip_rejects_non_integer_and_out_of_range_scores():
+    """7.6 used to round to 8 and 100 to clamp to 10."""
+    for bad in (7.6, 100, -3, "eight"):
+        out = parse_judge_factip_judgement(json.dumps({
+            "rationale": "x", "clarity": bad, "content_quality": 5,
+            "aesthetics": 5, "text_relevance_ip": 5, "overall_score": 5,
+        }))
+        assert not out["verdict"], f"clarity={bad!r} must be a parse failure"
+
+
+def test_factip_accepts_integers_in_range():
+    for good in (0, 5, 10, 8.0):     # 8.0 is an integer value, just typed as float
+        out = parse_judge_factip_judgement(json.dumps({
+            "rationale": "x", "clarity": good, "content_quality": 5,
+            "aesthetics": 5, "text_relevance_ip": 5, "overall_score": 5,
+        }))
+        assert out["verdict"], f"clarity={good!r} is legal and must be accepted"

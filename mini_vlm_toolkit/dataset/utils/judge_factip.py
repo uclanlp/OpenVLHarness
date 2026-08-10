@@ -113,12 +113,22 @@ def build_judge_factip_messages(
     return msgs
 
 
-def _clip_int_0_10(x) -> int:
+def _coerce_int_0_10(x):
+    """Return an int in [0, 10], or None if the value does not qualify.
+
+    ⛔ Do NOT round-and-clamp. The protocol asks for integers in [0, 10]; 7.6 and
+    100 mean the judge broke the format, and turning them into 8 and 10 invents
+    scores that then look valid, so the caller stops retrying. None makes it a
+    parse failure.
+    """
     try:
-        v = int(round(float(x)))
+        v = float(x)
     except Exception:
-        return 0
-    return max(0, min(10, v))
+        return None
+    if v != int(v):          # 7.6 is not an integer score
+        return None
+    v = int(v)
+    return v if 0 <= v <= 10 else None
 
 
 def parse_judge_factip_judgement(content: str) -> Dict[str, Any]:
@@ -178,7 +188,22 @@ def parse_judge_factip_judgement(content: str) -> Dict[str, Any]:
             rationale="",
             reasoning=f"judge output missing required score keys: {missing}",
         )
-    scores = {k: _clip_int_0_10(obj.get(k, 0)) for k in _SCORE_KEYS}
+    raw_scores = {k: _coerce_int_0_10(obj.get(k)) for k in _SCORE_KEYS}
+    invalid = [k for k, v in raw_scores.items() if v is None]
+    if invalid:
+        return dict(
+            verdict=None,
+            correct=0, weighted_overall=0.0,
+            clarity=0, content_quality=0, aesthetics=0,
+            text_relevance_ip=0, overall_score=0,
+            rationale="",
+            reasoning=(
+                "judge output has scores outside the allowed integer range [0, 10]: "
+                f"{ {k: obj.get(k) for k in invalid} }"
+            ),
+            judge_raw="",
+        )
+    scores = raw_scores
     weighted = sum(_WEIGHTS[k] * scores[k] for k in _WEIGHTS)
     rationale = str(obj.get("rationale", ""))
 

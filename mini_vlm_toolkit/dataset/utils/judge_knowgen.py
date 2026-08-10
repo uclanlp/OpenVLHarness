@@ -210,12 +210,23 @@ def build_judge_knowgen_user_message(
 # Parsing — tolerant JSON extractor (matches upstream _parse_llm_json intent)
 # ---------------------------------------------------------------------------
 
-def _clip01(x) -> float:
+_ALLOWED_SCORES = (0.0, 0.5, 1.0)
+
+
+def _coerce_score(x):
+    """Return the score if it is exactly one of {0, 0.5, 1}, else None.
+
+    ⛔ Do NOT clip. The prompt allows only those three values, so `faithfulness: 9`
+    or `0.7` means the judge did not follow the protocol. Clipping 9 -> 1 (or
+    accepting 0.7) fabricates a plausible score, and because the verdict then looks
+    valid the caller never retries -- the benchmark records a number the judge never
+    gave. Returning None makes it a parse failure, which is what it is.
+    """
     try:
         v = float(x)
     except Exception:
-        return 0.0
-    return max(0.0, min(1.0, v))
+        return None
+    return v if v in _ALLOWED_SCORES else None
 
 
 def parse_judge_knowgen_judgement(content: str) -> Dict[str, Any]:
@@ -307,7 +318,24 @@ def parse_judge_knowgen_judgement(content: str) -> Dict[str, Any]:
             rationale="",
             reasoning=f"judge output missing required score keys: {missing}",
         )
-    scores = {k: _clip01(obj.get(k, 0.0)) for k in _SCORE_KEYS}
+    raw_scores = {k: _coerce_score(obj.get(k)) for k in _SCORE_KEYS}
+    invalid = [k for k, v in raw_scores.items() if v is None]
+    if invalid:
+        return dict(
+            verdict=None,
+            correct=0,
+            faithfulness=0.0,
+            visual_correctness=0.0,
+            text_accuracy=0.0,
+            aesthetics=0.0,
+            text_accuracy_na=False,
+            rationale="",
+            reasoning=(
+                "judge output has scores outside the allowed {0, 0.5, 1}: "
+                f"{ {k: obj.get(k) for k in invalid} }"
+            ),
+        )
+    scores = raw_scores
     text_accuracy_na = bool(obj.get("text_accuracy_na", False))
     rationale = str(obj.get("rationale", ""))
     mean_score = sum(scores.values()) / len(scores)

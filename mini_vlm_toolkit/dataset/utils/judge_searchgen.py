@@ -42,6 +42,7 @@ import json
 import os
 import os.path as osp
 import re
+import tempfile
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -1182,9 +1183,20 @@ def prepare_judge_image(src_path: str, cache_dir: str,
                 (max(1, round(width * scale)), max(1, round(height * scale))),
                 Image.Resampling.LANCZOS,
             )
-        tmp = dst + '.tmp'
-        image.save(tmp, format='JPEG', quality=95)
-        os.replace(tmp, dst)
+        # ⛔ Unique temp name per call: reference images are SHARED between samples,
+        # so parallel graders (num-proc > 1) hit the same dst. With a fixed
+        # '<dst>.tmp' one worker replaces the file another is still writing,
+        # producing intermittent save failures or a truncated cache entry.
+        fd, tmp = tempfile.mkstemp(prefix=osp.basename(dst) + '.', suffix='.tmp',
+                                   dir=osp.dirname(dst) or '.')
+        os.close(fd)
+        try:
+            image.save(tmp, format='JPEG', quality=95)
+            os.replace(tmp, dst)          # atomic within the same directory
+        except BaseException:
+            if osp.exists(tmp):
+                os.unlink(tmp)
+            raise
     return dst
 
 
