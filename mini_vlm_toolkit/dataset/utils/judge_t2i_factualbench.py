@@ -25,6 +25,15 @@ cross-tier comparability):
   - SKCM: Concept_Score / 4
   - SKCI: (Concept_Score / 4 + Task_Score) / 2
   - MKCC: (Concept_Score / 4 + Task_Score + Integration_Score) / 3
+
+⚠️ Documented deviation — integration factuality (MKCC only):
+the integration sub-score here is a binary 0/1 rubric of our own design
+(positioning / scene consistency / interaction plausibility), NOT a verbatim
+port of upstream's integration prompt. Only the concept judge is a 0-4
+``Total Rating`` normalized by 4. Consequently MKCC numbers produced by this
+grader are NOT directly comparable to the paper's MKCC column; use them for
+relative comparison between our own runs. Reconciling this against
+``eval_multi_round/prompt_process.py`` is tracked as follow-up work.
 """
 
 from __future__ import annotations
@@ -194,6 +203,14 @@ def task_prompt_skci(
             f"Reason:\n"
         )
     # background variation / variation
+    if task_type not in ("background variation", "variation"):
+        # Do NOT silently fall through: an unrecognised task type would be
+        # graded with the wrong rubric and produce a plausible-looking but
+        # meaningless benchmark number. Fail loudly instead.
+        raise ValueError(
+            f'unknown SKCI task type {task_type!r}; expected one of '
+            '"action", "attribute", "background variation", "variation"'
+        )
     return (
         f"You will be provided with a generated image, a background "
         f"knowledge concept {type_} {concept}, and an attribute related "
@@ -273,6 +290,13 @@ def task_prompt_mkcc(
             f"Reason:\n"
         )
     # differentiating
+    if task_type != "differentiating":
+        # Same reasoning as task_prompt_skci: a wrong rubric silently produces
+        # a meaningless score, so reject unknown task types.
+        raise ValueError(
+            f'unknown MKCC task type {task_type!r}; expected one of '
+            '"interaction", "size", "differentiating"'
+        )
     a1 = additions[0] if len(additions) > 0 else ""
     a2 = additions[1] if len(additions) > 1 else ""
     return (
