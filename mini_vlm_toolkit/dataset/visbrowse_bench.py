@@ -222,7 +222,7 @@ def _grade_item(model, item):
                 continue
             verdict = parse_visbrowse_bench_verdict(ans)
             if verdict == 'yes':
-                return dict(correct=1, extracted_answer='', reasoning=ans.strip()[:500])
+                return dict(correct=1, extracted_answer='', reasoning=ans.strip())
             if verdict == 'no':
                 # 'no' for this variant — try next GT variant
                 break
@@ -263,7 +263,7 @@ def _grade_item_judge_rs(model, item):
     return dict(
         correct=int(parsed['correct']),
         extracted_answer='',
-        reasoning=str(parsed.get('reasoning', ''))[:500],
+        reasoning=str(parsed.get('reasoning', '')),
     )
 
 
@@ -293,7 +293,7 @@ def _grade_item_judge_vdr(model, item):
     return dict(
         correct=int(parsed['correct']),
         extracted_answer='',
-        reasoning=str(parsed.get('reasoning', ''))[:500],
+        reasoning=str(parsed.get('reasoning', '')),
     )
 
 

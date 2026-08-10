@@ -6,7 +6,10 @@ from tools.base import BaseTool
 from tools.http_utils import raise_for_status_with_detail
 
 TOOL_NAME = "Image_Edit_Tool"
-DEFAULT_SERVER_URL = "http://127.0.0.1:8089"
+# NOTE: 8089 is Splunk's default management port — avoid it for tool servers
+# (it collides on any host running Splunk/splunkd). Overridable via
+# QWEN_IMAGE_EDIT_SERVER_URL.
+DEFAULT_SERVER_URL = "http://127.0.0.1:8090"
 
 INPUT_SCHEMA = {
     "type": "object",
@@ -124,6 +127,7 @@ class Image_Edit_Tool(BaseTool):
         )
 
     def sanity_check(self):
+        # Probe the same single endpoint execute() uses.
         server_url = os.getenv(
             "QWEN_IMAGE_EDIT_SERVER_URL", DEFAULT_SERVER_URL
         ).rstrip("/")
@@ -148,6 +152,13 @@ class Image_Edit_Tool(BaseTool):
         server_url=None,
         timeout_seconds=300,
         dump_dir=None,
+        # Framework-injected ref marker, kept LAST so it never shifts the
+        # positional order of the public parameters: the resolver rewrites the
+        # LLM-facing ``image_ids`` -> ``image_base64s`` and preserves the
+        # original refs here for provenance (see Camera_Trajectory_Tool,
+        # test_spatial_image_resolution). Accept & ignore so execute() doesn't
+        # raise "unexpected keyword argument '_image_ids'".
+        _image_ids=None,
     ):
         """Edit images.
 

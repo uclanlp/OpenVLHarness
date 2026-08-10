@@ -21,12 +21,18 @@ attached to the agent's deferred user message.
 import base64
 import io
 import os
+import threading
 from typing import List, Optional
 
 import torch
 from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel, Field
+
+# diffusers pipeline is not thread-safe; serialize concurrent /v1/edit requests
+# so they don't corrupt the shared PIPE state ("index N out of bounds" 500s
+# under NUM_PROC>1).
+_PIPE_LOCK = threading.Lock()
 
 MODEL_ID = os.getenv("QWEN_IMAGE_EDIT_MODEL_ID", "Qwen/Qwen-Image-Edit-2509")
 DEVICE_ENV = os.getenv("QWEN_IMAGE_EDIT_DEVICE", "auto")
@@ -227,7 +233,7 @@ def edit(request: EditRequest):
     generator = torch.Generator(device=gen_device).manual_seed(seed_used)
 
     try:
-        with torch.inference_mode():
+        with _PIPE_LOCK, torch.inference_mode():
             result = PIPE(
                 image=pil_images,
                 prompt=request.edit_prompt,
@@ -268,7 +274,7 @@ def main():
     import uvicorn
 
     host = os.getenv("QWEN_IMAGE_EDIT_HOST", "127.0.0.1")
-    port = int(os.getenv("QWEN_IMAGE_EDIT_PORT", "8089"))
+    port = int(os.getenv("QWEN_IMAGE_EDIT_PORT", "8090"))
     uvicorn.run(app, host=host, port=port)
 
 

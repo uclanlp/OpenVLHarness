@@ -115,6 +115,7 @@ class Image_Generation_Tool(BaseTool):
         )
 
     def sanity_check(self):
+        # Probe the same single endpoint execute() uses.
         server_url = os.getenv(
             "QWEN_IMAGE_SERVER_URL", DEFAULT_SERVER_URL
         ).rstrip("/")
