@@ -17,6 +17,17 @@ module finishes the 07-15 change and gives all five one implementation.
 ``MVTK_GEN_BARE_PROMPT=1`` restores the bare prompt. It exists to reproduce pre-fix
 numbers or to match a paper's protocol exactly, not because the bare setting is the
 neutral one.
+
+Carry-forward, agreed on PR #186:
+  1. Published paper baselines feed bare prompts. Any table that puts our numbers next
+     to theirs must footnote the wrapper, or be produced with MVTK_GEN_BARE_PROMPT=1.
+  2. These pilot numbers predate the fix on their benchmark and are UNDER-MEASURED --
+     re-run under the wrapped protocol before they appear anywhere:
+         FactIP 5.67 / 0.552        (2026-07-23, bare)
+         SearchGen 44.71 / 44.93    (2026-07-23, bare)
+         T2I-FactualBench 0.524     (2026-07-24, bare)
+         WISE 23.1%, KnowGen 19.4%  (early July, before the 07-15 fix)
+     KnowGen 0.32 and WISE 0.648 (2026-07-23/24) already ran wrapped and stand.
 """
 
 import os
