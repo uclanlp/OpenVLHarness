@@ -674,13 +674,48 @@ def _repair_bare_xml_ampersands_in_fragment(xml_fragment: str) -> str:
 
     Models often emit natural-language ``A & B`` inside element text or attributes; a bare ``&``
     is invalid XML and makes :func:`xml.etree.ElementTree.fromstring` raise :exc:`ParseError`.
-    Known references (``&amp;``, ``&lt;``, ``&#...;``, ``&#x...;``, ``&copy;``, …) are left intact.
+    ⛔ Only XML's five PREDEFINED named entities are legal here: amp, lt, gt, quot,
+    apos. ``xml.etree.ElementTree`` does not know HTML entities, so treating every
+    ``&name;`` as valid (the previous behaviour) left ``&copy;`` untouched and
+    ``fromstring()`` still raised ParseError. Numeric references are preserved.
     """
     return re.sub(
-        r"&(?!([0-9a-zA-Z]+|#[0-9]+|#x[0-9a-fA-F]+);)",
+        r"&(?!(amp|lt|gt|quot|apos|#[0-9]+|#x[0-9a-fA-F]+);)",
         "&amp;",
         xml_fragment,
     )
+
+
+def _normalise_root_tag_case(xml_fragment: str) -> str:
+    """Rewrite the fragment's outermost open/close tag to the canonical root casing.
+
+    XML tag names are case-sensitive, so ``<Evaluation>...</evaluation>`` is simply
+    not well-formed and :func:`xml.etree.ElementTree.fromstring` rejects it. The
+    judge does emit mismatched casing occasionally, and matching the closing tag
+    case-insensitively during extraction is not enough on its own -- the parse still
+    fails. Normalising both tags here is what makes that recovery path real.
+
+    Only the OUTERMOST pair is touched; inner elements are left exactly as-is so a
+    genuinely malformed body still fails loudly instead of being papered over.
+    """
+    root = JUDGE_XML_ROOT_TAG
+    # opening tag: <Evaluation ...>  ->  <evaluation ...>
+    xml_fragment = re.sub(
+        rf"\A(\s*<)\s*{root}(\b[^>]*>)",
+        lambda m: m.group(1) + root + m.group(2),
+        xml_fragment,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    # closing tag: </Evaluation>  ->  </evaluation>
+    xml_fragment = re.sub(
+        rf"(</)\s*{root}(\s*>\s*)\Z",
+        lambda m: m.group(1) + root + m.group(2),
+        xml_fragment,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    return xml_fragment
 
 
 def _element_text(el: Optional[ET.Element]) -> str:
@@ -901,6 +936,12 @@ def parse_judge_xml_to_dict(text: str) -> Optional[Dict[str, Any]]:
     if not fragment:
         return None
     fragment = _repair_bare_xml_ampersands_in_fragment(fragment)
+    # ⛔ Extracting the root case-insensitively is not enough on its own: XML tag
+    # names ARE case-sensitive, so `<Evaluation>...</evaluation>` still raises
+    # ParseError and this documented recovery path could never succeed (it just
+    # burned a retry). Normalise the root open/close tags to the canonical casing
+    # before parsing.
+    fragment = _normalise_root_tag_case(fragment)
     try:
         root = ET.fromstring(fragment)
     except ET.ParseError:

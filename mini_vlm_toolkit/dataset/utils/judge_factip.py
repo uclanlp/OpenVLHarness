@@ -165,6 +165,19 @@ def parse_judge_factip_judgement(content: str) -> Dict[str, Any]:
             reasoning="judge failed to parse",
         )
 
+    # ⛔ Same rule as judge_knowgen: a partial object is a parse failure, not an
+    # all-zero judgement. Absent keys defaulting to 0 would be cached as a real
+    # verdict and skip the retry.
+    missing = [k for k in _SCORE_KEYS if k not in obj]
+    if missing:
+        return dict(
+            verdict=None,
+            correct=0, weighted_overall=0.0,
+            clarity=0, content_quality=0, aesthetics=0,
+            text_relevance_ip=0, overall_score=0,
+            rationale="",
+            reasoning=f"judge output missing required score keys: {missing}",
+        )
     scores = {k: _clip_int_0_10(obj.get(k, 0)) for k in _SCORE_KEYS}
     weighted = sum(_WEIGHTS[k] * scores[k] for k in _WEIGHTS)
     rationale = str(obj.get("rationale", ""))

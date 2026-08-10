@@ -290,6 +290,23 @@ def parse_judge_knowgen_judgement(content: str) -> Dict[str, Any]:
             reasoning="judge failed to parse",
         )
 
+    # ⛔ A syntactically valid but INCOMPLETE object must not become a verdict.
+    # Defaulting a missing score to 0.0 turns e.g. {"rationale": "truncated"} into
+    # four genuine zeros, and the caller only checks that `verdict` is non-empty so
+    # it never retries. Treat a missing required key as a parse failure instead.
+    missing = [k for k in _SCORE_KEYS if k not in obj]
+    if missing:
+        return dict(
+            verdict=None,
+            correct=0,
+            faithfulness=0.0,
+            visual_correctness=0.0,
+            text_accuracy=0.0,
+            aesthetics=0.0,
+            text_accuracy_na=False,
+            rationale="",
+            reasoning=f"judge output missing required score keys: {missing}",
+        )
     scores = {k: _clip01(obj.get(k, 0.0)) for k in _SCORE_KEYS}
     text_accuracy_na = bool(obj.get("text_accuracy_na", False))
     rationale = str(obj.get("rationale", ""))

@@ -177,6 +177,7 @@ def _grade_item_judge_factip(model, item):
             clarity=0, content_quality=0, aesthetics=0,
             text_relevance_ip=0, overall_score=0,
             rationale='', reasoning=f'generated image missing: {gen!r}',
+            judge_raw='',
         )
     if (not gt1 or not osp.isfile(gt1)) and (not gt2 or not osp.isfile(gt2)):
         return dict(
@@ -184,6 +185,7 @@ def _grade_item_judge_factip(model, item):
             clarity=0, content_quality=0, aesthetics=0,
             text_relevance_ip=0, overall_score=0,
             rationale='', reasoning='both GT seed images missing',
+            judge_raw='',
         )
     # If only one GT exists, duplicate it so the judge still gets 3 images
     if not gt1 or not osp.isfile(gt1):
@@ -219,6 +221,9 @@ def _grade_item_judge_factip(model, item):
                 overall_score=parsed['overall_score'],
                 rationale=parsed['rationale'],
                 reasoning=parsed['reasoning'],
+                # Full judge completion, untruncated: without it a suspicious score
+                # cannot be re-examined offline (see the other graders in this PR).
+                judge_raw=str(out),
             )
         retry -= 1
 
@@ -226,7 +231,11 @@ def _grade_item_judge_factip(model, item):
         correct=0, weighted_overall=0.0,
         clarity=0, content_quality=0, aesthetics=0,
         text_relevance_ip=0, overall_score=0,
-        rationale='', reasoning=f'judge_factip unparseable: {str(last)[:200]}' if last else 'judge unreachable',
+        rationale='',
+        reasoning=f'judge_factip unparseable: {str(last)[:200]}' if last else 'judge unreachable',
+        # reasoning stays a short summary; judge_raw keeps everything, which is
+        # exactly what a truncated/malformed completion needs for diagnosis.
+        judge_raw=str(last or ''),
     )
 
 
@@ -440,6 +449,7 @@ class FactIPDataset(ImageBaseDataset):
             ('reasoning', ''),
             # judge 要求输出 rationale,必须落盘,否则每个分数背后的依据就丢了
             ('rationale', ''),
+            ('judge_raw', ''),
         ]:
             data[col] = [
                 result_cache.get(str(idx), {}).get(col, default)
