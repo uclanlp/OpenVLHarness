@@ -226,7 +226,9 @@ def _grade_item_hle(model, item):
                     return dict(correct=1, reasoning=str(parsed.get('reasoning', '')))
                 break  # parsed 'no' for this gt; try next gt
             retry -= 1
-    return dict(correct=0, reasoning=str(last)[:500] if last else 'judge unreachable')
+    # Not truncated: this is the parse-failure path, where the tail is exactly what
+    # shows whether the completion was cut off.
+    return dict(correct=0, reasoning=str(last) if last else 'judge unreachable')
 
 
 def _grade_item_judge_bcv3(model, item):

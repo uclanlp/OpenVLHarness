@@ -346,7 +346,11 @@ class SearchGenBenchDataset(ImageBaseDataset):
         if isinstance(line, int):
             line = self.data.iloc[line]
         prompt = str(line.get('prompt', line.get('question', '')))
-        return [dict(type='text', value=prompt)]
+        # Shared wrapper -- see dataset/utils/gen_prompt.py. Applied here too so all
+        # five generation benchmarks run under the same protocol; this file used to
+        # send the bare prompt while KnowGen/WISE did not.
+        from .utils.gen_prompt import wrap_generation_prompt
+        return [dict(type='text', value=wrap_generation_prompt(prompt))]
 
     # -- Evaluation: SearchGen judge only ----------------------------------
 

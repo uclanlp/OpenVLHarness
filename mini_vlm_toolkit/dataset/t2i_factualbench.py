@@ -427,7 +427,10 @@ class T2IFactualBenchDataset(ImageBaseDataset):
     def build_prompt(self, line):
         if isinstance(line, int):
             line = self.data.iloc[line]
-        return [dict(type='text', value=str(line.get('sentence', line.get('prompt', ''))))]
+        # Shared wrapper -- see dataset/utils/gen_prompt.py.
+        from .utils.gen_prompt import wrap_generation_prompt
+        prompt = str(line.get('sentence', line.get('prompt', '')))
+        return [dict(type='text', value=wrap_generation_prompt(prompt))]
 
     # -- Evaluation -------------------------------------------------------
 

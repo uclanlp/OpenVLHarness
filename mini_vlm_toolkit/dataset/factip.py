@@ -298,7 +298,11 @@ class FactIPDataset(ImageBaseDataset):
             prompt = str(obj.get('image_prompt', ''))
             seed1_url = str(obj.get('seed1_url', ''))
             seed2_url = str(obj.get('seed2_url', ''))
-            _seeds = seed_map.get(idx) or seed_map.get(idx.rsplit('_', 1)[0], {})
+            # Reuse the same stripping rule the index was BUILT with: _build_seed_index_map
+            # only strips a trailing _<digits>, while a bare rsplit('_', 1) also strips
+            # non-numeric tails and can join to the wrong stem.
+            _stem = idx.rsplit('_', 1)[0] if ('_' in idx and idx.rsplit('_', 1)[1].isdigit()) else idx
+            _seeds = seed_map.get(idx) or seed_map.get(_stem, {})
             seed1_local = _seeds.get('1', '') or _resolve_seed_image(seed1_url, images_root)
             seed2_local = _seeds.get('2', '') or _resolve_seed_image(seed2_url, images_root)
 
@@ -333,7 +337,11 @@ class FactIPDataset(ImageBaseDataset):
         if isinstance(line, int):
             line = self.data.iloc[line]
         prompt = str(line.get('prompt', line.get('question', '')))
-        return [dict(type='text', value=prompt)]
+        # Shared wrapper -- see dataset/utils/gen_prompt.py. Applied here too so all
+        # five generation benchmarks run under the same protocol; this file used to
+        # send the bare prompt while KnowGen/WISE did not.
+        from .utils.gen_prompt import wrap_generation_prompt
+        return [dict(type='text', value=wrap_generation_prompt(prompt))]
 
     def evaluate(self, eval_file, **judge_kwargs):
         logger = get_logger('Evaluation')

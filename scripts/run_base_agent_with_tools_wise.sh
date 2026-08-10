@@ -96,6 +96,8 @@ else
     *)
       echo "Unknown model preset: $MODEL_PRESET"
       echo "Supported presets: v5 | v5-under | v5-under-qwen | v5-oh | gpt5"
+      echo "(these live in a local configs/rui-testing/ tree that is NOT in this repo;"
+      echo " without it, pass CONFIG=<yaml> instead)"
       echo "(no default: WISE needs a generation-capable config -- see the note above)"
       echo "Or pass CONFIG=<path-to-yaml> to use a custom config."
       exit 1
@@ -118,16 +120,57 @@ done
 
 # ⭐ Existence is not enough: the config must actually be able to generate. base.py
 # filters self.tools down to tool_list, so a config without an image tool reaches
-# evaluate() with nothing to score and reports 0 for every sample. Check the real
-# criterion (what tool_list contains) rather than trusting the file name.
-if ! grep -qE 'Image_(Generation|Edit)_Tool' "$AGENT_CONFIG"; then
-  echo "ERROR: $AGENT_CONFIG has no image-producing tool in tool_list." >&2
-  echo "  WISE scores a missing generated image as 0, so this run would report ~0.00" >&2
-  echo "  accuracy for reasons that have nothing to do with the model." >&2
-  echo "  Add Image_Generation_Tool (or Image_Edit_Tool) to tool_list, and make sure the" >&2
-  echo "  tool server exposes it." >&2
-  exit 1
-fi
+# evaluate() with nothing to score and reports 0 for every sample.
+#
+# ⛔ Check tool_list itself, not the whole file. A bare `grep Image_Generation_Tool`
+# over the yaml has three failure modes, all of which bit an earlier revision:
+#   - a mention in a COMMENT passes the guard;
+#   - a config with NO tool_list at all fails it, even though base.py then keeps every
+#     registered tool and the config IS image-capable;
+#   - a commented-out tool name inside tool_list passes it.
+_toolchk=$(python3 - "$AGENT_CONFIG" <<'PYCHK'
+import sys, yaml
+try:
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+except Exception as e:
+    print(f"unreadable: {e}"); raise SystemExit(0)
+def find(node):
+    if isinstance(node, dict):
+        if "tool_list" in node:
+            return node["tool_list"]
+        for v in node.values():
+            r = find(v)
+            if r is not None:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = find(v)
+            if r is not None:
+                return r
+    return None
+tl = find(cfg)
+if tl is None:
+    print("no_tool_list")          # base.py keeps all tools -> image-capable
+elif any(t in ("Image_Generation_Tool", "Image_Edit_Tool") for t in tl):
+    print("ok")
+else:
+    print("missing:" + ",".join(map(str, tl)))
+PYCHK
+)
+case "$_toolchk" in
+  ok|no_tool_list) : ;;
+  unreadable*)
+    echo "WARNING: could not parse $AGENT_CONFIG to check tool_list ($_toolchk)" >&2 ;;
+  missing:*)
+    echo "ERROR: $AGENT_CONFIG has no image-producing tool in tool_list." >&2
+    echo "  tool_list = ${_toolchk#missing:}" >&2
+    echo "  WISE scores a missing generated image as 0, so this run would report ~0.00" >&2
+    echo "  accuracy for reasons that have nothing to do with the model." >&2
+    echo "  Add Image_Generation_Tool (or Image_Edit_Tool), and make sure the tool server" >&2
+    echo "  exposes it." >&2
+    exit 1 ;;
+esac
 
 # WISE only supports judge_wise (no override).
 if [[ -n "${MMDR_JUDGE_PROMPT:-}" && "${MMDR_JUDGE_PROMPT}" != "judge_wise" ]]; then

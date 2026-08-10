@@ -40,6 +40,7 @@ paper-reported numbers (e.g., Qwen-Image-Agent Table 2).
 import glob
 import json
 import os
+import tempfile
 import os.path as osp
 from typing import Any, Dict, List, Optional
 
@@ -95,8 +96,19 @@ def _download_wise_data(dst_dir: str) -> None:
         try:
             with urllib.request.urlopen(url, timeout=60) as resp:
                 data = resp.read()
-            with open(out, 'wb') as f:
-                f.write(data)
+            # ⛔ Atomic: write to a temp file in the same directory, then rename. A plain
+            # open(out,'wb') leaves a TRUNCATED merge.json behind if the process is killed
+            # mid-write, and the osp.isfile(out) check above then skips the re-download
+            # forever -- a corrupt cache that never self-heals.
+            fd, tmp = tempfile.mkstemp(prefix=fname + '.', suffix='.part', dir=dst_dir)
+            try:
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(data)
+                os.replace(tmp, out)
+            except BaseException:
+                if osp.exists(tmp):
+                    os.unlink(tmp)
+                raise
         except Exception as e:
             # merge.json is required; the per-category files are optional extras.
             if fname == _MERGE_JSON:
@@ -282,25 +294,13 @@ class WISEDataset(ImageBaseDataset):
     # -- Prompt: text-only input for image generation ---------------------
 
     def build_prompt(self, line):
+        """Return a single-text message. No input image."""
         if isinstance(line, int):
             line = self.data.iloc[line]
         prompt = str(line.get('prompt', line.get('question', '')))
-        # WISE is a text-to-image GENERATION task; the prompt is an implicit,
-        # knowledge-grounded description (not a question). Frame it explicitly as
-        # generation so the agent produces an image rather than answering in text
-        # (see personal memory gen_eval_framework_gaps: ~half of bare prompts got
-        # answered textually). The judge still scores against meta['prompt'].
-        instruction = (
-            'Text-to-image generation task. The description below is an implicit, '
-            'knowledge-grounded prompt: infer what must appear using world knowledge '
-            '(search for facts or visual references when helpful), then GENERATE an '
-            'image that realizes it. You MUST produce an image using the image '
-            'generation tool as your final result; do not answer with text only.\n\n'
-            f'Prompt to realize: {prompt}'
-        )
-        return [dict(type='text', value=instruction)]
-
-    # -- Evaluation: WISE binary judge ------------------------------------
+        # Shared wrapper -- see dataset/utils/gen_prompt.py.
+        from .utils.gen_prompt import wrap_generation_prompt
+        return [dict(type='text', value=wrap_generation_prompt(prompt))]
 
     def evaluate(self, eval_file, **judge_kwargs):
         """Evaluate WISE predictions with the paper's binary protocol.

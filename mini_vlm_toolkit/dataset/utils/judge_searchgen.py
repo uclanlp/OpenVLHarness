@@ -1,4 +1,18 @@
-"""Judge_SearchGen — verbatim port of the SearchGen-Bench evaluation protocol.
+"""Judge_SearchGen — port of the SearchGen-Bench evaluation protocol.
+
+DEVIATIONS FROM UPSTREAM (keep this list accurate -- the value of a "verbatim port"
+is that the list is short and known):
+  1. The judge model is configurable rather than hard-coded.
+  2. ``_repair_bare_xml_ampersands_in_fragment`` escapes named entities that are not
+     one of XML's five predefined ones (``&copy;``, ``&nbsp;``, ...). Upstream leaves
+     them, ElementTree rejects the document, and the sample is skipped. We parse it.
+  3. ``_normalise_root_tag_case`` rewrites a mismatched root tag
+     (``<Evaluation>...</evaluation>``) to the canonical casing. Upstream cannot parse
+     that and skips the sample; we recover it.
+2 and 3 both make us MORE tolerant than upstream, so a few samples that the paper
+protocol would drop are judged here. That shifts which samples enter the aggregate
+(components are averaged over judged samples only), so scores are not bit-comparable
+to the paper -- the direction is "we judge a superset".
 
 SearchGen-Bench ("Search Beyond What Can Be Taught: Evolving the Knowledge
 Boundary in Agentic Visual Generation", arXiv 2607.05382; GitHub

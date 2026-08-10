@@ -201,7 +201,9 @@ def parse_judge_factip_judgement(content: str) -> Dict[str, Any]:
                 "judge output has scores outside the allowed integer range [0, 10]: "
                 f"{ {k: obj.get(k) for k in invalid} }"
             ),
-            judge_raw="",
+            # Keep the offending completion: this branch fires precisely when the
+            # judge returned something unusable, which is when the raw text matters.
+            judge_raw=str(content or ""),
         )
     scores = raw_scores
     weighted = sum(_WEIGHTS[k] * scores[k] for k in _WEIGHTS)
