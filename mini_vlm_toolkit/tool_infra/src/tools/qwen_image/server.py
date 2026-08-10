@@ -31,8 +31,7 @@ from pydantic import BaseModel, Field
 # endpoints in a threadpool, so concurrent /v1/generate requests (e.g. an eval
 # with NUM_PROC>1) hit the same pipeline object at once and corrupt its shared
 # tensor state -> "index N out of bounds" 500s. Serialize inference on this
-# lock so requests queue and run one-at-a-time on the GPU. See personal/log.md
-# 2026-07-10 note (qwen-image concurrency).
+# lock so requests queue and run one-at-a-time on the GPU.
 _PIPE_LOCK = threading.Lock()
 
 MODEL_ID = os.getenv("QWEN_IMAGE_MODEL_ID", "Qwen/Qwen-Image")
@@ -239,7 +238,7 @@ def generate(request: GenerateRequest):
     generator = torch.Generator(device=gen_device).manual_seed(seed_used)
 
     try:
-        with _PIPE_LOCK:
+        with _PIPE_LOCK, torch.inference_mode():
             result = PIPE(
                 prompt=request.prompt,
                 negative_prompt=request.negative_prompt or None,

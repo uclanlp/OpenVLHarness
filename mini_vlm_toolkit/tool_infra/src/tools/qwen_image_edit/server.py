@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 # diffusers pipeline is not thread-safe; serialize concurrent /v1/edit requests
 # so they don't corrupt the shared PIPE state ("index N out of bounds" 500s
-# under NUM_PROC>1). See personal/log.md 2026-07-10 qwen-image concurrency note.
+# under NUM_PROC>1).
 _PIPE_LOCK = threading.Lock()
 
 MODEL_ID = os.getenv("QWEN_IMAGE_EDIT_MODEL_ID", "Qwen/Qwen-Image-Edit-2509")

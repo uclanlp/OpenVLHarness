@@ -82,6 +82,13 @@ def _snapshot_download_factip_images() -> str:
         local_dir=root,
     )
     with zipfile.ZipFile(zip_path, 'r') as zf:
+        # Validate every member before extracting: extractall() would happily
+        # follow '../' entries or absolute paths and write outside root.
+        safe_root = osp.abspath(root)
+        for name in zf.namelist():
+            dst = osp.abspath(osp.join(root, name))
+            if dst != safe_root and not dst.startswith(safe_root + osp.sep):
+                raise ValueError(f'zip member escapes {root}: {name}')
         zf.extractall(path=root)
     with open(marker, 'w') as f:
         f.write('extraction complete\n')

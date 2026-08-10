@@ -108,6 +108,20 @@ def _snapshot_download_concept_images() -> str:
         local_dir=cache_root,
     )
     with tarfile.open(tar_path, 'r:gz') as tf:
+        # Validate every member before extracting: extractall() would happily
+        # follow '../' entries or absolute paths and write outside cache_root.
+        # Same guard as searchgen._ensure_reference_images.
+        safe_root = osp.abspath(cache_root)
+        for m in tf.getmembers():
+            dst = osp.abspath(osp.join(cache_root, m.name))
+            if dst != safe_root and not dst.startswith(safe_root + osp.sep):
+                raise ValueError(f'tar member escapes {cache_root}: {m.name}')
+            if m.issym() or m.islnk():
+                link_dst = osp.abspath(
+                    osp.join(osp.dirname(dst), m.linkname)
+                )
+                if not link_dst.startswith(safe_root + osp.sep):
+                    raise ValueError(f'tar member links outside {cache_root}: {m.name}')
         tf.extractall(path=cache_root)
     with open(marker, 'w') as f:
         f.write('extraction complete\n')
