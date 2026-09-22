@@ -23,6 +23,14 @@ from .smp.file import NumpyEncoder
 
 # Constants
 FAIL_MSG = 'Failed to obtain answer via API.'
+# The agent layer records an exhausted request as BaseAgent.fail_msg; --ignore-failed must treat
+# both spellings as a failed row.
+FAIL_MSGS = (FAIL_MSG, 'Error: Unable to get response from the server.')
+
+
+def _is_failed_prediction(pred):
+    text = str(pred)
+    return any(m in text for m in FAIL_MSGS)
 
 
 # ============================================================================
@@ -91,6 +99,15 @@ def _make_committed_gen(
       - ``htmls/<idx>.html`` (first-N by completion order, gated by html_limit)
       - ``raw_trajectories/<idx>.json`` (if requested + ``raw_sft`` present)
     """
+    # Disk escape hatch (ported from bryan/qwen25): full_trajectories/ (mostly saved images) is
+    # ~99.7% of run output. FULL_TRAJECTORIES_LIMIT caps it: 0 = save none, N = first N per
+    # dataset, unset/-1 = unlimited (default). Metrics are unaffected (they come from the xlsx/csv).
+    _ftl = os.environ.get("FULL_TRAJECTORIES_LIMIT", "").strip()
+    if _ftl:
+        try:
+            full_trajectories_limit = int(_ftl)
+        except ValueError:
+            pass
     file_db.ensure_layout(work_dir)
     gt_key = None
     for key in ("answer", "GT", "answers", "ground_truth"):
@@ -210,7 +227,7 @@ def infer_data_api(
             except (FileNotFoundError, ValueError):
                 continue
             pred = rec.get("prediction") if isinstance(rec, dict) else rec
-            if FAIL_MSG in str(pred):
+            if _is_failed_prediction(pred):
                 done.discard(idx_str)
                 try:
                     os.unlink(file_db._done_path(work_dir, idx_str))
@@ -518,7 +535,7 @@ def _seed_done_from_xlsx(work_dir, result_file):
         row = data.iloc[i]
         idx = row['index']
         prediction = row['prediction']
-        if FAIL_MSG in str(prediction):
+        if _is_failed_prediction(prediction):
             continue
         if str(idx) in already_done:
             continue

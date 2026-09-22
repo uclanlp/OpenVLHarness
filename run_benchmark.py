@@ -285,6 +285,10 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42, help='Random seed for --shuffle (default: 42)')
     parser.add_argument('--run-tag', type=str, default='default', help='Custom tag appended to run_id (default: "default")')
     parser.add_argument('--resume', action='store_true', help='Resume the latest existing run instead of creating a new one')
+    parser.add_argument('--ignore-failed', action='store_true',
+                        help='With --run-dir on a run that already has a prediction file: keep every '
+                             'non-failed row and re-run only rows whose prediction is the harness failure '
+                             'sentinel (see inference_image.infer_image_job).')
     parser.add_argument(
         '--run-dir', type=str, default=None,
         help='Path to an existing run directory. When set, all current behavior is bypassed: '
@@ -489,6 +493,7 @@ if __name__ == "__main__":
                     enable_incremental_json=args.incremental_json,
                     save_images=args.save_images,
                     save_raw_trajectory=args.save_raw_trajectory,
+                    ignore_failed=args.ignore_failed,
                 )
 
         

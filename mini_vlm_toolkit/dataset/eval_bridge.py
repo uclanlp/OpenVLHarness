@@ -67,29 +67,78 @@ def _parse_qwen3_multilabel_predictions(
         except (ValueError, SyntaxError):
             return []
 
-    if isinstance(parsed, dict):
-        parsed = [parsed]
-    if not isinstance(parsed, list):
-        return []
+    # Qwen3-VL does not always emit the flat ``[{"bbox_2d", "label"}, ...]``
+    # list. Observed variants (Qwen3-VL-32B on ODinW-13, 2026-09-21):
+    #   {"boat": [{"bbox_2d": [..]}, ...], "car": [...]}      label is the key
+    #   {"boat": [[x1,y1,x2,y2], ...]}                          bare boxes under key
+    #   [{"category": "boat", "bbox_2d": [[..], [..]]}]         one record per class
+    # All carry the same information, so they are flattened to (box, label)
+    # pairs here. The canonical list form parses exactly as before; an
+    # explicit per-box label wins over the enclosing key when both resolve.
+    box_keys = ("bbox_2d", "bbox", "bounding_box")
+    label_keys = ("label", "category", "category_name", "name", "class")
+
+    def _as_box(v):
+        if not isinstance(v, (list, tuple)) or len(v) < 4:
+            return None
+        try:
+            return [float(x) for x in v[:4]]
+        except (TypeError, ValueError):
+            return None
+
+    # Single-category prompts ("Locate every instance of 'pistol'"): a box that carries no label
+    # at all can only refer to that category. Qwen3-VL-8B answers such rows with bare
+    # ``[{"bbox_2d": [...]}, ...]`` on ODinW-13 (pistols_export, pothole, ...), which the strict
+    # "drop unknown labels" rule would discard wholesale. Only applies when the vocabulary has
+    # exactly one entry and the box has no label of its own; multi-class rows are unchanged.
+    sole_cat_id = int(next(iter(label_to_cat_id.values()))) if len(label_to_cat_id) == 1 else None
+
+    def _resolve(explicit, inherited):
+        for label in (explicit, inherited):
+            if isinstance(label, str):
+                cat_id = label_to_cat_id.get(label.lower())
+                if cat_id is not None:
+                    return int(cat_id)
+        if explicit is None and sole_cat_id is not None and (inherited is None or inherited in box_keys):
+            return sole_cat_id
+        return None
 
     results: List[Tuple[List[float], int]] = []
-    for item in parsed:
-        if not isinstance(item, dict):
-            continue
-        bbox = item.get("bbox_2d") or item.get("bbox") or item.get("bounding_box")
-        if not isinstance(bbox, list) or len(bbox) < 4:
-            continue
-        label = item.get("label", "")
-        if not isinstance(label, str):
-            continue
-        cat_id = label_to_cat_id.get(label.lower())
-        if cat_id is None:
-            continue
-        try:
-            bbox_floats = [float(v) for v in bbox[:4]]
-        except (TypeError, ValueError):
-            continue
-        results.append((bbox_floats, int(cat_id)))
+
+    def _walk(node, inherited):
+        if isinstance(node, dict):
+            bbox = next((node[k] for k in box_keys if k in node), None)
+            if bbox is not None:
+                explicit = next(
+                    (node[k] for k in label_keys if isinstance(node.get(k), str)), None
+                )
+                cat_id = _resolve(explicit, inherited)
+                if cat_id is None:
+                    return
+                box = _as_box(bbox)
+                if box is not None:
+                    results.append((box, cat_id))
+                elif isinstance(bbox, list):
+                    for b in bbox:
+                        box = _as_box(b)
+                        if box is not None:
+                            results.append((box, cat_id))
+                return
+            for key, value in node.items():
+                _walk(value, key if isinstance(key, str) else inherited)
+            return
+        if isinstance(node, (list, tuple)):
+            if not any(isinstance(x, (list, dict)) for x in node):
+                box = _as_box(node)
+                if box is not None and (inherited is not None or sole_cat_id is not None):
+                    cat_id = _resolve(None, inherited)
+                    if cat_id is not None:
+                        results.append((box, cat_id))
+                return
+            for elem in node:
+                _walk(elem, inherited)
+
+    _walk(parsed, None)
     return results
 
 
