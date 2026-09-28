@@ -219,11 +219,7 @@ class SimpleVQA(ImageBaseDataset):
 class SimpleVQA_EN(SimpleVQA):
     """SimpleVQA filtered to English-only rows (language == 'EN').
 
-    Loads the shared SimpleVQA TSV, filters to English-only samples, then
-    auto-filters to the WebWatcher evaluation subset (300 samples) by
-    default so reported numbers stay aligned with WebWatcher / cross-paper
-    comparisons. Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass the subset
-    filter for one-off full-EN-set runs (~2025 rows).
+    Loads the shared SimpleVQA TSV and filters to English-only samples.
 
     Scoring uses the HLE-style binary judge (extract_final_answer +
     correct yes/no JSON) instead of the parent class's Chinese-style
@@ -247,10 +243,6 @@ class SimpleVQA_EN(SimpleVQA):
             before = len(data)
             data = data[data["language"] == "EN"].reset_index(drop=True)
             print(f"SimpleVQA_EN: filtered {before} -> {len(data)} English rows")
-
-        # Auto-filter to WebWatcher subset (300 samples) by default.
-        from mini_vlm_toolkit.dataset.utils.webwatcher_subset import apply_webwatcher_subset
-        data = apply_webwatcher_subset(data, dataset)
         return data
 
     def get_scores(self, result_file: str, **judge_kwargs: Any) -> pd.DataFrame:
@@ -273,16 +265,8 @@ class SimpleVQA_EN(SimpleVQA):
         from mini_vlm_toolkit.dataset.utils.judge_vdr import (
             JUDGE_VDR_PROMPT, parse_judge_vdr_judgement,
         )
-        from mini_vlm_toolkit.dataset.utils.webwatcher_subset import (
-            apply_webwatcher_subset,
-        )
 
         data = file.load(result_file)
-        # Subset-aware re-eval: filter predictions to the WebWatcher subset
-        # (300/1013) before judging, so --mode eval doesn't waste judge
-        # calls on the 713 non-subset rows. Bypass with
-        # MVT_DISABLE_WEBWATCHER_SUBSET=1.
-        data = apply_webwatcher_subset(data, "SimpleVQA_EN")
 
         # Judge selection: env var > judge_kwargs > 'hle' default
         judge_name = (

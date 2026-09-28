@@ -404,11 +404,6 @@ class MMSearchEnd2End(ImageBaseDataset):
             # Ensure DataFrame for downstream usage.
             if not isinstance(data, pd.DataFrame):
                 data = pd.DataFrame(data)
-            # Auto-filter to the WebWatcher subset by default so reported
-            # numbers stay aligned with WebWatcher / cross-paper comparisons.
-            # Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass for full runs.
-            from .utils.webwatcher_subset import apply_webwatcher_subset
-            data = apply_webwatcher_subset(data, dataset)
             return data
 
         if dataset != "MMSearch":
@@ -448,11 +443,6 @@ class MMSearchEnd2End(ImageBaseDataset):
 
         # Persist processed annotations to LMUData root for reuse.
         dump(data, ann_path)
-
-        # Apply WebWatcher subset filter (default-on; bypass with
-        # MVT_DISABLE_WEBWATCHER_SUBSET=1).
-        from .utils.webwatcher_subset import apply_webwatcher_subset
-        data = apply_webwatcher_subset(data, dataset)
         return data
 
     def build_prompt(self, line: Any) -> List[Dict[str, Any]]:
@@ -498,13 +488,6 @@ class MMSearchEnd2End(ImageBaseDataset):
         assert "prediction" in data and "answer" in data, (
             f"MMSearchEnd2End.evaluate expects columns 'prediction' and 'answer' in {eval_file}"
         )
-
-        # Subset-aware re-eval: filter predictions down to the
-        # WebWatcher subset (171/300) before judging, so `--mode eval`
-        # doesn't waste GPT-4o calls on the 129 non-subset rows.
-        # Bypass via MVT_DISABLE_WEBWATCHER_SUBSET=1.
-        from .utils.webwatcher_subset import apply_webwatcher_subset
-        data = apply_webwatcher_subset(data, "MMSearch")
 
         # Normalize alternative answers into list-of-str
         def _to_alt_list(val: Any) -> List[str]:

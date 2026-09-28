@@ -5,7 +5,6 @@ from .utils import build_judge, DEBUG_MESSAGE
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
 from .utils.shortqa import ShortQA_prompt
-from .utils.webwatcher_subset import apply_webwatcher_subset
 from ..utils import track_progress_rich
 from ..smp.file import get_intermediate_file_path
 
@@ -607,159 +606,6 @@ def _ensure_infoseek_test_subset(lmu_root: str, dataset_name: str = 'Infoseek_GD
     return tsv_path
 
 
-_INFOSEEK_OVEN_INDEX_CACHE = '_oven_to_shard.pkl'
-
-
-def _load_or_build_infoseek_oven_index(images_root: str) -> dict:
-    """Return {oven_id: shard_2digit_str} for all images in shard01-08 tars.
-
-    First call scans all 8 tars (~3 min, 5.8M files) and caches the result
-    as {images_root}/_oven_to_shard.pkl (~120 MB). Subsequent calls load
-    the pickle (~2-3s). The 2-digit prefix in `oven_XX...` is NOT a
-    reliable shard locator — many ids live in shards other than the one
-    their prefix would suggest, and ~36% of "shard00" prefix ids actually
-    live in shards 04..08. Always use this index, never the prefix.
-    """
-    import pickle, tarfile, time
-    cache = osp.join(images_root, _INFOSEEK_OVEN_INDEX_CACHE)
-    if osp.exists(cache):
-        with open(cache, 'rb') as f:
-            return pickle.load(f)
-    print(f'[infoseek/oven-index] building from 8 shard tars (~3 min one-time)...')
-    t0 = time.time()
-    oven2shard = {}
-    for s in ['01', '02', '03', '04', '05', '06', '07', '08']:
-        p = osp.join(images_root, f'shard{s}.tar')
-        if not osp.exists(p):
-            continue
-        with tarfile.open(p, 'r') as tar:
-            for m in tar:
-                if not m.isreg():
-                    continue
-                stem = m.name.rsplit('/', 1)[-1].rsplit('.', 1)[0]
-                if stem.startswith('oven_'):
-                    oven2shard[stem] = s
-    with open(cache, 'wb') as f:
-        pickle.dump(oven2shard, f, protocol=4)
-    print(f'[infoseek/oven-index] indexed {len(oven2shard):,} oven_ids in {time.time()-t0:.0f}s; '
-          f'cached to {cache}')
-    return oven2shard
-
-
-def _ensure_infoseek_val_subset(lmu_root: str, n_samples: int = 3000, seed: int = 42,
-                                dataset_name: str = 'Infoseek_GDM_val_3k'):
-    """Random-N InfoSeek val subset for inference + experience learning.
-
-    Source: /local3/.../InfoSeek_GDM/annotations/infoseek_val.jsonl (73,620 rows).
-    Random sample N (seed=42), look up each oven_id in the cross-shard
-    index, extract from the right shard tar.
-    """
-    import os, csv, json, random
-    from pathlib import Path
-    tsv_path = osp.join(lmu_root, f'{dataset_name}.tsv')
-    if osp.exists(tsv_path):
-        return tsv_path
-
-    # Default infoseek_root next to the EVQA / iNat tree.
-    default_root = osp.join(osp.dirname(lmu_root.rstrip('/')), 'train', 'InfoSeek_GDM')
-    infoseek_root = os.environ.get('MMDR_INFOSEEK_GDM_ROOT', default_root)
-    jsonl_path = osp.join(infoseek_root, 'annotations', 'infoseek_val.jsonl')
-    if not osp.exists(jsonl_path):
-        raise FileNotFoundError(
-            f'InfoSeek val annotations missing at {jsonl_path}. '
-            f'Set MMDR_INFOSEEK_GDM_ROOT to the InfoSeek_GDM root containing '
-            f'annotations/ and images/.')
-
-    from sft.data.download_train_datasets import (
-        _infoseek_extract_from_shard, _infoseek_join_answers,
-    )
-
-    images_root = osp.join(infoseek_root, 'images')
-    oven2shard = _load_or_build_infoseek_oven_index(images_root)
-
-    print(f'[infoseek_val/auto-prep] loading {jsonl_path}')
-    with open(jsonl_path, 'r', encoding='utf-8') as f:
-        records = [json.loads(line) for line in f if line.strip()]
-    # Filter out any record whose image_id has no local shard (should be 0
-    # for val on this server but stays defensive).
-    n_raw = len(records)
-    records = [r for r in records if r.get('image_id', '') in oven2shard]
-    print(f'[infoseek_val/auto-prep] total val: {n_raw:,}  with local image: '
-          f'{len(records):,}  sampling {n_samples} (seed={seed})')
-    random.Random(seed).shuffle(records)
-    selected = records[:n_samples]
-
-    img_dir = osp.join(lmu_root, 'images', dataset_name)
-    os.makedirs(img_dir, exist_ok=True)
-
-    # Group missing-on-disk images by REAL shard (from index, not prefix).
-    from collections import defaultdict
-    cached = set()
-    missing_by_shard = defaultdict(set)
-    for rec in selected:
-        oven = rec.get('image_id', '')
-        if not oven.startswith('oven_'):
-            continue
-        if osp.exists(osp.join(img_dir, f'{oven}.JPEG')):
-            cached.add(oven)
-        else:
-            shard = oven2shard.get(oven)
-            if shard is not None:
-                missing_by_shard[shard].add(oven)
-
-    print(f'[infoseek_val/auto-prep] cached: {len(cached)}  to extract: '
-          f'{sum(len(s) for s in missing_by_shard.values())}')
-
-    for shard in sorted(missing_by_shard):
-        wanted = missing_by_shard[shard]
-        tar_path = Path(images_root) / f'shard{shard}.tar'
-        if not tar_path.is_file():
-            print(f'[infoseek_val/auto-prep] shard {shard}: no local tar; '
-                  f'skipping {len(wanted)} ids')
-            continue
-        print(f'[infoseek_val/auto-prep] shard {shard}: extracting {len(wanted)} from {tar_path.name}')
-        n_ex, n_miss = _infoseek_extract_from_shard(tar_path, wanted, Path(img_dir))
-        print(f'  → extracted {n_ex}, still missing {n_miss}')
-
-    # Write TSV (mirror Infoseek_GDM_test column layout).
-    cols = ['index', 'question', 'answer', 'alternative_gt_answers',
-            'area', 'subfield', 'image_path']
-    n_written = 0
-    with open(tsv_path, 'w', encoding='utf-8', newline='') as f:
-        w = csv.writer(f, delimiter='\t', quoting=csv.QUOTE_ALL)
-        w.writerow(cols)
-        for rec in selected:
-            oven = rec.get('image_id', '')
-            data_id = str(rec.get('data_id') or oven)
-            img_path = osp.join(img_dir, f'{oven}.JPEG')
-            if not osp.exists(img_path):
-                continue
-            # answer_eval is the official evaluation field but for numerical
-            # questions it carries dict-with-range, not a plain string. Use
-            # answer_eval only when its entries are plain strings; otherwise
-            # fall back to the canonical `answer` field (plain string list).
-            ans_eval = rec.get('answer_eval') or []
-            if ans_eval and all(isinstance(a, str) for a in ans_eval):
-                ans_field = ans_eval
-            else:
-                ans_field = rec.get('answer') or []
-            primary, alts = _infoseek_join_answers(ans_field)
-            area = f'shard_{oven2shard.get(oven, "?")}' if oven.startswith('oven_') else ''
-            w.writerow([
-                data_id,
-                str(rec.get('question', '')),
-                primary,
-                alts,
-                area,
-                str(rec.get('question_type', '')),
-                img_path,
-            ])
-            n_written += 1
-    print(f'[infoseek_val/auto-prep] wrote {n_written} rows '
-          f'(of {len(selected)} sampled; rest lost images)')
-    return tsv_path
-
-
 class ImageShortQADataset(ImageBaseDataset):
     TYPE = 'Short'
 
@@ -796,11 +642,6 @@ class ImageShortQADataset(ImageBaseDataset):
         # experience-learning use. Test (2000 subset) stays the eval split.
         # Same image-resolution path as EncyclopedicVQA_test.
         'EncyclopedicVQA_val': '',
-        # InfoSeek val (random 3000 seed=42 from 73,620 val rows).
-        # Inference + future experience-learning. Test (paper 2K) stays eval.
-        # Source: $MMDR_INFOSEEK_GDM_ROOT/annotations/infoseek_val.jsonl
-        # (default {LMUData}/../train/InfoSeek_GDM/).
-        'Infoseek_GDM_val_3k': '',
         # *_test_mini = 300 random sub of the full eval set (seed=42).
         # Use for expensive backbones (gpt-5 etc.) where running full
         # 1800-2000 samples is cost-prohibitive. Same seed → consistent
@@ -814,7 +655,6 @@ class ImageShortQADataset(ImageBaseDataset):
         # the test_mini variants; image files shared with the full
         # variant (no extra disk).
         'FVQA_train_mini':           '',
-        'Infoseek_GDM_val_3k_mini':  '',
         'EncyclopedicVQA_val_mini':  '',
         # Phase 0 hand-curated Wikidata seed for multimodal multi-hop validation.
         # TSV produced by /tmp/build_gen_seed_v0.py from /tmp/sparql_*.json + keepers.json.
@@ -844,12 +684,6 @@ class ImageShortQADataset(ImageBaseDataset):
             from ..smp.file import LMUDataRoot
             _ensure_evqa_subset(LMUDataRoot(), 'EncyclopedicVQA_val',
                                 split='val', n_samples=None)
-        # InfoSeek val random 3000 (seed=42).
-        if dataset == 'Infoseek_GDM_val_3k':
-            from ..smp.file import LMUDataRoot
-            _ensure_infoseek_val_subset(LMUDataRoot(),
-                                        n_samples=3000, seed=42,
-                                        dataset_name='Infoseek_GDM_val_3k')
 
         # FVQA train + test: HuggingFace ``lmms-lab/FVQA`` auto-download
         # (same data as MMSearch-R1 fvqa_{split}). First use grabs the
@@ -878,24 +712,13 @@ class ImageShortQADataset(ImageBaseDataset):
         if dataset == 'FVQA_train_mini':
             from ..smp.file import LMUDataRoot
             _write_test_mini(LMUDataRoot(), 'FVQA_train', 'FVQA_train_mini')
-        if dataset == 'Infoseek_GDM_val_3k_mini':
-            from ..smp.file import LMUDataRoot
-            _ensure_infoseek_val_subset(LMUDataRoot(),
-                                        n_samples=3000, seed=42,
-                                        dataset_name='Infoseek_GDM_val_3k')
-            _write_test_mini(LMUDataRoot(), 'Infoseek_GDM_val_3k', 'Infoseek_GDM_val_3k_mini')
         if dataset == 'EncyclopedicVQA_val_mini':
             from ..smp.file import LMUDataRoot
             _ensure_evqa_subset(LMUDataRoot(), 'EncyclopedicVQA_val',
                                 split='val', n_samples=None)
             _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_val', 'EncyclopedicVQA_val_mini')
 
-        # Default ImageBaseDataset loader; then auto-filter to the
-        # WebWatcher subset where applicable (currently only ``hle``).
-        # No-op for datasets without a subset entry.
-        # Set MVT_DISABLE_WEBWATCHER_SUBSET=1 to bypass.
         df = super().load_data(dataset)
-        df = apply_webwatcher_subset(df, dataset)
 
         # FVQA_train-only: optional category subset filter.
         # FVQA train rows carry a ``category`` column with values
@@ -946,12 +769,6 @@ class ImageShortQADataset(ImageBaseDataset):
     def evaluate(self, eval_file, **judge_kwargs):
         data = load(eval_file)
         _ = self.dataset_name
-        # Subset-aware re-eval: if the dataset has a WebWatcher subset
-        # entry, filter the predictions to ONLY those indices before
-        # judging. Without this, `--mode eval` on a full prediction xlsx
-        # would re-judge every row (waste). Applies to ``hle``; no-op for
-        # datasets without a subset entry.
-        data = apply_webwatcher_subset(data, self.dataset_name)
         assert 'answer' in data and 'prediction' in data
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
@@ -978,7 +795,6 @@ class ImageShortQADataset(ImageBaseDataset):
             # — same family as FVQA. Default to judge_rs (semantic short-answer match)
             # since strict contains-based judge_vdr would miss many paraphrases.
             'Infoseek_GDM_val':            'judge_rs',
-            'Infoseek_GDM_val_3k':         'judge_rs',
             'Infoseek_GDM_test':           'judge_rs',
             'EncyclopedicVQA_test':        'judge_rs',
             'EncyclopedicVQA_val':         'judge_rs',
@@ -987,16 +803,15 @@ class ImageShortQADataset(ImageBaseDataset):
             'Infoseek_GDM_test_mini':      'judge_rs',
             'EncyclopedicVQA_test_mini':   'judge_rs',
             'FVQA_train_mini':             'judge_rs',
-            'Infoseek_GDM_val_3k_mini':    'judge_rs',
             'EncyclopedicVQA_val_mini':    'judge_rs',
         }
         _HLE_FAMILY_DATASETS = {'hle', 'FVQA_train', 'FVQA_test',
-                                'Infoseek_GDM_val', 'Infoseek_GDM_val_3k',
+                                'Infoseek_GDM_val',
                                 'Infoseek_GDM_test',
                                 'EncyclopedicVQA_test', 'EncyclopedicVQA_val',
                                 'FVQA_test_mini', 'Infoseek_GDM_test_mini',
                                 'EncyclopedicVQA_test_mini',
-                                'FVQA_train_mini', 'Infoseek_GDM_val_3k_mini',
+                                'FVQA_train_mini',
                                 'EncyclopedicVQA_val_mini'}
         _default_judge = _DATASET_DEFAULT_JUDGE.get(self.dataset_name, 'hle')
 

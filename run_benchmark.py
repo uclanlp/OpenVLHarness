@@ -260,7 +260,7 @@ def _prepare_run_root(pred_root, manifest, logger):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', type=str, nargs='+', help='Names of Datasets')
-    parser.add_argument('--config', type=str, default='configs/base_agent.yaml', help='Path to agent config file')
+    parser.add_argument('--config', type=str, default='configs/base_agent_with_tools.yaml', help='Path to agent config file')
     parser.add_argument('--judge-config', type=str, default='configs/judge.yaml', help='Path to judge config file')
     parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='Select running mode')
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
