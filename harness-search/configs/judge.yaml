@@ -1,6 +1,0 @@
-judge_config_version: v1_0215
-model_name: Qwen/Qwen3-VL-8B-Instruct
-api_base: http://localhost:8333/v1/chat/completions
-key: empty
-retry: 3
-nproc: 100
