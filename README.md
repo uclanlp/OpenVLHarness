@@ -125,15 +125,15 @@ Note: define your data root with `LMUData` in `.env` (capital D).
 The processed splits below (prompts, annotations and images) are hosted at
 [bryanzhou008/mini-vlm-toolkit-data](https://huggingface.co/datasets/bryanzhou008/mini-vlm-toolkit-data)
 and are downloaded into `LMUData` automatically the first time you pass them to `--data`
-(about 2.2 GB of images in total):
+(about 0.8 GB of images in total):
 
-`PixmoCount_val`, `PixmoCount_test`, `CountQA`, `FSC147_val`, `FSC147_test`,
-`FSCD_147_bbox_val`, `FSCD_147_bbox_test`, `FSCD_LVIS_bbox_val`, `FSCD_LVIS_bbox_test`,
+`FSC147_val`, `FSC147_test`, `FSCD_147_bbox_val`, `FSCD_147_bbox_test`, `FSCD_LVIS_bbox_val`, `FSCD_LVIS_bbox_test`,
 `ODinW13_bbox_val_qwen3`, `ODinW13_bbox_test_qwen3`
 
 ODinW evaluation also downloads its ground-truth annotations to `LMUData/GLIP` unless
 `GLIP_ROOT` is set. The scripts in `mini_vlm_toolkit/dataset/scripts/prepare_*.py`
-document how each split was built from its original source.
+document how each split was built from its original source. `CountQA` and `PixmoCount_*`
+are instead built from their original sources on first use (see `countqa.py`, `pixmo_count.py`).
 
 ## Local Visualization Server
 To visualize trajectories, download the full_trajectories directory and run this command to start a local visualization server:

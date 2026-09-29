@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
+from .hf_release import ensure_hf_glip
 from .image_base import ImageBaseDataset
 from ..smp import *  # noqa: F401,F403
 from ..smp.file import LMUDataRoot, get_intermediate_file_path
@@ -74,14 +75,15 @@ def _resolve_glip_root() -> str:
     Resolution order:
       1. Env var ``GLIP_ROOT``.
       2. Env var ``ODINW_GLIP_ROOT`` (alias).
-      3. ``${LMUData}/GLIP``.
+      3. ``${LMUData}/GLIP``, downloaded from the HuggingFace release
+         (see ``hf_release``) if absent.
     """
     for env in ('GLIP_ROOT', 'ODINW_GLIP_ROOT'):
         v = os.environ.get(env)
         if v and osp.isdir(v):
             return v
     try:
-        cand = osp.join(LMUDataRoot(), 'GLIP')
+        cand = ensure_hf_glip(LMUDataRoot())
         if osp.isdir(cand):
             return cand
     except EnvironmentError:

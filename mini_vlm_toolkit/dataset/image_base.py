@@ -1,6 +1,7 @@
 import pandas as pd
 from abc import abstractmethod
 from ..smp import *
+from .hf_release import HF_DATASET_MD5, HF_SPLITS, ensure_hf_images, hf_tsv_url
 
 
 def img_root_map(dataset):
@@ -87,6 +88,8 @@ class ImageBaseDataset:
         if 'image_path' in data:
             paths = [toliststr(x) for x in data['image_path']]
             data['image_path'] = [x[0] if len(x) == 1 else x for x in paths]
+            if self.meta_only:
+                ensure_hf_images(dataset, self.img_root, [p for x in paths for p in x])
 
         if np.all([istype(x, int) for x in data['index']]):
             data['index'] = [int(x) for x in data['index']]
@@ -192,9 +195,12 @@ class ImageBaseDataset:
     # Given the dataset name, return the dataset as a pandas dataframe, can override
     def load_data(self, dataset):
         url = self.DATASET_URL.get(dataset, None)
+        file_md5 = self.DATASET_MD5[dataset] if dataset in self.DATASET_MD5 else None
+        if (url is None or url == '') and dataset in HF_SPLITS:
+            url = hf_tsv_url(dataset)
+            file_md5 = HF_DATASET_MD5.get(dataset)
         if url is None or url == '':
             url = dataset + '.tsv'
-        file_md5 = self.DATASET_MD5[dataset] if dataset in self.DATASET_MD5 else None
         return self.prepare_tsv(url, file_md5)
 
     # Post built hook, will be called after the dataset is built, can override
