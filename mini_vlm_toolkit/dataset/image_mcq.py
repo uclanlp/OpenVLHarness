@@ -92,8 +92,6 @@ class ImageMCQDataset(ImageBaseDataset):
         'MMStar_KO': 'https://huggingface.co/datasets/NCSOFT/K-MMStar/resolve/main/MMStar_KO.tsv',
         'MMStar_TR': 'https://huggingface.co/datasets/kesimeg/MMStar_tr/resolve/main/MMStar_TR.tsv',
         'RealWorldQA': 'https://opencompass.openxlab.space/utils/VLMEval/RealWorldQA.tsv',
-        'RealWorldQA_val_train': '',
-        'RealWorldQA_val_test': '',
         'MLLMGuard_DS': 'https://opencompass.openxlab.space/utils/VLMEval/MLLMGuard_DS.tsv',
         'BLINK': 'https://opencompass.openxlab.space/utils/VLMEval/BLINK.tsv',
         'BLINK_circular': 'https://opencompass.openxlab.space/utils/VLMEval/BLINK_circular.tsv',
@@ -116,8 +114,6 @@ class ImageMCQDataset(ImageBaseDataset):
         'MMStar_MINI': 'https://opencompass.openxlab.space/utils/TEST/MMStar_MINI.tsv',
         'AI2D_MINI': 'https://opencompass.openxlab.space/utils/TEST/AI2D_MINI.tsv',
         "VStarBench": "https://huggingface.co/datasets/xjtupanda/VStar_Bench/resolve/main/VStarBench.tsv",
-        'VStarBench_val_train': '',
-        'VStarBench_val_test': '',
         'PathMMU_VAL': 'https://huggingface.co/datasets/Pfei111/PathMMU/resolve/main/PathMMU_VAL.tsv',
         'PathMMU_TEST': 'https://huggingface.co/datasets/Pfei111/PathMMU/resolve/main/PathMMU_TEST.tsv',
         'CMMU_MCQ': 'https://huggingface.co/datasets/Pfei111/CMMU_VAL_MCQ/resolve/main/CMMU_VAL_MCQ.tsv',
@@ -2980,94 +2976,3 @@ class TopViewRS(ImageMCQDataset):
         score_file = eval_file.replace(f'.{suffix}', '_acc.csv')
         dump(acc, score_file)
         return acc
-
-
-class FREAKMCQDataset(ImageMCQDataset):
-    TYPE = 'MCQ'
-    DATASET_URL = {'FREAK_MCQ': '', 'FREAK_MCQ_val_train': '', 'FREAK_MCQ_val_test': ''}
-    DATASET_MD5 = {}
-
-    def build_prompt(self, line):
-        if isinstance(line, int):
-            line = self.data.iloc[line]
-
-        tgt_path = self.dump_image(line)
-
-        msgs = []
-        if isinstance(tgt_path, list):
-            msgs.extend([dict(type='image', value=p) for p in tgt_path])
-        else:
-            msgs = [dict(type='image', value=tgt_path)]
-        msgs.append(dict(type='text', value=line['prompt']))
-        return msgs
-
-    def evaluate(self, eval_file, **judge_kwargs):
-        import json as json_mod
-        from .utils.multiple_choice import extract_answer_from_item
-
-        data = load(eval_file)
-        data['prediction'] = [str(x) for x in data['prediction']]
-        data['mcq_GT'] = [str(x) for x in data['mcq_GT']]
-
-        # Expand the JSON 'choices' column into A, B, C, D, ... columns
-        # so that extract_answer_from_item / build_choices can find them.
-        if 'choices' in data.columns:
-            for i in range(len(data)):
-                try:
-                    choices_list = json_mod.loads(data['choices'].iloc[i])
-                except Exception:
-                    choices_list = []
-                for j, opt in enumerate(choices_list):
-                    col = string.ascii_uppercase[j]
-                    if col not in data.columns:
-                        data[col] = pd.Series([None] * len(data), dtype=object)
-                    data.at[data.index[i], col] = opt
-
-        # Add a 'question' column if missing (extract_answer_from_item needs it)
-        if 'question' not in data.columns and 'prompt' in data.columns:
-            data['question'] = data['prompt']
-
-        # Build judge model for LLM fallback
-        model = judge_kwargs.get('model', 'exact_matching')
-        if model == 'exact_matching':
-            model = None
-        else:
-            model = build_judge(**judge_kwargs)
-            if not model.working():
-                warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
-                model = None
-
-        extracted = []
-        for i in tqdm(range(len(data)), desc='FREAK_MCQ eval'):
-            item = data.iloc[i]
-            res = extract_answer_from_item(model, item, dataset_name='FREAK_MCQ')
-            extracted.append(res['opt'])
-
-        data['extracted'] = extracted
-        data['hit'] = [1 if e == a else 0 for e, a in zip(extracted, data['mcq_GT'])]
-
-        # Derive name_str from judge model for result file naming
-        model_name = judge_kwargs.get('model', 'exact_matching')
-        name_str_map = {"chatgpt-0125": "openai", "gpt-4-0125": "gpt4"}
-        name_str = name_str_map.get(model_name, model_name)
-        if "/" in name_str:
-            name_str = name_str.split("/")[-1]
-        result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result')
-        dump(data, result_file)
-
-        correct = sum(1 for e, a in zip(extracted, data['mcq_GT']) if e == a)
-        total = len(data)
-
-        ret = {'Overall': round(correct / total * 100, 2) if total > 0 else 0}
-        if 'category' in data.columns:
-            for c in sorted(set(str(x) for x in data['category'] if pd.notna(x))):
-                mask = data['category'] == c
-                sub_ext = [e for e, m in zip(extracted, mask) if m]
-                sub_ans = data.loc[mask, 'mcq_GT'].tolist()
-                sub_correct = sum(1 for e, a in zip(sub_ext, sub_ans) if e == a)
-                ret[c] = round(sub_correct / len(sub_ext) * 100, 2) if sub_ext else 0
-
-        ret = d2df(ret)
-        result_file = get_intermediate_file_path(eval_file, '_acc')
-        dump(ret, result_file)
-        return ret

@@ -26,8 +26,6 @@ class SparBench(ImageBaseDataset):
     DATASET_URL = {
         'SparBench': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/SparBench.tsv',  # noqa: E501
         'SparBench_tiny': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/SparBench_tiny.tsv',  # noqa: E501
-        'SparBench_tiny_val_train': '',
-        'SparBench_tiny_val_test': '',
     }
 
     DATASET_MD5 = {

@@ -19,8 +19,6 @@ class EmbSpatialBench(ImageMCQDataset):
 
     DATASET_URL = {
         'EmbSpatialBench': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/EmbSpatialBench.tsv',  # noqa: E501
-        'EmbSpatialBench_val_train': '',
-        'EmbSpatialBench_val_test': '',
     }
 
     DATASET_MD5 = {

@@ -25,8 +25,6 @@ class RefSpatialBench(ImageVQADataset):
     DATASET_URL = {
         'RefSpatial': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/RefSpatial.tsv',
         'RefSpatial_wo_unseen': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/RefSpatial_wo_unseen.tsv',  # noqa: E501
-        'RefSpatial_val_train': '',
-        'RefSpatial_val_test': '',
     }
     DATASET_MD5 = {
         'RefSpatial': 'd8c6d38bab73922aae4c19b027bbe4e5',

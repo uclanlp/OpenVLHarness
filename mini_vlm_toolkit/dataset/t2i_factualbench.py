@@ -16,8 +16,9 @@ tiers:
   Total: 3028 samples across all 3 tiers.
 
 Per-sample schema (source JSONL under
-``$LMUData/T2I-FactualBench/data/prompts/<TIER>/prompt.jsonl``; override the
-prompts directory via ``T2I_FACTUALBENCH_PROMPTS_DIR``):
+``$LMUData/T2I-FactualBench/data/prompts/<TIER>/prompt.jsonl``, downloaded from
+github.com/Safeoffellow/T2I-FactualBench on first use; override the prompts
+directory via ``T2I_FACTUALBENCH_PROMPTS_DIR``):
   - ``concept``          : list[str] (len 1 for SKCM/SKCI, len 2 for MKCC)
   - ``type``             : list[str] (same length, category tag per concept)
   - ``sentence``         : str (the T2I prompt)
@@ -63,6 +64,7 @@ from ..utils import track_progress_rich
 # ---------------------------------------------------------------------------
 _HF_REPO_ID = 'Sakeoffellow001/T2i_Factualbench'
 _TAR_NAME = 'concept_image.tar.gz'
+_PROMPTS_RAW_BASE = 'https://raw.githubusercontent.com/Safeoffellow/T2I-FactualBench/main/data/prompts'
 _TIER_FILES = {
     'SKCM': ('SKCM', 'prompt.jsonl'),
     'SKCI': ('SKCI', 'prompt.jsonl'),
@@ -76,15 +78,29 @@ def _default_prompts_dir() -> str:
     return osp.join(LMUDataRoot(), 'T2I-FactualBench', 'data', 'prompts')
 
 
+def _download_prompts(dst_dir: str) -> None:
+    """Fetch the per-tier ``prompt.jsonl`` files from the official GitHub repo."""
+    import urllib.request
+
+    for subdir, fname in _TIER_FILES.values():
+        out = osp.join(dst_dir, subdir, fname)
+        if osp.isfile(out):
+            continue
+        url = f'{_PROMPTS_RAW_BASE}/{subdir}/{fname}'
+        os.makedirs(osp.dirname(out), exist_ok=True)
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            data = resp.read()
+        # Write then rename, so an interrupted download never leaves a truncated file behind.
+        tmp = out + '.part'
+        with open(tmp, 'wb') as f:
+            f.write(data)
+        os.replace(tmp, out)
+
+
 def _resolve_prompts_dir() -> str:
-    d = os.environ.get('T2I_FACTUALBENCH_PROMPTS_DIR') or _default_prompts_dir()
-    d = osp.abspath(d)
-    if not osp.isdir(d):
-        raise FileNotFoundError(
-            f'T2I-FactualBench prompts dir not found at {d!r}. '
-            'Clone https://github.com/Sakeoffellow001/T2I-FactualBench and either put it under '
-            '$LMUData/T2I-FactualBench or set env T2I_FACTUALBENCH_PROMPTS_DIR.'
-        )
+    """Return the prompts dir, downloading the tier files there if any are missing."""
+    d = osp.abspath(os.environ.get('T2I_FACTUALBENCH_PROMPTS_DIR') or _default_prompts_dir())
+    _download_prompts(d)
     return d
 
 

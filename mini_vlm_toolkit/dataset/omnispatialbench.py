@@ -103,9 +103,6 @@ class OmniSpatialBench(ImageMCQDataset):
         DATASET_URL[name] = OMNI_TSV_URL
         DATASET_MD5[name] = OMNI_TSV_MD5
 
-    for name in ('OmniSpatialBench_val_train', 'OmniSpatialBench_val_test'):
-        DATASET_URL[name] = ''
-
     SYS_PROMPTS = {
         'default': DEFAULT_SYSTEM_PROMPT,
         'zeroshot_cot': ZERO_SHOT_COT_SYSTEM_PROMPT,
