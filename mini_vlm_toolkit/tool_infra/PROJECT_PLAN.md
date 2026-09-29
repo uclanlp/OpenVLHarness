@@ -76,20 +76,12 @@ Key decisions (recorded so new contributors do not need prior context):
 - Zoom tools: keep both variants as separate tools.
   - `ZoomInSubfigure`: OpenThinkIMG behavior (subplot selection by description).
   - `ZoomInImageByBBox`: VisualSketchpad behavior (bbox-based crop with padding).
-- Segmentation tools: keep both variants as separate tools.
-  - `SegmentRegionAroundPoint`: point-guided segmentation implemented via SAM3 (replace OpenThinkIMG SAM2).
-  - `SegmentAndMark`: full-image segmentation with numbered masks (VisualSketchpad Semantic-SAM).
 - SAM3 segmentation output is standardized in `Visual_Grounding_Tool` with server-rendered overlays (`rendered_image_b64`) and RLE masks (`pred_masks`).
   - Tests: `tests/test_sam3_segment_tool.py`.
 - Planned: add a VLM-backed per-mask query tool (proposed name: `SAM3_QueryEachMask_VLM_Tool`).
   - Reuse `rendered_image_b64` + per-mask RLE from `Visual_Grounding_Tool`.
   - Reuse `LLM_Direct_Generator_Tool` for OpenAI-compatible VLM requests.
   - Aggregate `<answer>` responses into yes/no counts or free-form answers.
-
-Previously deferred tools (now implemented):
-- SegmentRegionAroundPoint: image + point -> localized mask (SAM3 model server) — `src/tools/segment_region_around_point/`
-- SegmentAndMark: image + granularity -> annotated image + list of bboxes — `src/tools/segment_and_mark/`
-- SlidingWindowDetection: image + objects -> candidate crops + boxes (uses detection internally) — `src/tools/sliding_window_detection/`
 
 ## Core Design
 ### Tool Interface
