@@ -238,6 +238,39 @@ def _evqa_data_roots(lmu_root: str):
     )
 
 
+def _restore_literal_na_answers(df, source, cols=('answer',)):
+    """Restore answer strings that pandas' default NA parsing turned into NaN.
+
+    Some ground-truth answers are literally 'None', 'NA' or 'null' (e.g. three
+    InfoSeek test questions), and ``pd.read_csv`` / ``pd.read_excel`` read them
+    as NaN by default. ``source`` is either the dataset TSV path or a DataFrame
+    that already holds the literal strings; rows are matched on ``index`` and
+    only cells that are NaN in ``df`` and non-empty in ``source`` are changed.
+    """
+    import pandas as pd
+    if isinstance(source, str):
+        if not source or not osp.exists(source):
+            return df
+        source = pd.read_csv(source, sep='\t', keep_default_na=False, dtype=str)
+    if source is None or 'index' not in df or 'index' not in source:
+        return df
+    for col in cols:
+        if col not in df or col not in source:
+            continue
+        valid = source[col].notna() & (source[col].astype(str) != '')
+        lookup = dict(zip(source.loc[valid, 'index'].astype(str),
+                          source.loc[valid, col].astype(str)))
+        missing = df[col].isna()
+        if not missing.any():
+            continue
+        restored = df.loc[missing, 'index'].astype(str).map(lookup)
+        restored = restored[restored.notna()]
+        if len(restored):
+            df[col] = df[col].astype(object)
+            df.loc[restored.index, col] = restored
+    return df
+
+
 def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
                      n: int = 300, seed: int = 42):
     """Materialise an N-row random subset TSV from an existing full-eval TSV.
@@ -258,7 +291,7 @@ def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
             f'Cannot build {mini_name}: underlying {full_tsv} missing. '
             f'Trigger the full variant first.')
     import pandas as pd
-    df = pd.read_csv(full_tsv, sep='\t')
+    df = pd.read_csv(full_tsv, sep='\t', keep_default_na=False, dtype=str)
     if len(df) > n:
         df = df.sample(n=n, random_state=seed).reset_index(drop=True)
     df.to_csv(mini_tsv, sep='\t', index=False, quoting=__import__('csv').QUOTE_ALL)
@@ -719,6 +752,7 @@ class ImageShortQADataset(ImageBaseDataset):
             _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_val', 'EncyclopedicVQA_val_mini')
 
         df = super().load_data(dataset)
+        df = _restore_literal_na_answers(df, getattr(self, 'data_path', ''))
 
         # FVQA_train-only: optional category subset filter.
         # FVQA train rows carry a ``category`` column with values
@@ -770,6 +804,7 @@ class ImageShortQADataset(ImageBaseDataset):
         data = load(eval_file)
         _ = self.dataset_name
         assert 'answer' in data and 'prediction' in data
+        data = _restore_literal_na_answers(data, getattr(self, 'data', None))
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
 
