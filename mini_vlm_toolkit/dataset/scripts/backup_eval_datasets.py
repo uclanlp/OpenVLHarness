@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Back up general-VQA and spatial benchmarks to the shared HuggingFace dataset repo.
 
-Adds these splits to ``hf_release.HF_REPO_ID`` (one commit, nothing else touched):
+Adds these splits to ``HF_REPO_ID`` as one pull request (nothing else touched):
 
     RealWorldQA, HallusionBench, VStarBench                  TSV with embedded images
     MMSIBench_wo_circular, ERQA, SparBench(_tiny),
@@ -20,7 +20,8 @@ the current card; existing sections are left as they are.
 This script does not import the dataset classes, so it keeps working after they are
 switched to the backup.
 
-Usage (needs write access to the repo: `hf auth login`):
+Usage (`hf auth login` first; opening a PR only needs the org's contributor role,
+and an org admin merges it):
     python -m mini_vlm_toolkit.dataset.scripts.backup_eval_datasets \\
         [--lmu-data $LMUData] [--out outputs/hf_backup] [--upload]
 """
@@ -320,7 +321,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--lmu-data', default=os.environ.get('LMUData'))
     ap.add_argument('--out', default='outputs/hf_backup')
-    ap.add_argument('--upload', action='store_true', help=f'commit the staged files to {HF_REPO_ID}')
+    ap.add_argument('--upload', action='store_true', help=f'open a pull request on {HF_REPO_ID} with the staged files')
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -350,12 +351,14 @@ def main():
         files = [f'{s}.tsv' for s in splits] + [f'images/{f}.zip' for f in [*IMAGE_SOURCES, 'FREAK']]
         ops = [CommitOperationAdd(path_in_repo=f, path_or_fileobj=osp.join(args.out, f)) for f in files]
         ops.append(CommitOperationAdd(path_in_repo='README.md', path_or_fileobj=osp.join(args.out, 'README.md')))
-        # parent_commit makes the commit fail instead of overwriting README changes pushed meanwhile.
-        api.create_commit(HF_REPO_ID, repo_type='dataset', operations=ops, parent_commit=head,
-                          commit_message='Add general-VQA and spatial benchmarks '
-                                         '(RealWorldQA, HallusionBench, V*, FREAK, MMSI, ERQA, SPAR, '
-                                         'MindCube, EmbSpatial, OmniSpatial)')
-        print(f'Uploaded to https://huggingface.co/datasets/{HF_REPO_ID}')
+        # A PR rather than a direct commit: contributors cannot push to repos created by
+        # others in the org. It is based on `head`, the revision README.md was merged against.
+        info = api.create_commit(HF_REPO_ID, repo_type='dataset', operations=ops, parent_commit=head,
+                                 create_pr=True,
+                                 commit_message='Add general-VQA and spatial benchmarks '
+                                                '(RealWorldQA, HallusionBench, V*, FREAK, MMSI, ERQA, SPAR, '
+                                                'MindCube, EmbSpatial, OmniSpatial)')
+        print(f'Opened {info.pr_url} -- an org admin needs to merge it')
 
 
 if __name__ == '__main__':
