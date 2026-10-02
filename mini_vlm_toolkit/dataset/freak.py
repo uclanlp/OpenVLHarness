@@ -1,13 +1,9 @@
 """FREAK (hansQAQ/FREAK): counter-commonsense image questions, MCQ + open-ended.
 
-Both TSVs are built from the HuggingFace test split on first use: images go to
-$LMUData/images/FREAK/, MCQ options are shuffled (seed=42) so the correct answer
-is not always A, and each row carries a ready-made ``prompt`` column.
+The TSVs and images/FREAK.zip come from the HF backup (see ``hf_release``); they were
+built from the HF test split, with MCQ options shuffled (seed=42) so the correct
+answer is not always A, and a ready-made ``prompt`` column per row.
 """
-import json
-import os
-import os.path as osp
-import random
 import string
 import warnings
 
@@ -19,89 +15,13 @@ from .image_mcq import ImageMCQDataset
 from .image_vqa import ImageVQADataset
 from .utils import build_judge
 from ..smp import *
-from ..smp.file import LMUDataRoot, get_intermediate_file_path
-
-HF_REPO = 'hansQAQ/FREAK'
-
-
-def build_freak_tsvs(data_root, repo=HF_REPO):
-    """Write FREAK_MCQ.tsv and FREAK_VQA.tsv under ``data_root`` from the HF test split."""
-    from datasets import load_dataset
-
-    img_dir = osp.join(data_root, 'images', 'FREAK')
-    os.makedirs(img_dir, exist_ok=True)
-    ds = load_dataset(repo, split='test')
-    print(f'[FREAK] building TSVs from {repo} ({len(ds)} examples)')
-
-    rng = random.Random(42)
-    mcq_records, vqa_records = [], []
-    for ex in ds:
-        img_name = f"{ex['id']}.jpg"
-        img_path = osp.join(img_dir, img_name)
-        if not osp.exists(img_path):
-            ex['image'].save(img_path)
-
-        question, gt, options = ex['question'], ex['ground_truth'], ex['options']
-        category = json.dumps(ex.get('category') or [])
-
-        if ex['type'] == 'mcq':
-            if options is None:
-                print(f"[FREAK] id={ex['id']}: type=mcq but no options, skipping")
-                continue
-            shuffled = list(options)
-            rng.shuffle(shuffled)
-            answer_letter = None
-            for norm in (str.strip, lambda s: s.strip().lower()):
-                for i, opt in enumerate(shuffled):
-                    if norm(opt) == norm(gt):
-                        answer_letter = string.ascii_uppercase[i]
-                        break
-                if answer_letter is not None:
-                    break
-            if answer_letter is None:
-                print(f"[FREAK] id={ex['id']}: ground truth {gt!r} not in options, skipping")
-                continue
-            option_str = ', '.join(f'{string.ascii_uppercase[i]}. {opt}' for i, opt in enumerate(shuffled))
-            mcq_records.append({
-                'index': len(mcq_records),
-                'image_path': img_name,
-                'question': question,
-                'prompt': f'{question} Choose one option from the following: {option_str}',
-                'mcq_GT': answer_letter,
-                'choices': json.dumps(shuffled),
-                'text_GT': gt,
-                'category': category,
-            })
-        elif ex['type'] == 'fib':
-            vqa_records.append({
-                'index': len(vqa_records),
-                'image_path': img_name,
-                'question': question,
-                'prompt': f'{question} Provide your final answer in a clear and concise sentence or a few words.',
-                'GT': gt,
-                'category': category,
-            })
-        else:
-            print(f"[FREAK] id={ex['id']}: unknown type {ex['type']!r}, skipping")
-
-    pd.DataFrame(mcq_records).to_csv(osp.join(data_root, 'FREAK_MCQ.tsv'), sep='\t', index=False)
-    pd.DataFrame(vqa_records).to_csv(osp.join(data_root, 'FREAK_VQA.tsv'), sep='\t', index=False)
-    print(f'[FREAK] wrote {len(mcq_records)} MCQ and {len(vqa_records)} VQA rows to {data_root}')
-
-
-def _ensure_freak_tsv(dataset):
-    if not osp.exists(osp.join(LMUDataRoot(), f'{dataset}.tsv')):
-        build_freak_tsvs(LMUDataRoot())
+from ..smp.file import get_intermediate_file_path
 
 
 class FREAKMCQDataset(ImageMCQDataset):
     TYPE = 'MCQ'
     DATASET_URL = {'FREAK_MCQ': ''}
     DATASET_MD5 = {}
-
-    def load_data(self, dataset):
-        _ensure_freak_tsv(dataset)
-        return super().load_data(dataset)
 
 
     def build_prompt(self, line):
@@ -194,10 +114,6 @@ class FREAKVQADataset(ImageVQADataset):
     TYPE = 'VQA'
     DATASET_URL = {'FREAK_VQA': ''}
     DATASET_MD5 = {}
-
-    def load_data(self, dataset):
-        _ensure_freak_tsv(dataset)
-        return super().load_data(dataset)
 
 
     def _get_eval_method(self):

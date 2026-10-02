@@ -1,4 +1,4 @@
-"""Auto-download of the counting / grounding benchmarks hosted on HuggingFace.
+"""Auto-download of the benchmarks backed up on HuggingFace.
 
 The processed TSVs (prompts + annotations), the images they reference and the
 ODinW-13 ground-truth files live in one dataset repo, ``HF_REPO_ID``::
@@ -11,7 +11,9 @@ A missing TSV is fetched by ``ImageBaseDataset.load_data``; missing images are
 fetched and unpacked into ``$LMUData/images/<folder>/`` by ``ensure_hf_images``;
 the ODinW GT tree is unpacked into ``$LMUData/GLIP`` by ``ensure_hf_glip``.
 
-The repo is built by ``python -m mini_vlm_toolkit.dataset.scripts.build_hf_release``.
+Counting / grounding splits are built by ``scripts/build_hf_release.py``; the general-VQA
+and spatial splits by ``scripts/backup_eval_datasets.py``. Datasets whose TSV embeds its
+images only need their DATASET_URL pointed at ``hf_tsv_url``.
 """
 
 import logging
@@ -21,7 +23,7 @@ import zipfile
 
 logger = logging.getLogger(__name__)
 
-HF_REPO_ID = 'bryanzhou008/mini-vlm-toolkit-data'
+HF_REPO_ID = 'uclanlp/OpenVLHarness-Evaluation-Datasets'
 
 # split name -> images/<folder>.zip (the split's img_root_map folder)
 HF_SPLITS = {
@@ -33,6 +35,14 @@ HF_SPLITS = {
     'FSCD_LVIS_bbox_val': 'LVIS',
     'ODinW13_bbox_test_qwen3': 'ODinW',
     'ODinW13_bbox_val_qwen3': 'ODinW',
+    'FREAK_MCQ': 'FREAK',
+    'FREAK_VQA': 'FREAK',
+    'MindCubeBench_tiny_raw_qa': 'MindCube',
+    'MindCubeBench_raw_qa': 'MindCube',
+    'OmniSpatialBench': 'OmniSpatial',
+    'OmniSpatialBench_default': 'OmniSpatial',
+    'OmniSpatialBench_zeroshot_cot': 'OmniSpatial',
+    'OmniSpatialBench_manual_cot': 'OmniSpatial',
 }
 
 # MD5 of each hosted TSV (printed by build_hf_release).
@@ -45,6 +55,8 @@ HF_DATASET_MD5 = {
     'FSCD_LVIS_bbox_val': 'eedde50f9768d19053f62c3a3e4904c5',
     'ODinW13_bbox_test_qwen3': '20b51865305a6ae817d338db096ca278',
     'ODinW13_bbox_val_qwen3': '55ae98c3e4ffa1c3292f4939f1b52012',
+    'FREAK_MCQ': '92a97ca0d72e0c47859e865968ddeb42',
+    'FREAK_VQA': '3fa7094fad677caf2225a2fea83f1cd0',
 }
 
 

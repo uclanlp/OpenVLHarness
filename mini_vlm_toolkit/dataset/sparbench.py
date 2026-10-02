@@ -5,6 +5,7 @@ from collections import OrderedDict
 import numpy as np
 import pandas as pd
 
+from .hf_release import hf_tsv_url
 from ..smp import load, toliststr
 from .image_base import ImageBaseDataset
 from .utils.spatial_bench.cal_scores import (attach_score_cache, build_mcq_score_fn,
@@ -24,8 +25,8 @@ class SparBench(ImageBaseDataset):
     TYPE = 'VQA'
 
     DATASET_URL = {
-        'SparBench': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/SparBench.tsv',  # noqa: E501
-        'SparBench_tiny': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/SparBench_tiny.tsv',  # noqa: E501
+        'SparBench': hf_tsv_url('SparBench'),
+        'SparBench_tiny': hf_tsv_url('SparBench_tiny'),
     }
 
     DATASET_MD5 = {

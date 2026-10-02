@@ -2,6 +2,7 @@ import ast
 import json
 import string
 
+from .hf_release import hf_tsv_url
 from ..smp import load, toliststr
 from .image_mcq import ImageMCQDataset
 
@@ -18,7 +19,7 @@ class EmbSpatialBench(ImageMCQDataset):
     TYPE = 'MCQ'
 
     DATASET_URL = {
-        'EmbSpatialBench': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/EmbSpatialBench.tsv',  # noqa: E501
+        'EmbSpatialBench': hf_tsv_url('EmbSpatialBench'),
     }
 
     DATASET_MD5 = {

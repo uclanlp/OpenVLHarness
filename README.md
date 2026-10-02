@@ -121,14 +121,18 @@ python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-conf
 
 Note: define your data root with `LMUData` in `.env` (capital D).
 
-### Counting & grounding benchmarks
-The processed splits below (prompts, annotations and images) are hosted at
-[bryanzhou008/mini-vlm-toolkit-data](https://huggingface.co/datasets/bryanzhou008/mini-vlm-toolkit-data)
-and are downloaded into `LMUData` automatically the first time you pass them to `--data`
-(about 0.8 GB of images in total):
+### Benchmarks hosted on HuggingFace
+The splits below (prompts, annotations and images) are hosted at
+[uclanlp/OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
+and are downloaded into `LMUData` automatically the first time you pass them to `--data`:
 
-`FSC147_val`, `FSC147_test`, `FSCD_147_bbox_val`, `FSCD_147_bbox_test`, `FSCD_LVIS_bbox_val`, `FSCD_LVIS_bbox_test`,
-`ODinW13_bbox_val_qwen3`, `ODinW13_bbox_test_qwen3`
+- Counting & grounding (about 0.8 GB of images): `FSC147_val`, `FSC147_test`, `FSCD_147_bbox_val`,
+  `FSCD_147_bbox_test`, `FSCD_LVIS_bbox_val`, `FSCD_LVIS_bbox_test`, `ODinW13_bbox_val_qwen3`,
+  `ODinW13_bbox_test_qwen3`
+- General VQA: `RealWorldQA`, `HallusionBench`, `VStarBench`, `FREAK_MCQ`, `FREAK_VQA`
+- Spatial reasoning: `MMSIBench_wo_circular`, `ERQA`, `SparBench`, `SparBench_tiny`,
+  `MindCubeBench_raw_qa`, `MindCubeBench_tiny_raw_qa`, `EmbSpatialBench`, `OmniSpatialBench`
+  (and its `_default` / `_zeroshot_cot` / `_manual_cot` prompt variants)
 
 ODinW evaluation also downloads its ground-truth annotations to `LMUData/GLIP` unless
 `GLIP_ROOT` is set. The scripts in `mini_vlm_toolkit/dataset/scripts/prepare_*.py`

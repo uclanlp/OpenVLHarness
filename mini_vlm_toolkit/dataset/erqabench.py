@@ -2,6 +2,7 @@ import json
 
 import pandas as pd
 
+from .hf_release import hf_tsv_url
 from ..smp import load, toliststr
 from .image_vqa import ImageVQADataset
 
@@ -16,7 +17,7 @@ class ERQABench(ImageVQADataset):
     """
 
     DATASET_URL = {
-        'ERQA': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/ERQA.tsv',
+        'ERQA': hf_tsv_url('ERQA'),
     }
     DATASET_MD5 = {
         'ERQA': '40d45d4f0bb1852dbc68b28ee70d4ca5',

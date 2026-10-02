@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the HuggingFace dataset repo that ``hf_release`` downloads from.
 
-Packs the processed TSVs for every split in ``hf_release.HF_SPLITS``, the
+Packs the processed TSVs for the counting / grounding splits in ``hf_release.HF_SPLITS``, the
 images they reference, and the ODinW-13 GT files into a staging directory::
 
     <out>/<split>.tsv            copied verbatim from $LMUData
@@ -11,7 +11,8 @@ images they reference, and the ODinW-13 GT files into a staging directory::
     <out>/README.md              dataset card
 
 and prints the ``HF_DATASET_MD5`` dict to paste into ``hf_release.py``.
-With ``--upload`` the staging directory is pushed to ``hf_release.HF_REPO_ID``.
+With ``--upload`` the staging directory is pushed to ``hf_release.HF_REPO_ID``, except
+README.md: the repo's card also covers splits added by other scripts, so edit it there.
 
 Usage:
     python -m mini_vlm_toolkit.dataset.scripts.build_hf_release \\
@@ -31,9 +32,12 @@ from collections import defaultdict
 import pandas as pd
 import yaml
 
-from mini_vlm_toolkit.dataset.hf_release import HF_REPO_ID, HF_SPLITS
+from mini_vlm_toolkit.dataset.hf_release import HF_REPO_ID, HF_SPLITS as _ALL_HF_SPLITS
 from mini_vlm_toolkit.dataset.odinw import ODINW_13_CONFIGS
 from mini_vlm_toolkit.smp.misc import toliststr
+
+# Only the splits this script builds; the rest of HF_SPLITS comes from backup_eval_datasets.py.
+HF_SPLITS = {s: f for s, f in _ALL_HF_SPLITS.items() if f in ('FSC147', 'LVIS', 'ODinW')}
 
 
 def md5(path):
@@ -180,6 +184,7 @@ def main():
         api = HfApi()
         api.create_repo(HF_REPO_ID, repo_type='dataset', private=args.private, exist_ok=True)
         api.upload_folder(repo_id=HF_REPO_ID, repo_type='dataset', folder_path=args.out,
+                          ignore_patterns=['README.md'],
                           commit_message='Upload processed counting/grounding splits')
         print(f'Uploaded to https://huggingface.co/datasets/{HF_REPO_ID}')
 

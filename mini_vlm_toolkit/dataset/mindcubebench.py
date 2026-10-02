@@ -1,10 +1,8 @@
 import ast
 import os
 
-from huggingface_hub import snapshot_download
-from tqdm import tqdm
-
-from ..smp import get_cache_path, load, modelscope_flag_set, toliststr
+from .hf_release import HF_SPLITS, hf_tsv_url
+from ..smp import LMUDataRoot, load, toliststr
 from .image_mcq import ImageMCQDataset
 
 
@@ -20,8 +18,8 @@ class MindCubeBench(ImageMCQDataset):
     TYPE = 'MCQ'
 
     DATASET_URL = {
-        'MindCubeBench_tiny_raw_qa': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/MindCubeBench_tiny_raw_qa.tsv',  # noqa: E501
-        'MindCubeBench_raw_qa': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/MindCubeBench_raw_qa.tsv'  # noqa: E501
+        'MindCubeBench_tiny_raw_qa': hf_tsv_url('MindCubeBench_tiny_raw_qa'),
+        'MindCubeBench_raw_qa': hf_tsv_url('MindCubeBench_raw_qa'),
     }
     DATASET_MD5 = {
         'MindCubeBench_tiny_raw_qa': '35f69fc30d7c2d2880417ce0769f5347',
@@ -31,61 +29,12 @@ class MindCubeBench(ImageMCQDataset):
     def _task_category(self):
         return ['rotation', 'among', 'around']
 
-    def prepare_tsv(self, url, file_md5=None, repo_id='MLL-Lab/MindCube'):
+    def prepare_tsv(self, url, file_md5=None):
         data = super().prepare_tsv(url, file_md5)
 
-        SENTINEL_NAME = '.mindcubebench_extracted'
-        cache_path = get_cache_path(repo_id)
-
-        if (cache_path and os.path.isdir(cache_path)
-                and os.path.isfile(os.path.join(cache_path, SENTINEL_NAME))):
-            dataset_path = cache_path
-        else:
-            def _write_sentinel(sentinel_path, text='ok'):
-                tmp = sentinel_path + '.tmp'
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(text)
-                os.replace(tmp, sentinel_path)
-
-            def unzip_hf_zip(pth):
-                import zipfile
-
-                base_dir = pth
-                zip_files = [
-                    os.path.join(base_dir, f) for f in os.listdir(base_dir)
-                    if f.endswith('.zip')
-                ]
-                zip_files.sort()
-
-                for zip_file in tqdm(zip_files, desc='Unpacking Origin Data...'):
-                    with zipfile.ZipFile(zip_file, 'r') as zf:
-                        for info in zf.infolist():
-                            if info.is_dir():
-                                continue
-
-                            rel = os.path.normpath(info.filename).lstrip('/\\')
-                            dst = os.path.join(pth, rel)
-
-                            absp = os.path.abspath(pth)
-                            absd = os.path.abspath(dst)
-                            if not absd.startswith(absp + os.sep):
-                                raise RuntimeError(f'Unsafe path in zip: {info.filename}')
-
-                            os.makedirs(os.path.dirname(dst), exist_ok=True)
-                            with zf.open(info, 'r') as src, open(dst, 'wb') as out:
-                                out.write(src.read())
-
-                sentinel_path = os.path.join(pth, SENTINEL_NAME)
-                _write_sentinel(sentinel_path, text='done')
-                print('MindCube data extracted to current directory with original layout.')
-
-            if modelscope_flag_set():
-                from modelscope import dataset_snapshot_download
-                dataset_path = dataset_snapshot_download(dataset_id=repo_id)
-            else:
-                dataset_path = snapshot_download(repo_id=repo_id, repo_type='dataset')
-
-            unzip_hf_zip(dataset_path)
+        # Images are the subset of MLL-Lab/MindCube the TSVs use, under $LMUData/images/MindCube/.
+        # ImageBaseDataset.__init__ downloads images/MindCube.zip there if any are missing.
+        dataset_path = os.path.join(LMUDataRoot(), 'images', HF_SPLITS[self.dataset_name])
 
         # === Transfer rel path to abs path ===
         if 'image_path' in data.columns:

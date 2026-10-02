@@ -4,10 +4,9 @@ import string
 from collections import OrderedDict
 
 import pandas as pd
-from huggingface_hub import snapshot_download
-from tqdm import tqdm
 
-from ..smp import get_cache_path, load, toliststr
+from .hf_release import HF_SPLITS, hf_tsv_url
+from ..smp import LMUDataRoot, load, toliststr
 from .image_mcq import ImageMCQDataset
 
 # Prompt template adapted from the official OmniSpatial codebase:
@@ -86,7 +85,7 @@ class OmniSpatialBench(ImageMCQDataset):
 
     TYPE = 'MCQ'
 
-    OMNI_TSV_URL = 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/OmniSpatialBench.tsv'
+    OMNI_TSV_URL = hf_tsv_url('OmniSpatialBench')
     OMNI_TSV_MD5 = '5d0896fc57c452055b020cc309ed799b'
 
     VARIANTS = [
@@ -132,62 +131,12 @@ class OmniSpatialBench(ImageMCQDataset):
 
         return ''
 
-    def prepare_tsv(self, url, file_md5=None, repo_id='qizekun/OmniSpatial'):
+    def prepare_tsv(self, url, file_md5=None):
         data = super().prepare_tsv(url, file_md5)
 
-        SENTINEL_NAME = '.omnispatialbench_extracted'
-        cache_path = get_cache_path(repo_id)
-
-        if (cache_path and os.path.isdir(cache_path)
-                and os.path.isfile(os.path.join(cache_path, SENTINEL_NAME))):
-            dataset_path = cache_path
-        else:
-            def _write_sentinel(sentinel_path, text='ok'):
-                tmp = sentinel_path + '.tmp'
-                with open(tmp, 'w', encoding='utf-8') as f:
-                    f.write(text)
-                os.replace(tmp, sentinel_path)
-
-            def unzip_hf_zip(pth):
-                import zipfile
-
-                base_dir = pth
-                zip_files = [
-                    os.path.join(base_dir, f) for f in os.listdir(base_dir)
-                    if f.endswith('.zip')
-                ]
-                zip_files.sort()
-
-                for zip_file in tqdm(zip_files, desc='Unpacking Origin Data...'):
-                    with zipfile.ZipFile(zip_file, 'r') as zf:
-                        for info in zf.infolist():
-                            if info.is_dir():
-                                continue
-
-                            rel = os.path.normpath(info.filename).lstrip('/\\')
-                            dst = os.path.join(pth, rel)
-
-                            absp = os.path.abspath(pth)
-                            absd = os.path.abspath(dst)
-                            if not absd.startswith(absp + os.sep):
-                                raise RuntimeError(f'Unsafe path in zip: {info.filename}')
-
-                            os.makedirs(os.path.dirname(dst), exist_ok=True)
-                            with zf.open(info, 'r') as src, open(dst, 'wb') as out:
-                                out.write(src.read())
-
-                sentinel_path = os.path.join(pth, SENTINEL_NAME)
-                _write_sentinel(sentinel_path, text='done')
-                print('OmniSpatial data extracted to current directory with original layout.')
-
-            dataset_path = snapshot_download(
-                repo_id=repo_id,
-                repo_type='dataset',
-                revision='main',
-                allow_patterns=['OmniSpatial-test.zip'],
-            )
-
-            unzip_hf_zip(dataset_path)
+        # Images are the OmniSpatial-test images the TSV uses, under $LMUData/images/OmniSpatial/.
+        # ImageBaseDataset.__init__ downloads images/OmniSpatial.zip there if any are missing.
+        dataset_path = os.path.join(LMUDataRoot(), 'images', HF_SPLITS[self.dataset_name])
 
         # === Transfer rel path to abs path ===
         if 'image_path' in data.columns:
@@ -199,7 +148,7 @@ class OmniSpatialBench(ImageMCQDataset):
 
                 if not dataset_path:
                     return os.path.normpath(s)
-                return os.path.normpath(os.path.join(dataset_path, 'OmniSpatial-test', s.lstrip(r'\/')))
+                return os.path.normpath(os.path.join(dataset_path, s.lstrip(r'\/')))
 
             def to_abs(p):
                 if isinstance(p, list):

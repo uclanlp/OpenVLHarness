@@ -9,6 +9,7 @@ import pandas as pd
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
+from .hf_release import hf_tsv_url
 from ..smp import LMUDataRoot, dump, get_cache_path, load, modelscope_flag_set, toliststr
 from .image_mcq import ImageMCQDataset
 from .video_base import VideoBaseDataset
@@ -31,7 +32,7 @@ class MMSIBench(ImageMCQDataset):
     # To avoid modifying upstream VLMEvalKit, we do NOT integrate the circular set here.
     # (Use the official pipeline if you need the circular split.)
     DATASET_URL = {
-        'MMSIBench_wo_circular': 'https://huggingface.co/datasets/lmms-lab-si/EASI-Leaderboard-Data/resolve/main/MMSIBench_wo_circular.tsv',  # noqa: E501
+        'MMSIBench_wo_circular': hf_tsv_url('MMSIBench_wo_circular'),
     }
 
     DATASET_MD5 = {

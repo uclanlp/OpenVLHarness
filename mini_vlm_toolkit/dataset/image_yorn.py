@@ -1,3 +1,4 @@
+from .hf_release import hf_tsv_url
 from ..smp import *
 from ..utils import *
 from .image_base import ImageBaseDataset
@@ -10,7 +11,7 @@ class ImageYORNDataset(ImageBaseDataset):
 
     DATASET_URL = {
         'MME': 'https://opencompass.openxlab.space/utils/VLMEval/MME.tsv',
-        'HallusionBench': 'https://opencompass.openxlab.space/utils/VLMEval/HallusionBench.tsv',
+        'HallusionBench': hf_tsv_url('HallusionBench'),
         'POPE': 'https://opencompass.openxlab.space/utils/VLMEval/POPE.tsv',
         'AMBER': 'https://huggingface.co/datasets/yifanzhang114/AMBER_base64/resolve/main/AMBER.tsv',
         'VSR-zeroshot': (
