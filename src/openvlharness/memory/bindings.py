@@ -1,3 +1,4 @@
+"""Register structured tool values and describe them for Python code generation."""
 import copy
 import re
 from dataclasses import asdict
@@ -6,6 +7,7 @@ import numpy as np
 from .run_state import BindingDescriptor, FieldDescriptor, MemoryRunState
 
 def _sanitize_identifier_fragment(text: str, max_len: int = 30) -> str:
+    """Return a bounded lowercase identifier fragment derived from free text."""
     fragment = text.lower().strip()
     fragment = re.sub(r"[^a-z0-9]+", "_", fragment)
     fragment = fragment.strip("_")
@@ -14,6 +16,7 @@ def _sanitize_identifier_fragment(text: str, max_len: int = 30) -> str:
     return fragment[:max_len].rstrip("_")
 
 def _infer_dtype(value: Any) -> str:
+    """Describe a value's type and available shape or collection length."""
     if value is None:
         return "None"
     if isinstance(value, bool):
@@ -40,6 +43,7 @@ def _infer_dtype(value: Any) -> str:
     return type(value).__name__
 
 def _safe_preview(value: Any, max_len: int = 120) -> str:
+    """Return a bounded representation or array range, suppressing preview errors."""
     try:
         if isinstance(value, np.ndarray):
             if value.size > 0:
@@ -53,19 +57,35 @@ def _safe_preview(value: Any, max_len: int = 120) -> str:
     return r
 
 def _summarize_binding(value: Any) -> str:
+    """Summarize a binding by its dictionary keys or Python type name."""
     if isinstance(value, dict):
         keys_str = ", ".join(str(k) for k in value.keys())
         return f"dict (keys: {keys_str})"
     return type(value).__name__
 
 def get_binding_descriptors_payload(state: MemoryRunState) -> Dict[str, Any]:
+    """Return binding descriptors as independent JSON-compatible dictionaries."""
     payload: Dict[str, Any] = {}
     for key, desc in state.bindings.descriptors.items():
         payload[key] = asdict(desc)
     return payload
 
 def store_binding(state, *, prefix, query, value, source_tool, source_args, descriptions):
-    """Store supplied values and field meanings without selecting a backend."""
+    """Register a structured value with a unique, query-derived variable name.
+
+    Args:
+        state: Mutable state for the current question.
+        prefix: Capability-specific variable-name prefix.
+        query: Task text used to derive a readable suffix.
+        value: Mapping of field names to values, stored without copying.
+        source_tool: Public name of the producing tool.
+        source_args: Tool arguments to summarize, excluding large/image fields.
+        descriptions: Human-readable meanings keyed by field name.
+
+    Returns:
+        The unique binding key. Type descriptions and previews are stored beside
+        the value; execution callers must request copies before mutating it.
+    """
     suffix = _sanitize_identifier_fragment(query) if query else "result"
     candidate = f"{prefix}_{suffix}" if suffix else prefix
     count = state.bindings.binding_counters.get(candidate, 0) + 1
@@ -87,4 +107,5 @@ def store_binding(state, *, prefix, query, value, source_tool, source_args, desc
 
 
 def copy_bindings_for_execution(state):
+    """Deep-copy stored values so generated code cannot mutate question memory."""
     return copy.deepcopy(state.bindings.bindings)

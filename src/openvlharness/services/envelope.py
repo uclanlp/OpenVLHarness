@@ -5,6 +5,7 @@ import json
 import math
 
 def _normalize_for_json(value, path="$", warnings=None):
+    """Recursively convert values to JSON-safe data and append lossy-conversion warnings."""
     warnings = warnings if warnings is not None else []
     if value is None or isinstance(value, (str, bool, int)):
         return value
@@ -61,6 +62,7 @@ def _normalize_for_json(value, path="$", warnings=None):
     return str(value)
 
 def _normalize_result_payload(result):
+    """Return a JSON-safe result and metadata describing any normalization warnings."""
     warnings = []
     normalized = _normalize_for_json(result, path="result", warnings=warnings)
     try:
@@ -75,6 +77,7 @@ def _normalize_result_payload(result):
     return normalized, meta
 
 def _build_error_payload(tool_name, tool_call_id, code, message, detail=None):
+    """Build a failed execute envelope with a code, message and optional detail."""
     error_payload = {"code": code, "message": str(message)}
     if detail is not None:
         error_payload["detail"] = detail
@@ -88,6 +91,7 @@ def _build_error_payload(tool_name, tool_call_id, code, message, detail=None):
     }
 
 def _build_success_payload(tool_name, tool_call_id, result, meta=None):
+    """Build a successful execute envelope from an already normalized result."""
     return {
         "ok": True,
         "tool_name": tool_name,

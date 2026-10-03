@@ -1,7 +1,7 @@
-"""Qwen ChatML reconstruction adapted from the legacy token-based exporter.
+"""Reconstruct Qwen ChatML from provider-returned tokens and matching request images.
 
-Only provider-returned tokens and images from their exact request are used.
-This module has no dependency on the benchmark package or its report writer.
+Export preserves the request actually sent after context processing. Image
+bytes are validated and paired with decoded vision blocks in request order.
 """
 import base64
 import io
@@ -11,12 +11,19 @@ from PIL import Image
 
 
 class RawTraceExportError(ValueError):
+    """An explicit raw trace failure with a machine-readable code attribute."""
     def __init__(self, code, message):
+        """Store the failure code and human-readable explanation."""
         self.code = code
         super().__init__(message)
 
 
 def _request_images(messages, task_id):
+    """Collect validated inline image bytes in request order with sample-based filenames.
+
+    Raises RawTraceExportError when an image URL lacks inline bytes or image
+    validation fails. The returned attachments contain filename and bytes_b64.
+    """
     images = []
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", str(task_id if task_id is not None else "sample"))
     for message in messages:
@@ -43,7 +50,24 @@ def _request_images(messages, task_id):
 
 
 def build_raw_trace_from_tokens(response, messages, tokenizer, task_id):
-    """Reconstruct messages and image files, failing explicitly on missing evidence."""
+    """Reconstruct a complete Qwen conversation and its image attachments.
+
+    Args:
+        response: Terminating provider response with prompt_token_ids and
+            choices[0].token_ids.
+        messages: Exact request messages associated with that response.
+        tokenizer: Matching Qwen tokenizer supporting ChatML and vision tokens.
+        task_id: Sample identifier used for sanitized attachment filenames.
+
+    Returns:
+        A mapping with messages and images. Message parts reference relative
+        image filenames; attachments contain those filenames and original bytes
+        as base64. No files are written by this helper.
+
+    Raises:
+        RawTraceExportError: Required evidence is absent, token decoding or ChatML
+            validation fails, or vision blocks do not align with request images.
+    """
     if tokenizer is None:
         raise RawTraceExportError("tokenizer_unavailable", "Raw trace export requires the matching Qwen tokenizer.")
     if not isinstance(response, dict) or not isinstance(messages, list):

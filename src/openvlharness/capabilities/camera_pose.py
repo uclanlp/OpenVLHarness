@@ -1,9 +1,14 @@
-"""Camera_Trajectory_Tool output post-processing for agent-visible messages."""
+"""Estimate camera movement and viewing direction across ordered images.
+
+Camera_Trajectory_Tool uses DA3 poses, describes motion in the first camera's
+coordinate frame, and exposes camera matrices and a bird's-eye visualization.
+"""
 
 PROCESSOR_MODE = "custom"
 
 
 def _build_bev_caption(reference_image_id, image_ref):
+    """Describe the visualization's reference X-Z plane and registered image ID."""
     frame = reference_image_id or "the reference image"
     return (
         f"Bird's-eye view of the camera trajectory on {frame}'s X-Z plane is "
@@ -13,9 +18,7 @@ def _build_bev_caption(reference_image_id, image_ref):
 
 
 def _insert_after_preamble(text, caption):
-    """Insert `caption` between the coordinate-system preamble (the first
-    paragraph) and the rest of the text. Falls back to prepending if the text
-    has no blank-line separator."""
+    """Insert a caption after the first paragraph, or prepend it when no separator exists."""
     if "\n\n" in text:
         head, tail = text.split("\n\n", 1)
         return f"{head}\n\n{caption}\n\n{tail}"
@@ -23,6 +26,17 @@ def _insert_after_preamble(text, caption):
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render camera-motion text and attach the prepared bird's-eye visualization.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     del tool_metadata
     result = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(result, dict) or not payload.get("ok"):
@@ -112,11 +126,18 @@ from typing import TypedDict
 
 
 class ArrayRef(TypedDict):
+    """Identify an array by its memory binding name and field name."""
     binding: str
     field: str
 
 
 class Output(TypedDict):
+    """Canonical ordered camera trajectory in the declared reference frame.
+
+    intrinsics references float32 N x 3 x 3 arrays; extrinsics references float32
+    N x 3 x 4 world-to-camera arrays. image_ids retain input order. cameras and
+    text_summary describe motion; visualization is a registered image ID.
+    """
     binding: str | None
     intrinsics: ArrayRef | None  # float32 N x 3 x 3
     extrinsics: ArrayRef | None  # float32 N x 3 x 4, world-to-camera
@@ -132,12 +153,14 @@ class Output(TypedDict):
 
 
 class Capability(BaseCapability):
+    """Expose ordered camera poses, reference-frame descriptions and visualization."""
     name = 'Camera_Trajectory_Tool'
     backends = {'camera_trajectory': 'Camera_Trajectory_Tool'}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
     def store_result(self, call, result, memory):
+        """Convert pose matrices to float32 arrays and store a camera_trajectory binding."""
         def convert(value):
             import numpy as np
             for key in ("intrinsics", "extrinsics"):
@@ -153,6 +176,7 @@ class Capability(BaseCapability):
             descriptions=FIELD_DESCRIPTIONS, convert=convert)
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Return trajectory metadata with matrix-field references and a visualization ID."""
         result = result if isinstance(result, dict) else {}
         binding = next(iter(binding_refs), None)
         return {"binding": binding,

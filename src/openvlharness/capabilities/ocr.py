@@ -1,15 +1,24 @@
-"""OCR-specific output post-processing for agent-visible messages.
+"""Read text, numbers and labels from images with PaddleOCR-VL.
 
-Emits a one-line prose intro followed by the transcribed text from the
-PaddleOCR-VL server. Operational metadata (`model_id`, `device`) is kept
-in the raw result for debugging but stripped from the model-facing
-message.
+OCR_Tool presents the transcription to the model and registers it as a Python
+binding for calculations or text processing.
 """
 
 PROCESSOR_MODE = "custom"
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render the transcription or an explicit no-readable-text message.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         return {
             "processor_info": {
@@ -66,17 +75,20 @@ from typing import TypedDict
 
 
 class Output(TypedDict):
+    """Canonical transcription text and the backend's model identifier."""
     text: str
     model_id: str | None
 
 
 class Capability(BaseCapability):
+    """Expose OCR text extraction and store transcriptions for Python calculations."""
     name = 'OCR_Tool'
     backends = {'ocr': 'OCR_Tool'}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
     def store_result(self, call, result, memory):
+        """Register a string transcription as an ocr binding and return its ID."""
         if not isinstance(result, dict) or not isinstance(result.get("text"), str):
             return []
         return [memory.store_binding(prefix="ocr", query="", value={"text": result["text"]},
@@ -84,5 +96,6 @@ class Capability(BaseCapability):
             descriptions={"text": "transcribed text"})]
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Extract transcription text and model provenance from the backend result."""
         result = result if isinstance(result, dict) else {}
         return {"text": result.get("text"), "model_id": result.get("model_id")}

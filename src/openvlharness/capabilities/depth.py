@@ -1,9 +1,24 @@
-"""Tool-specific output post-processing for Depth_Estimation_Tool."""
+"""Estimate per-pixel metric depth for spatial measurements in an image.
+
+Depth_Estimation_Tool uses DA3, stores depth arrays in meters for Python
+calculations, and returns a colorized visualization for inspection.
+"""
 
 PROCESSOR_MODE = "custom"
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render a metric-depth explanation with the prepared visualization.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     result = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(result, dict) or not payload.get("ok"):
         # Delegate to default; tag the processor_info for traceability.
@@ -79,6 +94,13 @@ from typing import TypedDict
 
 
 class Output(TypedDict):
+    """Canonical metric-depth metadata and memory references.
+
+    binding identifies a value containing float32 depth_meters with depth_shape
+    [height, width]. The DA3 backend also reports size as [height, width]. image
+    is a visualization ID. units is meters; colormap, model_id and device describe
+    the backend output.
+    """
     binding: str | None  # depth_meters is float32 in this memory binding.
     depth_shape: list[int] | None
     units: str
@@ -90,12 +112,14 @@ class Output(TypedDict):
 
 
 class Capability(BaseCapability):
+    """Expose metric depth estimation with arrays stored in question memory."""
     name = 'Depth_Estimation_Tool'
     backends = {'depth_estimation': 'Depth_Estimation_Tool'}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
     def store_result(self, call, result, memory):
+        """Decode metric depth into a float32 array when possible and store a depth binding."""
         def decode(value):
             import base64
             import numpy as np
@@ -112,6 +136,7 @@ class Capability(BaseCapability):
             descriptions=FIELD_DESCRIPTIONS, convert=decode)
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Return metric-depth metadata and references to the array binding and visualization."""
         result = result if isinstance(result, dict) else {}
         return {"binding": next(iter(binding_refs), None), "depth_shape": result.get("depth_shape"),
             "units": "meters", "colormap": result.get("colormap"), "size": result.get("size"),

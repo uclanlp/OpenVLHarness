@@ -1,6 +1,6 @@
-"""Shared image field handling extracted from the old image processor.
+"""Resolve capability image arguments and separate image evidence from text payloads.
 
-Capabilities choose when to interpret tool payloads; memory owns only registries.
+Capabilities interpret backend result fields; memory stores image bytes and IDs.
 """
 import copy as cp
 import json
@@ -27,12 +27,14 @@ _RAW_DATA_HINTS = ("raw", "meters")
 
 
 def _is_image_id_key(key: Any) -> bool:
+    """Recognize a public singular image-reference argument by its field name."""
     key_lower = str(key).lower()
     if key_lower.startswith("_"):
         return False
     return key_lower.endswith("_id") and "image" in key_lower
 
 def _is_image_ids_key(key: Any) -> bool:
+    """Recognize a public plural image-reference argument by its field name."""
     key_lower = str(key).lower()
     if key_lower.startswith("_"):
         return False
@@ -46,6 +48,12 @@ def _resolve_image_ids_in_args(
     rewrites: List[Dict[str, Any]],
     errors: List[Dict[str, Any]],
 ) -> None:
+    """Replace image ID fields with base64 fields in a nested argument structure.
+
+    Mutates value in place, preserves source IDs under private keys, and appends
+    resolution metadata or errors to the supplied lists. Existing base64 fields
+    take precedence. Lazy references may trigger HTTP downloads.
+    """
     if isinstance(value, dict):
         for key, child in list(value.items()):
             child_path = f"{path}.{key}"
@@ -147,6 +155,7 @@ def _resolve_image_ids_in_args(
                 )
 
 def _is_image_result_key(key: Any) -> bool:
+    """Identify renderable image fields while excluding raw numeric data fields."""
     k = str(key).lower()
     if any(hint in k for hint in _RAW_DATA_HINTS):
         return False
@@ -163,12 +172,14 @@ def _is_image_result_key(key: Any) -> bool:
     return False
 
 def _guess_image_mime(key: Any) -> str:
+    """Infer JPEG from a field name, defaulting other image fields to PNG."""
     k = str(key).lower()
     if "jpg" in k or "jpeg" in k:
         return "image/jpeg"
     return "image/png"
 
 def _to_image_data_url(key: Any, value: Any) -> Optional[str]:
+    """Normalize an image field to a data URL, or return None for unrecognized values."""
     if not isinstance(value, str):
         return None
     raw = value.strip()
@@ -188,6 +199,11 @@ def _extract_images_and_scrub_result(
     key_hint: str = "",
     image_context: bool = False,
 ):
+    """Copy a result tree while collecting image parts and omitting their encoded text.
+
+    image_parts is appended in traversal order. Empty image-only subtrees return
+    the private drop sentinel; other values remain in the compact result.
+    """
     if isinstance(value, dict):
         compact: Dict[str, Any] = {}
         for key, item in value.items():
@@ -225,6 +241,7 @@ def _extract_images_and_scrub_result(
     return value
 
 def _extract_image_parts(result: Any) -> Tuple[List[Dict[str, Any]], Any]:
+    """Return ordered image content parts and a result copy without embedded image bytes."""
     image_parts: List[Dict[str, Any]] = []
     compact_result = _extract_images_and_scrub_result(
         result, image_parts, key_hint="result", image_context=False
@@ -236,6 +253,7 @@ def _extract_image_parts(result: Any) -> Tuple[List[Dict[str, Any]], Any]:
 def _register_tool_output_images(
     images: ImagesState, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]
 ) -> List[str]:
+    """Register output image parts with tool provenance and return their memory IDs."""
     refs: List[str] = []
     tool_name = str(payload.get("tool_name") or "tool").strip() or "tool"
     for part in image_parts:
@@ -264,6 +282,18 @@ def _register_tool_output_images(
     return refs
 
 def prepare_images(payload, prepared, state):
+    """Extract, register and summarize image artifacts from a successful tool result.
+
+    Args:
+        payload: Execute envelope containing the backend result and public tool name.
+        prepared: Mutable evidence mapping to populate with compact text, image
+            parts and image references.
+        state: Current question state receiving registered images.
+
+    Returns:
+        The updated prepared mapping. Numeric raw-data fields remain in text;
+        recognized encoded image fields become separate multimodal content parts.
+    """
     result = payload.get("result")
     image_parts, compact_result = _extract_image_parts(result)
     image_refs = (

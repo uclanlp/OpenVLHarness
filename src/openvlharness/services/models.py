@@ -13,6 +13,7 @@ from .raw_trace import RawTraceExportError, build_raw_trace_from_tokens
 
 
 def failure_text(payload):
+    """Render an execute envelope's error code and message as model-visible text."""
     error = payload.get("error")
     if isinstance(error, dict):
         code = str(error["code"]).strip() if error.get("code") is not None else ""
@@ -23,6 +24,14 @@ def failure_text(payload):
 
 
 def load_profile(alias):
+    """Return an independent copy of a registered model profile.
+
+    Args:
+        alias: Exact alias in the packaged model_registry.yaml.
+
+    Raises:
+        ValueError: The alias is not registered.
+    """
     profiles = yaml.safe_load(files("openvlharness.services").joinpath("model_registry.yaml").read_text())["profiles"]
     if alias not in profiles:
         raise ValueError(f"Unknown model alias {alias!r}. Register its exact served ID, prompt and API profile in model_registry.yaml.")
@@ -30,6 +39,12 @@ def load_profile(alias):
 
 
 def require_raw_trace_profile(alias):
+    """Return the supported Qwen profile after checking its export requirements.
+
+    Raises:
+        ValueError: The alias is unsupported or its model, protocol, format or
+            pinned tokenizer revision does not meet raw trace requirements.
+    """
     message = "Raw trace export is supported only for qwen3-vl-8b-instruct (Qwen/Qwen3-VL-8B-Instruct); GPT, Kimi and other profiles are unsupported."
     try:
         profile = load_profile(alias)
@@ -44,14 +59,19 @@ def require_raw_trace_profile(alias):
 
 
 class AuxiliaryModel:
-    """Configured search/extraction model with the paper's task-specific options."""
+    """Run search summarization and evidence extraction through a configured model.
+
+    Uses the model profile's native protocol with task-specific generation
+    defaults. The OpenAI SDK manages HTTP connections and retry behavior.
+    """
     def __init__(self, config):
+        """Validate model settings and create an SDK client with two retries by default."""
         self.adapter = ModelAdapter({"retry": 2, **config})
         self.model = self.adapter.model
         self.base_url = self.adapter.base
         self.api_key = self.adapter.key
-        # The old summarizer used the OpenAI SDK's two-retry transport policy.
-        # Keep that policy while sharing the registered protocol/payload adapter.
+        # The auxiliary SDK client defaults to two retries for transient failures.
+        # Protocol encoding and payload options come from the registered adapter.
         from openai import OpenAI
         from httpx import Timeout
         base = self.base_url.rstrip("/")
@@ -64,6 +84,22 @@ class AuxiliaryModel:
                              timeout=Timeout(self.adapter.timeout, connect=5), max_retries=self.adapter.retry)
 
     def generate(self, prompt_or_messages, system_prompt=None, **generation_kwargs):
+        """Generate auxiliary text from a prompt or chat-style messages.
+
+        Args:
+            prompt_or_messages: Prompt string or list of message dictionaries.
+            system_prompt: System instruction inserted only if none is present.
+            **generation_kwargs: max_tokens, temperature and top_p. Defaults are
+                8192, 0.0 and 1.0. Responses uses medium reasoning; Chat Completions
+                applies sampling options and disables template thinking.
+
+        Returns:
+            Assistant text extracted from the provider response.
+
+        Raises:
+            ValueError: Unsupported generation options are supplied.
+            RuntimeError: The response has an invalid protocol structure.
+        """
         messages = ([{"role": "user", "content": prompt_or_messages}]
                     if isinstance(prompt_or_messages, str) else cp.deepcopy(prompt_or_messages))
         if system_prompt and not any(m.get("role") == "system" for m in messages):
@@ -92,7 +128,27 @@ class AuxiliaryModel:
 
 
 class ModelAdapter:
+    """Translate model requests and results using a registered native API profile.
+
+    The adapter owns transport options, tool-call parsing, context handling and
+    Qwen raw trace reconstruction. Profile configuration determines whether the
+    provider uses Chat Completions or Responses.
+    """
     def __init__(self, config, *, max_context_length=None, requester=None):
+        """Validate model configuration and resolve its endpoint without sending requests.
+
+        Args:
+            config: Mapping with alias, base, optional key/timeout/retry and profile-
+                allowed generation options. max_tokens defaults to 4096.
+            max_context_length: Optional local context budget for tokenizer-based
+                profiles, including reserved output tokens.
+            requester: Optional callable accepting a native payload and returning
+                decoded provider data; bypasses the built-in HTTP retry transport.
+
+        Raises:
+            ValueError: The profile, endpoint, option values or raw export request
+                is unsupported.
+        """
         self.profile = (require_raw_trace_profile(config.get("alias")) if config.get("return_token_ids") is True
                         else load_profile(config.get("alias")))
         connection = {"alias", "base", "key", "timeout", "retry"}
@@ -147,6 +203,13 @@ class ModelAdapter:
         self.counting_available = False
 
     def load_tokenizer(self):
+        """Load the profile's tokenizer when context counting or raw export needs it.
+
+        Checks the local cache before allowing a download. Raw export pins the
+        registered revision and raises RawTraceExportError if loading fails. Without
+        export, a loading failure is logged and context enforcement stays with the
+        provider.
+        """
         if self.raw_trace_enabled or (self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length):
             try:
                 from transformers import AutoTokenizer
@@ -162,15 +225,42 @@ class ModelAdapter:
                 self.logger.warning("Tokenizer unavailable; provider enforces context limit: %s", exc)
 
     def export_raw_trace(self, capture, task_id):
+        """Reconstruct a Qwen trace from a captured response and its exact request.
+
+        Args:
+            capture: Mapping containing response and messages from request capture.
+            task_id: Sample identifier used to name image attachments.
+
+        Returns:
+            A mapping of reconstructed messages and base64 image attachments.
+
+        Raises:
+            RawTraceExportError: Token IDs, tokenizer, ChatML or image alignment are invalid.
+        """
         return build_raw_trace_from_tokens(capture.get("response"), capture.get("messages"), self._tokenizer, task_id)
 
     def encode_message(self, message):
+        """Copy a chat-style message into the configured provider's native representation."""
         if self.protocol == "chat_completions":
             return cp.deepcopy(message)
         return {"type": "message", "role": message["role"],
                 "content": self._content_to_responses_parts(message.get("content"), message["role"])}
 
     def payload(self, messages, tools=None, tool_choice="auto", *, options=None, seed=None):
+        """Build a native request payload without mutating messages or tool schemas.
+
+        Args:
+            messages: Conversation items already encoded for this adapter's protocol.
+            tools: Optional function-tool schemas in Chat Completions form.
+            tool_choice: Tool-selection mode when schemas are supplied.
+            options: Per-request generation options, replacing configured options
+                except that an omitted max_tokens inherits the adapter's budget.
+            seed: Optional sampling seed, used only by Chat Completions.
+
+        Returns:
+            A provider-native JSON mapping. Responses requests disable storage and
+            translate output limits, reasoning options and function schemas.
+        """
         options = cp.deepcopy(self.options if options is None else options)
         options.setdefault("max_tokens", self.max_tokens)
         if self.protocol == "chat_completions":
@@ -197,6 +287,25 @@ class ModelAdapter:
         return payload
 
     def request(self, messages, tools=None, tool_choice="auto", *, options=None, seed=None, capture=None):
+        """Send a native request and optionally capture its exact messages and response.
+
+        Args:
+            messages: Provider-native conversation items.
+            tools: Optional Chat Completions-style function schemas.
+            tool_choice: Provider tool-selection mode.
+            options: Generation overrides accepted by payload.
+            seed: Optional Chat Completions sampling seed.
+            capture: Mutable mapping cleared before the attempt and populated on
+                success with deep copies of response and request messages. Intended
+                for Qwen raw trace export.
+
+        Returns:
+            Decoded provider data; parse performs protocol validation separately.
+
+        Raises:
+            RuntimeError: The provider returns an HTTP error after applicable retries.
+            requests.RequestException: A transport failure exhausts retries.
+        """
         if capture is not None:
             capture.clear()
         payload = self.payload(messages, tools, tool_choice, options=options, seed=seed)
@@ -216,6 +325,21 @@ class ModelAdapter:
         return response
 
     def parse(self, response, turn_idx, *, phase="main"):
+        """Validate provider data and normalize assistant text and tool calls.
+
+        Args:
+            response: Decoded Chat Completions or Responses payload.
+            turn_idx: Zero-based turn index for generated call IDs and diagnostics.
+            phase: Request phase label used in multi-call diagnostics.
+
+        Returns:
+            A (text, calls, original_message) tuple. original_message is present for
+            Chat Completions only. Invalid tool arguments and multiple calls become
+            per-call parse_error records so the agent can return structured feedback.
+
+        Raises:
+            RuntimeError: The response is not an object or lacks required protocol fields.
+        """
         if not isinstance(response, dict):
             raise RuntimeError("Model response must be an object")
         if self.protocol == "chat_completions":
@@ -240,6 +364,7 @@ class ModelAdapter:
         return self._extract_assistant_text(output), calls, None
 
     def append_assistant_calls(self, messages, text, calls, original):
+        """Append native assistant tool-call items to history, preserving call IDs."""
         if self.protocol == "chat_completions":
             message = {"role": "assistant", "content": original.get("content") or "",
                        "tool_calls": [call["assistant_tool_call"] for call in calls]}
@@ -253,6 +378,12 @@ class ModelAdapter:
                 messages.append(self.encode_message({"role": "assistant", "content": text}))
 
     def result_messages(self, call, result):
+        """Render a capability outcome into immediate and deferred message lists.
+
+        Chat Completions receives a tool acknowledgment followed by deferred user
+        evidence on success. Responses receives a function_call_output containing
+        the result evidence or structured failure.
+        """
         evidence = result.evidence
         content = evidence[0]["text"] if len(evidence) == 1 and evidence[0].get("type") == "text" else evidence
         deferred = {"role": "user", "content": content} if result.ok else None
@@ -264,11 +395,17 @@ class ModelAdapter:
         return [ack], [deferred] if deferred else []
 
     def final_answer(self, text):
+        """Extract answer-tag content, falling back to full text only when the profile allows."""
         match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL | re.IGNORECASE)
         tagged = match.group(1).strip() if match else ""
         return tagged or text if self.profile["final_answer"] == "answer_tag_or_text" else tagged
 
     def generate_text(self, messages, *, max_tokens=4096):
+        """Generate text without tools from chat-style messages.
+
+        Uses temperature zero for Chat Completions and medium reasoning for
+        Responses. max_tokens limits the output; provider failures propagate.
+        """
         options = {"max_tokens": max_tokens}
         if self.protocol == "responses":
             options["reasoning_effort"] = "medium"
@@ -488,13 +625,13 @@ class ModelAdapter:
         return count is not None and count <= token_budget
 
     def _build_vanilla_fallback_msgs(self, msgs):
-        """Build a minimal user-only message list for base-agent-style fallback.
+        """Return the first user message for a direct-answer context fallback.
 
-        Used when context length is exceeded — drops all tool conversation
-        and retries with just the original input and a direct-answer prompt.
+        Drops system instructions and tool conversation. The returned list references
+        the selected message from msgs and contains no added prompt text.
         """
         fallback = []
-        # Do not keep the tool-agent system prompt; fallback should behave like BaseAgent, we only keep the original user question.
+        # Use only the initial user question for direct-answer fallback.
         for m in msgs:
             if m.get("role") == "user":
                 fallback.append(m)
@@ -502,10 +639,11 @@ class ModelAdapter:
         return fallback
 
     def _ensure_context_fits(self, msgs, model_tools, tool_choice):
-        """Check context length and compact/force final answer if needed.
+        """Compact history in place and return the effective tools and tool choice.
 
-        Returns (model_tools, tool_choice) — may be modified if the model is
-        forced to answer directly.
+        Reserves max_tokens plus 512 tokens. If compaction cannot meet the budget,
+        replaces history with the first user message and returns (None, "none").
+        Missing tokenizer counts leave provider-side context enforcement in effect.
         """
         max_ctx = getattr(self, "max_context_length", None)
         if not max_ctx:
@@ -614,6 +752,7 @@ class ModelAdapter:
 
     @staticmethod
     def _extract_function_calls(output_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Select function_call items from a Responses output list."""
         calls: List[Dict[str, Any]] = []
         for item in output_items:
             if isinstance(item, dict) and item.get("type") == "function_call":
@@ -679,21 +818,12 @@ class ModelAdapter:
         deferred_message: Optional[Dict[str, Any]],
         run_memory: Any,
     ) -> Dict[str, Any]:
-        """Build the `function_call_output` input item to append after a tool runs.
+        """Build a Responses function_call_output from prepared capability evidence.
 
-        The success path reuses the same per-tool `process_tool_output` pipeline
-        the Chat-Completions path uses: `consume_tool_payload` already produced
-        the fully-processed model-facing user message in
-        `memory_result["deferred_messages"][0]`, which we translate from
-        Chat-API content shape to Responses-API content shape.
-
-        Shape:
-        - Failure: `output` is the same error string `BaseAgentWithTools`'
-          memory layer builds for `role="tool"` failure acks
-          (`PersistentStateMemory._build_failure_tool_content`).
-        - Success, text-only: `output` is the plain processed text.
-        - Success with images: `output` is a mixed-content array
-          `[{type:"input_text", text:..}, {type:"input_image", image_url:"data:..."}, ...]`.
+        Failure output is rendered error text. Successful text-only evidence remains
+        text; image evidence becomes input_text/input_image parts. A missing deferred
+        message falls back to serializing the raw result. run_memory is accepted but
+        unused; artifacts are already registered by the capability.
         """
         # Failure path.
         if not normalized_payload.get("ok"):

@@ -1,12 +1,25 @@
-"""Tool-specific output post-processing for Python_Coding_Agent_Tool.
+"""Compute over tool results by generating and running Python code.
 
-Formats the generated code for the agent's message history.
+Python_Coding_Agent_Tool turns a natural-language objective into code using
+available binding descriptions, then executes it locally on copied values and
+presents printed output, variable previews and execution errors.
 """
 
 PROCESSOR_MODE = "custom"
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render generated code, printed output or execution errors with output images.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     if not payload or not payload.get("ok"):
         return {"processor_info": {"mode": PROCESSOR_MODE, "status": "fallback"}}
 
@@ -88,6 +101,11 @@ from typing import TypedDict
 
 
 class Output(TypedDict):
+    """Generated code, execution text, variable previews and output image IDs.
+
+    execution_error reports failures without discarding generated_code. variables
+    contains text representations rather than live Python values.
+    """
     generated_code: str | None
     printed_output: str
     variables: dict[str, str]
@@ -97,17 +115,24 @@ class Output(TypedDict):
 
 
 class Capability(BaseCapability):
+    """Generate Python computations and execute them locally on copied memory bindings."""
     name = 'Python_Coding_Agent_Tool'
     backends = {'python_coding_agent': 'Python_Coding_Agent_Tool'}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
     def translate_args(self, args, memory):
+        """Add binding descriptors when the tool_context memory module is enabled."""
         if memory.state.bindings.descriptors and "tool_context" in memory.modules:
             args["binding_descriptors"] = memory.describe_bindings()
         return args
 
     def execute(self, call, args, memory):
+        """Generate code remotely, then execute it locally on deep-copied bindings.
+
+        Execution uses the configured timeout (30 seconds by default). Timeouts and
+        other execution errors populate execution_error in the returned result.
+        """
         from ..services.tools.python_executor_local.executor import (
             prepare_execution_context, execute_python_code, CodeExecutionTimeoutError)
         payload = super().execute(call, args, memory)
@@ -125,6 +150,7 @@ class Capability(BaseCapability):
         return payload
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Return code, execution diagnostics, variable previews and registered output images."""
         result = result if isinstance(result, dict) else {}
         return {"generated_code": result.get("generated_code"), "printed_output": result.get("printed_output", ""),
             "variables": result.get("variables", {}), "execution_code": result.get("execution_code"),

@@ -1,3 +1,4 @@
+"""Compose model-visible inventories from per-question memory registries."""
 from typing import Any, Dict, List
 from .run_state import MemoryRunState
 from .images import _snapshot
@@ -7,30 +8,30 @@ from .urls import _WEBPAGE_URL_REF_PATTERN
 _ENV_UPDATE_PREAMBLE = "Environment Update (not a new question):"
 
 class EnvironmentUpdateBuilder:
-    """Per-turn accumulator for environment-update sections contributed by modules.
+    """Accumulate inventory sections into one user-role environment update.
 
-    Lives on `state.scratch["env_update"]`. The orchestrator resets it before each
-    `on_run_start` / `emit_after_tool_turn` pass and reads it after, coalescing
-    all contributed sections into a single `role=user` Environment Update message.
-
-    Each section is a block of lines. Sections are separated by a blank line.
-    A leading `_ENV_UPDATE_PREAMBLE` header is prepended automatically.
+    MemoryStore resets the builder in state.scratch before collecting enabled
+    inventories. Sections are separated by blank lines after a shared preamble.
     """
 
     SCRATCH_KEY = "env_update"
 
     def __init__(self) -> None:
+        """Start with no inventory sections."""
         self.sections: List[List[str]] = []
 
     def add_section(self, lines: List[str]) -> None:
+        """Append a copy of a nonempty section's text lines."""
         if not lines:
             return
         self.sections.append(list(lines))
 
     def is_empty(self) -> bool:
+        """Return whether no sections have been added."""
         return not self.sections
 
     def build_message(self) -> Dict[str, Any]:
+        """Return a user-role message containing the preamble and collected sections."""
         body: List[str] = [_ENV_UPDATE_PREAMBLE]
         for i, section_lines in enumerate(self.sections):
             if i > 0:
@@ -40,6 +41,7 @@ class EnvironmentUpdateBuilder:
 
     @classmethod
     def get(cls, state: MemoryRunState) -> "EnvironmentUpdateBuilder":
+        """Retrieve the state's builder, creating and storing one if necessary."""
         slot = state.scratch.get(cls.SCRATCH_KEY)
         if not isinstance(slot, EnvironmentUpdateBuilder):
             slot = cls()
@@ -48,11 +50,13 @@ class EnvironmentUpdateBuilder:
 
     @classmethod
     def reset(cls, state: MemoryRunState) -> "EnvironmentUpdateBuilder":
+        """Replace the state's builder with an empty instance and return it."""
         builder = cls()
         state.scratch[cls.SCRATCH_KEY] = builder
         return builder
 
 def add_image_inventory(state):
+    """Append ordered image IDs and provenance to the state's inventory builder."""
     snapshot = _snapshot(state.images)
     builder = EnvironmentUpdateBuilder.get(state)
     lines: List[str] = ["Currently available image IDs for tool calls:"]
@@ -73,6 +77,7 @@ def add_image_inventory(state):
     return []
 
 def add_binding_inventory(state):
+    """Append stored Python variable names and concise value summaries, if present."""
     if not state.bindings.bindings:
         return []
     builder = EnvironmentUpdateBuilder.get(state)
@@ -84,6 +89,10 @@ def add_binding_inventory(state):
     return []
 
 def add_url_inventory(state, webpage_env_update_limit=20):
+    """Append webpage IDs and domains, limited to the most recently registered URLs.
+
+    webpage_env_update_limit=None includes the complete registry.
+    """
     registry = state.urls.webpage_registry
     if not registry:
         return []

@@ -11,6 +11,7 @@ from ..services.raw_trace import RawTraceExportError
 
 
 def _accumulate(into, values):
+    """Add numeric usage fields recursively into a mutable totals mapping."""
     for key, value in values.items():
         if isinstance(value, bool):
             continue
@@ -21,10 +22,28 @@ def _accumulate(into, values):
 
 
 class MainAgent:
+    """Coordinate model requests and capability execution for independent questions.
+
+    Each generate call creates fresh memory and trajectory state. Capability
+    implementations own tool semantics; the adapter owns provider message formats,
+    context handling and final-answer extraction.
+    """
     fail_msg = "Error: Unable to get response from the server."
 
     def __init__(self, model_adapter, capabilities, memory_factory, system_prompt, user_prefix,
                  max_iterations=15, tool_choice="auto", paired_sampling_seed=False):
+        """Configure the agent and publish tool schemas to its model adapter.
+
+        Args:
+            model_adapter: Adapter for the orchestrator's registered model profile.
+            capabilities: Mapping of public tool names to capability instances.
+            memory_factory: Zero-argument callable creating fresh question memory.
+            system_prompt: System instruction text.
+            user_prefix: Format string containing the user_query placeholder.
+            max_iterations: Maximum number of regular model/tool iterations.
+            tool_choice: Provider tool-selection mode for regular requests.
+            paired_sampling_seed: Derive request seeds from task_id when available.
+        """
         self.adapter = model_adapter
         self.capabilities = dict(capabilities)
         self.memory_factory = memory_factory
@@ -38,6 +57,26 @@ class MainAgent:
         self.adapter.json_schema = self.json_schema
 
     def generate(self, message, *, dataset=None, task_id=None):
+        """Answer one question and collect its trajectory, artifacts and usage.
+
+        Args:
+            message: Text, an image/text item, or a list of strings or typed items.
+            dataset: Accepted for evaluator integration; not used by the agent.
+            task_id: Optional sample identifier used for seeds and raw trace filenames.
+
+        Returns:
+            A mapping with prediction and extra_records. Records include trajectory
+            and tool_detections, plus usage when reported. Inference failures retain
+            partial records and set trajectory.error. Requested raw trace exports
+            populate trajectory.raw_trace or an explicit trajectory.raw_trace_error.
+
+        Raises:
+            ValueError: Input items are malformed.
+            OSError: Input image loading fails before inference begins.
+
+        HTTP image inputs are downloaded during normalization. The caller's message
+        is copied; tool results and conversation state belong to this question only.
+        """
         del dataset
         original = copy.deepcopy(message)
         question, system = normalize_input(message, self.system_prompt)
@@ -72,6 +111,12 @@ class MainAgent:
         return {"prediction": final, "extra_records": extra}
 
     def _run(self, history, memory, turns, detections, usage, task_id, *, capture=None):
+        """Run model/tool iterations, updating history, memory and reporting lists.
+
+        Returns the extracted final answer or the failure message. The adapter may
+        compact history or issue a text-only final request according to its profile.
+        When supplied, capture holds the terminating response and its exact request.
+        """
         adapter = self.adapter
         policy = adapter.profile
         tools, choice = self.json_schema, self.tool_choice
@@ -167,6 +212,7 @@ class MainAgent:
 
     @staticmethod
     def _turn(index, text, calls):
+        """Create a reporting record with tagged reasoning and normalized tool calls."""
         def tag(name):
             match = re.search(rf"<{name}>(.*?)</{name}>", text, re.DOTALL | re.IGNORECASE)
             return match.group(1).strip() if match else ""

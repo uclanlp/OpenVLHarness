@@ -1,9 +1,24 @@
-"""Zoom-In-specific output post-processing for agent-visible messages."""
+"""Crop a selected image region for closer visual inspection.
+
+Zoom_In_Tool accepts a padded box on the 0–1000 coordinate scale and registers
+the crop as a new image reference for the model and subsequent tool calls.
+"""
 
 PROCESSOR_MODE = "custom"
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render the crop with its memory ID and image content.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     result = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(result, dict) or not payload.get("ok"):
         return {"processor_info": {"mode": PROCESSOR_MODE, "status": "fallback"}}
@@ -74,14 +89,17 @@ from typing import TypedDict
 
 
 class Output(TypedDict):
+    """Canonical crop result containing its registered image ID, or None."""
     image: str | None
 
 
 class Capability(BaseCapability):
+    """Expose normalized-coordinate image cropping and register the resulting image."""
     name = 'Zoom_In_Tool'
     backends = {'zoom_in_image_by_bbox': 'Zoom_In_Tool'}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Return the first registered crop image ID, or None if unavailable."""
         return {"image": next(iter(prepared["image_refs"]), None)}

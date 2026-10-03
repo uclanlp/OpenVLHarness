@@ -4,6 +4,19 @@ import mimetypes
 import os
 
 def local_image_to_data_url(image_path: str) -> str:
+    """Encode a local file as a data URL without changing its bytes.
+
+    Args:
+        image_path: Path to the image file. Its suffix determines the MIME type;
+            unrecognized suffixes use application/octet-stream.
+
+    Returns:
+        A MIME-prefixed base64 data URL.
+
+    Raises:
+        FileNotFoundError: The path does not identify a file.
+        OSError: Reading the file fails.
+    """
     mime_type, _ = mimetypes.guess_type(image_path)
     if mime_type is None:
         mime_type = "application/octet-stream"
@@ -18,6 +31,7 @@ import io
 from PIL import Image
 
 def resize_image_by_factor(img, factor=1):
+    """Return a resized Pillow image with width and height multiplied by factor."""
     w, h = img.size
     new_w, new_h = int(w * factor), int(h * factor)
     img = img.resize((new_w, new_h))
@@ -26,6 +40,18 @@ def resize_image_by_factor(img, factor=1):
 def encode_image_to_base64(img, target_size=-1, fmt='JPEG'):
     # if target_size == -1, will not do resizing
     # else, will set the max_size ot (target_size, target_size)
+    """Encode a Pillow image while applying configured size limits.
+
+    Args:
+        img: Pillow image. A positive target_size may shrink it in place.
+        target_size: Maximum thumbnail edge, or a nonpositive value to skip it.
+        fmt: Pillow output format; defaults to JPEG.
+
+    Returns:
+        Base64 text without a data-URL prefix. Palette/alpha images are converted
+        to RGB. VLMEVAL_MIN_IMAGE_EDGE controls upscaling and
+        VLMEVAL_MAX_IMAGE_SIZE limits encoded text length by iterative resizing.
+    """
     if img.mode in ('RGBA', 'P', 'LA'):
         img = img.convert('RGB')
     if target_size > 0:

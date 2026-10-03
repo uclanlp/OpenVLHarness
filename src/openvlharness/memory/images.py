@@ -1,3 +1,4 @@
+"""Image registration, alias resolution and lazy downloading for question memory."""
 import copy as cp
 import json
 import os
@@ -13,12 +14,14 @@ _IMAGE_REGISTRY_DEFAULT_ALIASES = ("image", "image.jpg", "image.jpeg", "image.pn
 
 
 def _normalize_image_alias(alias: Any) -> str:
+    """Return a case-insensitive image alias, or an empty string for invalid input."""
     if not isinstance(alias, str):
         return ""
     return alias.strip().lower()
 
 
 def _is_likely_base64(value: Any) -> bool:
+    """Heuristically recognize inline image data without decoding its bytes."""
     if not isinstance(value, str):
         return False
     value = value.strip()
@@ -32,6 +35,7 @@ def _is_likely_base64(value: Any) -> bool:
 
 
 def next_tool_generated_image_ref_id(images: ImagesState) -> str:
+    """Increment the image counter and return the next tool_generated_image ID."""
     images.tool_generated_counter += 1
     return f"tool_generated_image_{images.tool_generated_counter}"
 
@@ -44,6 +48,18 @@ def register_image_data_url(
     source: str,
     aliases: Optional[List[str]] = None,
 ) -> Optional[str]:
+    """Register image bytes and aliases, deduplicating identical data URLs.
+
+    Args:
+        images: Mutable image registry state.
+        ref_id: Proposed ID, used only when the data URL is not registered.
+        data_url: Image data URL to store.
+        source: Provenance label displayed in inventories.
+        aliases: Additional names for case-insensitive lookup.
+
+    Returns:
+        The assigned or existing ID, or None for a non-image data URL.
+    """
     if not isinstance(data_url, str):
         return None
     data_url = data_url.strip()
@@ -89,11 +105,17 @@ def register_image_url_lazy(
     source_tool: str = "",
     turn_idx: int = -1,
 ) -> Optional[str]:
-    """Register an image URL as an unresolved registry entry (data_url=None).
+    """Register a remote image URL for download on first resolution.
 
-    Bytes are fetched lazily on first consume by a visual tool via
-    `_lazy_fetch_into_entry` (called from `resolve_registry_image_data_url`).
-    Used by URL search-result rewriting in UrlModule.
+    Args:
+        images: Mutable image registry state.
+        url: Remote URL; trailing prose punctuation is removed.
+        source_tool: Tool name recorded in the source label.
+        turn_idx: Accepted for shared registration call sites; not stored.
+
+    Returns:
+        A deduplicated tool-generated image ID, or None for empty/non-string input.
+        The entry's data_url remains None until a successful fetch.
     """
     del turn_idx
     if not isinstance(url, str):
@@ -132,6 +154,7 @@ def register_image_url_lazy(
 
 
 def _fetch_image_data_url(url: str) -> Optional[str]:
+    """Download a URL as image data; return None on HTTP errors or non-image MIME types."""
     import base64
     import requests
 
@@ -150,6 +173,7 @@ def _fetch_image_data_url(url: str) -> Optional[str]:
 
 
 def _lazy_fetch_into_entry(images: ImagesState, ref_id: str, url: str) -> Optional[str]:
+    """Fetch image bytes into an existing entry and update reverse lookup on success."""
     data_url = _fetch_image_data_url(url)
     if not data_url:
         return None
@@ -164,6 +188,7 @@ def _lazy_fetch_into_entry(images: ImagesState, ref_id: str, url: str) -> Option
 def _download_and_register_url(
     images: ImagesState, url: str
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Resolve a URL alias or download/register it, returning data, ID and source note."""
     norm_alias = _normalize_image_alias(url)
     existing_ref = images.alias_to_ref.get(norm_alias)
     if existing_ref and existing_ref in images.registry:
@@ -189,6 +214,18 @@ def _download_and_register_url(
 def resolve_registry_image_data_url(
     images: ImagesState, image_ref: Any
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Resolve inline data, aliases, registry IDs or remote image URLs.
+
+    Args:
+        images: Mutable image registry, updated when a remote fetch succeeds.
+        image_ref: Reference string supplied by a caller.
+
+    Returns:
+        A (data_url, registry_id, resolution_note) tuple. Inline data has no ID;
+        notes identify downloads, lazy fetches or single-image fallback. Local
+        files must already be registered. Unknown names may use the sole registry
+        entry when exactly one exists. Unresolved values return None fields.
+    """
     if not isinstance(image_ref, str):
         return None, None, None
     raw = image_ref.strip()
@@ -233,6 +270,11 @@ def resolve_registry_image_data_url(
 
 
 def build_image_registry_from_inputs(images: ImagesState, question: Any) -> Dict[str, Dict[str, Any]]:
+    """Replace the image registry and alias indexes using normalized input items.
+
+    Local files and inline data are registered as input_image_1, input_image_2,
+    and so on. Invalid image items are skipped. Returns the mutable registry.
+    """
     images.registry.clear()
     images.alias_to_ref.clear()
     images.url_to_ref.clear()
@@ -277,6 +319,7 @@ def build_image_registry_from_inputs(images: ImagesState, question: Any) -> Dict
 
 
 def _snapshot_sort_key(ref_id: str) -> Tuple[int, int, str]:
+    """Order input images before generated images, using numeric ID order."""
     match = _INPUT_IMAGE_REF_PATTERN.match(ref_id)
     if match:
         return (0, int(match.group(1)), ref_id)
@@ -286,6 +329,7 @@ def _snapshot_sort_key(ref_id: str) -> Tuple[int, int, str]:
     return (2, 0, ref_id)
 
 def _snapshot(images: ImagesState) -> Tuple[Tuple[str, str], ...]:
+    """Return ordered image ID/source pairs for inventory rendering and change detection."""
     rows = []
     for ref_id in sorted(images.registry.keys(), key=_snapshot_sort_key):
         entry = images.registry.get(ref_id) or {}

@@ -12,7 +12,7 @@ from .memory.store import MemoryStore
 from .services.models import ModelAdapter, require_raw_trace_profile
 from .services.client import ToolClient
 
-# Explicit allowlist; the final registry is sorted by public name like the old router.
+# Explicit allowlist; the registry is sorted by public tool name.
 PAPER_CAPABILITIES = ("grounding", "ocr", "depth", "camera_pose", "zoom",
                       "text_search", "image_search", "web_visit", "coding")
 PAPER_BACKENDS = dict(zip(PAPER_CAPABILITIES, (
@@ -22,6 +22,7 @@ RAW_BACKENDS = {"sam3_segment", "ocr", "depth_estimation", "camera_trajectory", 
 
 
 def _expand(value):
+    """Recursively copy configuration values, resolving required ${NAME} variables."""
     if isinstance(value, dict):
         return {key: _expand(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -37,6 +38,24 @@ def _expand(value):
 
 
 def load_agent_config(config, *, save_raw_trace=False):
+    """Load, expand and validate an agent-system configuration.
+
+    Args:
+        config: Configuration mapping or path to a YAML file. Mappings are copied.
+        save_raw_trace: Enable token IDs for the supported Qwen orchestrator profile.
+            The returned configuration records this effective setting.
+
+    Returns:
+        A validated configuration with environment placeholders resolved.
+
+    Raises:
+        ValueError: A required environment variable, section, option, backend or
+            model profile is missing or unsupported.
+        OSError: A configuration file cannot be read.
+
+    Validation constructs adapters but does not send inference requests or load
+    backend implementations. Raw trace support is checked before agent creation.
+    """
     if isinstance(config, (str, Path)):
         with open(config) as stream:
             config = yaml.safe_load(stream)
@@ -142,6 +161,17 @@ def load_agent_config(config, *, save_raw_trace=False):
 
 
 def memory_factory(config):
+    """Return a callable that creates independent question memory stores.
+
+    Args:
+        config: Memory section containing ordered modules and inventory policy.
+
+    Returns:
+        A zero-argument factory. Each invocation creates fresh registry state.
+
+    Raises:
+        ValueError: The memory configuration contains unsupported options.
+    """
     if set(config) - {"modules", "emit_policy"}:
         raise ValueError("Unknown memory options")
     entries = config.get("modules")
@@ -158,6 +188,15 @@ def memory_factory(config):
 
 
 def build_capabilities(config):
+    """Construct the selected capabilities, ordered by public tool name.
+
+    Args:
+        config: Validated agent-system configuration.
+
+    Returns:
+        A mapping of public tool names to capability instances. Instances own
+        their transport settings; no tool execution occurs during construction.
+    """
     selected = config["capabilities"]["tools"]
     services = config["services"]
     result = {}
@@ -178,12 +217,28 @@ def build_capabilities(config):
 
 
 def resolved_model_id(config):
+    """Validate a configuration and return the orchestrator profile's served model ID."""
     config = load_agent_config(config)
     model = config["services"]["models"][config["agent"]["model_service"]]
     return ModelAdapter(model).model
 
 
 def build_agent(config):
+    """Build a configured agent with prompts, tools and a memory factory.
+
+    Args:
+        config: Agent-system mapping or YAML path accepted by load_agent_config.
+
+    Returns:
+        A MainAgent ready to accept image/text questions.
+
+    Raises:
+        ValueError: Configuration or model-profile validation fails.
+        RawTraceExportError: Raw trace export requires a tokenizer that cannot load.
+
+    Loads a tokenizer when the profile requires one, using the local cache first
+    and downloading it if necessary. Does not start model or tool servers.
+    """
     from .agent.agent import MainAgent
     config = load_agent_config(config)
     options = config["agent"]

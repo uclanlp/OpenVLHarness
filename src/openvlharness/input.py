@@ -12,6 +12,7 @@ from .media import encode_image_to_base64
 
 
 def _is_image_reference(value):
+    """Recognize image data URLs or image-like local/HTTP paths by MIME suffix."""
     if value.startswith("data:image/"):
         return True
     remote = value.startswith(("http://", "https://"))
@@ -33,6 +34,22 @@ def _normalize_image(value):
 
 
 def normalize_input(message, system_prompt):
+    """Copy public inputs into typed items and combine system instructions.
+
+    Args:
+        message: Text, one type/value mapping, or a list of strings or mappings.
+            Image values may be local paths, data URLs or HTTP(S) URLs.
+        system_prompt: Base system instruction text.
+
+    Returns:
+        A pair of user input items and the combined system prompt. Remote user
+        images are downloaded into data URLs shared by messages and memory.
+
+    Raises:
+        ValueError: Inputs are empty, malformed or have unsupported types.
+        requests.RequestException: Downloading a remote image fails.
+        OSError: Downloaded bytes cannot be decoded as an image.
+    """
     if isinstance(message, str):
         message = [{"type": "text", "value": message}]
     elif isinstance(message, dict):
@@ -60,6 +77,21 @@ def normalize_input(message, system_prompt):
 
 
 def input_messages(question, system_prompt, user_prefix):
+    """Build system and user messages from normalized image/text items.
+
+    Args:
+        question: User items returned by normalize_input; remote images must
+            already be represented as data URLs.
+        system_prompt: Combined system instructions.
+        user_prefix: Format string applied to the first text part via user_query.
+
+    Returns:
+        Two Chat Completions-style messages, with images encoded as JPEG data URLs.
+        Text-only inputs are joined into one text part.
+
+    Raises:
+        OSError: A local image cannot be opened or encoded.
+    """
     parts = []
     if any(item["type"] == "image" for item in question):
         for item in question:

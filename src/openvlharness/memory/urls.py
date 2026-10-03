@@ -1,3 +1,4 @@
+"""Register webpage references and replace search-result links with memory IDs."""
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -17,12 +18,14 @@ _IMG_KIND_SENTINEL = " <img>"
 
 
 def _normalize_tool_name(name: Any) -> str:
+    """Normalize a tool name for case-insensitive comparison."""
     if not isinstance(name, str):
         return ""
     return name.strip().lower()
 
 
 def _safe_domain(url: str) -> str:
+    """Extract a host and optional port without www, or return an empty string."""
     if not isinstance(url, str) or not url:
         return ""
     try:
@@ -40,6 +43,7 @@ def _safe_domain(url: str) -> str:
 
 
 def _infer_link_kind(url: str) -> str:
+    """Classify URLs with recognized image suffixes as images and others as webpages."""
     if not isinstance(url, str):
         return "webpage"
     try:
@@ -58,6 +62,17 @@ def register_webpage_url(
     source_tool: str = "",
     turn_idx: int = -1,
 ) -> Optional[str]:
+    """Assign a stable webpage_url ID and record URL provenance.
+
+    Args:
+        urls: Mutable webpage registry state.
+        url: URL string; trailing prose punctuation is removed.
+        source_tool: Producing tool name.
+        turn_idx: First-seen turn index, or -1 when unavailable.
+
+    Returns:
+        An existing or newly allocated ID, or None for empty/non-string input.
+    """
     if not isinstance(url, str):
         return None
     url = url.strip()
@@ -88,6 +103,19 @@ def rewrite_search_result_text(
     source_tool: str,
     turn_idx: int = -1,
 ) -> str:
+    """Replace result URLs with bracketed memory IDs while preserving surrounding text.
+
+    Args:
+        state: Question state whose image and webpage registries are updated.
+        text: Search evidence containing HTTP(S) URLs.
+        source_tool: Tool name recorded as provenance.
+        turn_idx: Turn index recorded for newly registered webpages.
+
+    Returns:
+        Rewritten evidence. Image suffixes or an adjacent <img> marker produce
+        lazy image references; other URLs produce webpage references. No image
+        download occurs here.
+    """
     if not isinstance(text, str) or not text:
         return text if isinstance(text, str) else ""
 
@@ -139,6 +167,11 @@ def _resolve_urls_in_value(
     rewrites: List[Dict[str, Any]],
     path: str,
 ) -> Any:
+    """Recursively substitute webpage IDs with URLs and append rewrite diagnostics.
+
+    Returns new lists/dictionaries; unknown references and scalar values pass
+    through. path identifies the current field in the caller's rewrites list.
+    """
     if isinstance(value, str):
         stripped = value.strip()
         ref_match = _WEBPAGE_URL_REF_PATTERN.match(stripped)

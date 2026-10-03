@@ -1,4 +1,8 @@
-"""SAM3-specific output post-processing for agent-visible messages."""
+"""Locate objects described by a text query and expose boxes, scores and optional masks.
+
+Visual_Grounding_Tool supports SAM3 segmentation or Grounding DINO detection.
+Results include pixel and 0–1000 boxes, Python bindings and model-visible evidence.
+"""
 
 import json
 import math
@@ -7,6 +11,7 @@ PROCESSOR_MODE = "custom"
 
 
 def _safe_int(value, default=0):
+    """Coerce a value to an integer, returning default when conversion fails."""
     try:
         return int(value)
     except Exception:
@@ -14,6 +19,17 @@ def _safe_int(value, default=0):
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render normalized grounding boxes and collect pixel-space detection sidecars.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     if not isinstance(payload, dict) or payload.get("ok") is not True:
         return {
             "processor_info": {
@@ -52,7 +68,7 @@ def process_tool_output(payload, prepared, tool_metadata=None):
         orig_w = result.get("orig_img_w", 1)
         orig_h = result.get("orig_img_h", 1)
 
-        # Phase 2: stash per-call (boxes, scores) candidate set on the
+        # Attach the per-call (boxes, scores) candidate set to the
         # orchestrator's eval sidecar. The orchestrator sees the
         # `tool_detection` key in this return and forwards it to
         # record_tool_detection — keeps process_fn free of memory access.
@@ -159,6 +175,12 @@ from typing import TypedDict
 
 
 class Output(TypedDict):
+    """Canonical grounding output with pixel and normalized boxes.
+
+    size is [height, width]; boxes are pixel xyxy and boxes_normalized use the
+    0–1000 xyxy scale. scores and labels align with boxes. Segmentation masks and
+    num_masks are None for Grounding DINO. rendered_image is a memory image ID.
+    """
     query: str
     model_id: str | None
     size: list[int] | None  # [height, width]
@@ -172,17 +194,20 @@ class Output(TypedDict):
 
 
 class Capability(BaseCapability):
+    """Expose SAM3 or Grounding DINO detections through one public grounding tool."""
     name = 'Visual_Grounding_Tool'
     backends = {'sam3_segment': 'Visual_Grounding_Tool', 'grounding_dino': 'GroundingDINO_Tool'}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
     def __init__(self, **kwargs):
+        """Select the backend and its SAM3 or Grounding DINO evidence renderer."""
         super().__init__(**kwargs)
         if self.backend == "grounding_dino":
             self.process_output = self._dino_evidence
 
     def validate_result(self, payload):
+        """Require finite, aligned boxes/scores and positive dimensions for detections."""
         result = payload.get("result")
         if not isinstance(result, dict):
             raise ValueError("Grounding result must be an object")
@@ -206,6 +231,7 @@ class Capability(BaseCapability):
 
     @staticmethod
     def _dino_evidence(payload, prepared, tool_metadata=None):
+        """Render DINO boxes with explicit mask unavailability and optional score sidecars."""
         result = payload.get("result") or {}
         boxes = result.get("boxes_normalized")
         text = ("Visual_Grounding_Tool returned bounding boxes on the 0–1000 scale "
@@ -221,12 +247,14 @@ class Capability(BaseCapability):
         return output
 
     def execute(self, call, args, memory):
+        """Execute grounding and supply the query when the DINO result omits it."""
         payload = super().execute(call, args, memory)
         if self.backend == "grounding_dino" and payload.get("ok") and isinstance(payload.get("result"), dict):
             payload["result"].setdefault("query", call.arguments["query"])
         return payload
 
     def store_result(self, call, result, memory):
+        """Store boxes, scores, mask data and source dimensions as a segment binding."""
         if self.backend == "grounding_dino" and isinstance(result, dict):
             size = result.get("size") or [None, None]
             result = {"pred_boxes": result.get("boxes"), "pred_scores": result.get("scores"),
@@ -236,6 +264,7 @@ class Capability(BaseCapability):
             descriptions=FIELD_DESCRIPTIONS)
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Return canonical detection fields with both pixel and 0–1000 box coordinates."""
         result = result if isinstance(result, dict) else {}
         dino = self.backend == "grounding_dino"
         size = result.get("size") if dino else [result.get("orig_img_h"), result.get("orig_img_w")]

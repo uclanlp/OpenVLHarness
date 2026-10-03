@@ -1,12 +1,23 @@
-"""Tool-specific output post-processing — default placeholder."""
+"""Read selected webpages and extract evidence relevant to a stated goal.
+
+Webpage_Visit_Tool resolves stored page references, scrapes up to five URLs
+through Serper, and returns per-page evidence, summaries and fetch errors.
+"""
 
 PROCESSOR_MODE = "default_placeholder"
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
-    """Return None to delegate to the orchestrator's default tool-return
-    message construction. Tools needing a custom message build a dict
-    ``{"user_message": ..., "processor_info": ...}``.
+    """Return None to use the shared capability evidence renderer.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
     """
     return None
 
@@ -62,6 +73,7 @@ from typing import TypedDict
 
 
 class PageResult(TypedDict):
+    """One fetched URL's text, extracted evidence, summary and optional error."""
     url: str
     text: str
     evidence: str | None
@@ -70,10 +82,12 @@ class PageResult(TypedDict):
 
 
 class Output(TypedDict):
+    """Canonical webpage output containing ordered page extraction records."""
     pages: list[PageResult]
 
 
 class Capability(BaseCapability):
+    """Resolve webpage references and expose goal-directed page extraction."""
     name = 'Webpage_Visit_Tool'
     backends = {'serper_webpage_visit': 'Webpage_Visit_Tool'}
     schema = PUBLIC_SCHEMA
@@ -82,6 +96,7 @@ class Capability(BaseCapability):
     resolve_urls = True
 
     def validate_result(self, payload):
+        """Validate structured page fields from result data or service metadata when present."""
         result = payload.get("result")
         pages = result.get("pages") if isinstance(result, dict) else payload.get("meta", {}).get("pages")
         if pages is None:
@@ -95,6 +110,7 @@ class Capability(BaseCapability):
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
         # Structured page records are supplied by the service before text formatting.
+        """Return structured page evidence from the result or service metadata."""
         pages = result.get("pages") if isinstance(result, dict) else prepared.get("service_meta", {}).get("pages")
         if pages is None:
             return {"pages": []}

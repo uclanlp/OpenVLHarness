@@ -1,14 +1,7 @@
-"""Text_Search_Tool output post-processing for multimodal summarize.
+"""Find web pages, images, news, scholarly articles, places or products from text.
 
-When ``Text_Search_Tool.execute`` is called with ``search_type=images`` and
-multimodal mode is on, ``execute`` may return a dict
-``{"text": ..., "kept_image_data_urls": [...]}``. This processor mirrors the
-logic in ``serper_image_search.process_tool_output``: substitute per-entry
-placeholders with framework-assigned image refs and build a user_message
-carrying both the rendered text and the fetched image bytes.
-
-All other ``search_type`` values (search / news / scholar / ...) return string
-results; for those we return ``None`` so the framework's default builder runs.
+Text_Search_Tool queries the selected Serper endpoint and presents summarized
+evidence. Image searches can include fetched pixels; result links become memory IDs.
 """
 import json
 
@@ -17,6 +10,7 @@ MULTIMODAL_IMAGE_REF_PLACEHOLDER = "__MULTIMODAL_IMG_REF_PLACEHOLDER__"
 
 
 def _recover_text_with_url_refs(prepared, fallback_text):
+    """Read URL-rewritten result text, falling back when the prepared JSON is invalid."""
     text_payload = prepared.get("text_payload") if isinstance(prepared, dict) else None
     if isinstance(text_payload, str) and text_payload.strip():
         try:
@@ -33,6 +27,7 @@ def _recover_text_with_url_refs(prepared, fallback_text):
 
 
 def _substitute_placeholders(text, image_refs):
+    """Replace image placeholders in order; emit [] when references run out."""
     out_parts = []
     pos = 0
     ref_iter = iter(image_refs)
@@ -52,6 +47,17 @@ def _substitute_placeholders(text, image_refs):
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render multimodal search evidence, using default rendering for text-only results.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     if not isinstance(payload, dict) or not payload.get("ok"):
         return {
             "processor_info": {
@@ -191,12 +197,14 @@ from typing import TypedDict
 
 
 class Output(TypedDict):
+    """Canonical search text, discovered URLs and optional registered result image IDs."""
     text: str | None
     urls: list[str] | None
     images: list[str] | None
 
 
 class Capability(BaseCapability):
+    """Expose Serper search and rewrite result URLs into question-memory references."""
     name = 'Text_Search_Tool'
     backends = {'serper_text_search': 'Text_Search_Tool'}
     schema = PUBLIC_SCHEMA
@@ -205,11 +213,13 @@ class Capability(BaseCapability):
     rewrite_urls = True
 
     def translate_args(self, args, memory):
+        """Validate that the selected backend supports the requested search type."""
         if self.backend != "serper_text_search" and args.get("search_type", "search") != "search":
             raise ValueError(f"{self.backend} supports only search_type=search")
         return args
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Preserve search text and URLs while exposing image evidence as memory references."""
         import re
         text = result if isinstance(result, str) else result.get("text") if isinstance(result, dict) else None
         urls = result.get("urls") if isinstance(result, dict) else None

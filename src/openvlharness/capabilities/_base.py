@@ -10,6 +10,7 @@ from ._images import _resolve_image_ids_in_args, prepare_images
 
 
 def failure(call, code, message, *, details=None, meta=None):
+    """Build a failed CapabilityResult with correlated call identifiers and optional diagnostics."""
     error = {"code": code, "message": message}
     if details is not None:
         error["details"] = details
@@ -19,6 +20,21 @@ def failure(call, code, message, *, details=None, meta=None):
 
 
 def store_selected_binding(memory, call, result, *, prefix, fields, descriptions, convert=None):
+    """Register selected result fields as one described Python binding.
+
+    Args:
+        memory: Current question's MemoryStore.
+        call: Public tool call used for query naming and provenance.
+        result: Backend result mapping.
+        prefix: Binding-name prefix.
+        fields: Result fields eligible for storage.
+        descriptions: Field meanings supplied by the capability.
+        convert: Optional callable transforming the selected field mapping.
+
+    Returns:
+        A list containing the binding ID, or an empty list when no fields or
+        call arguments are available. Values are selected without deep-copying.
+    """
     if not isinstance(result, dict) or not call.arguments:
         return []
     value = {key: result[key] for key in fields if key in result}
@@ -33,10 +49,27 @@ def store_selected_binding(memory, call, result, *, prefix, fields, descriptions
 
 
 class BaseCapability:
+    """Validate task calls, resolve artifacts, execute tools and render model evidence.
+
+    Subclasses define name, backends, schema and process_output, plus canonical
+    result normalization. Optional hooks translate arguments, validate backend
+    results and store structured bindings before evidence is rendered.
+    """
     rewrite_urls = False
     resolve_urls = False
 
     def __init__(self, *, backend, client_config, service_config=None, client=None):
+        """Select a supported backend and prepare schema validation and transport.
+
+        Args:
+            backend: Implementation key declared by the subclass.
+            client_config: ToolClient connection settings.
+            service_config: Backend-specific deployment settings.
+            client: Optional injected transport with an execute method.
+
+        Raises:
+            ValueError: The backend or client configuration is unsupported.
+        """
         if backend not in self.backends:
             raise ValueError(f"Unsupported backend {backend!r} for {self.name}")
         self.backend = backend
@@ -46,24 +79,51 @@ class BaseCapability:
         self.validator = Draft7Validator(self.schema["function"]["parameters"])
 
     def public_schema(self):
+        """Return an independent copy of the model-facing function schema."""
         return copy.deepcopy(self.schema)
 
     def translate_args(self, args, memory):
+        """Return resolved task arguments; subclasses may add service-specific inputs."""
         return args
 
     def execute(self, call, args, memory):
+        """Invoke the concrete backend through the tool client using the public call ID."""
         return self.client.execute(self.concrete_name, args, tool_call_id=call.call_id)
 
     def store_result(self, call, result, memory):
+        """Return binding IDs created from a result; the base implementation stores none."""
         return []
 
     def normalize_result(self, call, result, prepared, binding_refs):
+        """Convert a backend result into the capability's canonical output mapping.
+
+        Subclasses must implement this hook. prepared contains rendered image/text
+        data; binding_refs identifies structured values already stored in memory.
+        """
         raise NotImplementedError
 
     def validate_result(self, payload):
-        """Validate backend structure before registering result artifacts."""
+        """Validate a backend envelope before registering artifacts.
+
+        Subclasses may raise ValueError, TypeError or KeyError for malformed results;
+        invoke converts those exceptions to invalid_tool_result failures.
+        """
 
     def invoke(self, call, memory):
+        """Run a public call through validation, execution and evidence preparation.
+
+        Args:
+            call: VirtualCall with a public name, correlation ID and parsed arguments.
+            memory: Current question's MemoryStore, updated by successful results.
+
+        Returns:
+            A CapabilityResult containing canonical data, model evidence and report
+            metadata. Invalid arguments, unresolved images, execution exceptions and
+            invalid backend structures produce explicit failure results.
+
+        Image and URL references are resolved in a copy of the task arguments before
+        translation. Image resolution can download lazy references.
+        """
         allowed = self.schema["function"]["parameters"].get("properties", {})
         hidden = set(call.arguments) - set(allowed)
         errors = sorted(self.validator.iter_errors(call.arguments), key=lambda e: str(e.path))
@@ -105,7 +165,18 @@ class BaseCapability:
         return self.consume_result(call, payload, memory)
 
     def consume_result(self, call, payload, memory):
-        """Register once in image → binding → URL order, then render evidence."""
+        """Register successful results in image, binding, then URL order and render evidence.
+
+        Args:
+            call: Public tool call providing task arguments and correlation ID.
+            payload: Successful, structurally validated execute envelope.
+            memory: Question memory receiving artifacts and bindings.
+
+        Returns:
+            A CapabilityResult with canonical output, model evidence and artifact
+            references. Processor exceptions are recorded and use default evidence
+            rendering; normalization and memory registration errors propagate.
+        """
         compact = {key: payload.get(key) for key in ("ok", "result", "error")}
         try:
             text = json.dumps(compact, ensure_ascii=False)

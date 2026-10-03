@@ -1,22 +1,7 @@
-"""Image_Search_Tool output post-processing for multimodal summarize.
+"""Identify image subjects and discover related sources through reverse image search.
 
-When ``Image_Search_Tool.execute`` returns a dict ``{"text": ..., "kept_image_data_urls": [...]}``
-(SEARCH_MULTIMODAL_SUMMARIZE=true, at least one kept-rank image fetched), this
-processor:
-
-  1. Reads the URL-rewritten ``text`` from ``prepared['text_payload']`` (URLs in
-     the rendered text have already been replaced with ``[webpage_url_N]`` refs
-     by UrlModule).
-  2. Substitutes each ``Image: __MULTIMODAL_IMG_REF_PLACEHOLDER__`` placeholder
-     with ``Image: [tool_generated_image_N]`` in kept-rank order, sourcing refs
-     from ``prepared['image_refs']``.
-  3. Builds the agent-visible user_message: ``role=user`` content list with a
-     text block (``Tool X returned:\\nImage refs: ...\\n<rendered text>``)
-     followed by image_parts (the actual fetched bytes).
-
-For text-only mode (result is a string) we return ``None`` to fall through to
-the framework's default builder, which already handles the legacy text-only
-shape correctly.
+Image_Search_Tool sends a resolved image to Serper Lens and presents summarized
+visual matches, source-page references and selected candidate images.
 """
 import json
 
@@ -25,11 +10,7 @@ MULTIMODAL_IMAGE_REF_PLACEHOLDER = "__MULTIMODAL_IMG_REF_PLACEHOLDER__"
 
 
 def _recover_text_with_url_refs(prepared, fallback_text):
-    """Parse ``prepared['text_payload']`` (JSON-encoded after UrlModule's URL
-    rewriting) and extract ``result.text``. Falls back to ``fallback_text``
-    when JSON parsing fails (agent then sees raw https URLs instead of refs —
-    no information lost, just less convenient).
-    """
+    """Read URL-rewritten result text, falling back when the prepared JSON is invalid."""
     text_payload = prepared.get("text_payload") if isinstance(prepared, dict) else None
     if isinstance(text_payload, str) and text_payload.strip():
         try:
@@ -46,10 +27,7 @@ def _recover_text_with_url_refs(prepared, fallback_text):
 
 
 def _substitute_placeholders(text, image_refs):
-    """Replace each placeholder occurrence with ``[tool_generated_image_N]``,
-    consuming refs left-to-right. Excess placeholders (refs run out) emit a
-    visible ``[]`` so a count mismatch is observable rather than silent.
-    """
+    """Replace image placeholders in order; emit [] when references run out."""
     out_parts = []
     pos = 0
     ref_iter = iter(image_refs)
@@ -69,6 +47,17 @@ def _substitute_placeholders(text, image_refs):
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
+    """Render reverse-search evidence with ordered image references and image bytes.
+
+    Args:
+        payload: Execute envelope with the backend result.
+        prepared: Evidence fields, including registered image parts and references.
+        tool_metadata: Optional metadata accepted by the processor interface.
+
+    Returns:
+        A mapping with user_message and processor_info when custom evidence
+        is available. None or a fallback record delegates to shared rendering.
+    """
     if not isinstance(payload, dict) or not payload.get("ok"):
         return {
             "processor_info": {
@@ -79,7 +68,7 @@ def process_tool_output(payload, prepared, tool_metadata=None):
         }
 
     result = payload.get("result")
-    # Text-only mode: defer to default builder (handles legacy string results).
+    # Text-only results use the shared evidence renderer.
     if not isinstance(result, dict) or "text" not in result:
         return None
 
@@ -180,6 +169,11 @@ from typing import TypedDict
 
 
 class ImageMatch(TypedDict):
+    """A reverse-image-search match with source links and optional image metadata.
+
+    width and height describe image pixels; position is the provider's result
+    rank. Missing titles, snippets, dimensions or links are represented by None.
+    """
     title: str | None
     image_url: str | None
     source_url: str | None
@@ -192,12 +186,14 @@ class ImageMatch(TypedDict):
 
 
 class Output(TypedDict):
+    """Canonical reverse-search text, optional match records and registered image IDs."""
     text: str | None
     matches: list[ImageMatch] | None
     images: list[str] | None
 
 
 class Capability(BaseCapability):
+    """Expose Serper Lens search and register result images and webpage references."""
     name = 'Image_Search_Tool'
     backends = {'serper_image_search': 'Image_Search_Tool'}
     schema = PUBLIC_SCHEMA
@@ -206,6 +202,7 @@ class Capability(BaseCapability):
     rewrite_urls = True
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        """Normalize match fields and expose registered image references alongside search text."""
         text = result if isinstance(result, str) else result.get("text") if isinstance(result, dict) else None
         records = result if isinstance(result, list) else result.get("matches") if isinstance(result, dict) else None
         matches = None

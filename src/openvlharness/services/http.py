@@ -7,6 +7,7 @@ import requests
 DEFAULT_ERROR_BODY_LIMIT = 2048
 
 def _stringify_detail(detail):
+    """Convert an HTTP error detail to readable text, preserving None."""
     if detail is None:
         return None
     if isinstance(detail, (dict, list)):
@@ -17,6 +18,12 @@ def _stringify_detail(detail):
     return str(detail)
 
 def extract_error_detail(response, max_chars=DEFAULT_ERROR_BODY_LIMIT):
+    """Extract a bounded error description and decoded JSON from an HTTP response.
+
+    Prefers detail, error.message/error.detail, then message; falls back to the
+    response body. Returns (detail, payload), each possibly None. max_chars bounds
+    the description before a truncation marker; a falsy value disables the bound.
+    """
     payload = None
     detail = None
     try:
@@ -44,6 +51,7 @@ def extract_error_detail(response, max_chars=DEFAULT_ERROR_BODY_LIMIT):
     return detail, payload
 
 def raise_for_status_with_detail(response, prefix=None, max_chars=DEFAULT_ERROR_BODY_LIMIT):
+    """Raise RuntimeError with HTTP status and bounded server detail on failure."""
     if response.ok:
         return
     detail, _payload = extract_error_detail(response, max_chars=max_chars)
@@ -60,7 +68,20 @@ def retry_with_exponential_backoff(
     max_retries: int = 8,
     max_delay: float = 30,
 ):
-    """Retry a function with exponential backoff for transient errors."""
+    """Wrap a callable with retries for transient transport or server errors.
+
+    Args:
+        func: Callable whose arguments and return value pass through.
+        initial_delay: Starting delay in seconds before exponential multiplication.
+        exponential_base: Delay multiplier applied after each transient failure.
+        jitter: Randomize the multiplier when true.
+        max_retries: Maximum additional attempts after the initial call.
+        max_delay: Upper bound on each sleep, in seconds.
+
+    Returns:
+        A callable that retries timeouts, connection failures and recognized
+        transient status/error text. Nontransient and exhausted errors propagate.
+    """
 
     def wrapper(*args, **kwargs):
         num_retries = 0
@@ -113,6 +134,12 @@ def _tool_execute_once(
     tool_call,
     timeout = 120,
 ):
+    """POST one tool call and preserve structured success or failure envelopes.
+
+    Adds HTTP status metadata, rejects non-2xx envelopes claiming success, and
+    produces an explicit failure for a successful response with invalid JSON.
+    Unstructured HTTP errors raise RuntimeError for the caller's retry policy.
+    """
     response = requests.post(f"{base_url}/execute", json=tool_call, timeout=timeout)
 
     payload = None
