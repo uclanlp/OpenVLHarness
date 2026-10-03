@@ -251,15 +251,181 @@ trajectory JSON and HTML reports work with both presets.
 ## Configure and extend
 
 Each agent YAML separates `agent` policy, `memory`, `capabilities`, and `services`.
-Remove entries from `capabilities.tools` to run a tool ablation. The optional
-[GroundingDINO backend](src/openvlharness/services/tools/grounding_dino/README.md)
-can replace SAM 3 behind the same visual-grounding interface.
+Start from a copy of a paper preset and select the capabilities your deployment
+can support.
+
+### Choose tools for your available infrastructure
+
+| Keys under `capabilities.tools` | Requirements in the paper setup |
+| --- | --- |
+| `grounding` | A SAM 3 GPU worker |
+| `ocr` | A PaddleOCR-VL GPU worker |
+| `depth`, `camera_pose` | A shared Depth Anything 3 GPU worker |
+| `text_search`, `web_visit` | A funded **Serper** API key and the auxiliary Qwen model endpoint |
+| `image_search` | Serper and auxiliary Qwen, plus an **Amazon S3 or Google Cloud Storage bucket** and upload/signing credentials |
+| `zoom` | CPU image processing in the router; no external API or GPU worker |
+| `coding` | The orchestrator model endpoint for code generation and local CPU Python execution |
+
+GPU workers can run on another machine reachable from the router. The main Qwen
+model and the auxiliary Qwen summarizer also need model serving, separately from
+these perception workers; a hosted main model still needs auxiliary Qwen when
+the search capabilities are enabled. See the [model](docs/models.md) and
+[tool deployment](src/openvlharness/services/tools/README.md) guides.
+
+Only reverse image search needs the upload bucket. Text search, including its
+image-search mode, and webpage visits do not. Configure `SERPER_API_KEY` or
+`SERPER_API_KEY_FILE` in the router environment, and follow the
+[S3/GCS credential instructions](src/openvlharness/services/tools/serper_text_search/README.md#credentials-and-reverse-image-upload)
+when enabling `image_search`.
+
+### Disable capabilities you do not need
+
+1. Remove the corresponding keys from `capabilities.tools`. For example, remove
+   `image_search` to avoid the bucket requirement; remove `text_search`,
+   `image_search`, and `web_visit` to disable Serper-backed tools altogether.
+   Remove `grounding`, `ocr`, `depth`, and `camera_pose` to omit the GPU perception
+   workers. Both depth and camera capabilities must be removed to stop needing DA3.
+2. Delete the now-unused entries from `services.tools`. If all search capabilities
+   are removed and nothing else uses it, also delete `services.models.auxiliary`.
+   **Every `${VARIABLE}` remaining in the YAML is expanded during loading**, and
+   every configured model is validated, even if its capability is disabled.
+   Removing unused connections lets you leave their environment variables unset.
+3. Restart the router with the edited file and pass that same file to
+   `build_agent(...)` or `run_benchmark.py --config ...`. Check `/tools` and
+   `/llm-schema` to confirm the selected tool set. Disabled capabilities are omitted
+   from the model's tool schemas and their backend implementations are not loaded.
+
+<details>
+<summary>Example: zoom and coding with a hosted GPT model, without GPU tool workers, Serper, or cloud storage</summary>
+
+Save this complete configuration as `configs/agent/local_tools.yaml`. It needs
+only `MODEL_BASE_URL`, `MODEL_API_KEY`, and `TOOL_SERVER_URL` from the quick start;
+point the model connection to your GPT Responses endpoint. Code generation still
+calls that model endpoint.
+
+```yaml
+agent_name: MainAgent
+agent_config_version: local_tools_v1
+agent:
+  model_service: orchestrator
+  max_iterations: 15
+memory:
+  modules: [{name: image}, {name: tool_context}, {name: url}]
+  emit_policy: always
+capabilities:
+  registries: [paper]
+  tools:
+    zoom:
+      backend: zoom_in_image_by_bbox
+    coding:
+      generator: python_coding_agent
+      executor: python_executor_local
+services:
+  client:
+    base_url: ${TOOL_SERVER_URL}
+  server:
+    host: 127.0.0.1
+    port: 8101
+    registration: configured_only
+  tools:
+    zoom_in_image_by_bbox: {}
+    python_coding_agent:
+      model_service: orchestrator
+      context: fresh
+    python_executor_local:
+      transport: local
+      timeout_seconds: 30
+  models:
+    orchestrator:
+      alias: gpt-6-luna
+      base: ${MODEL_BASE_URL}
+      key: ${MODEL_API_KEY}
+      max_tokens: 16000
+      reasoning_effort: medium
+```
+
+Start it with
+`python -m openvlharness.services.server --config configs/agent/local_tools.yaml`,
+then use `build_agent("configs/agent/local_tools.yaml")`. Keep the configured
+router port aligned with `TOOL_SERVER_URL`.
+
+</details>
+
+### Connect your own service
+
+For SAM 3, OCR, DA3, or GroundingDINO workers, point
+`services.tools.<backend>.server_url` to a service implementing that backend's HTTP
+contract. For example, merge this fragment into your configuration to use a SAM 3
+worker on another host:
+
+```yaml
+services:
+  tools:
+    sam3_segment:
+      server_url: http://gpu-host:8086
+```
+
+Use the service base URL; the backend wrapper adds the request route. The service
+must accept the wrapper's request format and return the expected result fields.
+The optional [GroundingDINO backend](src/openvlharness/services/tools/grounding_dino/README.md)
+shows how to select a different implementation of the same grounding capability.
+
+To integrate a service with a different API, add a wrapper under
+`src/openvlharness/services/tools/<backend>/tool.py`; the
+[OCR wrapper](src/openvlharness/services/tools/ocr/tool.py) is an HTTP example and
+the [zoom backend](src/openvlharness/services/tools/zoom_in_image_by_bbox/tool.py)
+is a small local example. Implement the backend's `BaseTool.execute` method,
+translate its response to the capability's expected fields, and register the
+backend as described below. Endpoints and credentials belong in deployment
+configuration or the service environment; public tool arguments describe the task.
+
+### Add a capability or backend
+
+New capability names and backends require source registration before they can be
+selected in YAML. The relevant files are:
+
+1. **Capability interface:** create `src/openvlharness/capabilities/<name>.py`,
+   following [zoom.py](src/openvlharness/capabilities/zoom.py). Define the public
+   function schema, a typed output contract, and a `Capability` subclass of
+   [BaseCapability](src/openvlharness/capabilities/_base.py). Set `name`, `schema`,
+   and `backends` (backend key to concrete tool class name). Implement
+   `normalize_result` and `process_output` for canonical results and model-readable
+   evidence. Use `translate_args`, `validate_result`, and `store_result` as needed
+   to adapt arguments, validate results before registration, and retain numerical
+   data for later tools. Image arguments such as `image_id` resolve through memory.
+2. **Backend implementation:** add a package with `__init__.py` and `tool.py` under
+   `src/openvlharness/services/tools/<backend>/`. Its tool class must match the
+   capability's `backends` mapping. Implement
+   [BaseTool](src/openvlharness/services/tools/base.py)'s `execute` method and return
+   result data; the router adds the success/error envelope and tool-call ID.
+3. **Configuration registration:** update `PAPER_CAPABILITIES`, `PAPER_BACKENDS`,
+   and the backend/service-option validation in
+   [bootstrap.py](src/openvlharness/bootstrap.py). For another implementation of
+   an existing capability, extend its `backends` mapping and accepted backend
+   selections. Add HTTP workers to `RAW_BACKENDS` when they need `server_url`
+   injected from their service configuration.
+4. **Router wiring:** [server.py](src/openvlharness/services/server.py) imports the
+   configured backend class. Extend its construction logic if your tool needs
+   injected model clients or other dependencies. For resource-limited services,
+   assign a `BACKEND_GROUPS` entry and a `DEFAULT_LIMITS` concurrency limit. Keep
+   capability and backend registration available on both the agent and router hosts.
+5. **Select and verify:** add `capabilities.tools.<name>.backend` and the matching
+   `services.tools.<backend>` settings to your YAML. Add focused coverage in
+   [tests/test_capabilities.py](tests/test_capabilities.py) and
+   [tests/test_services.py](tests/test_services.py) for valid calls, malformed
+   arguments/results, and any stored image or numerical artifacts. Run a small
+   question and inspect its trajectory to verify the model can use the evidence.
+
+See [runtime design](docs/runtime.md) for capability, memory, and service contracts.
+
+### Use another model
 
 To add a model, register its served ID, API protocol, prompt, and supported options
 in [model_registry.yaml](src/openvlharness/services/model_registry.yaml). Auxiliary
 models can also use a registered compatible profile; multimodal Qwen remains the
-official search default. See [runtime design](docs/runtime.md) for capability,
-memory, and tool-service contracts.
+official search default.
+
+### Further documentation
 
 | Guide | Contents |
 | --- | --- |
