@@ -331,7 +331,63 @@ class ModelContextTests(unittest.TestCase):
             self.assertEqual(messages[index], before[index])
         for index in [2, 3, 4]:
             self.assertEqual(messages[index]["content"], "[Truncated to save context]")
-        self.assertNotIn("tool_calls", messages[2])
+        self.assertEqual(messages[2]["tool_calls"], before[2]["tool_calls"])
+
+    def test_compacted_request_preserves_tool_call_declarations_and_results(self):
+        tools = GOLDEN["wire"][0]["tools"]
+        for call_count in (1, 2):
+            calls = [{"id": f"old-{i}", "type": "function",
+                      "function": {"name": "Probe_Tool", "arguments": '{"image_id": "image-0"}'}}
+                     for i in range(call_count)]
+            history = [{"role": "system", "content": "system"},
+                       {"role": "user", "content": "question"},
+                       {"role": "assistant", "content": "a" * 1000, "tool_calls": calls},
+                       *[{"role": "tool", "tool_call_id": call["id"], "content": "r" * 1000}
+                         for call in calls],
+                       {"role": "user", "content": "Environment Update: image-0"},
+                       {"role": "assistant", "content": "latest", "tool_calls": [
+                           {"id": "latest", "type": "function",
+                            "function": {"name": "Probe_Tool", "arguments": "{}"}}]},
+                       {"role": "tool", "tool_call_id": "latest", "content": "latest result"}]
+            # Exercise early returns after the assistant and after each tool result.
+            for stop_index in range(2, 3 + call_count):
+                with self.subTest(call_count=call_count, stop_index=stop_index):
+                    messages, expected = copy.deepcopy(history), copy.deepcopy(history)
+                    for index in range(2, stop_index + 1):
+                        expected[index]["content"] = "[Truncated to save context]"
+                    model = adapter(max_tokens=100)
+                    model._tokenizer = object()
+                    model._count_tokens = lambda msgs, tools=None: len(json.dumps(msgs))
+                    model.max_context_length = 100 + 512 + model._count_tokens(expected)
+                    effective_tools, choice = model._ensure_context_fits(messages, tools, "auto")
+                    self.assertEqual((effective_tools, choice), (tools, "auto"))
+                    model.requester = Mock(return_value={})
+                    model.request(messages, effective_tools, choice)
+                    wire = model.requester.call_args.args[0]["messages"]
+                    self.assertEqual(wire, expected)
+                    pending = set()
+                    for message in wire:
+                        if message["role"] == "tool":
+                            self.assertIn(message["tool_call_id"], pending)
+                            pending.remove(message["tool_call_id"])
+                        else:
+                            self.assertFalse(pending)
+                            pending.update(call["id"] for call in message.get("tool_calls", []))
+                    self.assertFalse(pending)
+
+    def test_large_call_arguments_use_fallback_when_content_compaction_cannot_fit(self):
+        model = adapter(max_tokens=100)
+        model.max_context_length = 1000
+        model._tokenizer = object()
+        model._count_tokens = lambda msgs, tools=None: len(json.dumps(msgs))
+        messages = [{"role": "user", "content": "question"},
+                    {"role": "assistant", "content": "", "tool_calls": [
+                        {"id": "large", "type": "function",
+                         "function": {"name": "Probe_Tool", "arguments": json.dumps({"text": "x" * 1000})}}]},
+                    {"role": "tool", "tool_call_id": "large", "content": "ok"},
+                    {"role": "assistant", "content": "latest"}]
+        self.assertEqual(model._ensure_context_fits(messages, GOLDEN["wire"][0]["tools"], "auto"), (None, "none"))
+        self.assertEqual(messages, [{"role": "user", "content": "question"}])
 
     def test_context_budget_includes_output_and_margin_then_falls_back_to_first_user(self):
         model = adapter(max_tokens=100)

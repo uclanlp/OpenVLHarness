@@ -587,6 +587,7 @@ class ModelAdapter:
         - The system message and initial user message block
         - The most recent assistant+tool exchange
         - The latest Environment Update message (needed for image ID tracking)
+        - Tool-call declarations and result IDs, keeping each exchange valid
 
         Returns True if the messages now fit within *token_budget*.
         """
@@ -624,9 +625,7 @@ class ModelAdapter:
                     msgs[idx]["content"] = "[Truncated to save context]"
                 elif isinstance(content, list):
                     msgs[idx]["content"] = "[Truncated to save context]"
-                # Also strip tool_calls from compacted assistant messages
-                if role == "assistant":
-                    msgs[idx].pop("tool_calls", None)
+                # Retain call declarations so following tool results keep their pairing.
                 count = self._count_tokens(msgs, tools)
                 if count is not None and count <= token_budget:
                     return True
