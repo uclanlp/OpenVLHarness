@@ -12,6 +12,9 @@ from .http import retry_with_exponential_backoff, raise_for_status_with_detail
 from .raw_trace import RawTraceExportError, build_raw_trace_from_tokens
 
 
+_CONTEXT_TOKEN_MARGIN = 512
+
+
 def failure_text(payload):
     """Render an execute envelope's error code and message as model-visible text."""
     error = payload.get("error")
@@ -141,13 +144,14 @@ class ModelAdapter:
             config: Mapping with alias, base, optional key/timeout/retry and profile-
                 allowed generation options. max_tokens defaults to 4096.
             max_context_length: Optional local context budget for tokenizer-based
-                profiles, including reserved output tokens.
+                profiles, including reserved output tokens. Must exceed max_tokens
+                plus the 512-token margin to leave room for input tokens.
             requester: Optional callable accepting a native payload and returning
                 decoded provider data; bypasses the built-in HTTP retry transport.
 
         Raises:
-            ValueError: The profile, endpoint, option values or raw export request
-                is unsupported.
+            ValueError: The profile, endpoint, option values, context budget or raw
+                export request is invalid or unsupported.
         """
         self.profile = (require_raw_trace_profile(config.get("alias")) if config.get("return_token_ids") is True
                         else load_profile(config.get("alias")))
@@ -195,6 +199,12 @@ class ModelAdapter:
         if max_context_length is not None and (type(max_context_length) is not int or max_context_length <= 0):
             raise ValueError("max_context_length must be a positive integer or null")
         self.max_tokens = self.options["max_tokens"]
+        if max_context_length is not None and max_context_length <= self.max_tokens + _CONTEXT_TOKEN_MARGIN:
+            raise ValueError(
+                f"max_context_length ({max_context_length}) must be greater than "
+                f"max_tokens ({self.max_tokens}) + {_CONTEXT_TOKEN_MARGIN} to leave room for input tokens; "
+                "increase max_context_length or lower max_tokens"
+            )
         self.max_context_length = max_context_length
         self.logger = logging.getLogger("openvlharness.models")
         self._tokenizer = None
@@ -652,7 +662,7 @@ class ModelAdapter:
         if tokenizer is None:
             return model_tools, tool_choice
 
-        token_budget = max_ctx - self.max_tokens - 512
+        token_budget = max_ctx - self.max_tokens - _CONTEXT_TOKEN_MARGIN
         current_tokens = self._count_tokens(msgs, model_tools)
         if current_tokens is None or current_tokens <= token_budget:
             return model_tools, tool_choice

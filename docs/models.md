@@ -19,6 +19,13 @@ context reservation and the provider's output limit (`max_tokens` for Chat
 Completions, `max_output_tokens` for Responses). Explicit limits and the paper
 presets retain their configured budgets.
 
+When `agent.max_context_length` is set, it must be greater than the orchestrator's
+effective `max_tokens` plus a 512-token margin. Configurations with no remaining
+input budget fail during loading, before tokenizer loading or inference. Increase
+the context window or lower `max_tokens` to resolve the error; the harness does not
+silently reduce the output budget. Omitting `max_context_length` or setting it to
+`null` leaves context enforcement to the provider.
+
 ## Raw trace export (Qwen only)
 
 Pass `--save-raw-trace` to `run_benchmark.py` for image/text datasets using

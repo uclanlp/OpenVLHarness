@@ -83,6 +83,38 @@ class BootstrapBoundaryTests(unittest.TestCase):
         self.assertEqual(capabilities["Python_Coding_Agent_Tool"].service_config["execution_timeout_seconds"], 30)
         self.assertEqual(build_capabilities(load_agent_config(config_for())), {})
 
+    def test_context_budget_rejected_during_config_load_and_before_agent_dependencies(self):
+        with patch("openvlharness.services.models.ModelAdapter.load_tokenizer") as tokenizer, \
+             patch("openvlharness.bootstrap.build_capabilities") as capabilities:
+            for alias in ("qwen3-vl-8b-instruct", "gpt-6-luna"):
+                for budget in (None, 100):
+                    config = config_for("ocr")
+                    model = config["services"]["models"]["orchestrator"]
+                    model["alias"] = alias
+                    if budget is not None:
+                        model["max_tokens"] = budget
+                    config["agent"]["max_context_length"] = (budget or 4096) + 512
+                    for factory in (load_agent_config, build_agent):
+                        with self.subTest(alias=alias, budget=budget, factory=factory.__name__):
+                            with self.assertRaisesRegex(ValueError, r"max_context_length.*max_tokens.*512"):
+                                factory(config)
+            tokenizer.assert_not_called()
+            capabilities.assert_not_called()
+
+    def test_context_budget_applies_to_selected_orchestrator_only(self):
+        config = config_for("text_search")
+        config["agent"].update(model_service="main", max_context_length=1000)
+        models = config["services"]["models"]
+        models["main"] = models.pop("orchestrator")
+        models["main"]["max_tokens"] = 100
+        models["auxiliary"]["max_tokens"] = 8192
+        before = copy.deepcopy(config)
+        self.assertEqual(load_agent_config(config), before)
+        agent = build_agent(config)
+        self.assertEqual(agent.adapter.max_context_length, 1000)
+        self.assertEqual(agent.adapter.max_tokens, 100)
+        self.assertEqual(config, before)
+
     def test_dino_requires_extension_and_never_adds_a_public_tool(self):
         config = config_for("grounding")
         config["capabilities"]["tools"]["grounding"]["backend"] = "grounding_dino"

@@ -273,6 +273,29 @@ class ModelTransportTests(unittest.TestCase):
 
 
 class ModelContextTests(unittest.TestCase):
+    def test_context_window_must_leave_room_after_output_and_margin(self):
+        for protocol, alias in ALIASES.items():
+            for options in ({}, {"max_tokens": 100}):
+                budget = options.get("max_tokens", 4096)
+                for window in (1, budget, budget + 511, budget + 512):
+                    with self.subTest(protocol=protocol, options=options, window=window):
+                        with self.assertRaisesRegex(ValueError, r"max_context_length.*max_tokens.*512"):
+                            ModelAdapter({"alias": alias, "base": "http://fixture.invalid", **options},
+                                         max_context_length=window)
+
+    def test_context_window_accepts_positive_input_budget_or_provider_limit(self):
+        for protocol, alias in ALIASES.items():
+            for options in ({}, {"max_tokens": 100}):
+                budget = options.get("max_tokens", 4096)
+                for window in (None, budget + 513, 168000):
+                    with self.subTest(protocol=protocol, options=options, window=window):
+                        model = ModelAdapter({"alias": alias, "base": "http://fixture.invalid", **options},
+                                             max_context_length=window)
+                        self.assertEqual(model.max_context_length, window)
+                        self.assertEqual(model.max_tokens, budget)
+                        field = "max_tokens" if protocol == "chat_completions" else "max_output_tokens"
+                        self.assertEqual(model.payload([])[field], budget)
+
     def test_token_counter_replaces_image_only_in_copy_and_includes_tools(self):
         model = adapter()
         model._tokenizer = Mock()
@@ -319,7 +342,7 @@ class ModelContextTests(unittest.TestCase):
 
     def test_missing_tokenizer_leaves_provider_validation_in_charge(self):
         model = adapter(max_tokens=100)
-        model.max_context_length = 600
+        model.max_context_length = 1000
         messages = [{"role": "user", "content": "x" * 5000}]
         self.assertEqual(model._ensure_context_fits(messages, ["tool"], "auto"), (["tool"], "auto"))
         self.assertEqual(len(messages[0]["content"]), 5000)

@@ -144,7 +144,11 @@ def load_agent_config(config, *, save_raw_trace=False):
         require_raw_trace_profile(model.get("alias"))
         model["return_token_ids"] = True
     # Resolve every model/options before any inference or backend import.
-    models = {name: ModelAdapter(model) for name, model in services["models"].items()}
+    models = {
+        name: ModelAdapter(model, max_context_length=(
+            agent.get("max_context_length") if name == agent["model_service"] else None))
+        for name, model in services["models"].items()
+    }
     if "coding" in selected:
         coder_name = services["tools"]["python_coding_agent"].get("model_service", agent["model_service"])
         coder, orchestrator = models[coder_name], models[agent["model_service"]]
