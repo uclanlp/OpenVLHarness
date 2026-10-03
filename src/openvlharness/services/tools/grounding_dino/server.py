@@ -1,3 +1,7 @@
+"""Serve Grounding DINO text-conditioned box detection over FastAPI.
+
+Importing this worker loads its processor and model onto the configured device.
+"""
 import io
 import json
 import os
@@ -18,6 +22,7 @@ app = FastAPI()
 
 
 def _resolve_device(device):
+    """Resolve an explicit device or choose available CUDA, falling back to CPU."""
     if device and device != "auto":
         if device == "cuda" and not torch.cuda.is_available():
             return "cpu"
@@ -26,6 +31,7 @@ def _resolve_device(device):
 
 
 def _load_model():
+    """Load the detector in evaluation mode and return model, processor and device."""
     device = _resolve_device(DEVICE_ENV)
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = AutoModelForZeroShotObjectDetection.from_pretrained(MODEL_ID).to(device)
@@ -37,6 +43,7 @@ MODEL, PROCESSOR, DEVICE = _load_model()
 
 
 def _parse_labels(query):
+    """Parse a JSON label list or punctuation-separated query into nonempty labels."""
     raw = query.strip()
     if not raw:
         return []
@@ -52,6 +59,7 @@ def _parse_labels(query):
 
 
 def _build_inputs(processor, image, labels, device):
+    """Encode an image and label prompts on the device, supporting processor input variants."""
     try:
         return processor(images=image, text=[labels], return_tensors="pt").to(device)
     except TypeError:
@@ -63,6 +71,7 @@ def _build_inputs(processor, image, labels, device):
 
 def _normalize_boxes(boxes, width, height):
     # Boxes are returned on a 0-1000 scale (Qwen-style) with 2-decimal precision.
+    """Convert pixel xyxy boxes to 0–1000 coordinates rounded to two decimal places."""
     normalized = []
     if not width or not height:
         return normalized
@@ -80,6 +89,7 @@ def _normalize_boxes(boxes, width, height):
 
 
 def _coerce_labels(raw_labels, label_pool):
+    """Resolve numeric label indexes against the query label pool and stringify other labels."""
     labels = []
     for label in raw_labels:
         if isinstance(label, (int, float)):
@@ -95,6 +105,7 @@ def _coerce_labels(raw_labels, label_pool):
 
 @app.get("/health")
 def health():
+    """Report detector readiness, model ID and active device."""
     return {"status": "ok", "model_id": MODEL_ID, "device": DEVICE}
 
 
@@ -105,6 +116,22 @@ async def grounding_dino(
     box_threshold: float = Form(DEFAULT_BOX_THRESHOLD),
     text_threshold: float = Form(DEFAULT_TEXT_THRESHOLD),
 ):
+    """Detect query labels in one uploaded image.
+
+    Args:
+        image: Multipart image upload.
+        query: Label text or a JSON list of labels.
+        box_threshold: Detection confidence cutoff.
+        text_threshold: Text matching confidence cutoff.
+
+    Returns:
+        Pixel and normalized xyxy boxes, aligned scores and labels, [height, width]
+        size and model ID.
+
+    Raises:
+        HTTPException: Query labels or image bytes are empty (HTTP 400).
+        OSError: Uploaded bytes cannot be decoded as an image.
+    """
     labels = _parse_labels(query)
     if not labels:
         raise HTTPException(status_code=400, detail="query must include at least one label")
@@ -165,6 +192,7 @@ async def grounding_dino(
 
 
 def main():
+    """Serve the loaded detector at the configured grounding-service host and port."""
     import uvicorn
 
     host = os.getenv("GROUNDING_DINO_HOST", "127.0.0.1")

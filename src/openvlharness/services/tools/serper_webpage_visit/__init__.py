@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Scrape selected webpages and extract evidence for a user-specified goal."""

@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+"""Bounding-box representations and tensor operations for segmentation visualization."""
 import math
 from enum import IntEnum, unique
 from typing import List, Tuple, Union
@@ -46,13 +47,15 @@ class BoxMode(IntEnum):
     def convert(
         box: _RawBoxType, from_mode: "BoxMode", to_mode: "BoxMode"
     ) -> _RawBoxType:
-        """
+        """Convert boxes between supported absolute coordinate representations.
+
         Args:
-            box: can be a k-tuple, k-list or an Nxk array/tensor, where k = 4 or 5
-            from_mode, to_mode (BoxMode)
+            box: A four/five-value tuple or list, or an N x K NumPy array or tensor.
+            from_mode: Coordinate representation of box.
+            to_mode: Requested coordinate representation.
 
         Returns:
-            The converted box of the same type.
+            Converted boxes with the same container type.
         """
         if from_mode == to_mode:
             return box
@@ -147,7 +150,8 @@ class Boxes:
     """
 
     def __init__(self, tensor: torch.Tensor):
-        """
+        """Create float32 boxes from an N x 4 coordinate collection.
+
         Args:
             tensor (Tensor[float]): a Nx4 matrix.  Each row is (x1, y1, x2, y2).
         """
@@ -176,6 +180,7 @@ class Boxes:
 
     def to(self, device: torch.device):
         # Boxes are assumed float32 and does not support to(dtype)
+        """Return boxes on the requested device while retaining float32 coordinates."""
         return Boxes(self.tensor.to(device=device))
 
     def area(self) -> torch.Tensor:
@@ -222,7 +227,8 @@ class Boxes:
         return keep
 
     def __getitem__(self, item) -> "Boxes":
-        """
+        """Return a Boxes collection selected by an index, slice or mask.
+
         Args:
             item: int, slice, or a BoolTensor
 
@@ -238,15 +244,18 @@ class Boxes:
         return Boxes(b)
 
     def __len__(self) -> int:
+        """Return the number of boxes."""
         return self.tensor.shape[0]
 
     def __repr__(self) -> str:
+        """Return the box tensor representation."""
         return "Boxes(" + str(self.tensor) + ")"
 
     def inside_box(
         self, box_size: Tuple[int, int], boundary_threshold: int = 0
     ) -> torch.Tensor:
-        """
+        """Test whether each box lies within the image and boundary tolerance.
+
         Args:
             box_size (height, width): Size of the reference box.
             boundary_threshold (int): Boxes that extend beyond the reference box
@@ -265,7 +274,8 @@ class Boxes:
         return inds_inside
 
     def get_centers(self) -> torch.Tensor:
-        """
+        """Return the midpoint of each box in x/y coordinates.
+
         Returns:
             The box centers in a Nx2 array of (x, y).
         """
@@ -300,6 +310,7 @@ class Boxes:
 
     @property
     def device(self) -> device:
+        """Return the device holding the box tensor."""
         return self.tensor.device
 
     # type "Iterator[torch.Tensor]", yield, and iter() not supported by torchscript

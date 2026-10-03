@@ -1,3 +1,8 @@
+"""Serve DA3 metric depth and ordered camera poses over FastAPI.
+
+Importing this worker loads the configured model and allocates its device.
+The default DA3NESTED-GIANT-LARGE model returns depth in meters.
+"""
 import base64
 import io
 import os
@@ -26,6 +31,7 @@ app = FastAPI(title="Depth Estimation Server (DA3)", version="0.1")
 
 
 def _resolve_device(device):
+    """Resolve an explicit device or choose available CUDA, falling back to CPU."""
     if device and device != "auto":
         if device == "cuda" and not torch.cuda.is_available():
             return "cpu"
@@ -34,6 +40,7 @@ def _resolve_device(device):
 
 
 def _load_model():
+    """Load the configured DA3 model onto its resolved device and return both."""
     from depth_anything_3.api import DepthAnything3
 
     device = _resolve_device(DEVICE_ENV)
@@ -46,6 +53,7 @@ MODEL, DEVICE = _load_model()
 
 
 def _normalize_depth(depth):
+    """Scale a depth array to [0, 1], returning zeros for a constant array."""
     depth_min = float(np.min(depth))
     depth_max = float(np.max(depth))
     if depth_max - depth_min < 1e-6:
@@ -54,6 +62,7 @@ def _normalize_depth(depth):
 
 
 def _apply_colormap(depth_norm, colormap_name):
+    """Return uint8 RGB depth colors and their name; use grayscale if matplotlib is unavailable."""
     colormap_name = (colormap_name or "inferno").lower()
     if colormap_name == "inferno":
         try:
@@ -75,6 +84,7 @@ def _apply_colormap(depth_norm, colormap_name):
 
 
 def _encode_png(image):
+    """Encode a Pillow image as PNG base64 without a data-URL prefix."""
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
@@ -82,6 +92,7 @@ def _encode_png(image):
 
 @app.get("/health")
 def health():
+    """Report readiness, model ID, active device and the default depth colormap."""
     return {
         "status": "ok",
         "model_id": MODEL_ID,
@@ -95,6 +106,19 @@ async def depth(
     image: UploadFile = File(...),
     colormap: str = Form(COLORMAP_DEFAULT),
 ):
+    """Estimate metric depth for one uploaded image.
+
+    Args:
+        image: Multipart image upload decoded as RGB.
+        colormap: inferno or grayscale for the visualization.
+
+    Returns:
+        JSON-compatible depth metadata, float32 bytes in depth_meters_b64, PNG
+        visualization, camera matrices and [height, width] shape/size.
+
+    Raises:
+        HTTPException: Empty/invalid image or unsupported colormap (HTTP 400).
+    """
     payload = await image.read()
     if not payload:
         raise HTTPException(status_code=400, detail="image payload is empty")
@@ -143,6 +167,12 @@ async def depth(
 
 @app.post("/v1/pose")
 async def pose(images: List[UploadFile] = File(...)):
+    """Estimate camera matrices for two or more ordered image uploads.
+
+    Returns intrinsics, world-to-camera extrinsics, image count and source sizes
+    in [height, width] order. Empty, invalid or insufficient uploads raise an
+    HTTPException with status 400.
+    """
     if not images or len(images) < 2:
         raise HTTPException(
             status_code=400,
@@ -181,6 +211,7 @@ async def pose(images: List[UploadFile] = File(...)):
 
 
 def main():
+    """Serve the loaded DA3 model at the configured depth-service host and port."""
     import uvicorn
 
     host = os.getenv("DEPTH_ESTIMATION_HOST", "127.0.0.1")

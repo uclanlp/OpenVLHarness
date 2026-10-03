@@ -1,3 +1,4 @@
+"""HTTP error extraction for standalone tool clients."""
 import json
 
 
@@ -5,6 +6,7 @@ DEFAULT_ERROR_BODY_LIMIT = 2048
 
 
 def _stringify_detail(detail):
+    """Convert structured HTTP error detail to readable text, preserving None."""
     if detail is None:
         return None
     if isinstance(detail, (dict, list)):
@@ -16,6 +18,7 @@ def _stringify_detail(detail):
 
 
 def extract_error_detail(response, max_chars=DEFAULT_ERROR_BODY_LIMIT):
+    """Return bounded server error text and decoded JSON, falling back to the response body."""
     payload = None
     detail = None
     try:
@@ -44,6 +47,7 @@ def extract_error_detail(response, max_chars=DEFAULT_ERROR_BODY_LIMIT):
 
 
 def raise_for_status_with_detail(response, prefix=None, max_chars=DEFAULT_ERROR_BODY_LIMIT):
+    """Raise RuntimeError with status and server detail for an unsuccessful HTTP response."""
     if response.ok:
         return
     detail, _payload = extract_error_detail(response, max_chars=max_chars)

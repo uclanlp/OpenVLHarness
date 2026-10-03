@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Execute generated Python locally on copied tool-result bindings with stdout capture."""

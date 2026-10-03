@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Backends for visual perception, web evidence retrieval and Python computation."""

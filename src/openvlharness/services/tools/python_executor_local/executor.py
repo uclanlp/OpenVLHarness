@@ -1,8 +1,7 @@
-"""Orchestrator-side Python code execution utilities.
+"""Execute generated Python locally using validated, copied context bindings.
 
-Standalone module for executing LLM-generated code with injected bindings.
-Adapted from tool_infra/src/tools/python_execution_common.py so the agent
-can execute code locally without sending large payloads to the tool server.
+Execution captures stdout under a process-wide lock and runs with normal
+Python builtins. This module provides time limits, not a security sandbox.
 """
 
 import contextlib
@@ -24,11 +23,13 @@ RESERVED_CONTEXT_NAMES = {"__builtins__"}
 
 
 class CodeExecutionTimeoutError(Exception):
+    """Raised when the active code-execution deadline is reached."""
     pass
 
 
 @dataclass
 class PreparedExecutionContext:
+    """Validated binding values to copy into a generated-code execution namespace."""
     bindings: dict
 
 
@@ -99,6 +100,7 @@ def extract_python_code(text):
 
 
 def _safe_repr(value, max_length=None):
+    """Return an exception-safe representation with optional head/tail truncation."""
     try:
         representation = repr(value)
     except Exception as exc:
@@ -115,12 +117,14 @@ def _safe_repr(value, max_length=None):
 
 
 def _is_reserved_context_name(name):
+    """Recognize builtins and double-underscore names disallowed as injected bindings."""
     if name in RESERVED_CONTEXT_NAMES:
         return True
     return name.startswith("__") and name.endswith("__") and len(name) > 4
 
 
 def _validate_json_compatible(value, path):
+    """Validate nested JSON-like values or NumPy arrays, raising on unsupported values."""
     if value is None or isinstance(value, (bool, int, str)):
         return
     if isinstance(value, np.ndarray):
@@ -145,6 +149,12 @@ def _validate_json_compatible(value, path):
 
 
 def validate_context_bindings(context_bindings):
+    """Validate execution variable names and values without copying nested data.
+
+    Returns an independent top-level mapping; None becomes an empty mapping.
+    Raises TypeError for unsupported structures and ValueError for invalid names
+    or non-finite scalar floats. NumPy arrays are accepted directly.
+    """
     if context_bindings is None:
         return {}
     if not isinstance(context_bindings, dict):
@@ -172,12 +182,14 @@ def validate_context_bindings(context_bindings):
 
 
 def prepare_execution_context(context_bindings=None):
+    """Wrap validated bindings for execution; execute_python_code copies their values."""
     return PreparedExecutionContext(
         bindings=validate_context_bindings(context_bindings),
     )
 
 
 def _render_namespace_variables(namespace):
+    """Render non-dunder execution variables as exception-safe text representations."""
     visible_items = [
         (key, value)
         for key, value in namespace.items()
@@ -207,15 +219,27 @@ def execute_python_code(
     prepared_context,
     timeout_seconds=10,
 ):
-    """Execute Python code with injected context bindings.
+    """Execute generated Python on deep-copied bindings and capture its stdout.
 
     Args:
-        code: Python code string (may be wrapped in markdown fences).
-        prepared_context: PreparedExecutionContext with validated bindings.
-        timeout_seconds: Maximum execution time.
+        code: Nonempty Python text, optionally inside a Markdown code fence.
+        prepared_context: PreparedExecutionContext with validated input bindings.
+        timeout_seconds: Positive deadline in seconds; a falsy/nonpositive value
+            disables it. Worker-thread tracing cannot interrupt blocking native
+            calls; main-thread deadlines require SIGALRM support.
 
     Returns:
-        dict with printed_output, variables, and execution_code.
+        A mapping with stripped printed_output, repr-based variables and the
+        extracted/sanitized execution_code.
+
+    Raises:
+        ValueError: Code is empty.
+        CodeExecutionTimeoutError: The active timeout interrupts execution.
+        RuntimeError: Generated code attempts SystemExit.
+
+    Other exceptions from generated code propagate. A process-wide lock prevents
+    stdout capture from overlapping with other calls to this function. Execution
+    has access to normal builtins and is not sandboxed.
     """
     if not code:
         raise ValueError("code is required")

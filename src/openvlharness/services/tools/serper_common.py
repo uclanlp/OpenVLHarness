@@ -49,7 +49,11 @@ _cached_api_key: Optional[str] = None
 
 
 def get_serper_api_key() -> str:
-    """Load Serper API key from env var or local key file."""
+    """Load and cache a Serper credential from SERPER_API_KEY or SERPER_API_KEY_FILE.
+
+    The environment value takes precedence. Raises FileNotFoundError when neither
+    source supplies a nonempty key; file-reading errors propagate.
+    """
     global _cached_api_key
     if _cached_api_key:
         return _cached_api_key
@@ -109,6 +113,7 @@ class SerperRequestError(RuntimeError):
         endpoint: str = "",
         attempts: int = 1,
     ) -> None:
+        """Store the failure message, status, retry classification, endpoint and attempt count."""
         super().__init__(message)
         self.status_code = status_code
         self.transient = transient
@@ -386,17 +391,20 @@ class SerperClient:
     """
 
     def __init__(self, api_key: Optional[str] = None, timeout: int = 30):
+        """Configure an optional explicit API key and per-request timeout in seconds."""
         self._api_key = api_key
         self.timeout = timeout
 
     @property
     def api_key(self) -> str:
+        """Return the explicit key or lazily load and cache the environment credential."""
         if not self._api_key:
             self._api_key = get_serper_api_key()
         return self._api_key
 
     @property
     def _headers(self) -> Dict[str, str]:
+        """Build JSON request headers containing the configured Serper credential."""
         return {
             "X-API-KEY": self.api_key,
             "Content-Type": "application/json",
@@ -487,15 +495,10 @@ class SerperClient:
 # Result formatters
 # ---------------------------------------------------------------------------
 def _http_image_url(url: object) -> str:
-    """Return ``url`` only if it is a non-empty http(s) URL.
+    """Return a nonempty HTTP(S) image URL, or an empty string.
 
-    Some Serper endpoints (notably /shopping, ~75% of items) inline
-    images as ``data:image/...;base64,...`` URLs. Emitting those into
-    the agent text bloats context massively (tens of KB per item) and
-    they are not registerable by ImageStateMemory's URL rewriter
-    (which only matches ``https?://``). Skip non-http URLs so the
-    formatter neither emits a useless ``Image:`` line nor leaks the
-    inline base64 blob into the agent's context.
+    Inline data URLs are excluded from rendered text because the URL registry
+    registers HTTP(S) links and image bytes are carried separately.
     """
     s = str(url or "").strip()
     return s if s.lower().startswith(("http://", "https://")) else ""
@@ -561,14 +564,9 @@ def format_search_results(search_type: str, data: Dict[str, Any], max_results: i
 
 
 def _format_organic(data: Dict[str, Any], max_results: int) -> str:
-    """Format /search, /scholar, /patents responses (organic key).
+    """Format organic search entries and available answer, knowledge and story blocks.
 
-    Also surfaces image URLs from auxiliary sections that some queries
-    return alongside organic results — ``topStories`` (breaking-news
-    queries on /search) and per-item ``thumbnailUrl`` (every /patents
-    item, the patent's main figure). Without this, a "Apple earnings"
-    search would silently lose all topStories thumbnails, and patent
-    queries would lose every patent diagram.
+    Preserves HTTP image links from story thumbnails and per-entry image fields.
     """
     lines = []
 
@@ -578,7 +576,7 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
         lines.append(f"[Knowledge Graph] {kg.get('title', '')}: {kg.get('description', '')}")
         kg_image_url = _http_image_url(kg.get("imageUrl"))
         if kg_image_url:
-            # ImageStateMemory routes URLs trailed by ` <img>` directly
+            # The memory URL rewriter routes links followed by ` <img>` directly
             # into the image registry as ``tool_generated_image_N``.
             lines.append(f"  Image: {kg_image_url} <img>")
         for k, v in (kg.get("attributes") or {}).items():
@@ -651,6 +649,7 @@ def _format_organic(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_images(data: Dict[str, Any], max_results: int) -> str:
+    """Format image-search entries with titles, source pages and HTTP image links."""
     items = data.get("images", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -663,7 +662,7 @@ def _format_images(data: Dict[str, Any], max_results: int) -> str:
         w = item.get("imageWidth", "")
         h = item.get("imageHeight", "")
         lines.append(f"{i}. {title}")
-        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # The memory URL rewriter routes links followed by ` <img>` directly
         # into the image registry as ``tool_generated_image_N``.
         if img_url:
             lines.append(f"   Image: {img_url} <img>")
@@ -684,6 +683,7 @@ def _format_images(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_news(data: Dict[str, Any], max_results: int) -> str:
+    """Format news entries with article metadata and available thumbnail links."""
     items = data.get("news", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -699,7 +699,7 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   Source: {url_compact}   {link}")
         elif link:
             lines.append(f"   URL: {link}")
-        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # The memory URL rewriter routes links followed by ` <img>` directly
         # into the image registry as ``tool_generated_image_N``.
         if thumbnail:
             lines.append(f"   Image: {thumbnail} <img>")
@@ -712,22 +712,10 @@ def _format_news(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_maps(data: Dict[str, Any], max_results: int) -> str:
-    """Format /maps responses (places array with rich location data).
+    """Format map entries with locations, ratings and follow-up webpage links.
 
-    Serper /maps fields per item (verified on a 20-result probe 2026-05-19):
-      always: title, address, latitude, longitude, rating, ratingCount,
-              type, types, openingHours, thumbnailUrl, cid, fid, placeId
-      ~95%:   priceLevel
-      ~70%:   website
-      ~50%:   phoneNumber
-      ~30%:   description
-
-    Emit a Webpage_Visit-able URL on every item: prefer ``website`` (the
-    real business homepage), fall back to ``cid`` → Google Maps deeplink
-    (always available). Without this fallback, ~30% of /maps results had
-    no URL at all, blocking follow-up. ``openingHours`` is omitted
-    intentionally — a 7-day dict per result inflates context badly;
-    Webpage_Visit on the emitted URL is the cheaper way to fetch hours.
+    Prefers the business website and falls back to a Google Maps CID link.
+    Detailed opening-hour dictionaries are omitted from the rendered evidence.
     """
     items = data.get("places", [])[:max_results]
     lines = []
@@ -762,7 +750,7 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   URL: https://www.google.com/maps?cid={cid}")
         if description:
             lines.append(f"   Description: {description}")
-        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # The memory URL rewriter routes links followed by ` <img>` directly
         # into the image registry as ``tool_generated_image_N``.
         if img_url:
             lines.append(f"   Image: {img_url} <img>")
@@ -770,13 +758,7 @@ def _format_maps(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_places(data: Dict[str, Any], max_results: int) -> str:
-    """Format /places responses.
-
-    Serper /places returns: title, address, latitude, longitude, rating,
-    ratingCount, priceLevel, category, cid.  Notably absent (vs /maps):
-    phoneNumber, website, thumbnailUrl.  ``cid`` is the Google Maps place
-    id — emit it as a deeplink URL so Webpage_Visit_Tool can follow up.
-    """
+    """Format place entries with available location metadata and Google Maps CID links."""
     items = data.get("places", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -806,13 +788,7 @@ def _format_places(data: Dict[str, Any], max_results: int) -> str:
 
 
 def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
-    """Format /shopping responses.
-
-    Serper /shopping returns: title, source, link, price, imageUrl,
-    rating, ratingCount, productId.  ``rating`` + ``ratingCount`` are
-    primary product-quality signals; emit them so price-comparison
-    queries get review context, not just price.
-    """
+    """Format product entries with prices, ratings, source links and available images."""
     items = data.get("shopping", [])[:max_results]
     lines = []
     for i, item in enumerate(items, 1):
@@ -834,7 +810,7 @@ def _format_shopping(data: Dict[str, Any], max_results: int) -> str:
             lines.append(f"   URL: {link}")
         if source:
             lines.append(f"   Source: {source}")
-        # ImageStateMemory routes URLs trailed by ` <img>` directly
+        # The memory URL rewriter routes links followed by ` <img>` directly
         # into the image registry as ``tool_generated_image_N``.
         if img_url:
             lines.append(f"   Image: {img_url} <img>")

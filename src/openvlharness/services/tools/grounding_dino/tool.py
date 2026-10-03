@@ -1,3 +1,8 @@
+"""Detect objects named by text labels using the Grounding DINO service.
+
+The GroundingDINO_Tool client uploads one image with fixed confidence cutoffs
+and returns boxes, scores and labels. This backend does not produce masks.
+"""
 import mimetypes
 import os
 
@@ -31,7 +36,9 @@ INPUT_SCHEMA = {
 
 
 class GroundingDINO_Tool(BaseTool):
+    """Text-conditioned bounding-box detection through Grounding DINO."""
     def __init__(self):
+        """Initialize tool metadata and its concrete input/output contract."""
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -69,6 +76,7 @@ class GroundingDINO_Tool(BaseTool):
         )
 
     def sanity_check(self):
+        """Probe the configured health endpoint and return issue strings, or an empty list."""
         server_url = os.getenv("GROUNDING_DINO_SERVER_URL", DEFAULT_SERVER_URL).rstrip(
             "/"
         )
@@ -91,6 +99,24 @@ class GroundingDINO_Tool(BaseTool):
         timeout_seconds=120,
         image_base64=None,
     ):
+        """Detect query labels in one image using fixed confidence thresholds.
+
+        Args:
+            image_path: Local image path, exclusive with image_base64.
+            query: Nonempty label query sent to the detector.
+            server_url: Service base, otherwise resolved from GROUNDING_DINO_SERVER_URL.
+            timeout_seconds: Per-request HTTP timeout.
+            image_base64: Raw base64 or an image data URL.
+
+        Returns:
+            Backend JSON with pixel xyxy boxes, 0–1000 normalized boxes, aligned scores
+            and labels, [height, width] size and model provenance.
+
+        Raises:
+            ValueError: Query or image inputs are invalid.
+            FileNotFoundError: A supplied image file is missing.
+            RuntimeError: The detector returns an HTTP error.
+        """
         if not query:
             raise ValueError("query is required")
         if not image_path and not image_base64:

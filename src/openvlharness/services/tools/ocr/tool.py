@@ -1,3 +1,8 @@
+"""Transcribe text from images using a PaddleOCR-VL HTTP endpoint.
+
+The OCR_Tool backend accepts local or inline images, corrects EXIF orientation,
+and returns plain transcription text with the served model ID.
+"""
 import base64
 import io
 import os
@@ -28,7 +33,9 @@ INPUT_SCHEMA = {
 
 
 class OCR_Tool(BaseTool):
+    """PaddleOCR-VL transcription through an HTTP model endpoint."""
     def __init__(self):
+        """Initialize tool metadata and its concrete input/output contract."""
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -60,6 +67,7 @@ class OCR_Tool(BaseTool):
         )
 
     def sanity_check(self):
+        """Probe the configured health endpoint and return issue strings, or an empty list."""
         server_url = os.getenv("OCR_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/")
         health_url = f"{server_url}/health"
         try:
@@ -77,6 +85,22 @@ class OCR_Tool(BaseTool):
         timeout_seconds=600,
         image_base64=None,
     ):
+        """Transcribe one image after RGB conversion and EXIF orientation correction.
+
+        Args:
+            image_path: Local image path, mutually exclusive with image_base64.
+            server_url: OCR service base; defaults to OCR_SERVER_URL or the built-in base.
+            timeout_seconds: Per-request HTTP timeout.
+            image_base64: Raw base64 or an image data URL.
+
+        Returns:
+            A mapping with stripped text and model_id.
+
+        Raises:
+            ValueError: Image sources are missing, ambiguous or invalid.
+            OSError: A local image cannot be read.
+            RuntimeError: The server reports an error or an unexpected response structure.
+        """
         if not image_path and not image_base64:
             raise ValueError("image_path or image_base64 is required")
         if image_path and image_base64:

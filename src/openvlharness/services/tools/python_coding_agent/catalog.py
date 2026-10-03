@@ -1,15 +1,15 @@
-"""Generator data catalog, extracted without the legacy remote executor."""
+"""Build a compact data catalog from Python binding descriptors for code generation."""
 
 def build_rich_data_catalog(binding_descriptors):
-    """Render binding descriptors into a rich Python-comment-style catalog.
+    """Render binding descriptors as a Python-comment-style data catalog.
 
     Args:
-        binding_descriptors: dict of serialized BindingDescriptor dicts,
-            as produced by PersistentStateMemory.get_binding_descriptors_payload()
-            (sourced from ToolContextModule's binding descriptors).
+        binding_descriptors: Serialized descriptors returned by
+            MemoryStore.describe_bindings, keyed by execution variable name.
 
     Returns:
-        A multi-line string suitable for inclusion in a coding LLM prompt.
+        Text describing variable provenance, fields, types and previews for a
+        code-generation prompt, or an empty string when no descriptors are present.
     """
     if not binding_descriptors:
         return ""

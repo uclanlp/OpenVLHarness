@@ -1,3 +1,9 @@
+"""Recover camera poses and describe movement across two or more ordered views.
+
+The Camera_Trajectory_Tool client calls DA3's pose endpoint, interprets camera
+centers and viewing directions in the first camera's frame, and renders an
+optional bird's-eye diagram.
+"""
 import mimetypes
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -53,7 +59,9 @@ INPUT_SCHEMA = {
 
 
 class Camera_Trajectory_Tool(BaseTool):
+    """Ordered multi-image pose estimation and camera-motion interpretation."""
     def __init__(self):
+        """Initialize tool metadata and its concrete input/output contract."""
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -124,6 +132,7 @@ class Camera_Trajectory_Tool(BaseTool):
         )
 
     def sanity_check(self):
+        """Probe the configured health endpoint and return issue strings, or an empty list."""
         server_url = os.getenv(
             "DEPTH_ESTIMATION_SERVER_URL", DEFAULT_SERVER_URL
         ).rstrip("/")
@@ -144,6 +153,7 @@ class Camera_Trajectory_Tool(BaseTool):
     def _build_files_from_paths(
         self, image_paths: List[str]
     ) -> List[Tuple[str, Tuple[str, bytes, str]]]:
+        """Read ordered local images into a multipart upload list, preserving MIME types."""
         files = []
         for path in image_paths:
             if not os.path.isfile(path):
@@ -158,6 +168,7 @@ class Camera_Trajectory_Tool(BaseTool):
     def _build_files_from_base64s(
         self, image_base64s: List[str]
     ) -> List[Tuple[str, Tuple[str, bytes, str]]]:
+        """Decode ordered inline images into a multipart upload list."""
         files = []
         for idx, encoded in enumerate(image_base64s):
             image_bytes, content_type = decode_base64_image_data(encoded)
@@ -181,6 +192,24 @@ class Camera_Trajectory_Tool(BaseTool):
         server_url: Optional[str] = None,
         timeout_seconds: int = 300,
     ) -> Dict[str, Any]:
+        """Estimate ordered camera poses and describe motion relative to the first image.
+
+        Args:
+            image_paths: At least two local paths, exclusive with image_base64s.
+            image_base64s: At least two inline image payloads in temporal/view order.
+            _image_ids: Optional source IDs preserved during capability resolution.
+            server_url: DA3 service base, otherwise resolved from the environment.
+            timeout_seconds: Per-request HTTP timeout.
+
+        Returns:
+            Backend intrinsics/extrinsics plus ordered image IDs, camera motion records,
+            coordinate-system text, a text summary and an optional PNG bird's-eye view.
+
+        Raises:
+            ValueError: Sources are missing, ambiguous, too short or contain invalid data.
+            FileNotFoundError: A supplied image file is missing.
+            RuntimeError: The pose service returns an HTTP error.
+        """
         if not image_paths and not image_base64s:
             raise ValueError("image_paths or image_base64s is required")
         if image_paths and image_base64s:

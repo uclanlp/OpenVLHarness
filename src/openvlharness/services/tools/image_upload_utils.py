@@ -1,11 +1,7 @@
-"""Upload local images to cloud storage (GCS / S3) and return public URLs.
+"""Upload image bytes to GCS or S3 and return time-limited signed URLs.
 
-Uses content-hash-based blob names so that identical images are never uploaded
-twice — even across server restarts or experiment runs. Before uploading, a
-HEAD request checks whether the object already exists on the remote.
-
-An in-memory cache (keyed by SHA-256 of the image bytes) further avoids the
-HEAD round-trip for repeated calls within the same process.
+SHA-256 object names and remote existence checks avoid redundant uploads.
+A process-local cache reuses URLs for 50 minutes; signed URLs last one hour.
 """
 
 import hashlib
@@ -39,10 +35,12 @@ _CACHE_TTL_SECONDS = 50 * 60  # 50 minutes (signed URLs valid for 60 min)
 
 
 def _content_hash(image_bytes: bytes) -> str:
+    """Return the SHA-256 hex digest used to identify image content."""
     return hashlib.sha256(image_bytes).hexdigest()
 
 
 def _get_cached_url(content_hash: str) -> Optional[str]:
+    """Return an unexpired cached URL, evicting expired entries."""
     entry = _upload_cache.get(content_hash)
     if entry is None:
         return None
@@ -54,6 +52,7 @@ def _get_cached_url(content_hash: str) -> Optional[str]:
 
 
 def _set_cached_url(content_hash: str, url: str) -> None:
+    """Cache a signed URL with its creation time."""
     _upload_cache[content_hash] = (url, time.time())
 
 
@@ -63,6 +62,7 @@ def _blob_name(content_hash: str, extension: str = ".jpg") -> str:
 
 
 def _guess_content_type(path: str) -> str:
+    """Infer MIME type from a path, falling back to application/octet-stream."""
     ct, _ = mimetypes.guess_type(path)
     return ct or "application/octet-stream"
 
@@ -70,6 +70,11 @@ def _guess_content_type(path: str) -> str:
 # ---- GCS ------------------------------------------------------------------
 
 def _upload_gcs(image_bytes: bytes, content_type: str, extension: str, content_hash: str) -> str:
+    """Upload missing content to the configured GCS bucket and sign a one-hour GET URL.
+
+    Requires GOOGLE_APPLICATION_CREDENTIALS and GCS_BUCKET_NAME; GCS_PROJECT_ID
+    is optional. Missing required settings raise RuntimeError.
+    """
     from google.cloud import storage as gcs_storage
     from datetime import timedelta
 
@@ -100,6 +105,11 @@ def _upload_gcs(image_bytes: bytes, content_type: str, extension: str, content_h
 # ---- S3 -------------------------------------------------------------------
 
 def _upload_s3(image_bytes: bytes, content_type: str, extension: str, content_hash: str) -> str:
+    """Upload missing content to the configured S3 bucket and sign a one-hour GET URL.
+
+    Uses AWS_S3_BUCKET_NAME, AWS_S3_REGION and configured AWS credentials.
+    Raises RuntimeError when the bucket setting is absent.
+    """
     import boto3
     from botocore.exceptions import ClientError
 
@@ -143,20 +153,24 @@ def upload_image_bytes(
     extension: str = ".jpg",
     provider: Optional[str] = None,
 ) -> str:
-    """Upload image bytes to cloud storage and return a public URL.
-
-    Uses content-hash-based blob names for deduplication:
-    - In-memory cache avoids repeated calls within the same process.
-    - Remote HEAD check avoids re-uploading across server restarts.
+    """Upload image bytes when needed and return a signed URL.
 
     Args:
-        image_bytes: Raw image data.
-        content_type: MIME type of the image.
-        extension: File extension (e.g. ".jpg", ".png").
-        provider: "gcs" or "s3". Defaults to IMAGE_UPLOAD_PROVIDER env var.
+        image_bytes: Encoded image bytes used for content-hash deduplication.
+        content_type: MIME type stored on the remote object.
+        extension: Filename extension appended to the content hash.
+        provider: gcs or s3; defaults to IMAGE_UPLOAD_PROVIDER, then gcs.
 
     Returns:
-        A publicly accessible (signed) URL.
+        A URL usable without additional request authentication until expiry.
+        Cached URLs may have less than one hour remaining.
+
+    Raises:
+        ValueError: The provider is unsupported.
+        RuntimeError: Required storage settings are missing.
+
+    Storage-client errors propagate. The in-memory cache is keyed by image bytes,
+    so repeated calls reuse the cached URL even when other arguments differ.
     """
     ch = _content_hash(image_bytes)
 
@@ -182,7 +196,10 @@ def upload_image_file(
     image_path: str,
     provider: Optional[str] = None,
 ) -> str:
-    """Upload a local image file and return a public URL."""
+    """Read a local image, infer its MIME type and upload it to the selected provider.
+
+    Returns a signed URL. File errors and upload_image_bytes failures propagate.
+    """
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"Image not found: {image_path}")
     content_type = _guess_content_type(image_path)

@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Produce metric depth maps and visualizations through the DA3 depth service."""

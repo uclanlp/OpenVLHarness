@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Transcribe text from images using a PaddleOCR-VL HTTP endpoint."""

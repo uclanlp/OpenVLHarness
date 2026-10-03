@@ -1,4 +1,6 @@
+"""Shared metadata and execution interface for concrete tool backends."""
 class BaseTool:
+    """Base interface for backend metadata, readiness checks and execution."""
     require_llm_engine = False
 
     def __init__(
@@ -13,6 +15,19 @@ class BaseTool:
         demo_commands=None,
         user_metadata=None,
     ):
+        """Store a tool's descriptive metadata without starting execution.
+
+        Args:
+            tool_name: Concrete name used by the service router.
+            tool_description: Human-readable purpose and usage guidance.
+            tool_version: Backend metadata version.
+            input_types: Descriptions of accepted input fields.
+            output_type: Description of the backend result.
+            input_schema: Optional structured argument schema.
+            tool_aliases: Optional alternate names.
+            demo_commands: Optional example invocations.
+            user_metadata: Optional additional metadata mapping.
+        """
         self.tool_name = tool_name
         self.tool_description = tool_description
         self.tool_version = tool_version
@@ -24,6 +39,7 @@ class BaseTool:
         self.user_metadata = user_metadata or {}
 
     def get_metadata(self):
+        """Return tool identity, input/output descriptions and configuration metadata."""
         return {
             "tool_name": self.tool_name,
             "tool_description": self.tool_description,
@@ -38,7 +54,9 @@ class BaseTool:
         }
 
     def sanity_check(self):
+        """Return readiness issue strings; the base implementation reports no issues."""
         return []
 
     def execute(self, *args, **kwargs):
+        """Execute backend-specific arguments; subclasses must implement this method."""
         raise NotImplementedError("Tool must implement execute().")

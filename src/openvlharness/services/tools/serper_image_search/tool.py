@@ -1,8 +1,8 @@
-"""Image Search Tool — reverse image search via Serper Google Lens.
+"""Find visual matches and source pages for an image through Serper Google Lens.
 
-Input an image (public URL, local path, or base64) and get visual matches
-including titles, links, sources, and thumbnails. Uses Serper's Google Lens
-endpoint for high-quality object, landmark, artwork, and text recognition.
+Image_Search_Tool uploads inline image bytes to configured cloud storage,
+queries Lens, and uses the auxiliary model to select and summarize matches.
+The paper configuration supplies Qwen with query and candidate image pixels.
 """
 
 import json
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 # --- LLM summarize prompt (rerank + index-based top-K + prose summary) ---
-# Path A design (2026-05-10): the LLM receives raw reverse-image-search
+# The summarizer receives raw reverse-image-search
 # (Google Lens) results with raw URLs, reranks them, and outputs:
 #   (1) ``kept_indices`` — a list of 1-based original ranks. The
 #       downstream renderer slices the top-K raw entries verbatim from
@@ -301,13 +301,10 @@ MULTIMODAL_IMAGE_REF_PLACEHOLDER = "__MULTIMODAL_IMG_REF_PLACEHOLDER__"
 
 
 def _replace_image_url_line_with_placeholder(entry_text: str) -> str:
-    """Replace ``   Image: <url> <img>`` in a single raw entry with
-    ``   Image: <PLACEHOLDER>`` (indentation preserved).
+    """Replace image URL lines with placeholders while preserving indentation.
 
-    Tool side cannot know the framework-assigned ``tool_generated_image_N`` ref
-    yet — assigned by ``ImageStateMemory._register_tool_output_images`` after the
-    result is returned. The custom ``process_tool_output`` substitutes each
-    placeholder with the actual ref in kept-rank order.
+    The capability registers returned image bytes and substitutes their memory
+    IDs into these placeholders in selected-rank order.
     """
     lines = entry_text.splitlines()
     out: List[str] = []
@@ -341,34 +338,19 @@ def _render_summarized_results(
     parsed: Dict[str, Any], *, raw_text: str, keep_k: int,
     image_data_urls_by_rank: Optional[Dict[int, Optional[str]]] = None,
 ) -> str:
-    """Deterministic rendering of summarized image-search results.
+    """Render selected source entries and a cleaned summary from model JSON.
 
-    Path A (2026-05-10) — output shape on non-empty ``kept_indices``:
+    Args:
+        parsed: Summarizer output with kept_indices and prose fields.
+        raw_text: Numbered source entries to select by one-based rank.
+        keep_k: Maximum number of selected entries to render.
+        image_data_urls_by_rank: Optional fetched images; available selected
+            images use placeholders that the capability replaces with IDs.
 
-        1. <verbatim raw entry from visual-match rank N1, renumbered to 1>
-        2. <verbatim raw entry from rank N2, renumbered to 2>
-        ...
-
-        [Summary]
-        <3-5 sentence prose, no URLs, no [N] markers>
-
-        Suggested next actions:   (optional)
-        - ...
-
-    Output shape on empty ``kept_indices``:
-
-        NO RELEVANT MATCHES
-
-        Why each raw match was rejected:
-        <justification>
-
-        Suggested next actions:
-        - ...
-
-    Top-K raw entries (including ``Image: <url> <img>`` and
-    ``Source: <url>`` lines) are sliced verbatim from ``raw_text``, so
-    the framework ``<img>`` sentinel and URL bytes are byte-identical
-    to what Serper returned — the LLM has no opportunity to mangle.
+    Returns:
+        Selected entries with source links preserved, a summary with URL and
+        reference tokens removed, and optional recovery suggestions. Empty
+        selection produces an explicit no-relevant-results explanation.
     """
     kept_raw = parsed.get("kept_indices") or []
     if not isinstance(kept_raw, list):
@@ -475,16 +457,21 @@ INPUT_SCHEMA = {
 
 
 class Image_Search_Tool(BaseTool):
-    """Reverse image search via Serper Google Lens with LLM-organized output.
+    """Upload query images, retrieve Lens matches and summarize visual evidence.
 
-    Identifies objects, landmarks, artwork, text, products, plants, animals,
-    and more in an image. Returns an LLM-organized summary of visual matches
-    with citations, or raw results if summarization is disabled.
+    Uses the configured auxiliary model with fetched query/candidate pixels,
+    retaining up to three selected matches from ten retrieved results.
     """
 
     require_llm_engine = True
 
     def __init__(self, llm_engine):
+        """Initialize metadata and attach the configured auxiliary model.
+
+        Args:
+            llm_engine: AuxiliaryModel-compatible generator for evidence extraction.
+                The paper configuration uses Qwen multimodal summarization.
+        """
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -562,11 +549,13 @@ class Image_Search_Tool(BaseTool):
         self._client: Optional[SerperClient] = None
 
     def _get_client(self) -> SerperClient:
+        """Return the lazily created Serper HTTP client."""
         if self._client is None:
             self._client = SerperClient()
         return self._client
 
     def sanity_check(self):
+        """Return credential-loading issue strings, or an empty list when a key is available."""
         try:
             get_serper_api_key()
         except Exception as exc:
@@ -672,18 +661,7 @@ class Image_Search_Tool(BaseTool):
 
     @classmethod
     def _format_no_matches(cls, image_ref: str) -> str:
-        """Structured fallback when Serper Lens returns 0 visual matches.
-
-        Replaces the prior plain-string ``"[Image Search] No visual matches
-        found for this image."`` with a recovery-guided message — agent
-        previously got no hint about what to do next.
-
-        Possible causes:
-        * Image content is generic / non-distinctive (a blank wall, a
-          common object) → no useful reverse-search anchors
-        * Image is too small / low-res / cropped poorly
-        * The subject is genuinely too obscure for Google Lens index
-        """
+        """Render an empty Lens result with explanations and image-search recovery options."""
         return (
             "[Image Search — Visual Matches]\n"
             "NO VISUAL MATCHES\n\n"
@@ -718,13 +696,11 @@ class Image_Search_Tool(BaseTool):
         )
 
     def _resolve_image_url(self, image_base64: str) -> str:
-        """Decode the (post-memory-resolution) base64 data URL and upload to
-        cloud storage. Serper Lens requires a publicly accessible HTTP(S) URL.
+        """Decode the resolved inline image and upload it to configured cloud storage.
 
-        The framework's ImageModule.before_tool_call rewrites the agent's
-        ``image_id`` argument into ``image_base64`` (a data URL) before
-        dispatch — see memory/modules/image.py::_resolve_image_ids_in_args.
-        This tool never sees the raw image_id.
+        Returns a signed HTTP(S) URL suitable for Serper Lens. The capability supplies
+        image_base64 after resolving the model's image ID; this helper does not resolve
+        IDs itself. Missing data raises ValueError; upload failures propagate.
         """
         from openvlharness.services.tools.image_upload_utils import upload_image_bytes
 
@@ -774,16 +750,10 @@ class Image_Search_Tool(BaseTool):
         }
 
     def _format_raw_results(self, results: List[Dict[str, object]]) -> str:
-        """Format raw visual matches into numbered text for LLM or direct output.
+        """Render numbered visual matches with source links and optional thumbnail URLs.
 
-        Emits a ``Source: {domain/slug-path}   {link}`` line per result. The
-        path portion is preserved (scheme / www. / query stripped) so the
-        URL slug remains a semantic cue for the agent. ImageStateMemory's
-        URL rewriting registers the page link as ``webpage_url_N`` and
-        the trailing ``Image: {thumbnail} <img>`` line as
-        ``tool_generated_image_N`` (the ``<img>`` sentinel forces image
-        classification regardless of URL extension — Google CDN
-        thumbnails typically have no extension).
+        Compact source labels preserve URL paths as semantic context. Image links carry
+        an <img> marker so memory rewriting recognizes them without a filename suffix.
         """
         MAX_PATH_LEN = 80
         lines = []
@@ -883,33 +853,15 @@ class Image_Search_Tool(BaseTool):
         query_image_data_url: Optional[str] = None,
         image_data_urls_by_rank: Optional[Dict[int, Optional[str]]] = None,
     ) -> Tuple[str, List[str]]:
-        """Summarize raw visual matches into top-K raw entries + prose summary.
+        """Rank raw visual matches using the auxiliary model and render selected evidence.
 
-        Returns ``(rendered_text, kept_data_urls)``:
-          * ``rendered_text`` — agent-visible string (top-K renumbered raw
-            entries + ``[Summary]`` paragraph + optional next-action list).
-          * ``kept_data_urls`` — list of ``data:image/...`` URLs for the
-            kept ranks, in kept-rank order, restricted to ranks whose image
-            fetch succeeded. Empty in text-only mode or on any fallback.
+        Available query/candidate images are interleaved with text for multimodal
+        ranking. The model chooses kept_indices; the renderer selects source entries
+        from raw_text and strips reference tokens from the prose summary.
 
-        Path A (2026-05-10) — mirrors serper_text_search._summarize_with_llm:
-          1. ONE LLM call returning STRICT JSON with ``kept_indices``
-             (1-based original ranks) + ``summary`` (3-5 sentence prose
-             distilling facts across ALL raw matches, no URLs / no [N]).
-          2. Deterministic Python rendering of that JSON: top-K raw
-             entries are sliced verbatim from ``raw_text`` by index, so
-             URL bytes / image URLs / ``<img>`` sentinels are
-             byte-identical to what Serper returned.
-
-        Multimodal mode (when ``image_data_urls_by_rank`` is provided):
-        the user prompt is built as an interleaved list of text and image
-        content blocks; the summarizer Qwen3-VL reranks using both modalities.
-        For kept ranks with a fetched image, the rendered top-K block strips
-        the ``Image: <url> <img>`` line — the bytes are attached separately.
-
-        Falls back to ``(raw_text, [])`` on JSON parse failure / LLM error /
-        empty output so the agent still gets the underlying citations and
-        ``<img>`` sentinels.
+        Returns:
+            A (rendered_text, kept_data_urls) tuple in selected-rank order. Model,
+            parsing or empty-output failures return (raw_text, []).
         """
         multimodal = image_data_urls_by_rank is not None
         system_prompt = (
@@ -1006,21 +958,24 @@ class Image_Search_Tool(BaseTool):
         self,
         image_base64: Optional[str] = None,
     ) -> Union[str, Dict[str, Any]]:
-        """Execute reverse image search via Google Lens.
+        """Upload an image, search Lens and summarize the selected visual matches.
 
-        The LLM-facing schema exposes a single ``image_id`` field. The
-        framework's ImageModule.before_tool_call (memory/modules/image.py)
-        resolves that ID to a data URL and rewrites it onto the
-        ``image_base64`` key before dispatch, which is what this method
-        receives.
+        Args:
+            image_base64: Inline image bytes or an image data URL. The capability
+                resolves the model's image_id into this field before dispatch.
 
         Returns:
-            LLM-organized summary of visual matches with citations,
-            or raw formatted results if summarization is disabled.
-            In multimodal-summarize mode with at least one successfully
-            fetched kept-rank image, returns ``{"text": ..., "kept_image_data_urls": [...]}``
-            so the framework injects the image bytes into the agent's
-            deferred user message.
+            Rendered evidence text, or a mapping with text and kept_image_data_urls
+            when selected candidate pixels are available. Upload/search failures and
+            empty matches produce explanatory text with recovery suggestions.
+
+        Raises:
+            ValueError: Image data is missing or invalid.
+            FileNotFoundError: No Serper credential is configured.
+
+        Uploads use configured GCS or S3 credentials. The signed query URL and candidate
+        thumbnails are downloaded for multimodal summarization. Unavailable candidate
+        images are filtered; if all fail, summarization uses text metadata.
         """
         # Catch input-side failures (S3 / cloud upload down, base64 corrupt)
         # and emit a structured agent-readable message. ValueError on a
@@ -1073,7 +1028,7 @@ class Image_Search_Tool(BaseTool):
                 break
 
         if not results:
-            # Structured "no matches" fallback (replaces prior plain string).
+            # Render an explicit no-matches result with recovery suggestions.
             # Includes cross-tool suggestions so the agent has a recovery path.
             return self._format_no_matches(image_ref_for_error)
 

@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Generate Python code for calculations over described tool-result bindings."""

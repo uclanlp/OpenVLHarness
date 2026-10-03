@@ -67,6 +67,17 @@ class GenericMask:
     """
 
     def __init__(self, mask_or_polygons, height, width):
+        """Create a mask wrapper from polygons, COCO RLE or a binary array.
+
+        Args:
+            mask_or_polygons: RLE dictionary, list of flattened polygons, or H x W array.
+            height: Target image height in pixels.
+            width: Target image width in pixels.
+
+        Raises:
+            ValueError: The mask representation is unsupported.
+            AssertionError: Array or RLE dimensions do not match the image.
+        """
         self._mask = self._polygons = self._has_holes = None
         self.height = height
         self.width = width
@@ -101,18 +112,21 @@ class GenericMask:
 
     @property
     def mask(self):
+        """Return the binary bitmap, converting and caching polygon data if necessary."""
         if self._mask is None:
             self._mask = self.polygons_to_mask(self._polygons)
         return self._mask
 
     @property
     def polygons(self):
+        """Return flattened polygon coordinates, extracting and caching contours when needed."""
         if self._polygons is None:
             self._polygons, self._has_holes = self.mask_to_polygons(self._mask)
         return self._polygons
 
     @property
     def has_holes(self):
+        """Return whether bitmap contours contain holes; polygon inputs are treated as hole-free."""
         if self._has_holes is None:
             if self._mask is not None:
                 self._polygons, self._has_holes = self.mask_to_polygons(self._mask)
@@ -123,6 +137,7 @@ class GenericMask:
         return self._has_holes
 
     def mask_to_polygons(self, mask):
+        """Return pixel-centered contour coordinates and whether the binary mask has holes."""
         mask = np.ascontiguousarray(mask)
         res = cv2.findContours(
             mask.astype("uint8"), cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE
@@ -137,14 +152,17 @@ class GenericMask:
         return res, has_holes
 
     def polygons_to_mask(self, polygons):
+        """Rasterize polygons into a binary array with the configured image dimensions."""
         rle = mask_util.frPyObjects(polygons, self.height, self.width)
         rle = mask_util.merge(rle)
         return mask_util.decode(rle)[:, :]
 
     def area(self):
+        """Return the number of foreground pixels."""
         return self.mask.sum()
 
     def bbox(self):
+        """Return the mask's bounding box in absolute xyxy coordinates."""
         p = mask_util.frPyObjects(self.polygons, self.height, self.width)
         p = mask_util.merge(p)
         bbox = mask_util.toBbox(p)
@@ -154,8 +172,10 @@ class GenericMask:
 
 
 class VisImage:
+    """A matplotlib-backed RGB image canvas for drawing and saving overlays."""
     def __init__(self, img, scale=1.0):
-        """
+        """Create a canvas for an RGB image at the requested display scale.
+
         Args:
             img (ndarray): an RGB image of shape (H, W, 3) in range [0, 255].
             scale (float): scale the input image
@@ -166,6 +186,7 @@ class VisImage:
         self._setup_figure(img)
 
     def _setup_figure(self, img):
+        """Create an axis-free canvas sized to the source image and configured scale."""
         fig = mplfigure.Figure(frameon=False)
         self.dpi = fig.get_dpi()
         fig.set_size_inches(
@@ -180,16 +201,19 @@ class VisImage:
         self.reset_image(img)
 
     def reset_image(self, img):
+        """Display a uint8 source image on the canvas using image pixel coordinates."""
         img = img.astype("uint8")
         self.ax.imshow(
             img, extent=(0, self.width, self.height, 0), interpolation="nearest"
         )
 
     def save(self, filepath):
+        """Save the rendered canvas to a local file using matplotlib format inference."""
         self.fig.savefig(filepath)
 
     def get_image(self):
-        """
+        """Return the rendered canvas as a uint8 RGB array.
+
         Returns:
             ndarray:
                 the visualized image of shape (H, W, 3) (RGB) in uint8 type.
@@ -220,7 +244,8 @@ class Visualizer:
         font_size_multiplier=1.3,
         border_width_multiplier=1.5,
     ):
-        """
+        """Initialize image visualization settings and the output canvas.
+
         Args:
             img_rgb: a numpy array of shape (H, W, C), where H and W correspond to
                 the height and width of the image respectively. C is the number of
@@ -262,7 +287,8 @@ class Visualizer:
         alpha=0.5,
         label_mode="1",
     ):
-        """
+        """Draw instance boxes, masks and labels on the output canvas.
+
         Args:
             boxes (Boxes or ndarray): either a :class:`Boxes`,
                 or an Nx4 numpy array of XYXY_ABS format for the N objects in a single image.
@@ -347,7 +373,8 @@ class Visualizer:
         return labels, marks, marks_position
 
     def overlay_rotated_instances(self, boxes=None, labels=None, assigned_colors=None):
-        """
+        """Draw rotated instance boxes and their labels.
+
         Args:
             boxes (ndarray): an Nx5 numpy array of
                 (x_center, y_center, width, height, angle_degrees) format
@@ -387,6 +414,7 @@ class Visualizer:
         return self.output
 
     def mask_dims_from_binary(self, binary_mask):
+        """Return foreground x/y spans for a nonempty binary mask."""
         ind_y, ind_x = np.where(binary_mask == 1)
         min_ind_x = np.min(ind_x)
         max_ind_x = np.max(ind_x)
@@ -395,6 +423,11 @@ class Visualizer:
         return (max_ind_x - min_ind_x), (max_ind_y - min_ind_y)
 
     def reposition_label(self, position, cur, binary_mask, move_count):
+        """Propose a label displacement to separate small masks or nearby labels.
+
+        Returns (should_move, delta_x, delta_y), respecting configured image-edge
+        margins for collision adjustments.
+        """
         img_width, img_height = self.output.width, self.output.height
         mask_width, mask_height = self.mask_dims_from_binary(binary_mask)
 
@@ -437,6 +470,11 @@ class Visualizer:
         return (False, 0, 0)
 
     def locate_label_position(self, original_position, added_positions, binary_mask):
+        """Find and record a label location using at most ten collision adjustments.
+
+        Returns the requested position when positions or mask data are unavailable;
+        otherwise adds the final position to added_positions.
+        """
         if added_positions is None or binary_mask is None:
             return original_position
 
@@ -472,7 +510,8 @@ class Visualizer:
         horizontal_alignment="center",
         rotation=0,
     ):
-        """
+        """Draw text at a pixel location using the requested alignment and styling.
+
         Args:
             text (str): class label
             position (tuple): a tuple of the x and y coordinates to place text on image.
@@ -525,7 +564,8 @@ class Visualizer:
         return self.output
 
     def draw_box(self, box_coord, alpha=0.5, edge_color="g", line_style="-"):
-        """
+        """Draw an axis-aligned box on the output canvas.
+
         Args:
             box_coord (tuple): a tuple containing x0, y0, x1, y1 coordinates.
             alpha (float): blending efficient.
@@ -606,7 +646,8 @@ class Visualizer:
         return self.output
 
     def draw_circle(self, circle_coord, color, radius=3):
-        """
+        """Draw a circle at an image-coordinate location.
+
         Args:
             circle_coord (list(int) or tuple(int)): contains the x and y coordinates
                 of the center of the circle.
@@ -623,7 +664,8 @@ class Visualizer:
         return self.output
 
     def draw_line(self, x_data, y_data, color, linestyle="-", linewidth=None):
-        """
+        """Draw connected x/y coordinates on the output canvas.
+
         Args:
             x_data (list[int]): a list containing x values of all the points being drawn.
             y_data (list[int]): a list containing y values of all the points being drawn.
@@ -658,7 +700,8 @@ class Visualizer:
         alpha=0.7,
         area_threshold=10,
     ):
-        """
+        """Overlay a binary mask with optional edges and a text label.
+
         Args:
             binary_mask (ndarray): numpy array of shape (H, W), where H is the image height and
                 W is the image width. Each value in the array is either a 0 or 1 value of uint8
@@ -710,7 +753,8 @@ class Visualizer:
         return self.output
 
     def draw_polygon(self, segment, color, edge_color=None, alpha=0.5):
-        """
+        """Draw a polygon with a filled face and optional border.
+
         Args:
             segment: numpy array of shape Nx2, containing all the points in the polygon.
             color: color of the polygon.
@@ -745,6 +789,7 @@ class Visualizer:
     # ----------------------------------------------------------------
 
     def _jitter(self, color):
+        """Return an RGB color perturbed by random positive noise and clipped to [0, 1]."""
         color = mplc.to_rgb(color)
         vec = np.random.rand(3)
         vec = vec / np.linalg.norm(vec) * 0.5
@@ -752,6 +797,7 @@ class Visualizer:
         return tuple(res)
 
     def _create_grayscale_image(self, mask=None):
+        """Return a grayscale RGB image, preserving source colors where mask is true."""
         img_bw = self.img.astype("f4").mean(axis=2)
         img_bw = np.stack([img_bw] * 3, axis=2)
         if mask is not None:
@@ -759,6 +805,7 @@ class Visualizer:
         return img_bw
 
     def _change_color_brightness(self, color, brightness_factor):
+        """Adjust HLS lightness by a factor in [-1, 1] and return RGB."""
         assert brightness_factor >= -1.0 and brightness_factor <= 1.0
         color = mplc.to_rgb(color)
         polygon_color = colorsys.rgb_to_hls(*mplc.to_rgb(color))
@@ -843,6 +890,7 @@ class Visualizer:
 
     @staticmethod
     def number_to_string(n):
+        """Convert a positive one-based index to lowercase alphabetic labels: a, ..., z, aa."""
         chars = []
         while n:
             n, remainder = divmod(n - 1, 26)
@@ -900,7 +948,8 @@ class Visualizer:
                 self.draw_text(text, center, color=color)
 
     def get_output(self):
-        """
+        """Return the current VisImage canvas.
+
         Returns:
             output (VisImage): the image output containing the visualizations added
             to the image.

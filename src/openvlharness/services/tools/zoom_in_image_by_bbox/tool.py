@@ -1,3 +1,8 @@
+"""Crop selected image regions using normalized coordinates and padding.
+
+Zoom_In_Tool expands a 0–1000 xyxy box by normalized padding, clips it to image
+bounds and returns the crop as PNG base64.
+"""
 from openvlharness.services.tools.base import BaseTool
 from openvlharness.services.tools.image_utils import (
     coerce_xyxy,
@@ -32,7 +37,9 @@ INPUT_SCHEMA = {
 
 
 class Zoom_In_Tool(BaseTool):
+    """Local image cropping with normalized coordinates and padding."""
     def __init__(self):
+        """Initialize tool metadata and its concrete input/output contract."""
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -68,6 +75,20 @@ class Zoom_In_Tool(BaseTool):
     def execute(
         self, image_path=None, coords=None, padding=50, image_base64=None
     ):
+        """Crop an image with a padded box on the 0–1000 coordinate scale.
+
+        Args:
+            image_path: Local image path, exclusive with image_base64.
+            coords: Four normalized xyxy coordinates.
+            padding: Margin added to each side in normalized units; at least 50.
+            image_base64: Raw base64 or an image data URL.
+
+        Returns:
+            A mapping containing cropped_image_base64, encoded as PNG without a prefix.
+
+        Raises:
+            ValueError: Image source, coordinates, padding or the resulting crop is invalid.
+        """
         if coords is None or len(coords) != 4:
             raise ValueError("coords must be a list of four values")
         padding = float(padding)

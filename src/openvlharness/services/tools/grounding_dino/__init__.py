@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Detect objects named by text labels using the Grounding DINO service."""

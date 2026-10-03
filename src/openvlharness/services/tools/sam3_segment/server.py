@@ -1,3 +1,8 @@
+"""Serve text-prompted SAM3 segmentation, masks and visualization over FastAPI.
+
+Importing this worker loads the SAM3 model and processor. Grounding confidence
+excludes presence-token multiplication; overlapping masks are filtered by IoM.
+"""
 import base64
 import io
 import types
@@ -32,6 +37,7 @@ processor = Sam3Processor(model)
 # Mirrors the canonical `use_presence=False` switch in sam3/eval/postprocessors.py:45.
 @torch.inference_mode()
 def _forward_grounding_no_presence(self, state):
+    """Populate processor state with scaled boxes, scores and masks without presence gating."""
     outputs = self.model.forward_grounding(
         backbone_out=state["backbone_out"],
         find_input=self.find_stage,
@@ -72,6 +78,7 @@ processor._forward_grounding = types.MethodType(
 
 
 def _pil_from_upload(upload: UploadFile) -> Image.Image:
+    """Read an uploaded image as RGB, rejecting empty bytes with ValueError."""
     data = upload.file.read()
     if not data:
         raise ValueError("Empty image upload.")
@@ -115,12 +122,10 @@ def _render_masks(
     orig_h: int,
     orig_w: int,
 ) -> str:
-    """
-    Render masks onto the image and return a base64-encoded PNG string.
+    """Render detected masks and boxes as a base64 PNG overlay.
 
-    Uses hardcoded viz params (already tuned):
-      - font_size_multiplier=1.2, border_width_multiplier=0.0
-      - alpha=0.15, label_mode="1"
+    Uses alpha 0.15 and numbered labels; accepts pixel boxes and COCO RLE counts
+    with the original image dimensions.
     """
     img_rgb = np.array(pil_img)
 
@@ -154,11 +159,13 @@ def _render_masks(
 
 @app.get("/health")
 def health() -> Dict[str, str]:
+    """Report segmentation worker readiness."""
     return {"status": "ok"}
 
 
 @app.get("/v1/models")
 def list_models() -> Dict[str, Any]:
+    """Return the served SAM3 model in an OpenAI-style model-list response."""
     return {
         "object": "list",
         "data": [
@@ -176,14 +183,16 @@ def segment(
     prompt: str = Form(...),
     image: UploadFile = File(...),
 ) -> JSONResponse:
-    """
-    Multipart/form-data request:
-      - prompt: text prompt
-      - image: uploaded image file
+    """Segment objects matching a text prompt and return aligned detection artifacts.
 
-    Returns JSON with pred_boxes, pred_masks (RLE), pred_scores,
-    orig_img_h, orig_img_w, num_masks, and rendered_image_b64.
-    All masks/boxes/scores are sorted left-to-right by box x1.
+    Args:
+        prompt: Text identifying the objects to segment.
+        image: Multipart image upload.
+
+    Returns:
+        Pixel xyxy boxes, COCO RLE masks, scores, original height/width, mask count
+        and a rendered PNG image. Detections are sorted by their leftmost x value
+        after overlapping-mask filtering.
     """
     try:
         pil_img = _pil_from_upload(image)

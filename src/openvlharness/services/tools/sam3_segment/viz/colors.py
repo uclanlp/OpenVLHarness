@@ -66,7 +66,8 @@ _COLORS = (
 
 
 def colormap(rgb=False, maximum=255):
-    """
+    """Return the packaged RGB or BGR color map at the requested scale.
+
     Args:
         rgb (bool): whether to return RGB colors or BGR colors.
         maximum (int): either 255 or 1
@@ -82,7 +83,8 @@ def colormap(rgb=False, maximum=255):
 
 
 def random_color(rgb=False, maximum=255):
-    """
+    """Select one random color from the packaged color map.
+
     Args:
         rgb (bool): whether to return RGB colors or BGR colors.
         maximum (int): either 255 or 1
@@ -98,7 +100,8 @@ def random_color(rgb=False, maximum=255):
 
 
 def random_colors(N, rgb=False, maximum=255):
-    """
+    """Select a collection of random colors from the packaged color map.
+
     Args:
         N (int): number of unique colors needed
         rgb (bool): whether to return RGB colors or BGR colors.
@@ -158,6 +161,7 @@ DEFAULT_COLOR_PALETTE = list(DEFAULT_COLOR_HEX_TO_NAME.keys())
 
 
 def _validate_color_hex(color_hex: str):
+    """Validate a three- or six-digit RGB hex value, allowing a leading hash."""
     color_hex = color_hex.lstrip("#")
     if not all(c in "0123456789abcdefABCDEF" for c in color_hex):
         raise ValueError("Invalid characters in color hash")
@@ -215,27 +219,33 @@ class Color:
 
     @classmethod
     def white(cls):
+        """Return an RGB white color."""
         return Color.from_hex(color_hex="#ffffff")
 
     @classmethod
     def black(cls):
+        """Return an RGB black color."""
         return Color.from_hex(color_hex="#000000")
 
     @classmethod
     def red(cls):
+        """Return an RGB red color."""
         return Color.from_hex(color_hex="#ff0000")
 
     @classmethod
     def green(cls):
+        """Return an RGB green color."""
         return Color.from_hex(color_hex="#00ff00")
 
     @classmethod
     def blue(cls):
+        """Return an RGB blue color."""
         return Color.from_hex(color_hex="#0000ff")
 
 
 @dataclass
 class ColorPalette:
+    """An ordered list of RGB colors for instance visualization."""
     colors: List[Color]
 
     @classmethod

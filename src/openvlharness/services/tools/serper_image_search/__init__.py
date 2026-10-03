@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Find visual matches and source pages for an image through Serper Google Lens."""

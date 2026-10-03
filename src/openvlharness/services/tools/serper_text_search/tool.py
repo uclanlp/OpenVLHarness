@@ -1,11 +1,8 @@
-"""Text Search Tool — Serper-based web search with configured LLM summarization.
+"""Search Serper endpoints and summarize evidence relevant to a text query.
 
-Supports all Serper text-search endpoints (search, images, news, scholar,
-maps, places, shopping, patents). The agent selects the endpoint via the
-``search_type`` parameter (default ``"search"``).
-
-The official configuration summarizes with multimodal Qwen. The model connection
-is injected by the router; summarization controls are service constants.
+Text_Search_Tool supports web, image, news, scholar, maps, places, shopping and
+patent searches. The paper configuration uses Qwen multimodal summarization
+for image results and preserves selected source entries and links.
 """
 
 import json
@@ -74,7 +71,7 @@ INPUT_SCHEMA = {
 
 # --- LLM summarization prompt (rerank + index-based top-K + prose summary) ---
 # Split into system (static role + rules + schema) and user (per-call data).
-# Path A design (2026-05-10): the LLM receives raw search results with raw
+# The summarizer receives raw search results with raw
 # URLs (https://...), reranks them, and outputs:
 #   (1) ``kept_indices`` — a list of 1-based original ranks (NOT URLs, NOT
 #       refs, NOT key_facts). The downstream renderer slices the top-K raw
@@ -455,47 +452,20 @@ def _render_summarized_results(
     keep_k: int,
     image_data_urls_by_rank: Optional[Dict[int, Optional[str]]] = None,
 ) -> str:
-    """Deterministically render the summarizer JSON into the agent-visible
-    output for Path A (index-based top-K + prose summary).
+    """Render selected source entries and a cleaned summary from model JSON.
 
-    Output shape on non-empty ``kept_indices``:
+    Args:
+        parsed: Summarizer output with kept_indices and prose fields.
+        search_type: Search endpoint label used when parsing source entries.
+        raw_text: Numbered source entries to select by one-based rank.
+        keep_k: Maximum number of selected entries to render.
+        image_data_urls_by_rank: Optional fetched images; available selected
+            images use placeholders that the capability replaces with IDs.
 
-        1. <verbatim raw entry from organic rank N1, renumbered to 1>
-        2. <verbatim raw entry from organic rank N2, renumbered to 2>
-        ...
-
-        [Summary]
-        <3-5 sentence prose, no URLs, no [N] markers>
-
-        Suggested query rewrites:   (optional; appears if LLM emits them)
-        - ...
-
-        Suggested next actions:     (optional)
-        - ...
-
-    Output shape on empty ``kept_indices``:
-
-        NO RELEVANT RESULTS
-
-        Why each raw result was rejected:
-        <justification>
-
-        Suggested query rewrites:
-        - ...
-
-        Suggested next actions:
-        - ...
-
-    Properties guaranteed by this renderer:
-    * The top-K raw entries are sliced verbatim from ``raw_text`` (the
-      same string fed to the LLM). The LLM does NOT control URL bytes,
-      snippet wording, or image refs in this region — URL hallucination
-      is structurally impossible.
-    * ``summary`` is plain prose with URL / ref tokens stripped. The
-      memory module's URL rewriter sees no URL in the summary region,
-      so the URL registry is anchored exclusively to the top-K block.
-    * Out-of-range / duplicate / non-int entries in ``kept_indices`` are
-      silently discarded.
+    Returns:
+        Selected entries with source links preserved, a summary with URL and
+        reference tokens removed, and optional recovery suggestions. Empty
+        selection produces an explicit no-relevant-results explanation.
     """
     # NOTE: do NOT prepend "[Search Results — Type: X]" — caller adds it.
 
@@ -605,16 +575,22 @@ def _render_summarized_results(
 
 
 class Text_Search_Tool(BaseTool):
-    """Smart text search with automatic query classification, routing, and LLM summarization.
+    """Search a selected Serper endpoint and summarize relevant evidence.
 
-    Routes queries to the most appropriate Serper endpoint based on query intent.
-    Optionally passes results through an LLM to generate a coherent summary with
-    inline citations for easy multi-round agent search.
+    Requests ten results, retains up to three ranked entries and uses the injected
+    auxiliary model. Image search supplies fetched candidate pixels to the
+    summarizer; other search types use text evidence.
     """
 
     require_llm_engine = True
 
     def __init__(self, llm_engine):
+        """Initialize metadata and attach the configured auxiliary model.
+
+        Args:
+            llm_engine: AuxiliaryModel-compatible generator for evidence extraction.
+                The paper configuration uses Qwen multimodal summarization.
+        """
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -687,11 +663,13 @@ class Text_Search_Tool(BaseTool):
         self._client: Optional[SerperClient] = None
 
     def _get_client(self) -> SerperClient:
+        """Return the lazily created Serper HTTP client."""
         if self._client is None:
             self._client = SerperClient()
         return self._client
 
     def sanity_check(self):
+        """Return credential-loading issue strings, or an empty list when a key is available."""
         try:
             get_serper_api_key()
         except Exception as exc:
@@ -748,36 +726,15 @@ class Text_Search_Tool(BaseTool):
         keep_k: int,
         image_data_urls_by_rank: Optional[Dict[int, Optional[str]]] = None,
     ) -> Tuple[str, List[str]]:
-        """Summarize raw search results into top-K raw entries + prose summary.
+        """Rank raw entries and render selected evidence with a prose summary.
 
-        Returns ``(rendered_text, kept_data_urls)``:
-          * ``rendered_text`` — agent-visible string.
-          * ``kept_data_urls`` — list of ``data:image/...`` URLs for the
-            kept ranks, in kept-rank order, restricted to ranks whose image
-            fetch succeeded. Empty unless multimodal mode is active AND at
-            least one kept-rank image was successfully fetched.
+        Uses one auxiliary-model call to produce kept_indices and summary. Entry text
+        is selected from raw_results by rank, preserving source links. For image
+        searches, available pixels are interleaved with candidate text.
 
-        Path A (2026-05-10):
-          1. ONE LLM call with ``TEXT_SEARCH_SUMMARIZE_*`` prompts. The LLM
-             reranks the numbered organic results and emits STRICT JSON
-             with ``kept_indices`` (1-based original ranks) and a
-             ``summary`` field (3-5 sentence prose distillation of facts
-             across ALL raw results, no URLs / no [N] markers).
-          2. Deterministic Python rendering of that JSON into the
-             agent-visible top-K block + ``[Summary]`` block. The top-K
-             block is sliced verbatim from ``raw_results`` by index, so
-             URL bytes / snippet text / image refs are byte-identical to
-             what Serper returned — the LLM has no opportunity to mangle.
-
-        Multimodal mode (search_type=images + ``image_data_urls_by_rank``
-        provided): the user prompt is built as interleaved text+image
-        blocks; the summarizer Qwen3-VL reranks using both modalities.
-        Kept ranks with a fetched image get their ``Image: <url> <img>``
-        line stripped from the rendered top-K block.
-
-        On JSON parse failure / LLM error / empty output we fall back to
-        ``(raw_results, [])`` so the agent still gets the underlying
-        citations and ``<img>`` sentinels intact.
+        Returns:
+            A (rendered_text, kept_data_urls) tuple in selected-rank order. Model or
+            JSON parsing failures use deterministic result-selection fallbacks.
         """
         multimodal = image_data_urls_by_rank is not None
         if multimodal:
@@ -826,7 +783,7 @@ class Text_Search_Tool(BaseTool):
             )
             return raw_results, []
 
-        # Schema deviation guard. The Path A schema's load-bearing field
+        # Schema validation: the required result-selection field
         # is ``kept_indices``. Two deviation modes that would otherwise
         # silently emit "NO RELEVANT RESULTS" (losing real Serper data),
         # distinguished from a *legitimate* empty kept_indices (LLM
@@ -997,7 +954,7 @@ class Text_Search_Tool(BaseTool):
         )
 
     # ------------------------------------------------------------------
-    # Gemini Google Search integration
+    # Serper search execution
     # ------------------------------------------------------------------
 
     def execute(
@@ -1005,22 +962,24 @@ class Text_Search_Tool(BaseTool):
         query: str,
         search_type: str = "search",
     ) -> Union[str, Dict[str, Any]]:
-        """Execute a text search with automatic or explicit endpoint routing.
+        """Search a selected endpoint and return summarized evidence.
 
         Args:
             query: Search query string.
-            search_type: One of ALL_SEARCH_TYPES (default 'search').
-            num_results: Maximum number of results to return (default 10).
-            gl: Country code for localized results (e.g. 'us', 'uk', 'cn').
-            hl: Language code (e.g. 'en', 'zh', 'fr').
+            search_type: One of ALL_SEARCH_TYPES; defaults to search.
 
         Returns:
-            LLM-generated summary with citations, or raw formatted results
-            if LLM summarization is disabled. In multimodal-summarize mode
-            (search_type=images) with at least one successfully fetched
-            kept-rank thumbnail, returns a dict ``{"text": ..., "kept_image_data_urls": [...]}``
-            so the framework injects the image bytes into the agent's
-            deferred user message.
+            Formatted text with selected result entries and a summary. Image search
+            returns a mapping with text and kept_image_data_urls when selected images
+            were fetched successfully. Exhausted search errors and empty results
+            return explanatory text with recovery suggestions.
+
+        Raises:
+            ValueError: search_type is unsupported.
+            FileNotFoundError: No Serper credential is configured.
+
+        Result count, retained rank count and summarization policy are service settings,
+        not task arguments. Failed image fetches fall back to available text evidence.
         """
         if not query or not isinstance(query, str):
             raise ValueError("query is required and must be a non-empty string")

@@ -1,3 +1,4 @@
+"""Image decoding, coordinate conversion and drawing utilities for tool backends."""
 import base64
 import io
 import math
@@ -7,10 +8,12 @@ from PIL import Image
 
 
 def clamp(value, min_value, max_value):
+    """Clamp a scalar to the inclusive bounds min_value and max_value."""
     return max(min_value, min(value, max_value))
 
 
 def load_image(image_path):
+    """Open a local image as RGB, raising ValueError or FileNotFoundError for invalid paths."""
     if not image_path:
         raise ValueError("image_path is required")
     if not os.path.isfile(image_path):
@@ -19,6 +22,11 @@ def load_image(image_path):
 
 
 def decode_base64_image_data(image_base64):
+    """Decode raw base64 or a data URL into bytes and an optional declared MIME type.
+
+    Accepts strings or UTF-8 bytes. Raises ValueError for missing, malformed or
+    empty input. This function decodes bytes but does not validate image content.
+    """
     if image_base64 is None:
         raise ValueError("image_base64 is required")
     if isinstance(image_base64, bytes):
@@ -50,6 +58,11 @@ def decode_base64_image_data(image_base64):
 
 
 def infer_image_content_type_and_extension(image_bytes):
+    """Inspect image bytes and return a supported MIME type and filename extension.
+
+    Raises ValueError for invalid images or formats outside JPEG, PNG, WEBP, GIF,
+    BMP and TIFF.
+    """
     try:
         with Image.open(io.BytesIO(image_bytes)) as image:
             image_format = (image.format or "").upper()
@@ -76,6 +89,7 @@ def infer_image_content_type_and_extension(image_bytes):
 
 
 def load_image_base64(image_base64):
+    """Decode inline image data as RGB, raising ValueError for invalid image bytes."""
     data, _ = decode_base64_image_data(image_base64)
     try:
         return Image.open(io.BytesIO(data)).convert("RGB")
@@ -84,6 +98,11 @@ def load_image_base64(image_base64):
 
 
 def resolve_image_input(image_path=None, image_base64=None, image_label="image"):
+    """Load exactly one local-path or base64 image source as RGB.
+
+    image_label customizes error messages. Raises ValueError when both sources
+    or neither source is supplied; file and image decoding errors propagate.
+    """
     if image_path and image_base64:
         raise ValueError(
             f"Provide exactly one of {image_label}_path or {image_label}_base64"
@@ -96,6 +115,7 @@ def resolve_image_input(image_path=None, image_base64=None, image_label="image")
 
 
 def pil_to_base64(image, image_format="PNG"):
+    """Encode a Pillow image to base64 without a data-URL prefix; default format is PNG."""
     buffer = io.BytesIO()
     image.save(buffer, format=image_format)
     return base64.b64encode(buffer.getvalue()).decode("utf-8")
@@ -104,6 +124,20 @@ def pil_to_base64(image, image_format="PNG"):
 def coerce_xyxy(coords, width, height, coords_type):
     # "normalized_xyxy" inputs are on a 0-1000 scale (Qwen-style); each
     # coord is divided by 1000 before being mapped to pixel space.
+    """Convert a box to ordered, clamped integer pixel crop coordinates.
+
+    Args:
+        coords: Four xyxy coordinates.
+        width: Image width in pixels.
+        height: Image height in pixels.
+        coords_type: normalized_xyxy for a 0–1000 scale, or pixel_xyxy.
+
+    Returns:
+        A (left, top, right, bottom) tuple.
+
+    Raises:
+        ValueError: Coordinates, coordinate type or the resulting crop are invalid.
+    """
     if coords is None or len(coords) != 4:
         raise ValueError("coords must be a list of four values")
     x1, y1, x2, y2 = [float(value) for value in coords]
@@ -134,6 +168,7 @@ def coerce_xyxy(coords, width, height, coords_type):
 def normalized_xywh_to_pixels(bbox, width, height):
     # bbox is expected on the 0-1000 scale (Qwen-style); divide by 1000
     # before mapping to pixel coordinates.
+    """Convert a 0–1000 xywh box to a clamped pixel crop; reject empty crops."""
     if bbox is None or len(bbox) != 4:
         raise ValueError("bbox must be a list of four values")
     x, y, w, h = [float(value) for value in bbox]
@@ -153,6 +188,7 @@ def normalized_xywh_to_pixels(bbox, width, height):
 
 
 def crop_image_normalized(image, x, y, width, height):
+    """Return a Pillow crop for a 0–1000 normalized x, y, width and height."""
     image_w, image_h = image.size
     left, top, right, bottom = normalized_xywh_to_pixels(
         [x, y, width, height], image_w, image_h
@@ -161,6 +197,7 @@ def crop_image_normalized(image, x, y, width, height):
 
 
 def draw_dashed_line(draw, start, end, color, width=2, dash_length=8, gap_length=6):
+    """Draw a dashed line in place using pixel widths, dash lengths and gaps."""
     x1, y1 = start
     x2, y2 = end
     total_length = math.hypot(x2 - x1, y2 - y1)

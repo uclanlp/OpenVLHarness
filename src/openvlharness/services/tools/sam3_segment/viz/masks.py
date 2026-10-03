@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates. All Rights Reserved
 
+"""Bitmap, polygon, RLE and region-of-interest mask representations and conversions."""
 import copy
 import itertools
 from typing import Any, Iterator, List, Union
@@ -33,15 +34,15 @@ __all__ = [
 
 
 class ROIAlign(nn.Module):
+    """Pool spatial regions from feature tensors using configurable pixel alignment."""
     def __init__(self, output_size, spatial_scale, sampling_ratio, aligned=True):
-        """
+        """Configure region-of-interest pooling.
+
         Args:
-            output_size (tuple): h, w
-            spatial_scale (float): scale the input boxes by this number
-            sampling_ratio (int): number of inputs samples to take for each output
-                sample. 0 to take samples densely.
-            aligned (bool): if False, use the legacy implementation in
-                Detectron. If True, align the results more perfectly.
+            output_size: Output (height, width) for each region.
+            spatial_scale: Multiplier mapping box coordinates onto the input feature map.
+            sampling_ratio: Samples per output bin; zero selects adaptive sampling.
+            aligned: Apply the half-pixel coordinate shift when true; false omits it.
         """
         super().__init__()
         self.output_size = output_size
@@ -56,10 +57,14 @@ class ROIAlign(nn.Module):
         assert version >= (0, 7), "Require torchvision >= 0.7"
 
     def forward(self, input, rois):
-        """
+        """Pool regions from an NCHW tensor.
+
         Args:
-            input: NCHW images
-            rois: Bx5 boxes. First column is the index into N. The other 4 columns are xyxy.
+            input: Image or feature tensor in NCHW layout.
+            rois: B x 5 tensor containing batch index followed by xyxy coordinates.
+
+        Returns:
+            Pooled features with the configured spatial output size.
         """
         assert rois.dim() == 2 and rois.size(1) == 5
         if input.is_quantized:
@@ -74,6 +79,7 @@ class ROIAlign(nn.Module):
         )
 
     def __repr__(self):
+        """Return the pooling dimensions, sampling settings and alignment mode."""
         tmpstr = self.__class__.__name__ + "("
         tmpstr += "output_size=" + str(self.output_size)
         tmpstr += ", spatial_scale=" + str(self.spatial_scale)
@@ -90,18 +96,18 @@ class ROIAlign(nn.Module):
 
 @torch.no_grad()
 def rle_encode(orig_mask, return_areas=False):
-    """Encodes a collection of masks in RLE format
-
-    This function emulates the behavior of the COCO API's encode function, but
-    is executed partially on the GPU for faster execution.
+    """Encode a batch of boolean masks into COCO run-length dictionaries.
 
     Args:
-        mask (torch.Tensor): A mask of shape (N, H, W) with dtype=torch.bool
-        return_areas (bool): If True, add the areas of the masks as a part of
-            the RLE output dict under the "area" key. Default is False.
+        orig_mask: N x H x W boolean tensor; run discovery uses its current device.
+        return_areas: Include each foreground pixel count under the area key.
 
     Returns:
-        str: The RLE encoded masks
+        A list of dictionaries with size and string counts, plus optional area.
+        An empty tensor returns an empty list.
+
+    Raises:
+        AssertionError: The tensor rank or dtype is invalid.
     """
     assert orig_mask.ndim == 3, "Mask must be of shape (N, H, W)"
     assert orig_mask.dtype == torch.bool, "Mask must have dtype=torch.bool"
@@ -161,7 +167,7 @@ def rle_encode(orig_mask, return_areas=False):
 
 
 def robust_rle_encode(masks):
-    """Encodes a collection of masks in RLE format. Uses the gpu version fist, falls back to the cpu version if it fails"""
+    """Encode boolean masks as COCO RLE, retrying on the CPU if device encoding fails."""
 
     assert masks.ndim == 3, "Mask must be of shape (N, H, W)"
     assert masks.dtype == torch.bool, "Mask must have dtype=torch.bool"
@@ -211,13 +217,15 @@ def ann_to_rle(segm, im_info):
 def polygon_area(x, y):
     # Using the shoelace formula
     # https://stackoverflow.com/questions/24467972/calculate-area-of-polygon-given-x-y-coordinates
+    """Return unsigned polygon area from ordered x/y vertex arrays using the shoelace formula."""
     return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
 def polygons_to_bitmask(
     polygons: List[np.ndarray], height: int, width: int
 ) -> np.ndarray:
-    """
+    """Rasterize a polygon collection into one binary mask.
+
     Args:
         polygons (list[ndarray]): each array has shape (Nx2,)
         height, width (int)
@@ -286,7 +294,8 @@ class BitMasks:
     """
 
     def __init__(self, tensor: Union[torch.Tensor, np.ndarray]):
-        """
+        """Create bitmap masks from an N x H x W array or tensor.
+
         Args:
             tensor: bool Tensor of N,H,W, representing N instances in the image.
         """
@@ -302,15 +311,18 @@ class BitMasks:
 
     @torch.jit.unused
     def to(self, *args: Any, **kwargs: Any) -> "BitMasks":
+        """Return bitmap masks after applying the supplied tensor.to arguments."""
         return BitMasks(self.tensor.to(*args, **kwargs))
 
     @property
     def device(self) -> torch.device:
+        """Return the device holding the bitmap tensor."""
         return self.tensor.device
 
     @torch.jit.unused
     def __getitem__(self, item: Union[int, slice, torch.BoolTensor]) -> "BitMasks":
-        """
+        """Return bitmap instances selected by an index, slice or mask.
+
         Returns:
             BitMasks: Create a new :class:`BitMasks` by indexing.
         """
@@ -326,15 +338,18 @@ class BitMasks:
 
     @torch.jit.unused
     def __iter__(self) -> torch.Tensor:
+        """Yield individual instance mask tensors."""
         yield from self.tensor
 
     @torch.jit.unused
     def __repr__(self) -> str:
+        """Return the mask class and instance count."""
         s = self.__class__.__name__ + "("
         s += "num_instances={})".format(len(self.tensor))
         return s
 
     def __len__(self) -> int:
+        """Return the number of bitmap mask instances."""
         return self.tensor.shape[0]
 
     def nonempty(self) -> torch.Tensor:
@@ -353,7 +368,8 @@ class BitMasks:
         height: int,
         width: int,
     ) -> "BitMasks":
-        """
+        """Rasterize polygon instances at the requested image dimensions.
+
         Args:
             polygon_masks (list[list[ndarray]] or PolygonMasks)
             height, width (int)
@@ -399,7 +415,8 @@ class BitMasks:
         return output
 
     def get_bounding_boxes(self) -> Boxes:
-        """
+        """Compute the tight axis-aligned box for each bitmap mask.
+
         Returns:
             Boxes: tight bounding boxes around bitmasks.
             If a mask is empty, it's bounding box will be all zero.
@@ -446,7 +463,8 @@ class PolygonMasks:
     """
 
     def __init__(self, polygons: List[List[Union[torch.Tensor, np.ndarray]]]):
-        """
+        """Create per-instance polygon masks stored as float64 CPU arrays.
+
         Arguments:
             polygons (list[list[np.ndarray]]): The first
                 level of the list correspond to individual instances,
@@ -493,14 +511,17 @@ class PolygonMasks:
         ]
 
     def to(self, *args: Any, **kwargs: Any) -> "PolygonMasks":
+        """Return this object; polygon arrays always reside on the CPU."""
         return self
 
     @property
     def device(self) -> torch.device:
+        """Return the CPU device used for polygon arrays."""
         return torch.device("cpu")
 
     def get_bounding_boxes(self) -> Boxes:
-        """
+        """Compute the tight axis-aligned box enclosing each instance's polygons.
+
         Returns:
             Boxes: tight bounding boxes around polygon masks.
         """
@@ -570,11 +591,13 @@ class PolygonMasks:
         return iter(self.polygons)
 
     def __repr__(self) -> str:
+        """Return the mask class and instance count."""
         s = self.__class__.__name__ + "("
         s += "num_instances={})".format(len(self.polygons))
         return s
 
     def __len__(self) -> int:
+        """Return the number of polygon-mask instances."""
         return len(self.polygons)
 
     def crop_and_resize(self, boxes: torch.Tensor, mask_size: int) -> torch.Tensor:
@@ -652,7 +675,8 @@ class ROIMasks:
     """
 
     def __init__(self, tensor: torch.Tensor):
-        """
+        """Create instance masks represented within their own regions of interest.
+
         Args:
             tensor: (N, M, M) mask tensor that defines the mask within each ROI.
         """
@@ -661,17 +685,21 @@ class ROIMasks:
         self.tensor = tensor
 
     def to(self, device: torch.device) -> "ROIMasks":
+        """Return region-of-interest masks on the requested device."""
         return ROIMasks(self.tensor.to(device))
 
     @property
     def device(self) -> torch.device:
+        """Return the device holding the region-of-interest mask tensor."""
         return self.tensor.device
 
     def __len__(self):
+        """Return the number of region-of-interest mask instances."""
         return self.tensor.shape[0]
 
     def __getitem__(self, item) -> "ROIMasks":
-        """
+        """Return region-of-interest masks selected by an index, slice or mask.
+
         Returns:
             ROIMasks: Create a new :class:`ROIMasks` by indexing.
         """
@@ -684,6 +712,7 @@ class ROIMasks:
 
     @torch.jit.unused
     def __repr__(self) -> str:
+        """Return the mask class and instance count."""
         s = self.__class__.__name__ + "("
         s += "num_instances={})".format(len(self.tensor))
         return s

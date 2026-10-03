@@ -1,17 +1,7 @@
-"""Python Coding Agent Tool -- code generation only, no execution.
+"""Generate Python code for calculations over described tool-result bindings.
 
-Receives a high-level code objective and lightweight binding descriptors
-from the orchestrator.  A fresh-context coding LLM generates Python code
-that references the described variables.  The generated code is returned
-to the orchestrator which executes it locally with actual values from
-memory (orchestrator-side execution pattern).
-
-Configuration (env vars):
-    CODING_AGENT_BASE_URL  - vLLM / OpenAI-compatible server URL
-                             (e.g. "http://localhost:8004/v1")
-    CODING_AGENT_API_KEY   - API key (default: "local" for local vLLM)
-    CODING_AGENT_MODEL     - Model name served by the endpoint
-                             (e.g. "Qwen/Qwen3-8B")
+Python_Coding_Agent_Tool uses a fresh conversation with the configured model
+and returns extracted code. Execution belongs to the calling capability.
 """
 
 import os
@@ -64,9 +54,11 @@ RULES:
 
 
 class Python_Coding_Agent_Tool(BaseTool):
+    """Generate Python code from an objective and a catalog of available bindings."""
     require_llm_engine = False
 
     def __init__(self, model_adapter):
+        """Attach the orchestrator-matched model adapter and initialize tool metadata."""
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -128,6 +120,19 @@ class Python_Coding_Agent_Tool(BaseTool):
         return "\n\n".join(sections)
 
     def execute(self, objective, binding_descriptors=None):
+        """Generate code in a fresh conversation without executing it.
+
+        Args:
+            objective: Nonempty natural-language computation goal.
+            binding_descriptors: Optional mapping describing available Python values.
+
+        Returns:
+            A mapping with generated_code on success, or error and optional raw_response
+            when generation fails or returns no code. The capability executes the code.
+
+        Raises:
+            ValueError: The objective is empty.
+        """
         if not objective:
             raise ValueError("objective is required")
 

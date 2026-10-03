@@ -18,6 +18,7 @@ SALIENT_ROTATION = 10.0
 
 
 def coordinate_system_text(reference_image_id: str) -> str:
+    """Describe the reference camera's +X right, +Y down, +Z forward coordinate system."""
     return (
         f"All vectors are relative to {reference_image_id}'s camera frame, "
         "using the coordinate system: +X = right, +Y = down, "
@@ -29,6 +30,7 @@ def coordinate_system_text(reference_image_id: str) -> str:
 
 
 def camera_center_from_w2c(extrinsic: np.ndarray) -> np.ndarray:
+    """Return the world-space camera center -R.T @ t from a world-to-camera matrix."""
     extrinsic = np.asarray(extrinsic, dtype=np.float32)
     R = extrinsic[:3, :3]
     t = extrinsic[:3, 3]
@@ -36,11 +38,13 @@ def camera_center_from_w2c(extrinsic: np.ndarray) -> np.ndarray:
 
 
 def normalize(v: np.ndarray) -> np.ndarray:
+    """Return a float32 vector normalized with an epsilon to avoid division by zero."""
     v = np.asarray(v, dtype=np.float32)
     return v / (np.linalg.norm(v) + 1e-8)
 
 
 def compute_yaw_pitch(forward: np.ndarray) -> Tuple[float, float]:
+    """Return yaw and pitch in degrees; positive yaw faces right and positive pitch faces down."""
     f = normalize(forward)
     x, y, z = float(f[0]), float(f[1]), float(f[2])
     yaw_deg = math.degrees(math.atan2(x, z))
@@ -49,6 +53,7 @@ def compute_yaw_pitch(forward: np.ndarray) -> Tuple[float, float]:
 
 
 def _movement_axis_fragment(axis: str, value: float) -> str:
+    """Describe a signed translation along an x, y or z camera-frame axis."""
     if axis == "x":
         word = "right" if value > 0 else "left"
     elif axis == "y":
@@ -59,6 +64,7 @@ def _movement_axis_fragment(axis: str, value: float) -> str:
 
 
 def summarize_movement(delta: Sequence[float]) -> str:
+    """Describe all translation axes and highlight magnitudes of at least one meter."""
     x, y, z = float(delta[0]), float(delta[1]), float(delta[2])
     frag_x = _movement_axis_fragment("x", x)
     frag_y = _movement_axis_fragment("y", y)
@@ -74,16 +80,19 @@ def summarize_movement(delta: Sequence[float]) -> str:
 
 
 def _yaw_fragment(yaw_deg: float) -> str:
+    """Format signed yaw degrees as a left/right rotation description."""
     direction = "right" if yaw_deg > 0 else "left"
     return f"{direction} (yaw {yaw_deg:+.1f}°)"
 
 
 def _pitch_fragment(pitch_deg: float) -> str:
+    """Format signed pitch degrees as an up/down rotation description."""
     direction = "down" if pitch_deg > 0 else "up"
     return f"{direction} (pitch {pitch_deg:+.1f}°)"
 
 
 def summarize_rotation(yaw_deg: float, pitch_deg: float) -> str:
+    """Describe yaw/pitch and highlight rotations of at least ten degrees."""
     yaw_frag = _yaw_fragment(yaw_deg)
     pitch_frag = _pitch_fragment(pitch_deg)
     dom_frag = yaw_frag if abs(yaw_deg) >= abs(pitch_deg) else pitch_frag
@@ -101,6 +110,7 @@ def summarize_rotation(yaw_deg: float, pitch_deg: float) -> str:
 
 
 def round_list(v: Sequence[float], ndigits: int = 3) -> List[float]:
+    """Convert numeric values to a list rounded to ndigits decimal places."""
     arr = np.asarray(v, dtype=float)
     return np.round(arr, ndigits).tolist()
 
@@ -109,6 +119,20 @@ def interpret_camera_trajectory(
     extrinsics: np.ndarray,
     image_ids: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
+    """Express ordered camera poses relative to the first camera's frame.
+
+    Args:
+        extrinsics: Nonempty N x 3 x 4 world-to-camera matrices, with metric
+            translations for movement summaries in meters.
+        image_ids: Optional ordered IDs with one entry per camera.
+
+    Returns:
+        Per-camera records containing center displacement, forward direction,
+        yaw/pitch in degrees and textual movement/rotation summaries.
+
+    Raises:
+        ValueError: Matrix dimensions or image ID count are invalid.
+    """
     extrinsics = np.asarray(extrinsics, dtype=np.float32)
     if extrinsics.ndim != 3 or extrinsics.shape[1:] != (3, 4):
         raise ValueError(
@@ -163,6 +187,7 @@ def render_camera_motion_message(
     *,
     reference_image_id: str,
 ) -> str:
+    """Format interpreted camera records as text with the reference-frame convention."""
     lines: List[str] = ["Camera trajectory summary:"]
     for o in outputs:
         i = o["image_index"]
@@ -184,9 +209,16 @@ def render_bird_eye_view_image(
     reference_image_id: str,
     draw_motion_arrows: bool = True,
 ) -> Optional[str]:
-    """Render a top-down (X-Z) map of camera positions and headings.
+    """Render camera positions and headings on the reference camera's X-Z plane.
 
-    Returns base64-PNG (no data: prefix), or None if matplotlib isn't available.
+    Args:
+        outputs: Records returned by interpret_camera_trajectory.
+        reference_image_id: Label identifying the coordinate frame.
+        draw_motion_arrows: Whether to connect successive camera positions.
+
+    Returns:
+        PNG base64 without a data-URL prefix, or None for empty records or an
+        unavailable matplotlib installation.
     """
     try:
         import matplotlib

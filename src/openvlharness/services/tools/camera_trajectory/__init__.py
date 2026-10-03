@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Recover camera poses and describe movement across two or more ordered views."""

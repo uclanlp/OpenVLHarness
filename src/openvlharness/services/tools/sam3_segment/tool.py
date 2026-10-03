@@ -1,3 +1,8 @@
+"""Segment objects named by a text query using the SAM3 image service.
+
+The Visual_Grounding_Tool client uploads one image and returns pixel boxes,
+confidence scores, COCO RLE masks and a rendered segmentation overlay.
+"""
 import mimetypes
 import os
 
@@ -32,7 +37,9 @@ INPUT_SCHEMA = {
 
 
 class Visual_Grounding_Tool(BaseTool):
+    """Text-conditioned object segmentation through the SAM3 service."""
     def __init__(self):
+        """Initialize tool metadata and its concrete input/output contract."""
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -64,6 +71,7 @@ class Visual_Grounding_Tool(BaseTool):
         )
 
     def sanity_check(self):
+        """Probe the configured health endpoint and return issue strings, or an empty list."""
         server_url = os.getenv("SAM3_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/")
         health_url = f"{server_url}/health"
         try:
@@ -83,6 +91,25 @@ class Visual_Grounding_Tool(BaseTool):
         server_url=None,
         timeout_seconds=300,
     ):
+        """Segment objects matching a text query in one image.
+
+        Args:
+            query: Text describing the target objects.
+            image_path: Local image path, exclusive with image_base64.
+            image_base64: Raw base64 or an image data URL.
+            prompt: Alternate query value used when query is None.
+            server_url: Service base, otherwise resolved from SAM3_SERVER_URL.
+            timeout_seconds: Per-request HTTP timeout.
+
+        Returns:
+            SAM3 JSON containing detection boxes/scores, encoded masks, image
+            dimensions and visualization data.
+
+        Raises:
+            ValueError: Query or image inputs are invalid.
+            FileNotFoundError: A supplied image file is missing.
+            RuntimeError: The segmentation service returns an HTTP error.
+        """
         if query is None:
             query = prompt
         if not query:

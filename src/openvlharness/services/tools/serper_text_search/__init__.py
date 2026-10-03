@@ -1,1 +1,1 @@
-"""Service implementation namespace; imports are selected explicitly."""
+"""Search Serper endpoints and summarize evidence relevant to a text query."""

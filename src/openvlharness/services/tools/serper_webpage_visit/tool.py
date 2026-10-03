@@ -1,18 +1,8 @@
-"""Webpage Visit Tool — scrape webpages via Serper and extract content with LLM.
+"""Scrape selected webpages and extract evidence for a user-specified goal.
 
-Two-step flow:
-1. Fetch page content via Serper Scrape API. Transient failures (5xx,
-   429, network timeout) are retried with exponential backoff, up to
-   ``SERPER_MAX_RETRIES`` attempts. Permanent failures (4xx) fail fast.
-2. Extract evidence and summary using an LLM with structured extraction
-   prompt.
-
-The Jina Reader fallback path is currently disabled in ``_fetch_page``
-(call site commented out). ``_fetch_page_jina`` / ``_load_jina_key`` /
-the JINA_* constants are retained so the fallback can be re-enabled by
-uncommenting a single block. The legacy Jina/Zhipu-based implementation
-is also still available as ``Webpage_Visit_Tool_BK`` in the
-``webpage_visit`` directory.
+Webpage_Visit_Tool fetches content through Serper, checks common anti-bot
+responses, and uses the auxiliary model to extract per-page evidence and
+summaries. The execute path does not call the separate Jina fetch helper.
 """
 
 import json
@@ -115,20 +105,21 @@ INPUT_SCHEMA = {
 
 
 class Webpage_Visit_Tool(BaseTool):
-    """Visit webpages via Serper Scrape and extract goal-relevant content with LLM.
+    """Extract evidence and summaries from up to five webpages using an auxiliary model.
 
-    Primary backend: Serper Scrape API (scrape.serper.dev) with
-    transient-error retry (5xx / 429 / timeout, up to
-    ``SERPER_MAX_RETRIES`` attempts).
-    Content extraction: LLM-based structured extraction returning
-    evidence + summary in JSON format.
-    Jina Reader fallback is currently disabled in ``_fetch_page``
-    (commented call site); helper code retained for re-enable.
+    Pages are fetched and processed independently. Structured page records accompany
+    the rendered text so callers can inspect per-page evidence and errors.
     """
 
     require_llm_engine = True
 
     def __init__(self, llm_engine):
+        """Initialize metadata and attach the configured auxiliary model.
+
+        Args:
+            llm_engine: AuxiliaryModel-compatible generator for evidence extraction.
+                The paper configuration uses Qwen multimodal summarization.
+        """
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -206,15 +197,17 @@ class Webpage_Visit_Tool(BaseTool):
     # ------------------------------------------------------------------
 
     def _get_client(self) -> SerperClient:
+        """Return the lazily created Serper HTTP client."""
         if self._client is None:
             self._client = SerperClient()
         return self._client
 
     def _load_jina_key(self) -> Optional[str]:
+        """Read an optional JINA_API_KEY from the environment."""
         return os.getenv("JINA_API_KEY", "").strip() or None
 
     def sanity_check(self) -> List[str]:
-        """Verify that the Serper API key is available."""
+        """Return credential-loading issue strings, or an empty list when a key is available."""
         try:
             get_serper_api_key()
         except Exception as exc:
@@ -474,6 +467,7 @@ class Webpage_Visit_Tool(BaseTool):
 
     @staticmethod
     def _format_success(url: str, goal: str, evidence: str, summary: str) -> str:
+        """Render one URL's goal, extracted evidence and summary as a text block."""
         output = f"The useful information in {url} for user goal {goal or 'N/A'} as follows: \n\n"
         output += "Evidence in page: \n" + evidence + "\n\n"
         output += "Summary: \n" + (summary or "No summary generated") + "\n\n"
@@ -579,18 +573,22 @@ class Webpage_Visit_Tool(BaseTool):
         urls: List[str],
         goal: str,
     ) -> str:
-        """Visit webpages and extract content relevant to the goal.
+        """Fetch webpages and extract evidence relevant to a shared goal.
 
         Args:
-            urls: List of webpage URLs to visit.
-            goal: Goal or query guiding content extraction.
-            llm_model: Optional LLM model override for extraction.
-            llm_base_url: Optional LLM base URL override.
-            llm_api_key: Optional LLM API key override.
+            urls: Nonempty list of at most five webpage URLs; missing schemes become HTTPS.
+            goal: Nonempty description of the information to extract.
 
         Returns:
-            Formatted string with evidence and summary for each URL,
-            separated by '=======' dividers.
+            A ServiceResult whose value is rendered page evidence separated by dividers
+            and whose metadata.pages contains URL, text, evidence, summary and error
+            fields. Fetch failures are represented per page while other pages continue.
+
+        Raises:
+            ValueError: URL collection, goal or individual URL is invalid.
+
+        The auxiliary model is supplied at construction. Task arguments cannot replace
+        its model, endpoint or credentials.
         """
         if not urls or not isinstance(urls, list):
             raise ValueError("urls must be a non-empty list of strings")
