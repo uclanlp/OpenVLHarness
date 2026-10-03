@@ -7,6 +7,7 @@ import re
 from ..contracts import VirtualCall
 from ..capabilities._base import failure
 from ..input import normalize_input, input_messages
+from ..services.raw_sft import RawSFTExportError
 
 
 def _accumulate(into, values):
@@ -48,20 +49,29 @@ class MainAgent:
         turns, detections, usage = [], [], {}
         final = self.fail_msg
         error = None
+        capture = {} if self.adapter.raw_sft_enabled else None
         try:
-            final = self._run(history, memory, turns, detections, usage, task_id)
+            final = self._run(history, memory, turns, detections, usage, task_id, capture=capture)
         except (RuntimeError, OSError) as exc:
             error = str(exc)
         trajectory = {"input_messages": original, "chat_history": turns,
                       "messages": history, "final_answer": final}
         if error:
             trajectory["error"] = error
+        if capture is not None:
+            try:
+                if error:
+                    raise RawSFTExportError("inference_failed", f"Raw SFT export failed because inference did not complete: {error}")
+                trajectory["raw_sft"] = self.adapter.export_raw_sft(capture, task_id)
+            except RawSFTExportError as exc:
+                trajectory["raw_sft_error"] = {"code": exc.code, "message": str(exc)}
+                self.adapter.logger.error("Raw SFT export failed for task %s: %s", task_id, exc)
         extra = {"trajectory": trajectory, "tool_detections": detections}
         if usage:
             extra["usage"] = {"total": usage}
         return {"prediction": final, "extra_records": extra}
 
-    def _run(self, history, memory, turns, detections, usage, task_id):
+    def _run(self, history, memory, turns, detections, usage, task_id, *, capture=None):
         adapter = self.adapter
         policy = adapter.profile
         tools, choice = self.json_schema, self.tool_choice
@@ -81,11 +91,11 @@ class MainAgent:
                 tools, choice = adapter._ensure_context_fits(history, tools, choice)
             seed = seed_base + index if seed_base is not None else None
             try:
-                response = adapter.request(history, tools, choice, seed=seed)
+                response = adapter.request(history, tools, choice, seed=seed, capture=capture)
             except RuntimeError as exc:
                 context_error = any(text in str(exc).lower() for text in ("context length", "maximum input length"))
                 if policy.get("context_error_fallback") and context_error:
-                    response = adapter.request(adapter._build_vanilla_fallback_msgs(history), None, "none", seed=seed)
+                    response = adapter.request(adapter._build_vanilla_fallback_msgs(history), None, "none", seed=seed, capture=capture)
                 else:
                     raise
             if isinstance(response, dict) and isinstance(response.get("usage"), dict):
@@ -132,7 +142,7 @@ class MainAgent:
                 turns.append(turn)
                 if index == self.max_iterations - 1 and policy.get("extra_final_request"):
                     final_tools, final_choice = adapter._ensure_context_fits(history, tools, "none")
-                    response = adapter.request(history, final_tools, final_choice, seed=seed)
+                    response = adapter.request(history, final_tools, final_choice, seed=seed, capture=capture)
                     if isinstance(response.get("usage"), dict):
                         _accumulate(usage, response["usage"])
                     text, calls, original = adapter.parse(response, index + 1, phase="final_text_only")

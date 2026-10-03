@@ -10,6 +10,8 @@ profiles:
     continue_empty_answer: true
     append_final_message: false
     context_error_fallback: true
+    raw_sft_format: qwen_chatml
+    raw_sft_tokenizer_revision: 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b
     allowed_options: [max_tokens, temperature, top_p, top_k,
       repetition_penalty, presence_penalty, return_token_ids]
   gpt-6-luna:

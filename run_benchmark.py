@@ -202,8 +202,10 @@ if __name__ == "__main__":
     parser.add_argument('--save-raw-trajectory', action='store_true',
                         help='Also save raw tokenized trajectories under '
                              '<work_dir>/<dataset>/raw_trajectories/ for SFT training. '
-                             'Requires the agent config to request '
-                             'extra_body.return_token_ids=true on a vLLM-compatible server.')
+                             'Supported for image/text datasets with qwen3-vl-8b-instruct only; automatically enables '
+                             'return_token_ids in the effective run config. Requires the matching '
+                             'Qwen tokenizer and a server that returns token IDs. Export failures '
+                             'are recorded per sample; GPT/Kimi are rejected before inference.')
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
     parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
@@ -252,7 +254,7 @@ if __name__ == "__main__":
             timeout=datetime.timedelta(seconds=int(os.environ.get('DIST_TIMEOUT', 3600)))
         )
 
-    agent_config = load_agent_config(args.config)
+    agent_config = load_agent_config(args.config, save_raw_trajectory=args.save_raw_trajectory)
     judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
     agent_config_version = require_config_version(
         agent_config,
@@ -264,7 +266,7 @@ if __name__ == "__main__":
         field_name="judge_config_version",
         label="Judge config",
     )
-    agent = build_agent(args.config)
+    agent = build_agent(agent_config)
     judge_kwargs = load_judge_config(args.judge_config)
     model_name = agent.model.split('/')[-1]
     agent_class = agent.__class__.__name__
@@ -360,6 +362,8 @@ if __name__ == "__main__":
             dist.barrier()
 
         dataset = build_dataset(dataset_name, **dataset_kwargs)
+        if args.save_raw_trajectory and dataset is not None and dataset.MODALITY == 'VIDEO':
+            raise ValueError("Raw SFT export supports Qwen image/text datasets only; the video runner does not support raw export.")
         if dataset is not None and args.num_examples is not None:
             if args.shuffle:
                 import random

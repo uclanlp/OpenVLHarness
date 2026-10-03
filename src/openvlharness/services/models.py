@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import requests
 import yaml
 from .http import retry_with_exponential_backoff, raise_for_status_with_detail
+from .raw_sft import RawSFTExportError, build_raw_sft_from_tokens
 
 
 def failure_text(payload):
@@ -26,6 +27,20 @@ def load_profile(alias):
     if alias not in profiles:
         raise ValueError(f"Unknown model alias {alias!r}. Register its exact served ID, prompt and API profile in model_registry.yaml.")
     return cp.deepcopy(profiles[alias])
+
+
+def require_raw_sft_profile(alias):
+    message = "Raw SFT export is supported only for qwen3-vl-8b-instruct (Qwen/Qwen3-VL-8B-Instruct); GPT, Kimi and other profiles are unsupported."
+    try:
+        profile = load_profile(alias)
+    except ValueError as exc:
+        raise ValueError(message) from exc
+    if (alias != "qwen3-vl-8b-instruct" or profile.get("model_id") != "Qwen/Qwen3-VL-8B-Instruct"
+            or profile.get("adapter") != "chat_completions" or profile.get("raw_sft_format") != "qwen_chatml"):
+        raise ValueError(message)
+    if not isinstance(profile.get("raw_sft_tokenizer_revision"), str) or not profile["raw_sft_tokenizer_revision"]:
+        raise ValueError("Raw SFT export requires a registered matching Qwen tokenizer revision.")
+    return profile
 
 
 class AuxiliaryModel:
@@ -78,7 +93,8 @@ class AuxiliaryModel:
 
 class ModelAdapter:
     def __init__(self, config, *, max_context_length=None, requester=None):
-        self.profile = load_profile(config.get("alias"))
+        self.profile = (require_raw_sft_profile(config.get("alias")) if config.get("return_token_ids") is True
+                        else load_profile(config.get("alias")))
         connection = {"alias", "base", "key", "timeout", "retry"}
         unknown = set(config) - connection - set(self.profile["allowed_options"])
         if unknown:
@@ -109,8 +125,9 @@ class ModelAdapter:
                 raise ValueError(f"{key} must be a positive integer")
         if self.options.get("reasoning_effort", "medium") not in {"none", "low", "medium", "high", "xhigh"}:
             raise ValueError("Unsupported reasoning_effort")
-        if self.options.get("return_token_ids", False) is not False:
-            raise ValueError("This release profile requires return_token_ids=false")
+        if type(self.options.get("return_token_ids", False)) is not bool:
+            raise ValueError("return_token_ids must be boolean")
+        self.raw_sft_enabled = self.options.get("return_token_ids", False)
         for key, low, high in (("temperature", 0, 2), ("top_p", 0, 1),
                                ("presence_penalty", -2, 2), ("repetition_penalty", 0, None)):
             if key in self.options:
@@ -130,16 +147,22 @@ class ModelAdapter:
         self.counting_available = False
 
     def load_tokenizer(self):
-        if self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length:
+        if self.raw_sft_enabled or (self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length):
             try:
                 from transformers import AutoTokenizer
+                options = ({"revision": self.profile["raw_sft_tokenizer_revision"]} if self.raw_sft_enabled else {})
                 try:
-                    self._tokenizer = AutoTokenizer.from_pretrained(self.model, local_files_only=True)
+                    self._tokenizer = AutoTokenizer.from_pretrained(self.model, local_files_only=True, **options)
                 except OSError:
-                    self._tokenizer = AutoTokenizer.from_pretrained(self.model)
+                    self._tokenizer = AutoTokenizer.from_pretrained(self.model, **options)
                 self.counting_available = True
             except (ImportError, OSError, ValueError) as exc:
+                if self.raw_sft_enabled:
+                    raise RawSFTExportError("tokenizer_unavailable", f"Raw SFT export requires the matching tokenizer for {self.model}; install openvlharness[qwen] and cache the registered revision.") from exc
                 self.logger.warning("Tokenizer unavailable; provider enforces context limit: %s", exc)
+
+    def export_raw_sft(self, capture, task_id):
+        return build_raw_sft_from_tokens(capture.get("response"), capture.get("messages"), self._tokenizer, task_id)
 
     def encode_message(self, message):
         if self.protocol == "chat_completions":
@@ -173,18 +196,24 @@ class ModelAdapter:
                 payload["tool_choice"] = tool_choice
         return payload
 
-    def request(self, messages, tools=None, tool_choice="auto", *, options=None, seed=None):
+    def request(self, messages, tools=None, tool_choice="auto", *, options=None, seed=None, capture=None):
+        if capture is not None:
+            capture.clear()
         payload = self.payload(messages, tools, tool_choice, options=options, seed=seed)
         if self.requester:
-            return self.requester(payload)
-        def once():
-            headers = {"Content-Type": "application/json"}
-            if self.key and str(self.key).lower() not in {"empty", "none"}:
-                headers["Authorization"] = f"Bearer {self.key}"
-            response = requests.post(self.endpoint, json=payload, headers=headers, timeout=self.timeout)
-            raise_for_status_with_detail(response, prefix=f"Model request failed at endpoint {self.endpoint}")
-            return response.json()
-        return retry_with_exponential_backoff(once, max_retries=self.retry)()
+            response = self.requester(payload)
+        else:
+            def once():
+                headers = {"Content-Type": "application/json"}
+                if self.key and str(self.key).lower() not in {"empty", "none"}:
+                    headers["Authorization"] = f"Bearer {self.key}"
+                result = requests.post(self.endpoint, json=payload, headers=headers, timeout=self.timeout)
+                raise_for_status_with_detail(result, prefix=f"Model request failed at endpoint {self.endpoint}")
+                return result.json()
+            response = retry_with_exponential_backoff(once, max_retries=self.retry)()
+        if capture is not None:
+            capture.update(response=cp.deepcopy(response), messages=cp.deepcopy(payload.get("messages")))
+        return response
 
     def parse(self, response, turn_idx, *, phase="main"):
         if not isinstance(response, dict):

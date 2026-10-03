@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import yaml
 
 from .memory.store import MemoryStore
-from .services.models import ModelAdapter
+from .services.models import ModelAdapter, require_raw_sft_profile
 from .services.client import ToolClient
 
 # Explicit allowlist; the final registry is sorted by public name like the old router.
@@ -36,7 +36,7 @@ def _expand(value):
     return value
 
 
-def load_agent_config(config):
+def load_agent_config(config, *, save_raw_trajectory=False):
     if isinstance(config, (str, Path)):
         with open(config) as stream:
             config = yaml.safe_load(stream)
@@ -120,6 +120,10 @@ def load_agent_config(config):
             raise ValueError("Coding generation requires context: fresh")
     if agent.get("model_service") not in services["models"]:
         raise ValueError("agent.model_service must name an entry in services.models")
+    if save_raw_trajectory:
+        model = services["models"][agent["model_service"]]
+        require_raw_sft_profile(model.get("alias"))
+        model["return_token_ids"] = True
     # Resolve every model/options before any inference or backend import.
     models = {name: ModelAdapter(model) for name, model in services["models"].items()}
     if "coding" in selected:

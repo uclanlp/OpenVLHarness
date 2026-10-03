@@ -14,6 +14,7 @@ import yaml
 
 from mini_vlm_toolkit.utils import run_identity
 from openvlharness.services import models
+from openvlharness.bootstrap import load_agent_config
 
 from mini_vlm_toolkit.utils.run_identity import (  # noqa: E402
     build_agent_match_hash,
@@ -164,6 +165,18 @@ def test_agent_hash_ignores_sensitive_fields():
     cfg_b["services"]["models"]["orchestrator"]["api_key"] = "another-secret"
 
     assert build_agent_match_hash(cfg_a) == build_agent_match_hash(cfg_b)
+
+
+def test_raw_export_effective_token_setting_is_saved_and_prevents_resume_mix():
+    config = _agent_cfg()
+    config["services"]["models"]["orchestrator"]["return_token_ids"] = False
+    ordinary = _manifest(load_agent_config(config))
+    raw = _manifest(load_agent_config(config, save_raw_trajectory=True))
+    assert raw["config_snapshot_redacted"]["agent"]["services"]["models"]["orchestrator"]["return_token_ids"] is True
+    assert raw["resolved_model_profiles"]["orchestrator"]["profile"]["raw_sft_format"] == "qwen_chatml"
+    assert raw["agent_config_hash"] != ordinary["agent_config_hash"]
+    with pytest.raises(ValueError, match="agent config mismatch"):
+        validate_manifest_compatibility(ordinary, raw)
 
 
 def test_manifest_compat_allows_judge_non_model_changes():

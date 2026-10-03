@@ -38,7 +38,8 @@ class ModelProfileTests(unittest.TestCase):
             {"alias": "gpt-6-luna", "extra_body": {"unknown": 1}},
             {"alias": "gpt-6-luna", "reasoning_effort": "invented"},
             {"alias": "gpt-6-luna", "max_tokens": True},
-            {"alias": "qwen3-vl-8b-instruct", "return_token_ids": True},
+            {"alias": "qwen3-vl-8b-instruct", "return_token_ids": "true"},
+            {"alias": "gpt-6-luna", "return_token_ids": True},
             {"alias": "qwen3-vl-8b-instruct", "retry": -1},
             {"alias": "qwen3-vl-8b-instruct", "timeout": 0},
         ]
