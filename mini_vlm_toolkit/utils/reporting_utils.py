@@ -3,11 +3,17 @@ import copy
 import html
 import io
 import json
+import logging
 import os
 
 from PIL import Image
 
 from ..smp import dump
+from ..smp.file import NumpyEncoder
+from . import file_db
+
+
+logger = logging.getLogger(__name__)
 
 
 def _is_structured_record(value):
@@ -751,69 +757,141 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
     [{"filename", "bytes_b64"}, ...]}``. Here we just base64-decode the
     images to ``<out_dir>/images/<filename>`` and dump a JSON per task.
 
-    Records without ``raw_sft`` are skipped (typical when
-    ``extra_body.return_token_ids`` was not enabled in the agent config, or
-    when the endpoint is OpenAI).
+    Requested exports that cannot be written produce ``errors/<task_id>.json``
+    and a logged error without interrupting ordinary prediction reporting.
+    The summary covers this invocation only; per-sample errors remain available
+    when the inference wrapper calls this writer separately for each record.
     """
     if limit == 0:
         return {
             "total_records": 0,
             "exported_records": 0,
+            "failed_records": 0,
+            "failure_details": [],
             "skipped_records": 0,
             "summary_path": None,
         }
-    os.makedirs(out_dir, exist_ok=True)
     images_subdir = os.path.join(out_dir, "images")
-    os.makedirs(images_subdir, exist_ok=True)
     selected_records = list(select_records_for_report_limit(records, limit))
     exported_count = 0
-    skipped_task_ids = []
+    failures = []
     for record in selected_records:
+        task_id = record.get("task_id")
+        output_path = os.path.join(out_dir, f"{task_id}.json")
+        error_path = os.path.join(out_dir, "errors", f"{task_id}.json")
         trajectory = record.get("trajectory")
-        if not isinstance(trajectory, dict):
-            skipped_task_ids.append(record.get("task_id"))
-            continue
+        trajectory = trajectory if isinstance(trajectory, dict) else {}
         raw_sft = trajectory.get("raw_sft")
-        if not isinstance(raw_sft, dict):
-            skipped_task_ids.append(record.get("task_id"))
-            continue
-
-        for entry in raw_sft.get("images") or []:
-            filename = entry.get("filename")
-            b64 = entry.get("bytes_b64")
-            if not filename or not isinstance(b64, str):
-                continue
+        error = trajectory.get("raw_sft_error")
+        if isinstance(error, dict):
+            error = {
+                "code": str(error.get("code") or "raw_sft_export_failed"),
+                "message": str(error.get("message") or "The agent could not export raw SFT messages."),
+            }
+        elif not isinstance(raw_sft, dict):
+            error = {
+                "code": "raw_sft_missing",
+                "message": "Raw SFT export was requested, but the trajectory contains no raw_sft payload.",
+            }
+        else:
+            error = None
             try:
-                data = base64.b64decode(b64)
+                messages = raw_sft.get("messages")
+                if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) for m in messages):
+                    raise ValueError("raw_sft.messages must be a nonempty list of message objects.")
+                images = raw_sft.get("images", [])
+                if not isinstance(images, list):
+                    raise ValueError("raw_sft.images must be a list.")
+                decoded_images = {}
+                for number, entry in enumerate(images):
+                    if not isinstance(entry, dict):
+                        raise ValueError(f"Image entry {number} must be an object.")
+                    filename = entry.get("filename")
+                    if (not isinstance(filename, str) or not filename or filename in (".", "..")
+                            or "/" in filename or "\\" in filename or "\x00" in filename):
+                        raise ValueError(f"Image entry {number} must have a plain filename.")
+                    if filename in decoded_images:
+                        raise ValueError(f"Image entry {number} repeats an image filename.")
+                    b64 = entry.get("bytes_b64")
+                    if not isinstance(b64, str) or not b64:
+                        raise ValueError(f"Image entry {number} must contain nonempty bytes_b64.")
+                    try:
+                        data = base64.b64decode(b64, validate=True)
+                        with Image.open(io.BytesIO(data)) as image:
+                            image.verify()
+                    except Exception as exc:
+                        raise ValueError(f"Image entry {number} does not contain valid base64 image bytes.") from exc
+                    decoded_images[filename] = data
+                image_paths = {f"images/{filename}" for filename in decoded_images}
+                for message in messages:
+                    content = message.get("content")
+                    for part in content if isinstance(content, list) else []:
+                        if isinstance(part, dict) and part.get("type") == "image":
+                            reference = part.get("image")
+                            if not isinstance(reference, str) or reference not in image_paths:
+                                raise ValueError("Message image references must match supplied image filenames.")
+                payload = {
+                    "task_id": copy.deepcopy(task_id),
+                    "model_name": copy.deepcopy(record.get("model_name")),
+                    "messages": copy.deepcopy(messages),
+                }
+                # Validate the entire record before writing any of its images.
+                json.dumps(payload, ensure_ascii=False, cls=NumpyEncoder)
+            except Exception as exc:
+                error = {"code": "raw_sft_invalid", "message": str(exc)}
+            if error is None:
+                try:
+                    os.makedirs(images_subdir, exist_ok=True)
+                    for filename, data in decoded_images.items():
+                        file_db.atomic_write(os.path.join(images_subdir, filename), data)
+                    file_db.atomic_write(output_path, payload, json_encoder=NumpyEncoder)
+                    try:
+                        os.unlink(error_path)
+                    except FileNotFoundError:
+                        pass
+                    exported_count += 1
+                except Exception as exc:
+                    error = {"code": "raw_sft_write_failed", "message": str(exc)}
+        if error is not None:
+            failure = {"task_id": copy.deepcopy(task_id), **error, "error_path": error_path}
+            failures.append(failure)
+            logger.error("Raw SFT export failed for task %s [%s]: %s", task_id, error["code"], error["message"])
+            # A failed re-export must not leave an older success available to
+            # training-data consumers that enumerate the top-level JSON files.
+            try:
+                os.unlink(output_path)
+            except (FileNotFoundError, NotADirectoryError):
+                pass
+            except OSError as exc:
+                failure["stale_output_error"] = str(exc)
+                logger.exception("Could not remove stale raw SFT export for task %s", task_id)
+            try:
+                file_db.atomic_write(error_path, {
+                    "task_id": copy.deepcopy(task_id),
+                    "model_name": copy.deepcopy(record.get("model_name")),
+                    "error": error,
+                }, json_encoder=NumpyEncoder)
             except Exception:
-                continue
-            with open(os.path.join(images_subdir, filename), "wb") as f:
-                f.write(data)
-
-        payload = {
-            "task_id": copy.deepcopy(record.get("task_id")),
-            "model_name": copy.deepcopy(record.get("model_name")),
-            "messages": copy.deepcopy(raw_sft.get("messages")),
-        }
-        output_path = os.path.join(out_dir, f"{payload['task_id']}.json")
-        dump(payload, output_path)
-        exported_count += 1
+                logger.exception("Could not write raw SFT error sidecar for task %s", task_id)
+                failure["error_path"] = None
 
     summary = {
         "total_records": len(selected_records),
         "exported_records": exported_count,
-        "skipped_records": len(selected_records) - exported_count,
-        "skipped_task_ids": skipped_task_ids,
-        "notes": [],
+        "failed_records": len(failures),
+        "failure_details": failures,
+        # Retain these keys for callers of the old reporting interface. These
+        # records are now explicit failures, rather than silently skipped.
+        "skipped_records": len(failures),
+        "skipped_task_ids": [failure["task_id"] for failure in failures],
+        "notes": ["This summary covers this invocation; errors/ contains persistent per-sample failures."],
     }
-    if exported_count == 0 and selected_records:
-        summary["notes"] = [
-            "No records contained trajectory.raw_sft, so no per-sample raw trajectory JSONs were written.",
-            "Confirm the model endpoint returns prompt_token_ids and choices[0].token_ids when return_token_ids=true is requested.",
-            "Confirm the benchmark machine can load the serving model tokenizer locally; raw export uses AutoTokenizer.from_pretrained(model).",
-        ]
     summary_path = os.path.join(out_dir, "_summary.json")
-    dump(summary, summary_path)
+    try:
+        file_db.atomic_write(summary_path, summary, json_encoder=NumpyEncoder)
+    except Exception:
+        logger.exception("Could not write raw SFT summary to %s", summary_path)
+        summary_path = None
     summary["summary_path"] = summary_path
     return summary
 

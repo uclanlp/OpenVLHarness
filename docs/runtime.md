@@ -111,6 +111,14 @@ Two intentional semantic changes accompany extraction:
 Reporting additionally retains partial trajectories on transport exceptions and
 records Qwen usage totals. These reporting fields do not alter model inputs.
 
+Explicit Qwen raw-SFT export captures each native response with its own request
+messages in per-question state. The final successful response is reconstructed in
+the model export helper using the registered tokenizer, including reduced context,
+provider-error fallback, or the extra final-answer request. Token decoding and
+image alignment remain outside the agent loop. Ordinary trajectories keep their
+existing history; optional `raw_sft` or `raw_sft_error` records describe the export.
+See [raw export setup and failure reporting](models.md#raw-sft-export-qwen-only).
+
 Additional boundary fixes found during extraction reject malformed grounding/page
 records before artifact registration and credentials embedded in endpoint URLs.
 Local coding capture is serialized because Python stdout redirection is process-

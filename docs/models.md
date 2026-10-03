@@ -19,6 +19,44 @@ context reservation and the provider's output limit (`max_tokens` for Chat
 Completions, `max_output_tokens` for Responses). Explicit limits and the paper
 presets retain their configured budgets.
 
+## Raw SFT export (Qwen only)
+
+Pass `--save-raw-trajectory` to `run_benchmark.py` for image/text datasets using
+the `qwen3-vl-8b-instruct` profile. GPT, Kimi, other profiles and the video runner
+are rejected before their inference begins. The flag enables
+`services.models.<orchestrator-service>.return_token_ids: true` in the effective
+configuration saved with the run and included in its resume identity. The normal
+paper preset remains `false`; there is no `extra_body` configuration to edit.
+
+```bash
+python run_benchmark.py --data FSC147_test \
+  --config configs/agent/qwen3_paper.yaml \
+  --judge-config configs/judge_no_judge.yaml \
+  --num-examples 1 --num-proc 1 --save-raw-trajectory --save-html all
+```
+
+Install `openvlharness[qwen]` and use the matching tokenizer/model snapshot from
+the serving setup below. Raw export pins tokenizer revision
+`0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` in the model profile and requires a
+vLLM-compatible endpoint that returns `prompt_token_ids` and
+`choices[0].token_ids`. Missing tokenizer dependencies or files cause a startup
+error instead of disabling token reconstruction.
+
+The terminating response's tokens reconstruct Qwen ChatML, including its rendered
+tool calls and tool responses. Image bytes come from that response's exact request,
+after any context compaction or fallback. Successful exports populate
+`trajectory.raw_sft` and write `raw_trajectories/<task_id>.json` with relative image
+references under `raw_trajectories/images/`. This format is separate from the
+ordinary full-trajectory JSON and HTML reports.
+
+If token IDs are missing, decoding fails, or image alignment is invalid, the agent
+records `trajectory.raw_sft_error`. The writer logs an error and saves
+`raw_trajectories/errors/<task_id>.json`. Predictions and normal reports remain
+available. `_summary.json` reports exports and failures for the writer's latest
+invocation; the per-sample error files persist across subsequent samples. Check
+those errors before using an export for training. Resume requires the same
+effective token-ID setting; it cannot add raw exports to an ordinary partial run.
+
 ## Verified Qwen serving setup
 
 The before/after validation used an existing environment with vLLM **0.18.1**,

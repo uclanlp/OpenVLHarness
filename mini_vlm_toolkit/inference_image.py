@@ -97,7 +97,8 @@ def _make_committed_gen(
         0 = never)
       - ``tool_detections/<idx>.json`` (only if non-empty)
       - ``htmls/<idx>.html`` (first-N by completion order, gated by html_limit)
-      - ``raw_trajectories/<idx>.json`` (if requested + ``raw_sft`` present)
+      - ``raw_trajectories/<idx>.json`` or ``raw_trajectories/errors/<idx>.json``
+        (if raw export was requested)
     """
     # Disk escape hatch (ported from bryan/qwen25): full_trajectories/ (mostly saved images) is
     # ~99.7% of run output. FULL_TRAJECTORIES_LIMIT caps it: 0 = save none, N = first N per
@@ -166,7 +167,7 @@ def _make_committed_gen(
                             html_text,
                         )
 
-                # 4) raw_trajectories/<idx>.json — if requested + raw_sft present
+                # 4) Requested raw export, including explicit per-sample failures.
                 if save_raw_trajectory:
                     write_raw_trajectory_jsons(
                         [rec0], osp.join(work_dir, "raw_trajectories"), limit=-1,
