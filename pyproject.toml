@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = ["requests>=2.28", "PyYAML>=6", "numpy>=1.24", "Pillow>=9", "jsonschema>=4"]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.100", "uvicorn>=0.23", "openai>=1", "python-dotenv>=1", "boto3>=1.28", "beautifulsoup4>=4"]
+server = ["fastapi>=0.100", "uvicorn>=0.23", "openai>=1", "python-dotenv>=1", "boto3>=1.28", "beautifulsoup4>=4", "matplotlib>=3.7"]
 qwen = ["transformers>=4.57"]
 test = ["pytest>=8", "httpx>=0.24"]
 
@@ -19,7 +19,7 @@ where = ["src"]
 include = ["openvlharness*"]
 
 [tool.setuptools.package-data]
-openvlharness = ["prompts/*.txt", "services/model_registry.yaml", "services/tools/**/*.md", "services/tools/**/*.sh"]
+openvlharness = ["prompts/*.txt", "services/model_registry.yaml", "services/tools/**/*.md", "services/tools/**/*.sh", "services/tools/**/*.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

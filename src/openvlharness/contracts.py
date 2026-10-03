@@ -17,6 +17,13 @@ class ArtifactRef:
 
 
 @dataclass
+class ServiceResult:
+    """Concrete service text plus structured metadata retained before rendering."""
+    value: Any
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class CapabilityResult:
     ok: bool
     data: dict[str, Any] | None = None
