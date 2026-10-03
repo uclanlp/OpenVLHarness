@@ -73,12 +73,17 @@ def _timeout(seconds):
     def handler(signum, frame):
         raise CodeExecutionTimeoutError("Execution timed out")
 
-    signal.signal(signal.SIGALRM, handler)
-    signal.alarm(seconds)
+    previous_handler = signal.signal(signal.SIGALRM, handler)
+    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    started = time.monotonic()
     try:
         yield
     finally:
-        signal.alarm(0)
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0]:
+            signal.setitimer(signal.ITIMER_REAL,
+                max(previous_timer[0] - (time.monotonic() - started), 0.000001), previous_timer[1])
 
 
 def extract_python_code(text):
@@ -192,6 +197,11 @@ def sanitize_code(code):
     return code
 
 
+# redirect_stdout changes process-global state. Concurrent benchmark questions
+# must not interleave their capture contexts or leak stdout into another result.
+_EXECUTION_LOCK = threading.RLock()
+
+
 def execute_python_code(
     code,
     prepared_context,
@@ -217,7 +227,7 @@ def execute_python_code(
     stdout_buffer = StringIO()
 
     try:
-        with _timeout(timeout_seconds):
+        with _EXECUTION_LOCK, _timeout(timeout_seconds):
             with contextlib.redirect_stdout(stdout_buffer):
                 exec(exec_code, namespace, namespace)
     except SystemExit as exc:

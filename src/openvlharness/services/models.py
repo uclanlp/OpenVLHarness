@@ -87,7 +87,7 @@ class ModelAdapter:
         self.protocol = self.profile["adapter"]
         self.base = config.get("base", "")
         parsed = urlparse(self.base)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment or parsed.username is not None:
             raise ValueError("Model base must be an HTTP(S) URL")
         trimmed = self.base.rstrip("/")
         suffix = "/chat/completions" if self.protocol == "chat_completions" else "/responses"

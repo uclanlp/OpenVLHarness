@@ -108,7 +108,7 @@ def load_agent_config(config):
             raise ValueError(f"services.tools.{backend}.server_url is required")
         if backend in RAW_BACKENDS:
             url = urlparse(service["server_url"])
-            if (url.scheme not in {"http", "https"} or not url.netloc or url.query or url.fragment
+            if (url.scheme not in {"http", "https"} or not url.netloc or url.query or url.fragment or url.username is not None
                     or url.path.rstrip("/").endswith(("/v1", "/v1/depth", "/v1/pose", "/v1/segment",
                         "/v1/grounding_dino", "/chat/completions", "/responses", "/execute"))):
                 raise ValueError(f"services.tools.{backend}.server_url must be an HTTP(S) service base, without an endpoint suffix")

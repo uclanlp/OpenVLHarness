@@ -6,7 +6,7 @@ from .http import _tool_execute_once, retry_with_exponential_backoff
 class ToolClient:
     def __init__(self, base_url, *, timeout_seconds=600, retry=8):
         parsed = urlparse(base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment:
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.query or parsed.fragment or parsed.username is not None:
             raise ValueError("services.client.base_url must be an HTTP(S) router base URL")
         if parsed.path.rstrip("/").endswith(("/execute", "/v1", "/chat/completions", "/responses")):
             raise ValueError("services.client.base_url must be the router base, without an endpoint suffix")

@@ -1,6 +1,7 @@
 """SAM3-specific output post-processing for agent-visible messages."""
 
 import json
+import math
 
 PROCESSOR_MODE = "custom"
 
@@ -180,6 +181,28 @@ class Capability(BaseCapability):
         super().__init__(**kwargs)
         if self.backend == "grounding_dino":
             self.process_output = self._dino_evidence
+
+    def validate_result(self, payload):
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            raise ValueError("Grounding result must be an object")
+        dino = self.backend == "grounding_dino"
+        boxes = result.get("boxes" if dino else "pred_boxes")
+        scores = result.get("scores" if dino else "pred_scores")
+        size = result.get("size") if dino else [result.get("orig_img_h"), result.get("orig_img_w")]
+        def numeric(value):
+            return type(value) in (int, float) and math.isfinite(value)
+        if boxes is not None and (not isinstance(boxes, list) or any(
+                not isinstance(box, (list, tuple)) or len(box) != 4 or not all(map(numeric, box)) for box in boxes)):
+            raise ValueError("Grounding boxes must contain four finite xyxy coordinates")
+        if scores is not None and (not isinstance(scores, list) or not all(map(numeric, scores))
+                                  or boxes is not None and len(scores) != len(boxes)):
+            raise ValueError("Grounding scores must be finite and aligned with boxes")
+        if size is not None and (not isinstance(size, (list, tuple)) or len(size) != 2 or any(
+                value is not None and (not numeric(value) or value <= 0) for value in size)):
+            raise ValueError("Grounding size must be [height, width] with positive dimensions")
+        if boxes and (size is None or any(value is None for value in size)):
+            raise ValueError("Nonempty grounding boxes require image dimensions")
 
     @staticmethod
     def _dino_evidence(payload, prepared, tool_metadata=None):
