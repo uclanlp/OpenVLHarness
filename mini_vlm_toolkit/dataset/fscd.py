@@ -291,9 +291,11 @@ class _FSCDBBoxBase(ImageBaseDataset):
             _sort_grounding_per_row,
         )
 
-        # Phase 2: SAM3 sidecar score selection (matches LVIS/ODinW flows).
+        # Config takes precedence over SCORE_MODE (matches LVIS/ODinW).
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
-        modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
+        modes_to_run, primary_mode = _resolve_score_modes(
+            tool_detections_dir, score_mode=judge_kwargs.get('score_mode'),
+        )
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):

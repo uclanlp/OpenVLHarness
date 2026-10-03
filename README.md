@@ -126,6 +126,14 @@ that require a judge. The no-judge preset passes an actual null model into the
 evaluator. `--num-examples` limits the evaluated sample, `--shuffle --seed`
 selects a repeatable subset, and `--num-proc` controls concurrent examples.
 
+For ODinW, FSCD and LVIS grounding, the no-judge preset selects
+`score_mode: constant` (all detection scores are 1.0). Set `score_mode: original`
+to use matching tool detection scores. The configured mode takes precedence over
+`SCORE_MODE`; when the config omits it, that environment variable still applies.
+With neither override, evaluators run both modes when detection sidecars exist
+(original is primary), or constant alone otherwise. The primary mode owns the
+unsuffixed metrics files; alternate metrics include the mode in their filenames.
+
 Each run creates a unique directory under
 `<work-dir>/<model>/<agent>/<run_id>/<dataset>/`, containing predictions,
 `trajectories.jsonl`, full trajectories and optional HTML reports. The parent

@@ -398,13 +398,12 @@ class LVISBBoxDataset(ImageBaseDataset):
             _resolve_score_modes,
         )
 
-        # Phase 2: decide which score_mode(s) to run.  When SCORE_MODE is
-        # NOT explicitly set and sidecars are present, we run BOTH modes
-        # in a single evaluate() call and emit two sets of metrics files
-        # (primary + alternate) so the score-utility ablation needs no
-        # second invocation.
+        # Config takes precedence over SCORE_MODE. Without either override,
+        # sidecars select both modes (original primary, constant alternate).
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
-        modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
+        modes_to_run, primary_mode = _resolve_score_modes(
+            tool_detections_dir, score_mode=judge_kwargs.get('score_mode'),
+        )
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
