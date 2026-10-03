@@ -319,6 +319,35 @@ class AgentLoopTests(unittest.TestCase):
         self.assertEqual(len(fixed.requests), 2)
         self.assertEqual([call.call_id for call, _ in probe.invocations], ["first"])
 
+    def test_non_object_extra_final_response_preserves_partial_trace_and_export_failure(self):
+        for invalid in (None, [], "invalid response", 7, False):
+            for raw_export in (False, True):
+                with self.subTest(response=invalid, raw_export=raw_export):
+                    agent, fixed, probe = make_agent("chat_completions", [
+                        model_response("chat_completions", calls=[("first", "Probe_Tool", '{"query":"count"}')],
+                                       usage={"total_tokens": 13}),
+                        invalid], max_iterations=1)
+                    agent.adapter.raw_sft_enabled = raw_export
+                    agent.adapter.options["return_token_ids"] = raw_export
+                    result = agent.generate("Count objects.", task_id=17)
+                    extra = result["extra_records"]
+                    trajectory = extra["trajectory"]
+                    self.assertEqual(result["prediction"], MainAgent.fail_msg)
+                    self.assertEqual(trajectory["error"], "Model response must be an object")
+                    self.assertEqual(extra["usage"], {"total": {"total_tokens": 13}})
+                    self.assertEqual(len(fixed.requests), 2)
+                    self.assertEqual(fixed.requests[-1]["tool_choice"], "none")
+                    self.assertEqual([call.call_id for call, _ in probe.invocations], ["first"])
+                    self.assertEqual(len(trajectory["chat_history"]), 1)
+                    self.assertTrue(trajectory["chat_history"][0]["tool_responses"][0]["ok"])
+                    self.assertEqual(trajectory["messages"], fixed.requests[-1]["messages"])
+                    self.assertNotIn("raw_sft", trajectory)
+                    if raw_export:
+                        self.assertEqual(trajectory["raw_sft_error"]["code"], "inference_failed")
+                        self.assertIn(trajectory["error"], trajectory["raw_sft_error"]["message"])
+                    else:
+                        self.assertNotIn("raw_sft_error", trajectory)
+
     def test_usage_accumulates_nested_counts_and_ignores_boolean_and_text_fields(self):
         for protocol in ALIASES:
             with self.subTest(protocol=protocol):

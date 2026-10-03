@@ -143,9 +143,9 @@ class MainAgent:
                 if index == self.max_iterations - 1 and policy.get("extra_final_request"):
                     final_tools, final_choice = adapter._ensure_context_fits(history, tools, "none")
                     response = adapter.request(history, final_tools, final_choice, seed=seed, capture=capture)
+                    text, calls, original = adapter.parse(response, index + 1, phase="final_text_only")
                     if isinstance(response.get("usage"), dict):
                         _accumulate(usage, response["usage"])
-                    text, calls, original = adapter.parse(response, index + 1, phase="final_text_only")
                     if calls:
                         adapter.append_assistant_calls(history, text, calls, original)
                     else:
