@@ -68,8 +68,8 @@ Luna retains its assistant-text fallback and final-message behavior. Tool schema
 remain in the baseline router's alphabetical order. Neither path accepts a
 multi-tool turn by silently executing only one call.
 
-Native model/tool HTTP has eight additional retries, up to nine attempts, with
-600-second timeouts. The old constructor's `retry: 3` did not control those
+Native model/tool HTTP has a configured maximum of eight additional retries,
+up to nine attempts, with 600-second timeouts. The old constructor's `retry: 3` did not control those
 helpers; the new presets report the effective policy explicitly. Structured
 router errors retain their call IDs and are returned once. Fatal HTTP400/401
 are not retried. Search uses the OpenAI SDK's separate two-retry policy, with a
@@ -108,3 +108,9 @@ global; the old concurrent path could mix output from different questions. Main-
 thread execution supports fractional timeout values and restores the previous
 signal handler/timer. These are separately tested corrections for malformed input
 and concurrent execution, outside the valid single-worker parity reference.
+
+The inherited retry classifier has a known numeric-host edge case: it extracts
+the first three-digit number in an exception message. An endpoint containing
+127.0.0.1 can therefore be mistaken for a status code before the actual HTTP500,
+so a generic provider error may not be retried. Both runtimes reproduce this
+behavior; it is recorded for review rather than changed during parity validation.

@@ -28,6 +28,9 @@ package there. Those broader dependencies are unnecessary for client-only use.
 
 ## Configure and run
 
+See [model serving](docs/models.md) for the tested Qwen launch and native model
+connections.
+
 Choose [Qwen](configs/agent/qwen3_paper.yaml) or
 [Luna](configs/agent/gpt6_luna_paper.yaml). Each YAML separates agent policy,
 memory, capability selection, and deployment connections. Set the referenced
