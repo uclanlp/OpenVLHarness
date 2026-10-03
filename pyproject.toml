@@ -20,7 +20,7 @@ where = ["src"]
 include = ["openvlharness*"]
 
 [tool.setuptools.package-data]
-openvlharness = ["prompts/*.txt", "services/model_registry.yaml", "services/tools/**/*.md", "services/tools/**/*.sh", "services/tools/**/*.yml"]
+openvlharness = ["prompts/*.txt", "services/model_registry.yaml", "services/LICENSE*", "services/tools/**/*.md", "services/tools/**/*.sh", "services/tools/**/*.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

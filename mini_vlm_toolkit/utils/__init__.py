@@ -1,4 +1,3 @@
-from .api_utils import chat_completion_request, embeddings_request, filter_kwargs_for_endpoint, tool_execute_request
 from .judge_utils import load_judge_config
 
 try:
@@ -28,10 +27,6 @@ __all__ = [
     'track_progress_rich',
     'can_infer_sequence',
     'can_infer_lego',
-    'chat_completion_request',
-    'embeddings_request',
-    'filter_kwargs_for_endpoint',
-    'tool_execute_request',
     'load_judge_config',
     'build_trajectory_records',
     'write_trajectory_jsonl',

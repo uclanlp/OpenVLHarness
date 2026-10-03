@@ -105,3 +105,9 @@ Place `HF_HOME`, `TMPDIR`, `MPLCONFIGDIR`, `TORCH_HOME` and model-server caches
 on a fast local disk when available. Set `HF_HUB_OFFLINE=1` only after all
 required files are cached. Keep one worker per raw GPU process: importing a
 raw server loads its model, and extra workers duplicate that allocation.
+
+## Source license
+
+The original tool infrastructure MIT notice is preserved verbatim in
+[LICENSE.tool-infra](../LICENSE.tool-infra). Model weights and upstream raw-model
+packages retain their own licenses and access requirements.

@@ -1,6 +1,0 @@
-DEFAULT_LLM_MODEL = "Qwen/Qwen3-8B"
-DEFAULT_LLM_BASE_URL = "http://localhost:8004/v1"
-DEFAULT_LLM_API_KEY = "local"
-
-VLLM_QWEN3_32B_URL = "http://localhost:8003/v1"
-VLLM_QWEN3_8B_URL = DEFAULT_LLM_BASE_URL

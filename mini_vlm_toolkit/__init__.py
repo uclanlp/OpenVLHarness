@@ -1,5 +1,3 @@
-from mini_vlm_toolkit.tool_runner import execute_direct
-
 try:
     from .inference_video import infer_video_job
 except Exception:  # pragma: no cover - optional runtime dependency (e.g., torch)
