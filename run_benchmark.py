@@ -5,7 +5,7 @@ import json
 import os
 import argparse
 import yaml
-from mini_vlm_toolkit.agent import build_agent, load_agent_config
+from openvlharness.bootstrap import build_agent, load_agent_config
 from mini_vlm_toolkit.dataset import build_dataset
 import datetime
 from mini_vlm_toolkit.smp import *
@@ -23,6 +23,7 @@ from mini_vlm_toolkit.utils.run_identity import (
     build_run_id,
     build_run_manifest,
     validate_manifest_compatibility,
+    redact_sensitive_fields,
 )
 
 RANK = int(os.environ.get('RANK', 0))
@@ -162,66 +163,19 @@ def _redact_env_map(env):
 
 
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
-    """Save tool env snapshot and warn if .env file diverges from running server."""
+    """Record the selected router and resolved service configuration, without secrets."""
     import requests as _requests
-
-    tool_base = None
-    if agent_config and isinstance(agent_config, dict):
-        tool_base = (agent_config.get("agent_kwargs") or {}).get("tool_base")
-    tool_base = tool_base or "http://localhost:8101"
-
-    # 1. Read from running server
-    server_env = None
+    services = (agent_config or {}).get("services", {})
+    base_url = services.get("client", {}).get("base_url")
+    snapshot = {"configured": redact_sensitive_fields(services), "server": None}
     try:
-        resp = _requests.get(f"{tool_base}/env", timeout=5)
-        resp.raise_for_status()
-        parsed_env = resp.json()
-        if isinstance(parsed_env, dict):
-            server_env = _redact_env_map(parsed_env)
-    except Exception:
-        pass
-
-    # 2. Read from .env file on disk
-    file_env = {}
-    tool_infra_dir = os.path.join(os.path.dirname(__file__), "mini_vlm_toolkit", "tool_infra")
-    for name in [".env.rui", ".env"]:
-        env_path = os.path.join(tool_infra_dir, name)
-        if os.path.isfile(env_path):
-            with open(env_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    k, _, v = line.partition("=")
-                    file_env[k.strip()] = v.strip()
-            break
-
-    # 3. Compare and warn on mismatch
-    mismatches = {}
-    if server_env and file_env:
-        for key, server_val in server_env.items():
-            if key.startswith("_") or _is_sensitive_env_key(key):
-                continue
-            file_val = file_env.get(key)
-            if file_val is not None and file_val != server_val:
-                mismatches[key] = {"server": server_val, "file": file_val}
-                msg = (
-                    f"⚠ Tool env MISMATCH: {key} — "
-                    f"server='{server_val}' vs file='{file_val}'. "
-                    f"Did you edit .env without restarting the tool server?"
-                )
-                logger.warning(msg)
-                print(f"\n{'='*60}\nWARNING: {msg}\n{'='*60}\n")
-
-    # 4. Save server env (ground truth) or file env (fallback)
-    snapshot = server_env or _redact_env_map(file_env)
-    if snapshot:
-        if mismatches:
-            snapshot["_MISMATCHES"] = mismatches
-        snapshot_path = os.path.join(pred_root, "tool_env.snapshot.json")
-        with open(snapshot_path, "w") as f:
-            json.dump(snapshot, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved tool env snapshot: {snapshot_path}")
+        response = _requests.get(f"{base_url}/env", timeout=5)
+        response.raise_for_status()
+        snapshot["server"] = redact_sensitive_fields(response.json())
+    except Exception as exc:
+        snapshot["server_error"] = type(exc).__name__
+        logger.warning("Router environment snapshot unavailable: %s", type(exc).__name__)
+    _write_json(os.path.join(pred_root, "tool_env_snapshot.json"), snapshot)
 
 
 def _prepare_run_root(pred_root, manifest, logger):
@@ -339,7 +293,7 @@ if __name__ == "__main__":
     model_name = agent.model.split('/')[-1]
     agent_class = agent.__class__.__name__
 
-    logger.info(f"LLM Judge Configurations: {judge_kwargs}")
+    logger.info(f"LLM Judge Configurations: {redact_sensitive_fields(judge_kwargs)}")
     logger.info(f"Initialized agent of class {agent_class} with model {model_name}")
 
     parent_dir = os.path.join(args.work_dir, model_name, agent_class.lower())

@@ -1,0 +1,1254 @@
+{
+  "provenance": {
+    "revision": "b98e5a540c4867eab20e07166c274e7ca8b8b9fe",
+    "source_sha256": {
+      "mini_vlm_toolkit/agent/base.py": "85f958e6e06d864a0be7393911d836afcdef030f9c063c580dc630ea2a91e564",
+      "mini_vlm_toolkit/agent/api_with_tools.py": "8bae1ebd71d6c4206326d18cf5f984f554a7e656fb1b67233c4e9e4a950d7aed",
+      "mini_vlm_toolkit/memory/persistent_state_memory.py": "fa02b5ffa62384dc2c3d203dfbce4f5861ed06cdaf44e878271118c6a4b31a7f",
+      "mini_vlm_toolkit/utils/api_utils.py": "43a7082c6a6a7ca681f3cf67033a71e88da63fb6f35e78b40e08e9dcbc5a2caf"
+    },
+    "method": "Unchanged method AST extraction and native HTTP helper with mocked requests.post. No model calls."
+  },
+  "normalization": {
+    "chat_completions": [
+      {
+        "name": "json",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": "{\"query\":\"café\",\"count\":2}"
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{\"query\":\"café\",\"count\":2}",
+            "args": {
+              "query": "café",
+              "count": 2
+            },
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "{\"query\":\"café\",\"count\":2}"
+              }
+            },
+            "parse_error": null
+          }
+        ]
+      },
+      {
+        "name": "dict",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": {
+                "query": "café",
+                "count": 2
+              }
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{\"query\": \"café\", \"count\": 2}",
+            "args": {
+              "query": "café",
+              "count": 2
+            },
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "{\"query\": \"café\", \"count\": 2}"
+              }
+            },
+            "parse_error": null
+          }
+        ]
+      },
+      {
+        "name": "blank",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": "  "
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "  ",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "  "
+              }
+            },
+            "parse_error": null
+          }
+        ]
+      },
+      {
+        "name": "bad_json",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": "{bad"
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{bad",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "{bad"
+              }
+            },
+            "parse_error": {
+              "code": "invalid_tool_arguments_json",
+              "message": "Tool call arguments are not valid JSON.",
+              "details": {
+                "raw_arguments": "{bad",
+                "exception": "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "json_array",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": "[1,2]"
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "[1,2]",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "[1,2]"
+              }
+            },
+            "parse_error": {
+              "code": "invalid_tool_arguments_type",
+              "message": "Tool call arguments JSON must decode to an object.",
+              "details": {
+                "decoded_type": "list"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "json_null",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": "null"
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "null",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "null"
+              }
+            },
+            "parse_error": {
+              "code": "invalid_tool_arguments_type",
+              "message": "Tool call arguments JSON must decode to an object.",
+              "details": {
+                "decoded_type": "NoneType"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "raw_array",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": [
+                1,
+                2
+              ]
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{}",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "{}"
+              }
+            },
+            "parse_error": {
+              "code": "invalid_tool_arguments_type",
+              "message": "Tool call arguments must be a JSON object or a JSON-encoded string.",
+              "details": {
+                "raw_type": "list"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "raw_none",
+        "turn_idx": 2,
+        "input": [
+          {
+            "id": "explicit-call",
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "arguments": null
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{}",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "explicit-call",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "{}"
+              }
+            },
+            "parse_error": {
+              "code": "invalid_tool_arguments_type",
+              "message": "Tool call arguments must be a JSON object or a JSON-encoded string.",
+              "details": {
+                "raw_type": "NoneType"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "missing_id_name_arguments",
+        "turn_idx": 2,
+        "input": [
+          {
+            "function": {
+              "name": "Probe_Tool"
+            }
+          },
+          {
+            "function": {}
+          }
+        ],
+        "expected": [
+          {
+            "id": "call_3_1",
+            "name": "Probe_Tool",
+            "raw_arguments": "{}",
+            "args": {},
+            "assistant_tool_call": {
+              "id": "call_3_1",
+              "type": "function",
+              "function": {
+                "name": "Probe_Tool",
+                "arguments": "{}"
+              }
+            },
+            "parse_error": null
+          }
+        ]
+      }
+    ],
+    "responses": [
+      {
+        "name": "json",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": "{\"query\":\"café\",\"count\":2}"
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{\"query\":\"café\",\"count\":2}",
+            "args": {
+              "query": "café",
+              "count": 2
+            },
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "{\"query\":\"café\",\"count\":2}"
+            }
+          }
+        ]
+      },
+      {
+        "name": "dict",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": {
+              "query": "café",
+              "count": 2
+            }
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{\"query\": \"café\", \"count\": 2}",
+            "args": {
+              "query": "café",
+              "count": 2
+            },
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "{\"query\": \"café\", \"count\": 2}"
+            }
+          }
+        ]
+      },
+      {
+        "name": "blank",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": "  "
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "  ",
+            "args": {},
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "  "
+            }
+          }
+        ]
+      },
+      {
+        "name": "bad_json",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": "{bad"
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{bad",
+            "args": {},
+            "parse_error": {
+              "code": "invalid_arguments_json",
+              "message": "Failed to parse function.arguments JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+            },
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "{bad"
+            }
+          }
+        ]
+      },
+      {
+        "name": "json_array",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": "[1,2]"
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "[1,2]",
+            "args": {},
+            "parse_error": {
+              "code": "invalid_arguments_type",
+              "message": "function.arguments must decode to a JSON object."
+            },
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "[1,2]"
+            }
+          }
+        ]
+      },
+      {
+        "name": "json_null",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": "null"
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "null",
+            "args": {},
+            "parse_error": {
+              "code": "invalid_arguments_type",
+              "message": "function.arguments must decode to a JSON object."
+            },
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "null"
+            }
+          }
+        ]
+      },
+      {
+        "name": "raw_array",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": [
+              1,
+              2
+            ]
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{}",
+            "args": {},
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      {
+        "name": "raw_none",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "explicit-call",
+            "name": "Probe_Tool",
+            "arguments": null
+          }
+        ],
+        "expected": [
+          {
+            "id": "explicit-call",
+            "name": "Probe_Tool",
+            "raw_arguments": "{}",
+            "args": {},
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "explicit-call",
+              "name": "Probe_Tool",
+              "arguments": "{}"
+            }
+          }
+        ]
+      },
+      {
+        "name": "missing_id_name_arguments",
+        "turn_idx": 2,
+        "input": [
+          {
+            "type": "function_call",
+            "name": "Probe_Tool"
+          },
+          {
+            "type": "function_call",
+            "id": "response-id"
+          }
+        ],
+        "expected": [
+          {
+            "id": "call_2_0",
+            "name": "Probe_Tool",
+            "raw_arguments": "{}",
+            "args": {},
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "call_2_0",
+              "name": "Probe_Tool",
+              "arguments": "{}"
+            }
+          },
+          {
+            "id": "response-id",
+            "name": "",
+            "raw_arguments": "{}",
+            "args": {},
+            "parse_error": null,
+            "function_call_item": {
+              "type": "function_call",
+              "call_id": "response-id",
+              "name": "",
+              "arguments": "{}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "image_data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+  "content_encoding": [
+    {
+      "role": "system",
+      "input": "hello",
+      "expected": [
+        {
+          "type": "input_text",
+          "text": "hello"
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "input": null,
+      "expected": [
+        {
+          "type": "input_text",
+          "text": "None"
+        }
+      ]
+    },
+    {
+      "role": "system",
+      "input": [
+        {
+          "type": "text",
+          "text": "look"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "detail": "high"
+          }
+        },
+        {
+          "type": "input_file",
+          "file_id": "file-fixture"
+        },
+        {
+          "type": "ignored"
+        },
+        42
+      ],
+      "expected": [
+        {
+          "type": "input_text",
+          "text": "look"
+        },
+        {
+          "type": "input_image",
+          "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        },
+        {
+          "type": "input_file",
+          "file_id": "file-fixture"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "input": "hello",
+      "expected": [
+        {
+          "type": "input_text",
+          "text": "hello"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "input": null,
+      "expected": [
+        {
+          "type": "input_text",
+          "text": "None"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "input": [
+        {
+          "type": "text",
+          "text": "look"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "detail": "high"
+          }
+        },
+        {
+          "type": "input_file",
+          "file_id": "file-fixture"
+        },
+        {
+          "type": "ignored"
+        },
+        42
+      ],
+      "expected": [
+        {
+          "type": "input_text",
+          "text": "look"
+        },
+        {
+          "type": "input_image",
+          "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        },
+        {
+          "type": "input_file",
+          "file_id": "file-fixture"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "input": "hello",
+      "expected": [
+        {
+          "type": "output_text",
+          "text": "hello"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "input": null,
+      "expected": [
+        {
+          "type": "output_text",
+          "text": "None"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "input": [
+        {
+          "type": "text",
+          "text": "look"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "detail": "high"
+          }
+        },
+        {
+          "type": "input_file",
+          "file_id": "file-fixture"
+        },
+        {
+          "type": "ignored"
+        },
+        42
+      ],
+      "expected": [
+        {
+          "type": "output_text",
+          "text": "look"
+        },
+        {
+          "type": "input_image",
+          "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        },
+        {
+          "type": "input_file",
+          "file_id": "file-fixture"
+        }
+      ]
+    }
+  ],
+  "function_outputs": [
+    {
+      "payload": {
+        "ok": true,
+        "result": "raw"
+      },
+      "deferred": {
+        "role": "user",
+        "content": " processed text "
+      },
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": " processed text "
+      }
+    },
+    {
+      "payload": {
+        "ok": true,
+        "result": {}
+      },
+      "deferred": {
+        "role": "user",
+        "content": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+            }
+          },
+          {
+            "type": "text",
+            "text": " first "
+          },
+          {
+            "type": "input_text",
+            "text": "second "
+          },
+          {
+            "type": "input_image",
+            "image_url": "https://fixture.invalid/second.png"
+          }
+        ]
+      },
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": [
+          {
+            "type": "input_text",
+            "text": "first \nsecond"
+          },
+          {
+            "type": "input_image",
+            "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+          },
+          {
+            "type": "input_image",
+            "image_url": "https://fixture.invalid/second.png"
+          }
+        ]
+      }
+    },
+    {
+      "payload": {
+        "ok": true,
+        "result": {}
+      },
+      "deferred": {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": " first "
+          },
+          {
+            "type": "input_text",
+            "text": "second "
+          }
+        ]
+      },
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": "first \nsecond"
+      }
+    },
+    {
+      "payload": {
+        "ok": true,
+        "result": {
+          "count": 2
+        }
+      },
+      "deferred": null,
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": "{\"count\": 2}"
+      }
+    },
+    {
+      "payload": {
+        "ok": false,
+        "error": {
+          "code": "invalid_image",
+          "message": " Cannot open image. "
+        }
+      },
+      "deferred": null,
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": "invalid_image: Cannot open image."
+      }
+    },
+    {
+      "payload": {
+        "ok": false,
+        "error": {
+          "code": "empty",
+          "message": "   "
+        }
+      },
+      "deferred": null,
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": "empty: Tool call failed."
+      }
+    },
+    {
+      "payload": {
+        "ok": false,
+        "error": "  unavailable  "
+      },
+      "deferred": null,
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": "unavailable"
+      }
+    },
+    {
+      "payload": {
+        "ok": false,
+        "error": null
+      },
+      "deferred": null,
+      "expected": {
+        "type": "function_call_output",
+        "call_id": "retained-call",
+        "output": "Tool call failed."
+      }
+    }
+  ],
+  "wire": [
+    {
+      "protocol": "chat_completions",
+      "alias": "qwen3-vl-8b-instruct",
+      "config": {
+        "max_tokens": 4096,
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "repetition_penalty": 1.0,
+        "return_token_ids": false
+      },
+      "input": [
+        {
+          "role": "system",
+          "content": "fixture system"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "What is shown?"
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+              }
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "Probe_Tool",
+            "description": "Perception fixture",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "enum": [
+                    "a",
+                    "b"
+                  ]
+                },
+                "count": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "oneOf": [
+                {
+                  "required": [
+                    "query"
+                  ]
+                }
+              ],
+              "anyOf": [],
+              "allOf": [],
+              "enum": [],
+              "not": {}
+            }
+          }
+        }
+      ],
+      "seed": 31,
+      "expected": {
+        "model": "Qwen/Qwen3-VL-8B-Instruct",
+        "messages": [
+          {
+            "role": "system",
+            "content": "fixture system"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "What is shown?"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+                }
+              }
+            ]
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "repetition_penalty": 1.0,
+        "top_p": 0.8,
+        "seed": 31,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "Probe_Tool",
+              "description": "Perception fixture",
+              "parameters": {
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "enum": [
+                      "a",
+                      "b"
+                    ]
+                  },
+                  "count": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "query"
+                    ]
+                  }
+                ],
+                "anyOf": [],
+                "allOf": [],
+                "enum": [],
+                "not": {}
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "top_k": 20,
+        "return_token_ids": false
+      }
+    },
+    {
+      "protocol": "responses",
+      "alias": "gpt-6-luna",
+      "config": {
+        "max_tokens": 32768,
+        "reasoning_effort": "medium"
+      },
+      "input": [
+        {
+          "type": "message",
+          "role": "system",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "fixture system"
+            }
+          ]
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "What is shown?"
+            },
+            {
+              "type": "input_image",
+              "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+            }
+          ]
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "Probe_Tool",
+            "description": "Perception fixture",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "enum": [
+                    "a",
+                    "b"
+                  ]
+                },
+                "count": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "oneOf": [
+                {
+                  "required": [
+                    "query"
+                  ]
+                }
+              ],
+              "anyOf": [],
+              "allOf": [],
+              "enum": [],
+              "not": {}
+            }
+          }
+        }
+      ],
+      "seed": 31,
+      "expected": {
+        "model": "gpt-6-luna",
+        "input": [
+          {
+            "type": "message",
+            "role": "system",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "fixture system"
+              }
+            ]
+          },
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              {
+                "type": "input_text",
+                "text": "What is shown?"
+              },
+              {
+                "type": "input_image",
+                "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+              }
+            ]
+          }
+        ],
+        "store": false,
+        "tools": [
+          {
+            "type": "function",
+            "name": "Probe_Tool",
+            "description": "Perception fixture",
+            "parameters": {
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "enum": [
+                    "a",
+                    "b"
+                  ]
+                },
+                "count": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          }
+        ],
+        "tool_choice": "auto",
+        "max_output_tokens": 32768,
+        "reasoning": {
+          "effort": "medium"
+        }
+      }
+    }
+  ]
+}

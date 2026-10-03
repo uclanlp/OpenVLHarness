@@ -1,0 +1,3227 @@
+{
+  "provenance": {
+    "source_commit": "b98e5a540c4867eab20e07166c274e7ca8b8b9fe",
+    "method": "Fixed synthetic service replies passed through unchanged old memory, processors, and coding postprocess; network denied.",
+    "source_sha256": {
+      "memory/persistent_state_memory.py": "fa02b5ffa62384dc2c3d203dfbce4f5861ed06cdaf44e878271118c6a4b31a7f",
+      "memory/modules/image.py": "0389f1b29962df4de4ce08d8442d4d7adb4407c8db804ff4370c3d27909c1710",
+      "memory/modules/tool_context.py": "ecee671725435ac50da7ca1ca4b5b65fa2be9c746750e31f8eb0d8ad88177fcf",
+      "memory/modules/url.py": "c528cba246da867e398853d12004e63dedfb156a6be05e4024e9fccb3e2d623e",
+      "agent/code_execution.py": "3a73fae00e66bf861c2421e27939fafe1f4eb4dbf6746e7915d9172ace02cc20",
+      "agent/base_with_code.py": "4e620ea6cd90339eb6a72a1cc059985f3983fb0cd2fdb0c29451330183662540",
+      "tool_infra/src/tools/sam3_segment/process_tool_output.py": "65302f1078ee01a8dc65c9bed5dac3dc2363bcaa15ded00ee19d2515a9fee4ae",
+      "tool_infra/src/tools/ocr/process_tool_output.py": "30a37e8c729f0c4705c870ed013e49ba10152ad8802b20a31a02d0d0b9cbfb61",
+      "tool_infra/src/tools/depth_estimation/process_tool_output.py": "fe2631cd4f295285128b39219d521e44ecb1298537764cfa9e4900bb1d64063e",
+      "tool_infra/src/tools/camera_trajectory/process_tool_output.py": "5e3fff517c3690bb75ce4cbd6fe2b89a28b0bb9b1bbc10890a91d7f3d0302b99",
+      "tool_infra/src/tools/zoom_in_image_by_bbox/process_tool_output.py": "b15d63324afc5153f39ad859b144b8f2f49bd7fa01375a8f69a8f12085c8ac66",
+      "tool_infra/src/tools/serper_text_search/process_tool_output.py": "f7102eccca8e1e40fe58a455ac38ecc6beb3c8b5433c7a67fb15e1db8385f510",
+      "tool_infra/src/tools/serper_image_search/process_tool_output.py": "71875a78b43dd84d25fa4733931fc6f043b8be5e800328f5506d0ad50949c037",
+      "tool_infra/src/tools/serper_webpage_visit/process_tool_output.py": "d40cf2b66e67e02b84b6fc9095e8cdbd73f006563daff32ac8fb79ceb366a0fa",
+      "tool_infra/src/tools/python_coding_agent/process_tool_output.py": "e886b89269b813cc884c3ea64e7683daab93f3563fb47088adad15c1b113aaac"
+    }
+  },
+  "data_urls": {
+    "red": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+    "blue": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+    "green": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+  },
+  "cases": {
+    "sam3": {
+      "name": "Visual_Grounding_Tool",
+      "arguments": {
+        "query": "red shoe",
+        "image_id": "input_image_1"
+      },
+      "response": {
+        "prompt": "red shoe",
+        "pred_boxes": [
+          [
+            0.25,
+            0.5,
+            80.4,
+            25.25
+          ],
+          [
+            100.2,
+            30.1,
+            199.9,
+            99.8
+          ]
+        ],
+        "pred_scores": [
+          0.912345,
+          0.75
+        ],
+        "pred_masks": [
+          {
+            "size": [
+              100,
+              200
+            ],
+            "counts": "fixture-rle-1"
+          },
+          {
+            "size": [
+              100,
+              200
+            ],
+            "counts": "fixture-rle-2"
+          }
+        ],
+        "num_masks": 2,
+        "orig_img_h": 100,
+        "orig_img_w": 200,
+        "all_masks_viz_base64": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+        "model_id": "sam3-fixture"
+      },
+      "resolved_arguments": {
+        "query": "red shoe",
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Visual_Grounding_Tool grounded 2 objects for the prompt 'red shoe'. Their corresponding bounding boxes (on a 0-1000 scale, [x1, y1, x2, y2]) are: ```json\n[\n\t{\"bbox_2d\": [1, 5, 402, 252], \"label\": \"red shoe\"},\n\t{\"bbox_2d\": [501, 301, 1000, 998], \"label\": \"red shoe\"}\n]```. The object numbers correspond to the labeled masks rendered in the following image, which you can refer to as tool_generated_image_1."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"prompt\": \"red shoe\", \"pred_boxes\": [[0.25, 0.5, 80.4, 25.25], [100.2, 30.1, 199.9, 99.8]], \"pred_scores\": [0.912345, 0.75], \"pred_masks\": [{\"size\": [100, 200], \"counts\": \"fixture-rle-1\"}, {\"size\": [100, 200], \"counts\": \"fixture-rle-2\"}], \"num_masks\": 2, \"orig_img_h\": 100, \"orig_img_w\": 200, \"model_id\": \"sam3-fixture\"}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "prompt": "red shoe",
+            "pred_boxes": [
+              [
+                0.25,
+                0.5,
+                80.4,
+                25.25
+              ],
+              [
+                100.2,
+                30.1,
+                199.9,
+                99.8
+              ]
+            ],
+            "pred_scores": [
+              0.912345,
+              0.75
+            ],
+            "pred_masks": [
+              {
+                "size": [
+                  100,
+                  200
+                ],
+                "counts": "fixture-rle-1"
+              },
+              {
+                "size": [
+                  100,
+                  200
+                ],
+                "counts": "fixture-rle-2"
+              }
+            ],
+            "num_masks": 2,
+            "orig_img_h": 100,
+            "orig_img_w": 200,
+            "model_id": "sam3-fixture"
+          },
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1"
+          ]
+        },
+        "compact_result": {
+          "prompt": "red shoe",
+          "pred_boxes": [
+            [
+              0.25,
+              0.5,
+              80.4,
+              25.25
+            ],
+            [
+              100.2,
+              30.1,
+              199.9,
+              99.8
+            ]
+          ],
+          "pred_scores": [
+            0.912345,
+            0.75
+          ],
+          "pred_masks": [
+            {
+              "size": [
+                100,
+                200
+              ],
+              "counts": "fixture-rle-1"
+            },
+            {
+              "size": [
+                100,
+                200
+              ],
+              "counts": "fixture-rle-2"
+            }
+          ],
+          "num_masks": 2,
+          "orig_img_h": 100,
+          "orig_img_w": 200,
+          "model_id": "sam3-fixture"
+        },
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1"
+        ]
+      },
+      "bindings": {
+        "segment_red_shoe": {
+          "pred_boxes": [
+            [
+              0.25,
+              0.5,
+              80.4,
+              25.25
+            ],
+            [
+              100.2,
+              30.1,
+              199.9,
+              99.8
+            ]
+          ],
+          "pred_scores": [
+            0.912345,
+            0.75
+          ],
+          "pred_masks": [
+            {
+              "size": [
+                100,
+                200
+              ],
+              "counts": "fixture-rle-1"
+            },
+            {
+              "size": [
+                100,
+                200
+              ],
+              "counts": "fixture-rle-2"
+            }
+          ],
+          "num_masks": 2,
+          "orig_img_h": 100,
+          "orig_img_w": 200
+        }
+      },
+      "descriptors": {
+        "segment_red_shoe": {
+          "key": "segment_red_shoe",
+          "source_tool": "Visual_Grounding_Tool",
+          "source_args": {
+            "query": "red shoe"
+          },
+          "fields": {
+            "pred_boxes": {
+              "dtype": "list[list[float]] len=2",
+              "description": "predicted bounding boxes",
+              "shape_hint": "",
+              "preview": "[[0.25, 0.5, 80.4, 25.25], [100.2, 30.1, 199.9, 99.8]]"
+            },
+            "pred_scores": {
+              "dtype": "list[float] len=2",
+              "description": "prediction confidence scores",
+              "shape_hint": "",
+              "preview": "[0.912345, 0.75]"
+            },
+            "pred_masks": {
+              "dtype": "list[dict] len=2",
+              "description": "predicted segmentation masks",
+              "shape_hint": "",
+              "preview": "[{'size': [100, 200], 'counts': 'fixture-rle-1'}, {'size': [100, 200], 'counts': 'fixture-rle-2'}]"
+            },
+            "num_masks": {
+              "dtype": "int",
+              "description": "number of predicted masks",
+              "shape_hint": "",
+              "preview": "2"
+            },
+            "orig_img_h": {
+              "dtype": "int",
+              "description": "original image height",
+              "shape_hint": "",
+              "preview": "100"
+            },
+            "orig_img_w": {
+              "dtype": "int",
+              "description": "original image width",
+              "shape_hint": "",
+              "preview": "200"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Visual_Grounding_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Visual_Grounding_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- segment_red_shoe: dict (keys: pred_boxes, pred_scores, pred_masks, num_masks, orig_img_h, orig_img_w)"
+        }
+      ],
+      "detections": [
+        {
+          "tool_call_idx": 0,
+          "tool_name": "Visual_Grounding_Tool",
+          "category_query": "red shoe",
+          "boxes_xyxy_pixels": [
+            [
+              0.25,
+              0.5,
+              80.4,
+              25.25
+            ],
+            [
+              100.2,
+              30.1,
+              199.9,
+              99.8
+            ]
+          ],
+          "scores": [
+            0.912345,
+            0.75
+          ],
+          "image_width": 200,
+          "image_height": 100
+        }
+      ]
+    },
+    "sam3_empty": {
+      "name": "Visual_Grounding_Tool",
+      "arguments": {
+        "query": "red shoe",
+        "image_id": "input_image_1"
+      },
+      "response": {
+        "prompt": "red shoe",
+        "pred_boxes": [],
+        "pred_scores": [],
+        "pred_masks": [],
+        "num_masks": 0,
+        "orig_img_h": 100,
+        "orig_img_w": 200,
+        "all_masks_viz_base64": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+        "model_id": "sam3-fixture"
+      },
+      "resolved_arguments": {
+        "query": "red shoe",
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Visual_Grounding_Tool grounded 0 objects for the prompt 'red shoe'.Please examine the image carefully to determine whether it contains 'red shoe'. If the image does contain 'red shoe' but Visual_Grounding_Tool did not successfully ground it, you may try calling Visual_Grounding_Tool again with an alternative / simpler prompt or locate it directly by yourself."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"prompt\": \"red shoe\", \"pred_boxes\": [], \"pred_scores\": [], \"pred_masks\": [], \"num_masks\": 0, \"orig_img_h\": 100, \"orig_img_w\": 200, \"model_id\": \"sam3-fixture\"}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "prompt": "red shoe",
+            "pred_boxes": [],
+            "pred_scores": [],
+            "pred_masks": [],
+            "num_masks": 0,
+            "orig_img_h": 100,
+            "orig_img_w": 200,
+            "model_id": "sam3-fixture"
+          },
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1"
+          ]
+        },
+        "compact_result": {
+          "prompt": "red shoe",
+          "pred_boxes": [],
+          "pred_scores": [],
+          "pred_masks": [],
+          "num_masks": 0,
+          "orig_img_h": 100,
+          "orig_img_w": 200,
+          "model_id": "sam3-fixture"
+        },
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1"
+        ]
+      },
+      "bindings": {
+        "segment_red_shoe": {
+          "pred_boxes": [],
+          "pred_scores": [],
+          "pred_masks": [],
+          "num_masks": 0,
+          "orig_img_h": 100,
+          "orig_img_w": 200
+        }
+      },
+      "descriptors": {
+        "segment_red_shoe": {
+          "key": "segment_red_shoe",
+          "source_tool": "Visual_Grounding_Tool",
+          "source_args": {
+            "query": "red shoe"
+          },
+          "fields": {
+            "pred_boxes": {
+              "dtype": "list len=0",
+              "description": "predicted bounding boxes",
+              "shape_hint": "",
+              "preview": "[]"
+            },
+            "pred_scores": {
+              "dtype": "list len=0",
+              "description": "prediction confidence scores",
+              "shape_hint": "",
+              "preview": "[]"
+            },
+            "pred_masks": {
+              "dtype": "list len=0",
+              "description": "predicted segmentation masks",
+              "shape_hint": "",
+              "preview": "[]"
+            },
+            "num_masks": {
+              "dtype": "int",
+              "description": "number of predicted masks",
+              "shape_hint": "",
+              "preview": "0"
+            },
+            "orig_img_h": {
+              "dtype": "int",
+              "description": "original image height",
+              "shape_hint": "",
+              "preview": "100"
+            },
+            "orig_img_w": {
+              "dtype": "int",
+              "description": "original image width",
+              "shape_hint": "",
+              "preview": "200"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Visual_Grounding_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Visual_Grounding_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- segment_red_shoe: dict (keys: pred_boxes, pred_scores, pred_masks, num_masks, orig_img_h, orig_img_w)"
+        }
+      ],
+      "detections": []
+    },
+    "depth": {
+      "name": "Depth_Estimation_Tool",
+      "arguments": {
+        "image_id": "input_image_1",
+        "colormap": "inferno"
+      },
+      "response": {
+        "depth_meters_b64": "AAAAAAAAoD8AACBAAACAQA==",
+        "depth_shape": [
+          2,
+          2
+        ],
+        "colormap": "inferno",
+        "size": [
+          2,
+          2
+        ],
+        "depth_map_base64": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+        "model_id": "da3-fixture",
+        "device": "cpu"
+      },
+      "resolved_arguments": {
+        "colormap": "inferno",
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Tool `Depth_Estimation_Tool` (tool_call_id=call_fixture) returned:\nDepth estimation complete. Shape: [2, 2], colormap: inferno.\nMetric depth in meters available as `depth_meters` (float32 ndarray).\nColorized depth map rendered below; refer to it as tool_generated_image_1."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"depth_meters_b64\": \"AAAAAAAAoD8AACBAAACAQA==\", \"depth_shape\": [2, 2], \"colormap\": \"inferno\", \"size\": [2, 2], \"model_id\": \"da3-fixture\", \"device\": \"cpu\"}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "depth_meters_b64": "AAAAAAAAoD8AACBAAACAQA==",
+            "depth_shape": [
+              2,
+              2
+            ],
+            "colormap": "inferno",
+            "size": [
+              2,
+              2
+            ],
+            "model_id": "da3-fixture",
+            "device": "cpu"
+          },
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1"
+          ]
+        },
+        "compact_result": {
+          "depth_meters_b64": "AAAAAAAAoD8AACBAAACAQA==",
+          "depth_shape": [
+            2,
+            2
+          ],
+          "colormap": "inferno",
+          "size": [
+            2,
+            2
+          ],
+          "model_id": "da3-fixture",
+          "device": "cpu"
+        },
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1"
+        ]
+      },
+      "bindings": {
+        "depth_result": {
+          "depth_shape": [
+            2,
+            2
+          ],
+          "colormap": "inferno",
+          "size": [
+            2,
+            2
+          ],
+          "depth_meters": {
+            "values": [
+              [
+                0.0,
+                1.25
+              ],
+              [
+                2.5,
+                4.0
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ]
+          }
+        }
+      },
+      "descriptors": {
+        "depth_result": {
+          "key": "depth_result",
+          "source_tool": "Depth_Estimation_Tool",
+          "source_args": {
+            "colormap": "inferno"
+          },
+          "fields": {
+            "depth_shape": {
+              "dtype": "list[int] len=2",
+              "description": "[height, width] of depth map",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "colormap": {
+              "dtype": "str len=7",
+              "description": "colormap used for depth visualization",
+              "shape_hint": "",
+              "preview": "'inferno'"
+            },
+            "size": {
+              "dtype": "list[int] len=2",
+              "description": "[width, height] of source image",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "depth_meters": {
+              "dtype": "ndarray shape=(2, 2) dtype=float32",
+              "description": "per-pixel metric depth in meters",
+              "shape_hint": "",
+              "preview": "range=[0, 4]"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Depth_Estimation_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Depth_Estimation_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_result: dict (keys: depth_shape, colormap, size, depth_meters)"
+        }
+      ],
+      "detections": []
+    },
+    "camera": {
+      "name": "Camera_Trajectory_Tool",
+      "arguments": {
+        "image_ids": [
+          "input_image_2",
+          "input_image_1"
+        ]
+      },
+      "response": {
+        "intrinsics": [
+          [
+            [
+              80,
+              0,
+              20
+            ],
+            [
+              0,
+              81,
+              10
+            ],
+            [
+              0,
+              0,
+              1
+            ]
+          ],
+          [
+            [
+              82,
+              0,
+              21
+            ],
+            [
+              0,
+              83,
+              11
+            ],
+            [
+              0,
+              0,
+              1
+            ]
+          ]
+        ],
+        "extrinsics": [
+          [
+            [
+              1,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              1,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              1,
+              0
+            ]
+          ],
+          [
+            [
+              1,
+              0,
+              0,
+              -1.25
+            ],
+            [
+              0,
+              1,
+              0,
+              0.5
+            ],
+            [
+              0,
+              0,
+              1,
+              2
+            ]
+          ]
+        ],
+        "image_ids": [
+          "input_image_2",
+          "input_image_1"
+        ],
+        "num_images": 2,
+        "cameras": [
+          {
+            "image_id": "input_image_2",
+            "camera_center_delta": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "image_id": "input_image_1",
+            "camera_center_delta": [
+              1.25,
+              -0.5,
+              -2
+            ]
+          }
+        ],
+        "coordinate_system": "Reference camera frame: +X right, +Y down, +Z forward.",
+        "reference_image_id": "input_image_2",
+        "image_sizes": [
+          [
+            40,
+            20
+          ],
+          [
+            42,
+            22
+          ]
+        ],
+        "model_id": "da3-fixture",
+        "text_summary": "Reference camera frame: +X right, +Y down, +Z forward.\n\nFrame 2 moved right, up, and backward.",
+        "bird_eye_view_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+      },
+      "resolved_arguments": {
+        "image_base64s": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        ],
+        "_image_ids": [
+          "input_image_2",
+          "input_image_1"
+        ]
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_ids",
+            "target_field": "args.image_base64s",
+            "original": "input_image_2",
+            "image_ref": "input_image_2"
+          },
+          {
+            "field": "args.image_ids",
+            "target_field": "args.image_base64s",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Reference camera frame: +X right, +Y down, +Z forward.\n\nBird's-eye view of the camera trajectory on input_image_2's X-Z plane is rendered in the following image - refer as tool_generated_image_1 (dots = camera positions, forward-pointing arrows = facing direction).\n\nFrame 2 moved right, up, and backward."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"intrinsics\": [[[80, 0, 20], [0, 81, 10], [0, 0, 1]], [[82, 0, 21], [0, 83, 11], [0, 0, 1]]], \"extrinsics\": [[[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], [[1, 0, 0, -1.25], [0, 1, 0, 0.5], [0, 0, 1, 2]]], \"image_ids\": [\"input_image_2\", \"input_image_1\"], \"num_images\": 2, \"cameras\": [{\"image_id\": \"input_image_2\", \"camera_center_delta\": [0, 0, 0]}, {\"image_id\": \"input_image_1\", \"camera_center_delta\": [1.25, -0.5, -2]}], \"coordinate_system\": \"Reference camera frame: +X right, +Y down, +Z forward.\", \"reference_image_id\": \"input_image_2\", \"image_sizes\": [[40, 20], [42, 22]], \"model_id\": \"da3-fixture\", \"text_summary\": \"Reference camera frame: +X right, +Y down, +Z forward.\\n\\nFrame 2 moved right, up, and backward.\"}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "intrinsics": [
+              [
+                [
+                  80,
+                  0,
+                  20
+                ],
+                [
+                  0,
+                  81,
+                  10
+                ],
+                [
+                  0,
+                  0,
+                  1
+                ]
+              ],
+              [
+                [
+                  82,
+                  0,
+                  21
+                ],
+                [
+                  0,
+                  83,
+                  11
+                ],
+                [
+                  0,
+                  0,
+                  1
+                ]
+              ]
+            ],
+            "extrinsics": [
+              [
+                [
+                  1,
+                  0,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0,
+                  0,
+                  1,
+                  0
+                ]
+              ],
+              [
+                [
+                  1,
+                  0,
+                  0,
+                  -1.25
+                ],
+                [
+                  0,
+                  1,
+                  0,
+                  0.5
+                ],
+                [
+                  0,
+                  0,
+                  1,
+                  2
+                ]
+              ]
+            ],
+            "image_ids": [
+              "input_image_2",
+              "input_image_1"
+            ],
+            "num_images": 2,
+            "cameras": [
+              {
+                "image_id": "input_image_2",
+                "camera_center_delta": [
+                  0,
+                  0,
+                  0
+                ]
+              },
+              {
+                "image_id": "input_image_1",
+                "camera_center_delta": [
+                  1.25,
+                  -0.5,
+                  -2
+                ]
+              }
+            ],
+            "coordinate_system": "Reference camera frame: +X right, +Y down, +Z forward.",
+            "reference_image_id": "input_image_2",
+            "image_sizes": [
+              [
+                40,
+                20
+              ],
+              [
+                42,
+                22
+              ]
+            ],
+            "model_id": "da3-fixture",
+            "text_summary": "Reference camera frame: +X right, +Y down, +Z forward.\n\nFrame 2 moved right, up, and backward."
+          },
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1"
+          ]
+        },
+        "compact_result": {
+          "intrinsics": [
+            [
+              [
+                80,
+                0,
+                20
+              ],
+              [
+                0,
+                81,
+                10
+              ],
+              [
+                0,
+                0,
+                1
+              ]
+            ],
+            [
+              [
+                82,
+                0,
+                21
+              ],
+              [
+                0,
+                83,
+                11
+              ],
+              [
+                0,
+                0,
+                1
+              ]
+            ]
+          ],
+          "extrinsics": [
+            [
+              [
+                1,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                1,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                1,
+                0
+              ]
+            ],
+            [
+              [
+                1,
+                0,
+                0,
+                -1.25
+              ],
+              [
+                0,
+                1,
+                0,
+                0.5
+              ],
+              [
+                0,
+                0,
+                1,
+                2
+              ]
+            ]
+          ],
+          "image_ids": [
+            "input_image_2",
+            "input_image_1"
+          ],
+          "num_images": 2,
+          "cameras": [
+            {
+              "image_id": "input_image_2",
+              "camera_center_delta": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "image_id": "input_image_1",
+              "camera_center_delta": [
+                1.25,
+                -0.5,
+                -2
+              ]
+            }
+          ],
+          "coordinate_system": "Reference camera frame: +X right, +Y down, +Z forward.",
+          "reference_image_id": "input_image_2",
+          "image_sizes": [
+            [
+              40,
+              20
+            ],
+            [
+              42,
+              22
+            ]
+          ],
+          "model_id": "da3-fixture",
+          "text_summary": "Reference camera frame: +X right, +Y down, +Z forward.\n\nFrame 2 moved right, up, and backward."
+        },
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1"
+        ]
+      },
+      "bindings": {
+        "camera_trajectory_result": {
+          "intrinsics": {
+            "values": [
+              [
+                [
+                  80.0,
+                  0.0,
+                  20.0
+                ],
+                [
+                  0.0,
+                  81.0,
+                  10.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ],
+              [
+                [
+                  82.0,
+                  0.0,
+                  21.0
+                ],
+                [
+                  0.0,
+                  83.0,
+                  11.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0
+                ]
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              3,
+              3
+            ]
+          },
+          "extrinsics": {
+            "values": [
+              [
+                [
+                  1.0,
+                  0.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0,
+                  0.0
+                ]
+              ],
+              [
+                [
+                  1.0,
+                  0.0,
+                  0.0,
+                  -1.25
+                ],
+                [
+                  0.0,
+                  1.0,
+                  0.0,
+                  0.5
+                ],
+                [
+                  0.0,
+                  0.0,
+                  1.0,
+                  2.0
+                ]
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              3,
+              4
+            ]
+          },
+          "image_ids": [
+            "input_image_2",
+            "input_image_1"
+          ],
+          "num_images": 2,
+          "cameras": [
+            {
+              "image_id": "input_image_2",
+              "camera_center_delta": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "image_id": "input_image_1",
+              "camera_center_delta": [
+                1.25,
+                -0.5,
+                -2
+              ]
+            }
+          ],
+          "coordinate_system": "Reference camera frame: +X right, +Y down, +Z forward.",
+          "reference_image_id": "input_image_2"
+        }
+      },
+      "descriptors": {
+        "camera_trajectory_result": {
+          "key": "camera_trajectory_result",
+          "source_tool": "Camera_Trajectory_Tool",
+          "source_args": {
+            "image_ids": [
+              "input_image_2",
+              "input_image_1"
+            ]
+          },
+          "fields": {
+            "intrinsics": {
+              "dtype": "ndarray shape=(2, 3, 3) dtype=float32",
+              "description": "per-image 3x3 camera intrinsic matrices (ndarray shape=(N,3,3))",
+              "shape_hint": "",
+              "preview": "range=[0, 83]"
+            },
+            "extrinsics": {
+              "dtype": "ndarray shape=(2, 3, 4) dtype=float32",
+              "description": "per-image 3x4 world-to-camera matrices (OpenCV/COLMAP), ndarray shape=(N,3,4)",
+              "shape_hint": "",
+              "preview": "range=[-1.25, 2]"
+            },
+            "image_ids": {
+              "dtype": "list[str] len=2",
+              "description": "ordered runtime image IDs aligned with intrinsics/extrinsics",
+              "shape_hint": "",
+              "preview": "['input_image_2', 'input_image_1']"
+            },
+            "num_images": {
+              "dtype": "int",
+              "description": "number of images processed",
+              "shape_hint": "",
+              "preview": "2"
+            },
+            "cameras": {
+              "dtype": "list[dict] len=2",
+              "description": "per-image dicts (in reference frame): camera_center_delta, movement_summary, forward_direction, rotation_summary, yaw_deg, pitch_deg",
+              "shape_hint": "",
+              "preview": "[{'image_id': 'input_image_2', 'camera_center_delta': [0, 0, 0]}, {'image_id': 'input_image_1', 'camera_center_delta'..."
+            },
+            "coordinate_system": {
+              "dtype": "str len=54",
+              "description": "human-readable coordinate convention used for cameras",
+              "shape_hint": "",
+              "preview": "'Reference camera frame: +X right, +Y down, +Z forward.'"
+            },
+            "reference_image_id": {
+              "dtype": "str len=13",
+              "description": "image_id of the reference frame (always image_ids[0])",
+              "shape_hint": "",
+              "preview": "'input_image_2'"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Camera_Trajectory_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Camera_Trajectory_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- camera_trajectory_result: dict (keys: intrinsics, extrinsics, image_ids, num_images, cameras, coordinate_system, reference_image_id)"
+        }
+      ],
+      "detections": []
+    },
+    "ocr": {
+      "name": "OCR_Tool",
+      "arguments": {
+        "image_id": "input_image_1"
+      },
+      "response": {
+        "text": "  Label 17\nSecond line  ",
+        "model_id": "ocr-fixture"
+      },
+      "resolved_arguments": {
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "OCR_Tool transcribed the following text from the image:\n\nLabel 17\nSecond line"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"text\": \"  Label 17\\nSecond line  \", \"model_id\": \"ocr-fixture\"}, \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "text": "  Label 17\nSecond line  ",
+            "model_id": "ocr-fixture"
+          },
+          "error": null
+        },
+        "compact_result": {
+          "text": "  Label 17\nSecond line  ",
+          "model_id": "ocr-fixture"
+        },
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2"
+        },
+        "tool_generated_counter": 0
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+        }
+      ],
+      "detections": []
+    },
+    "ocr_empty": {
+      "name": "OCR_Tool",
+      "arguments": {
+        "image_id": "input_image_1"
+      },
+      "response": {
+        "text": "",
+        "model_id": "ocr-fixture"
+      },
+      "resolved_arguments": {
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "OCR_Tool did not transcribe any readable text."
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"text\": \"\", \"model_id\": \"ocr-fixture\"}, \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "text": "",
+            "model_id": "ocr-fixture"
+          },
+          "error": null
+        },
+        "compact_result": {
+          "text": "",
+          "model_id": "ocr-fixture"
+        },
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2"
+        },
+        "tool_generated_counter": 0
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+        }
+      ],
+      "detections": []
+    },
+    "zoom": {
+      "name": "Zoom_In_Tool",
+      "arguments": {
+        "image_id": "input_image_1",
+        "coords": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "padding": 50
+      },
+      "response": {
+        "zoomed_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+      },
+      "resolved_arguments": {
+        "coords": [
+          0,
+          0,
+          500,
+          500
+        ],
+        "padding": 50,
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Tool `Zoom_In_Tool` (tool_call_id=call_fixture) returned:\nZoomed in image rendered below; refer to it as tool_generated_image_1."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {},
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1"
+          ]
+        },
+        "compact_result": {},
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1"
+        ]
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Zoom_In_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Zoom_In_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+        }
+      ],
+      "detections": []
+    },
+    "text_search": {
+      "name": "Text_Search_Tool",
+      "arguments": {
+        "query": "red shoe"
+      },
+      "response": "A shoe [1].\nCitations:\n[1] Catalog https://example.com/catalog.\nPicture https://cdn.example.com/shoe.png?size=2 <img>",
+      "resolved_arguments": {
+        "query": "red shoe"
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Tool `Text_Search_Tool` (tool_call_id=call_fixture) returned:\n{\"ok\": true, \"result\": \"A shoe [1].\\nCitations:\\n[1] Catalog [webpage_url_1].\\nPicture [tool_generated_image_1]\", \"error\": null}"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": \"A shoe [1].\\nCitations:\\n[1] Catalog [webpage_url_1].\\nPicture [tool_generated_image_1]\", \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": "A shoe [1].\nCitations:\n[1] Catalog https://example.com/catalog.\nPicture https://cdn.example.com/shoe.png?size=2 <img>",
+          "error": null
+        },
+        "compact_result": "A shoe [1].\nCitations:\n[1] Catalog https://example.com/catalog.\nPicture https://cdn.example.com/shoe.png?size=2 <img>",
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "url": "https://cdn.example.com/shoe.png?size=2",
+            "data_url": null,
+            "source": "tool_output:Text_Search_Tool",
+            "aliases": [
+              "https://cdn.example.com/shoe.png?size=2",
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1",
+          "https://cdn.example.com/shoe.png?size=2": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "https://cdn.example.com/shoe.png?size=2": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {
+          "webpage_url_1": {
+            "url": "https://example.com/catalog",
+            "domain": "example.com",
+            "source": "tool_output:Text_Search_Tool",
+            "first_seen_turn": -1
+          }
+        },
+        "url_to_ref": {
+          "https://example.com/catalog": "webpage_url_1"
+        },
+        "webpage_counter": 1
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Text_Search_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+        }
+      ],
+      "detections": []
+    },
+    "text_search_images": {
+      "name": "Text_Search_Tool",
+      "arguments": {
+        "query": "red shoe",
+        "search_type": "images"
+      },
+      "response": {
+        "text": "First __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/first\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/second",
+        "kept_image_data_urls": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        ]
+      },
+      "resolved_arguments": {
+        "query": "red shoe",
+        "search_type": "images"
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Tool `Text_Search_Tool` (tool_call_id=call_fixture) returned:\nImage refs: tool_generated_image_1, input_image_1\nFirst [tool_generated_image_1] [webpage_url_1]\nSecond [input_image_1] [webpage_url_2]"
+        },
+        {
+          "type": "text",
+          "text": "tool_generated_image_1"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "type": "text",
+          "text": "input_image_1"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"text\": \"First __MULTIMODAL_IMG_REF_PLACEHOLDER__ [webpage_url_1]\\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ [webpage_url_2]\", \"kept_image_data_urls\": []}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\", \"input_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "text": "First __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/first\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/second",
+            "kept_image_data_urls": []
+          },
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1",
+            "input_image_1"
+          ]
+        },
+        "compact_result": {
+          "text": "First __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/first\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/second",
+          "kept_image_data_urls": []
+        },
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1",
+          "input_image_1"
+        ]
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Text_Search_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {
+          "webpage_url_1": {
+            "url": "https://example.com/first",
+            "domain": "example.com",
+            "source": "tool_output:Text_Search_Tool",
+            "first_seen_turn": -1
+          },
+          "webpage_url_2": {
+            "url": "https://example.com/second",
+            "domain": "example.com",
+            "source": "tool_output:Text_Search_Tool",
+            "first_seen_turn": -1
+          }
+        },
+        "url_to_ref": {
+          "https://example.com/first": "webpage_url_1",
+          "https://example.com/second": "webpage_url_2"
+        },
+        "webpage_counter": 2
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Text_Search_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\n- webpage_url_2: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+        }
+      ],
+      "detections": []
+    },
+    "image_search": {
+      "name": "Image_Search_Tool",
+      "arguments": {
+        "image_id": "input_image_1"
+      },
+      "response": {
+        "text": "First __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/first\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/second",
+        "kept_image_data_urls": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        ]
+      },
+      "resolved_arguments": {
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Tool `Image_Search_Tool` (tool_call_id=call_fixture) returned:\nImage refs: tool_generated_image_1, input_image_1\nFirst [tool_generated_image_1] [webpage_url_1]\nSecond [input_image_1] [webpage_url_2]"
+        },
+        {
+          "type": "text",
+          "text": "tool_generated_image_1"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+          }
+        },
+        {
+          "type": "text",
+          "text": "input_image_1"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+          }
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"text\": \"First __MULTIMODAL_IMG_REF_PLACEHOLDER__ [webpage_url_1]\\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ [webpage_url_2]\", \"kept_image_data_urls\": []}, \"error\": null, \"image_refs\": [\"tool_generated_image_1\", \"input_image_1\"]}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "text": "First __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/first\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/second",
+            "kept_image_data_urls": []
+          },
+          "error": null,
+          "image_refs": [
+            "tool_generated_image_1",
+            "input_image_1"
+          ]
+        },
+        "compact_result": {
+          "text": "First __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/first\nSecond __MULTIMODAL_IMG_REF_PLACEHOLDER__ https://example.com/second",
+          "kept_image_data_urls": []
+        },
+        "image_parts": [
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+            }
+          },
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+            }
+          }
+        ],
+        "image_refs": [
+          "tool_generated_image_1",
+          "input_image_1"
+        ]
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Image_Search_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {
+          "webpage_url_1": {
+            "url": "https://example.com/first",
+            "domain": "example.com",
+            "source": "tool_output:Image_Search_Tool",
+            "first_seen_turn": -1
+          },
+          "webpage_url_2": {
+            "url": "https://example.com/second",
+            "domain": "example.com",
+            "source": "tool_output:Image_Search_Tool",
+            "first_seen_turn": -1
+          }
+        },
+        "url_to_ref": {
+          "https://example.com/first": "webpage_url_1",
+          "https://example.com/second": "webpage_url_2"
+        },
+        "webpage_counter": 2
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Image_Search_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Image_Search_Tool (example.com)\n- webpage_url_2: tool_output:Image_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+        }
+      ],
+      "detections": []
+    },
+    "web_visit": {
+      "name": "Webpage_Visit_Tool",
+      "arguments": {
+        "urls": [
+          "[webpage_url_1]"
+        ],
+        "goal": "Find material"
+      },
+      "response": "[1] https://example.com/catalog\nEvidence: leather.\nSummary: a leather shoe.",
+      "resolved_arguments": {
+        "urls": [
+          "https://example.com/catalog"
+        ],
+        "goal": "Find material"
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.urls[0]",
+            "original": "[webpage_url_1]",
+            "resolved": "https://example.com/catalog",
+            "webpage_url_ref": "webpage_url_1"
+          }
+        ],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Tool `Webpage_Visit_Tool` (tool_call_id=call_fixture) returned:\n{\"ok\": true, \"result\": \"[1] https://example.com/catalog\\nEvidence: leather.\\nSummary: a leather shoe.\", \"error\": null}"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": \"[1] https://example.com/catalog\\nEvidence: leather.\\nSummary: a leather shoe.\", \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": "[1] https://example.com/catalog\nEvidence: leather.\nSummary: a leather shoe.",
+          "error": null
+        },
+        "compact_result": "[1] https://example.com/catalog\nEvidence: leather.\nSummary: a leather shoe.",
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {},
+      "descriptors": {},
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2"
+        },
+        "tool_generated_counter": 0
+      },
+      "urls": {
+        "webpage_registry": {
+          "webpage_url_1": {
+            "url": "https://example.com/catalog",
+            "domain": "example.com",
+            "source": "tool_output:Text_Search_Tool",
+            "first_seen_turn": -1
+          }
+        },
+        "url_to_ref": {
+          "https://example.com/catalog": "webpage_url_1"
+        },
+        "webpage_counter": 1
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+        }
+      ],
+      "detections": []
+    }
+  },
+  "resolution": {
+    "missing": {
+      "name": "Visual_Grounding_Tool",
+      "arguments": {
+        "query": "shoe"
+      },
+      "resolved_arguments": {
+        "query": "shoe"
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "image_count": 2
+    },
+    "plural": {
+      "name": "Camera_Trajectory_Tool",
+      "arguments": {
+        "image_ids": [
+          "input_image_2",
+          "input_image_1"
+        ]
+      },
+      "resolved_arguments": {
+        "image_base64s": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        ],
+        "_image_ids": [
+          "input_image_2",
+          "input_image_1"
+        ]
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_ids",
+            "target_field": "args.image_base64s",
+            "original": "input_image_2",
+            "image_ref": "input_image_2"
+          },
+          {
+            "field": "args.image_ids",
+            "target_field": "args.image_base64s",
+            "original": "input_image_1",
+            "image_ref": "input_image_1"
+          }
+        ],
+        "errors": []
+      },
+      "image_count": 2
+    },
+    "unresolved_plural": {
+      "name": "Camera_Trajectory_Tool",
+      "arguments": {
+        "image_ids": [
+          "input_image_2",
+          "missing"
+        ]
+      },
+      "resolved_arguments": {
+        "image_ids": [
+          "input_image_2",
+          "missing"
+        ]
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_ids",
+            "target_field": "args.image_base64s",
+            "original": "input_image_2",
+            "image_ref": "input_image_2"
+          }
+        ],
+        "errors": [
+          {
+            "field": "args.image_ids",
+            "value": [
+              "missing"
+            ],
+            "reason": "unresolved_image_reference",
+            "available_image_ids": [
+              "input_image_1",
+              "input_image_2"
+            ]
+          }
+        ]
+      },
+      "image_count": 2
+    },
+    "single_fallback": {
+      "name": "Visual_Grounding_Tool",
+      "arguments": {
+        "query": "shoe",
+        "image_id": "hallucinated.png"
+      },
+      "resolved_arguments": {
+        "query": "shoe",
+        "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+      },
+      "resolution": {
+        "rewrites": [
+          {
+            "field": "args.image_id",
+            "target_field": "args.image_base64",
+            "original": "hallucinated.png",
+            "image_ref": "input_image_1",
+            "fallback_mode": "single_image_registry_default"
+          }
+        ],
+        "errors": []
+      },
+      "image_count": 1
+    }
+  },
+  "coding": {
+    "copied": {
+      "name": "Python_Coding_Agent_Tool",
+      "arguments": {
+        "objective": "Compute from the depth values"
+      },
+      "response": {
+        "generated_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))",
+        "printed_output": "99.0",
+        "variables": {
+          "depth_result": "{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[99.  ,  1.25],\n       [ 2.5 ,  4.  ]], dtype=float32)}",
+          "new_values": "array([[99.  ,  1.25],\n       [ 2.5 ,  4.  ]], dtype=float32)"
+        },
+        "execution_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))"
+      },
+      "resolved_arguments": {
+        "objective": "Compute from the depth values",
+        "binding_descriptors": {
+          "depth_result": {
+            "key": "depth_result",
+            "source_tool": "Depth_Estimation_Tool",
+            "source_args": {
+              "colormap": "inferno"
+            },
+            "fields": {
+              "depth_shape": {
+                "dtype": "list[int] len=2",
+                "description": "[height, width] of depth map",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "colormap": {
+                "dtype": "str len=7",
+                "description": "colormap used for depth visualization",
+                "shape_hint": "",
+                "preview": "'inferno'"
+              },
+              "size": {
+                "dtype": "list[int] len=2",
+                "description": "[width, height] of source image",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "depth_meters": {
+                "dtype": "ndarray shape=(2, 2) dtype=float32",
+                "description": "per-pixel metric depth in meters",
+                "shape_hint": "",
+                "preview": "range=[0, 4]"
+              }
+            }
+          }
+        }
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Coding agent generated and executed the following Python code:\n```python\ndepth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))\n```\n\n\n\nExecution output:\n99.0"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"generated_code\": \"depth_result['depth_meters'][0,0] = 99\\nnew_values = depth_result['depth_meters'].copy()\\nprint(float(new_values[0,0]))\", \"printed_output\": \"99.0\", \"variables\": {\"depth_result\": \"{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[99.  ,  1.25],\\n       [ 2.5 ,  4.  ]], dtype=float32)}\", \"new_values\": \"array([[99.  ,  1.25],\\n       [ 2.5 ,  4.  ]], dtype=float32)\"}, \"execution_code\": \"depth_result['depth_meters'][0,0] = 99\\nnew_values = depth_result['depth_meters'].copy()\\nprint(float(new_values[0,0]))\"}, \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "generated_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))",
+            "printed_output": "99.0",
+            "variables": {
+              "depth_result": "{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[99.  ,  1.25],\n       [ 2.5 ,  4.  ]], dtype=float32)}",
+              "new_values": "array([[99.  ,  1.25],\n       [ 2.5 ,  4.  ]], dtype=float32)"
+            },
+            "execution_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))"
+          },
+          "error": null
+        },
+        "compact_result": {
+          "generated_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))",
+          "printed_output": "99.0",
+          "variables": {
+            "depth_result": "{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[99.  ,  1.25],\n       [ 2.5 ,  4.  ]], dtype=float32)}",
+            "new_values": "array([[99.  ,  1.25],\n       [ 2.5 ,  4.  ]], dtype=float32)"
+          },
+          "execution_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))"
+        },
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {
+        "depth_result": {
+          "depth_shape": [
+            2,
+            2
+          ],
+          "colormap": "inferno",
+          "size": [
+            2,
+            2
+          ],
+          "depth_meters": {
+            "values": [
+              [
+                0.0,
+                1.25
+              ],
+              [
+                2.5,
+                4.0
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ]
+          }
+        }
+      },
+      "descriptors": {
+        "depth_result": {
+          "key": "depth_result",
+          "source_tool": "Depth_Estimation_Tool",
+          "source_args": {
+            "colormap": "inferno"
+          },
+          "fields": {
+            "depth_shape": {
+              "dtype": "list[int] len=2",
+              "description": "[height, width] of depth map",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "colormap": {
+              "dtype": "str len=7",
+              "description": "colormap used for depth visualization",
+              "shape_hint": "",
+              "preview": "'inferno'"
+            },
+            "size": {
+              "dtype": "list[int] len=2",
+              "description": "[width, height] of source image",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "depth_meters": {
+              "dtype": "ndarray shape=(2, 2) dtype=float32",
+              "description": "per-pixel metric depth in meters",
+              "shape_hint": "",
+              "preview": "range=[0, 4]"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Depth_Estimation_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Depth_Estimation_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_result: dict (keys: depth_shape, colormap, size, depth_meters)"
+        }
+      ],
+      "detections": [],
+      "generator_response": {
+        "generated_code": "depth_result['depth_meters'][0,0] = 99\nnew_values = depth_result['depth_meters'].copy()\nprint(float(new_values[0,0]))"
+      }
+    },
+    "failure": {
+      "name": "Python_Coding_Agent_Tool",
+      "arguments": {
+        "objective": "Compute from the depth values"
+      },
+      "response": {
+        "generated_code": "print('before failure')\nraise ValueError('fixture computation failed')",
+        "execution_error": "fixture computation failed"
+      },
+      "resolved_arguments": {
+        "objective": "Compute from the depth values",
+        "binding_descriptors": {
+          "depth_result": {
+            "key": "depth_result",
+            "source_tool": "Depth_Estimation_Tool",
+            "source_args": {
+              "colormap": "inferno"
+            },
+            "fields": {
+              "depth_shape": {
+                "dtype": "list[int] len=2",
+                "description": "[height, width] of depth map",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "colormap": {
+                "dtype": "str len=7",
+                "description": "colormap used for depth visualization",
+                "shape_hint": "",
+                "preview": "'inferno'"
+              },
+              "size": {
+                "dtype": "list[int] len=2",
+                "description": "[width, height] of source image",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "depth_meters": {
+                "dtype": "ndarray shape=(2, 2) dtype=float32",
+                "description": "per-pixel metric depth in meters",
+                "shape_hint": "",
+                "preview": "range=[0, 4]"
+              }
+            }
+          }
+        }
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Coding agent generated and executed the following Python code:\n```python\nprint('before failure')\nraise ValueError('fixture computation failed')\n```\n\n\n\nExecution error: fixture computation failed"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"generated_code\": \"print('before failure')\\nraise ValueError('fixture computation failed')\", \"execution_error\": \"fixture computation failed\"}, \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "generated_code": "print('before failure')\nraise ValueError('fixture computation failed')",
+            "execution_error": "fixture computation failed"
+          },
+          "error": null
+        },
+        "compact_result": {
+          "generated_code": "print('before failure')\nraise ValueError('fixture computation failed')",
+          "execution_error": "fixture computation failed"
+        },
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {
+        "depth_result": {
+          "depth_shape": [
+            2,
+            2
+          ],
+          "colormap": "inferno",
+          "size": [
+            2,
+            2
+          ],
+          "depth_meters": {
+            "values": [
+              [
+                0.0,
+                1.25
+              ],
+              [
+                2.5,
+                4.0
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ]
+          }
+        }
+      },
+      "descriptors": {
+        "depth_result": {
+          "key": "depth_result",
+          "source_tool": "Depth_Estimation_Tool",
+          "source_args": {
+            "colormap": "inferno"
+          },
+          "fields": {
+            "depth_shape": {
+              "dtype": "list[int] len=2",
+              "description": "[height, width] of depth map",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "colormap": {
+              "dtype": "str len=7",
+              "description": "colormap used for depth visualization",
+              "shape_hint": "",
+              "preview": "'inferno'"
+            },
+            "size": {
+              "dtype": "list[int] len=2",
+              "description": "[width, height] of source image",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "depth_meters": {
+              "dtype": "ndarray shape=(2, 2) dtype=float32",
+              "description": "per-pixel metric depth in meters",
+              "shape_hint": "",
+              "preview": "range=[0, 4]"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Depth_Estimation_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Depth_Estimation_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_result: dict (keys: depth_shape, colormap, size, depth_meters)"
+        }
+      ],
+      "detections": [],
+      "generator_response": {
+        "generated_code": "print('before failure')\nraise ValueError('fixture computation failed')"
+      }
+    },
+    "empty_output": {
+      "name": "Python_Coding_Agent_Tool",
+      "arguments": {
+        "objective": "Compute from the depth values"
+      },
+      "response": {
+        "generated_code": "value = 7",
+        "printed_output": "",
+        "variables": {
+          "depth_result": "{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[0.  , 1.25],\n       [2.5 , 4.  ]], dtype=float32)}",
+          "value": "7"
+        },
+        "execution_code": "value = 7"
+      },
+      "resolved_arguments": {
+        "objective": "Compute from the depth values",
+        "binding_descriptors": {
+          "depth_result": {
+            "key": "depth_result",
+            "source_tool": "Depth_Estimation_Tool",
+            "source_args": {
+              "colormap": "inferno"
+            },
+            "fields": {
+              "depth_shape": {
+                "dtype": "list[int] len=2",
+                "description": "[height, width] of depth map",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "colormap": {
+                "dtype": "str len=7",
+                "description": "colormap used for depth visualization",
+                "shape_hint": "",
+                "preview": "'inferno'"
+              },
+              "size": {
+                "dtype": "list[int] len=2",
+                "description": "[width, height] of source image",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "depth_meters": {
+                "dtype": "ndarray shape=(2, 2) dtype=float32",
+                "description": "per-pixel metric depth in meters",
+                "shape_hint": "",
+                "preview": "range=[0, 4]"
+              }
+            }
+          }
+        }
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Coding agent generated and executed the following Python code:\n```python\nvalue = 7\n```\n\n\n\n(Code executed successfully but produced no printed output.)"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"generated_code\": \"value = 7\", \"printed_output\": \"\", \"variables\": {\"depth_result\": \"{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[0.  , 1.25],\\n       [2.5 , 4.  ]], dtype=float32)}\", \"value\": \"7\"}, \"execution_code\": \"value = 7\"}, \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "generated_code": "value = 7",
+            "printed_output": "",
+            "variables": {
+              "depth_result": "{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[0.  , 1.25],\n       [2.5 , 4.  ]], dtype=float32)}",
+              "value": "7"
+            },
+            "execution_code": "value = 7"
+          },
+          "error": null
+        },
+        "compact_result": {
+          "generated_code": "value = 7",
+          "printed_output": "",
+          "variables": {
+            "depth_result": "{'depth_shape': [2, 2], 'colormap': 'inferno', 'size': [2, 2], 'depth_meters': array([[0.  , 1.25],\n       [2.5 , 4.  ]], dtype=float32)}",
+            "value": "7"
+          },
+          "execution_code": "value = 7"
+        },
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {
+        "depth_result": {
+          "depth_shape": [
+            2,
+            2
+          ],
+          "colormap": "inferno",
+          "size": [
+            2,
+            2
+          ],
+          "depth_meters": {
+            "values": [
+              [
+                0.0,
+                1.25
+              ],
+              [
+                2.5,
+                4.0
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ]
+          }
+        }
+      },
+      "descriptors": {
+        "depth_result": {
+          "key": "depth_result",
+          "source_tool": "Depth_Estimation_Tool",
+          "source_args": {
+            "colormap": "inferno"
+          },
+          "fields": {
+            "depth_shape": {
+              "dtype": "list[int] len=2",
+              "description": "[height, width] of depth map",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "colormap": {
+              "dtype": "str len=7",
+              "description": "colormap used for depth visualization",
+              "shape_hint": "",
+              "preview": "'inferno'"
+            },
+            "size": {
+              "dtype": "list[int] len=2",
+              "description": "[width, height] of source image",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "depth_meters": {
+              "dtype": "ndarray shape=(2, 2) dtype=float32",
+              "description": "per-pixel metric depth in meters",
+              "shape_hint": "",
+              "preview": "range=[0, 4]"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Depth_Estimation_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Depth_Estimation_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_result: dict (keys: depth_shape, colormap, size, depth_meters)"
+        }
+      ],
+      "detections": [],
+      "generator_response": {
+        "generated_code": "value = 7"
+      }
+    },
+    "timeout": {
+      "name": "Python_Coding_Agent_Tool",
+      "arguments": {
+        "objective": "Compute from the depth values"
+      },
+      "response": {
+        "generated_code": "while True:\n    pass",
+        "execution_error": "Code execution timed out after 1s"
+      },
+      "resolved_arguments": {
+        "objective": "Compute from the depth values",
+        "binding_descriptors": {
+          "depth_result": {
+            "key": "depth_result",
+            "source_tool": "Depth_Estimation_Tool",
+            "source_args": {
+              "colormap": "inferno"
+            },
+            "fields": {
+              "depth_shape": {
+                "dtype": "list[int] len=2",
+                "description": "[height, width] of depth map",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "colormap": {
+                "dtype": "str len=7",
+                "description": "colormap used for depth visualization",
+                "shape_hint": "",
+                "preview": "'inferno'"
+              },
+              "size": {
+                "dtype": "list[int] len=2",
+                "description": "[width, height] of source image",
+                "shape_hint": "",
+                "preview": "[2, 2]"
+              },
+              "depth_meters": {
+                "dtype": "ndarray shape=(2, 2) dtype=float32",
+                "description": "per-pixel metric depth in meters",
+                "shape_hint": "",
+                "preview": "range=[0, 4]"
+              }
+            }
+          }
+        }
+      },
+      "resolution": {
+        "rewrites": [],
+        "errors": []
+      },
+      "evidence": [
+        {
+          "type": "text",
+          "text": "Coding agent generated and executed the following Python code:\n```python\nwhile True:\n    pass\n```\n\n\n\nExecution error: Code execution timed out after 1s"
+        }
+      ],
+      "prepared": {
+        "text_payload": "{\"ok\": true, \"result\": {\"generated_code\": \"while True:\\n    pass\", \"execution_error\": \"Code execution timed out after 1s\"}, \"error\": null}",
+        "compact_payload": {
+          "ok": true,
+          "result": {
+            "generated_code": "while True:\n    pass",
+            "execution_error": "Code execution timed out after 1s"
+          },
+          "error": null
+        },
+        "compact_result": {
+          "generated_code": "while True:\n    pass",
+          "execution_error": "Code execution timed out after 1s"
+        },
+        "image_parts": [],
+        "image_refs": []
+      },
+      "bindings": {
+        "depth_result": {
+          "depth_shape": [
+            2,
+            2
+          ],
+          "colormap": "inferno",
+          "size": [
+            2,
+            2
+          ],
+          "depth_meters": {
+            "values": [
+              [
+                0.0,
+                1.25
+              ],
+              [
+                2.5,
+                4.0
+              ]
+            ],
+            "dtype": "float32",
+            "shape": [
+              2,
+              2
+            ]
+          }
+        }
+      },
+      "descriptors": {
+        "depth_result": {
+          "key": "depth_result",
+          "source_tool": "Depth_Estimation_Tool",
+          "source_args": {
+            "colormap": "inferno"
+          },
+          "fields": {
+            "depth_shape": {
+              "dtype": "list[int] len=2",
+              "description": "[height, width] of depth map",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "colormap": {
+              "dtype": "str len=7",
+              "description": "colormap used for depth visualization",
+              "shape_hint": "",
+              "preview": "'inferno'"
+            },
+            "size": {
+              "dtype": "list[int] len=2",
+              "description": "[width, height] of source image",
+              "shape_hint": "",
+              "preview": "[2, 2]"
+            },
+            "depth_meters": {
+              "dtype": "ndarray shape=(2, 2) dtype=float32",
+              "description": "per-pixel metric depth in meters",
+              "shape_hint": "",
+              "preview": "range=[0, 4]"
+            }
+          }
+        }
+      },
+      "images": {
+        "registry": {
+          "input_image_1": {
+            "id": "input_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_1",
+              "input_image_1"
+            ]
+          },
+          "input_image_2": {
+            "id": "input_image_2",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+            "source": "user_input",
+            "aliases": [
+              "image_2",
+              "input_image_2"
+            ]
+          },
+          "tool_generated_image_1": {
+            "id": "tool_generated_image_1",
+            "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+            "source": "tool_output:Depth_Estimation_Tool",
+            "aliases": [
+              "tool_generated_image_1"
+            ]
+          }
+        },
+        "alias_to_ref": {
+          "input_image_1": "input_image_1",
+          "image_1": "input_image_1",
+          "input_image_2": "input_image_2",
+          "image_2": "input_image_2",
+          "tool_generated_image_1": "tool_generated_image_1"
+        },
+        "url_to_ref": {
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+        },
+        "tool_generated_counter": 1
+      },
+      "urls": {
+        "webpage_registry": {},
+        "url_to_ref": {},
+        "webpage_counter": 0
+      },
+      "environment": [
+        {
+          "role": "user",
+          "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\n- tool_generated_image_1: tool_output:Depth_Estimation_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_result: dict (keys: depth_shape, colormap, size, depth_meters)"
+        }
+      ],
+      "detections": [],
+      "generator_response": {
+        "generated_code": "while True:\n    pass"
+      }
+    }
+  }
+}

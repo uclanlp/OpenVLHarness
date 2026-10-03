@@ -1,0 +1,220 @@
+"""Text_Search_Tool output post-processing for multimodal summarize.
+
+When ``Text_Search_Tool.execute`` is called with ``search_type=images`` and
+multimodal mode is on, ``execute`` may return a dict
+``{"text": ..., "kept_image_data_urls": [...]}``. This processor mirrors the
+logic in ``serper_image_search.process_tool_output``: substitute per-entry
+placeholders with framework-assigned image refs and build a user_message
+carrying both the rendered text and the fetched image bytes.
+
+All other ``search_type`` values (search / news / scholar / ...) return string
+results; for those we return ``None`` so the framework's default builder runs.
+"""
+import json
+
+PROCESSOR_MODE = "custom"
+MULTIMODAL_IMAGE_REF_PLACEHOLDER = "__MULTIMODAL_IMG_REF_PLACEHOLDER__"
+
+
+def _recover_text_with_url_refs(prepared, fallback_text):
+    text_payload = prepared.get("text_payload") if isinstance(prepared, dict) else None
+    if isinstance(text_payload, str) and text_payload.strip():
+        try:
+            parsed = json.loads(text_payload)
+        except (json.JSONDecodeError, ValueError):
+            return fallback_text
+        if isinstance(parsed, dict):
+            result = parsed.get("result")
+            if isinstance(result, dict):
+                candidate = result.get("text")
+                if isinstance(candidate, str):
+                    return candidate
+    return fallback_text
+
+
+def _substitute_placeholders(text, image_refs):
+    out_parts = []
+    pos = 0
+    ref_iter = iter(image_refs)
+    while True:
+        idx = text.find(MULTIMODAL_IMAGE_REF_PLACEHOLDER, pos)
+        if idx < 0:
+            out_parts.append(text[pos:])
+            break
+        out_parts.append(text[pos:idx])
+        try:
+            ref = next(ref_iter)
+            out_parts.append(f"[{ref}]")
+        except StopIteration:
+            out_parts.append("[]")
+        pos = idx + len(MULTIMODAL_IMAGE_REF_PLACEHOLDER)
+    return "".join(out_parts)
+
+
+def process_tool_output(payload, prepared, tool_metadata=None):
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        return {
+            "processor_info": {
+                "mode": PROCESSOR_MODE,
+                "status": "fallback",
+                "fallback_reason": "non_success_payload",
+            }
+        }
+
+    result = payload.get("result")
+    if not isinstance(result, dict) or "text" not in result:
+        return None
+
+    image_refs = prepared.get("image_refs") if isinstance(prepared, dict) else []
+    if not isinstance(image_refs, list):
+        image_refs = []
+    image_parts = prepared.get("image_parts") if isinstance(prepared, dict) else []
+    if not isinstance(image_parts, list):
+        image_parts = []
+
+    rendered_text = _recover_text_with_url_refs(
+        prepared, fallback_text=result.get("text", ""),
+    )
+    rendered_text = _substitute_placeholders(rendered_text, image_refs)
+
+    tool_name = str(payload.get("tool_name") or "Text_Search_Tool").strip()
+    tool_call_id = str(payload.get("tool_call_id") or "unknown").strip()
+
+    lines = [f"Tool `{tool_name}` (tool_call_id={tool_call_id}) returned:"]
+    if image_refs:
+        lines.append(f"Image refs: {', '.join(str(r) for r in image_refs)}")
+    lines.append(rendered_text)
+    text = "\n".join(lines)
+
+    if image_parts:
+        # Interleave the bare ``tool_generated_image_N`` ref name as a text
+        # block before each image_part. No ``image `` prefix — agent should
+        # copy the ref into tool call args verbatim, prefix-free. ``image_parts``
+        # and ``image_refs`` are in the same kept-rank order.
+        content_blocks = [{"type": "text", "text": text}]
+        for idx, part in enumerate(image_parts):
+            ref = image_refs[idx] if idx < len(image_refs) else "tool_generated_image_?"
+            content_blocks.append({"type": "text", "text": ref})
+            content_blocks.append(part)
+        user_message = {"role": "user", "content": content_blocks}
+    else:
+        user_message = {"role": "user", "content": text}
+
+    return {
+        "user_message": user_message,
+        "processor_info": {
+            "mode": PROCESSOR_MODE,
+            "status": "ok",
+            "kept_image_count": len(image_refs),
+        },
+    }
+
+
+from ._base import BaseCapability
+
+PUBLIC_SCHEMA = {'type': 'function',
+ 'function': {'name': 'Text_Search_Tool',
+              'description': 'Search the web with intelligent query routing and optional LLM '
+                             'summarization. Given a text query, this tool automatically '
+                             'classifies the query intent and routes it to the best search '
+                             'endpoint — general web search, image search (find images by text), '
+                             'news, academic papers (scholar), maps, local places, shopping, or '
+                             'patents. You can also specify the search_type to choose a specialist '
+                             'endpoint.\n'
+                             '\n'
+                             'Returns a coherent summary of search results with inline citations '
+                             '[1], [2], ... followed by a Citations block listing source titles '
+                             'and URLs. This format supports multi-round search: read the summary '
+                             'for quick understanding, then visit specific cited URLs for deeper '
+                             'info.\n'
+                             '\n'
+                             'Use this tool when you need to discover information, find URLs, or '
+                             'gather search results. For reading actual webpage content, use '
+                             'Webpage_Visit_Tool after obtaining URLs from the citations.',
+              'parameters': {'type': 'object',
+                             'properties': {'query': {'type': 'string',
+                                                      'description': 'The search query string. Can '
+                                                                     'be a natural-language '
+                                                                     'question, a keyword phrase, '
+                                                                     'a product name, an academic '
+                                                                     'paper title, etc. Choose the '
+                                                                     'appropriate search_type for '
+                                                                     'your query, or leave it as '
+                                                                     "'search' for general web "
+                                                                     'results.'},
+                                            'search_type': {'type': 'string',
+                                                            'enum': ['search',
+                                                                     'images',
+                                                                     'news',
+                                                                     'scholar',
+                                                                     'maps',
+                                                                     'places',
+                                                                     'shopping',
+                                                                     'patents'],
+                                                            'default': 'search',
+                                                            'description': 'Which search endpoint '
+                                                                           'to use. Defaults to '
+                                                                           "'search' (general "
+                                                                           'web). Options:\n'
+                                                                           "  'search'   — general "
+                                                                           'web search (titles, '
+                                                                           'snippets, URLs) — use '
+                                                                           'for most queries\n'
+                                                                           "  'news'     — recent "
+                                                                           'news articles, current '
+                                                                           'events, time-sensitive '
+                                                                           'information\n'
+                                                                           "  'scholar'  — "
+                                                                           'academic papers, '
+                                                                           'citations, research '
+                                                                           'publications\n'
+                                                                           "  'images'   — find "
+                                                                           'images matching a text '
+                                                                           'description\n'
+                                                                           "  'maps'     — map "
+                                                                           'locations with '
+                                                                           'addresses, ratings, '
+                                                                           'and contact info\n'
+                                                                           "  'places'   — local "
+                                                                           'businesses, '
+                                                                           'restaurants, map '
+                                                                           'results\n'
+                                                                           "  'shopping' — product "
+                                                                           'listings with prices\n'
+                                                                           "  'patents'  — patent "
+                                                                           'filings and '
+                                                                           'inventions'}},
+                             'required': ['query'],
+                             'additionalProperties': False}}}
+
+from typing import TypedDict
+
+
+class Output(TypedDict):
+    text: str | None
+    urls: list[str] | None
+    images: list[str] | None
+
+
+class Capability(BaseCapability):
+    name = 'Text_Search_Tool'
+    backends = {'serper_text_search': 'Text_Search_Tool'}
+    schema = PUBLIC_SCHEMA
+    process_output = staticmethod(process_tool_output)
+
+    rewrite_urls = True
+
+    def translate_args(self, args, memory):
+        if self.backend != "serper_text_search" and args.get("search_type", "search") != "search":
+            raise ValueError(f"{self.backend} supports only search_type=search")
+        return args
+
+    def normalize_result(self, call, result, prepared, binding_refs) -> Output:
+        import re
+        text = result if isinstance(result, str) else result.get("text") if isinstance(result, dict) else None
+        urls = result.get("urls") if isinstance(result, dict) else None
+        if urls is None and text is not None:
+            urls = list(dict.fromkeys(re.findall(r'https?://[^\s<>"\\]+', text)))
+        images = prepared["image_refs"] or ([] if isinstance(result, dict) and
+            isinstance(result.get("kept_image_data_urls"), list) else None)
+        return {"text": text, "urls": urls, "images": images}

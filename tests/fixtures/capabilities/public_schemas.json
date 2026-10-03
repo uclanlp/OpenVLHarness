@@ -1,0 +1,228 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "Visual_Grounding_Tool",
+      "description": "Locate and highlight objects in an image that match a text query. Returns an annotated image with the matched regions highlighted and numbered, along with bounding boxes and confidence scores.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "A short and simple object name or noun phrase, such as 'bottle', 'green ball', or 'wooden chair'. Avoid relational, comparative, or context-dependent descriptions such as 'the tallest man', 'something to eat', or 'the book on the left'."
+          },
+          "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "OCR_Tool",
+      "description": "Extract readable text from an image. Returns the transcribed text as a single string. Use this tool when the task is about words, numbers, or printed labels in the image. Do not use it for general object localization or segmentation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1."
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Depth_Estimation_Tool",
+      "description": "Estimate a monocular depth map from an image. Returns both raw float32 depthvalues (base64-encoded) and a colorized visualization. Use this tool for relative near/far reasoning, depth comparison between regions, or depth visualization. ",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1."
+          },
+          "colormap": {
+            "type": "string",
+            "description": "Output colormap for visualization",
+            "enum": [
+              "inferno",
+              "grayscale"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "image_id"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Camera_Trajectory_Tool",
+      "description": "Estimate per-image camera motion and viewpoint from an ordered sequence of images of the same scene (>= 2 images required; the first image is the reference frame). Returns a bird's-eye-view image of camera positions on the reference frame's X-Z plane plus a per-image text summary (movement and rotation) and structured numeric evidence (camera_center_delta, forward_direction, yaw_deg, pitch_deg) — all expressed in the reference image's camera frame (+X = right, +Y = down, +Z = forward). Use for questions about how the camera/viewpoint moved or rotated across frames. For single-image depth, use Depth_Estimation_Tool. Caveats: scale is metric only up to model's calibration; the reference image must share enough scene overlap with the other views; raw 3x3 intrinsics and 3x4 world-to-camera extrinsics are also returned for downstream Python use.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "image_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered runtime image IDs from Environment Update messages, e.g. [\"input_image_1\", \"input_image_2\"]. The framework resolves them to image bytes before dispatch."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "image_ids"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Zoom_In_Tool",
+      "description": "Zoom into a region by cropping an image with a normalized bbox [x1, y1, x2, y2] plus padding, and return the cropped image. Use this tool for closer visual inspection after you already know the region. All coords values must be normalized on the 0-1000 scale (each value in [0, 1000]). When trying ti count or ground objects, please try different prompts using Visual_Grounding_Tool first Only use this tool to ground objects when the Visual_Grounding_Tool does not work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "description": "A runtime image ID from Environment Update messages, e.g. input_image_1 or tool_generated_image_1."
+          },
+          "coords": {
+            "type": "array",
+            "description": "Normalized bbox [x1, y1, x2, y2] on a 0-1000 scale where every value must be in [0, 1000]. (x1, y1) is top-left and (x2, y2) is bottom-right.",
+            "items": {
+              "type": "number"
+            }
+          },
+          "padding": {
+            "type": "number",
+            "description": "Extra normalized margin on each side on the 0-1000 scale (>= 50)."
+          }
+        },
+        "required": [
+          "coords"
+        ]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Text_Search_Tool",
+      "description": "Search the web with intelligent query routing and optional LLM summarization. Given a text query, this tool automatically classifies the query intent and routes it to the best search endpoint — general web search, image search (find images by text), news, academic papers (scholar), maps, local places, shopping, or patents. You can also specify the search_type to choose a specialist endpoint.\n\nReturns a coherent summary of search results with inline citations [1], [2], ... followed by a Citations block listing source titles and URLs. This format supports multi-round search: read the summary for quick understanding, then visit specific cited URLs for deeper info.\n\nUse this tool when you need to discover information, find URLs, or gather search results. For reading actual webpage content, use Webpage_Visit_Tool after obtaining URLs from the citations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query string. Can be a natural-language question, a keyword phrase, a product name, an academic paper title, etc. Choose the appropriate search_type for your query, or leave it as 'search' for general web results."
+          },
+          "search_type": {
+            "type": "string",
+            "enum": [
+              "search",
+              "images",
+              "news",
+              "scholar",
+              "maps",
+              "places",
+              "shopping",
+              "patents"
+            ],
+            "default": "search",
+            "description": "Which search endpoint to use. Defaults to 'search' (general web). Options:\n  'search'   — general web search (titles, snippets, URLs) — use for most queries\n  'news'     — recent news articles, current events, time-sensitive information\n  'scholar'  — academic papers, citations, research publications\n  'images'   — find images matching a text description\n  'maps'     — map locations with addresses, ratings, and contact info\n  'places'   — local businesses, restaurants, map results\n  'shopping' — product listings with prices\n  'patents'  — patent filings and inventions"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Image_Search_Tool",
+      "description": "Identify objects, landmarks, artwork, text, products, plants, animals, and more in an image using Google Lens reverse image search. Returns a list of visual matches with titles, source URLs, links, and thumbnails.\n\nUse this tool when you need to understand what is depicted in an image — it can recognize specific places, products, artworks, logos, plants, animals, celebrities, etc. Pass the target image via its ``image_id`` (``input_image_N`` or ``tool_generated_image_N``) — the framework resolves the ID to image bytes before dispatch.\n\nThis tool performs REVERSE image search (image → information). To search for images by text description, use Text_Search_Tool with search_type='images' instead.\n\nSearch ONE image per call. To reverse-search several images, invoke this tool once per image — results from successive calls remain visible in your context, so you can correlate them.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "description": "Reference ID of the image to search, drawn from the Environment Update's 'Currently available image IDs' list. Typically ``input_image_N`` (user-provided) or ``tool_generated_image_N`` (produced by a prior tool call). The framework resolves the ID to image bytes before dispatch — do NOT pass raw URLs, file paths, or base64 data here."
+          }
+        },
+        "required": [
+          "image_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Webpage_Visit_Tool",
+      "description": "Visit one or more webpages, extract their text content using Serper's web scraping API, and summarize the content relevant to a given goal using an LLM. Returns structured evidence and a summary for each URL.\n\nUse this tool when you need to read and understand actual webpage content for a specific purpose — e.g., after obtaining URLs from a search tool. Do NOT use this tool for web search or URL discovery; use Text_Search_Tool or Image_Search_Tool first to find relevant URLs, then pass those URLs here.\n\nThe tool processes each URL independently: fetches the page content, truncates overly long content, and runs LLM extraction to produce structured output with 'evidence' (relevant quotes/paraphrases) and 'summary' (concise connection to the goal). Transient network failures are auto-retried; pages that block scraping (Cloudflare, captcha, etc.) or that respond with permanent errors return a structured failure message with suggestions for recovery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 5,
+            "description": "List of webpage URLs to visit and extract content from. Up to 5 URLs per call. Each URL should be a valid HTTP(S) link. If a URL lacks a scheme, 'https://' is automatically prepended."
+          },
+          "goal": {
+            "type": "string",
+            "description": "The goal or query that guides content extraction and summarization. The LLM will focus on extracting information relevant to this goal from the webpage content. Be specific — a focused goal yields better evidence and summaries."
+          }
+        },
+        "required": [
+          "urls",
+          "goal"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "Python_Coding_Agent_Tool",
+      "description": "Write and run Python code to perform computations over results from other tools (bounding boxes, depth maps, OCR text, etc.). Use this tool when you need to combine, filter, measure, or calculate across outputs from previous tool calls — for example, computing distances using depth at detected object locations. Describe the computation goal in plain language as the objective; all available data from prior tools is automatically provided.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "description": "Plain-language description of the computation to perform. Refer to the data you need by what it represents (e.g. 'the detected bounding boxes', 'the depth map'), not by variable names. Examples: 'Compute the average depth at the center of each detected person bounding box', "
+          }
+        },
+        "required": [
+          "objective"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+]

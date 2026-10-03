@@ -1,0 +1,5 @@
+judge_config_version: direct_metrics_v1
+model_name: null
+nproc: 1
+retry: 3
+score_mode: constant

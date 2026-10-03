@@ -53,19 +53,16 @@ def require_config_version(config: dict, *, field_name: str, label: str) -> str:
 
 
 def require_agent_model_name(agent_config: dict) -> str:
-    """Require model name from agent config for output path layout."""
-    agent_kwargs = agent_config.get("agent_kwargs")
-    if not isinstance(agent_kwargs, dict):
-        raise ValueError("Agent config must contain mapping field 'agent_kwargs'.")
-    model = agent_kwargs.get("model")
-    if not isinstance(model, str) or not model.strip():
-        raise ValueError("Agent config 'agent_kwargs.model' must be a non-empty string.")
-    return model.strip()
+    """Resolve the registered served ID from the agent-system configuration."""
+    from openvlharness.bootstrap import resolved_model_id
+    return resolved_model_id(agent_config)
 
 
 def require_judge_model_name(judge_config: dict) -> str:
     """Require judge model name for resume identity matching."""
     model = judge_config.get("model_name")
+    if "model_name" in judge_config and model is None:
+        return "no_judge"
     if not isinstance(model, str) or not model.strip():
         raise ValueError("Judge config must define a non-empty top-level field 'model_name'.")
     return model.strip()
@@ -207,4 +204,3 @@ def validate_manifest_compatibility(existing: dict, expected: dict) -> None:
             f"({details}). Please bump 'agent_config_version' and/or "
             "'judge_config_version' and rerun."
         )
-
