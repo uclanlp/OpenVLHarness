@@ -138,30 +138,6 @@ def _find_resumable_run_dir(
     )
 
 
-# Keys that should be redacted in tool env snapshots (API keys, secrets).
-_SENSITIVE_ENV_PATTERNS = (
-    "KEY", "SECRET", "TOKEN", "PASSWORD", "CREDENTIAL",
-)
-
-
-def _is_sensitive_env_key(key):
-    key_upper = str(key).upper()
-    return any(pattern in key_upper for pattern in _SENSITIVE_ENV_PATTERNS)
-
-
-def _redact_env_value(key, value):
-    if _is_sensitive_env_key(key):
-        return "<REDACTED>"
-    return value
-
-
-def _redact_env_map(env):
-    return {
-        k: _redact_env_value(k, v)
-        for k, v in env.items()
-    }
-
-
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
     """Record the selected router and resolved service configuration, without secrets."""
     import requests as _requests

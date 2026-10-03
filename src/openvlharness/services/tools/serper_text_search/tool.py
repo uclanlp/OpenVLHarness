@@ -1,12 +1,11 @@
-"""Text Search Tool — Serper-based web search with optional LLM summarization.
+"""Text Search Tool — Serper-based web search with configured LLM summarization.
 
 Supports all Serper text-search endpoints (search, images, news, scholar,
 maps, places, shopping, patents). The agent selects the endpoint via the
 ``search_type`` parameter (default ``"search"``).
 
-When ``SEARCH_LLM_SUMMARIZE=true`` (opt-in), search results are passed
-through an LLM that generates a coherent summary with inline citations.
-When ``false`` (default), raw formatted snippets are returned directly.
+The official configuration summarizes with multimodal Qwen. The model connection
+is injected by the router; summarization controls are service constants.
 """
 
 import json
@@ -671,8 +670,8 @@ class Text_Search_Tool(BaseTool):
             ],
             user_metadata={
                 "api_key_env": "SERPER_API_KEY",
-                "llm_summarize_env": "SEARCH_LLM_SUMMARIZE",
-                "llm_model_env": "SEARCH_LLM_MODEL",
+                "llm_summarize": True,
+                "llm_model_source": "services.models",
                 "supported_search_types": ALL_SEARCH_TYPES,
             },
         )

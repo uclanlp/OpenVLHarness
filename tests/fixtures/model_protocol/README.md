@@ -15,3 +15,10 @@ only the installed `openvlharness` package and these static fixtures.
 The fixtures preserve the old protocols' different malformed-argument handling,
 image-result placement, and top-level schema sanitization. They do not assert
 that those policies are interchangeable.
+
+`auxiliary_old_release.json` independently captures the old `LLMEngine`'s SDK
+arguments for greedy text and multimodal requests, including existing-system
+message handling, task token budgets, and disabled Qwen thinking. Its generator
+executes the unchanged old class with a mocked OpenAI constructor. Auxiliary
+tests also exercise the actual new text search, reverse image search, webpage
+extraction, and router coding paths against an in-process SDK/HTTP response.

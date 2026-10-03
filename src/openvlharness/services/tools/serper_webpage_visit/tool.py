@@ -184,7 +184,7 @@ class Webpage_Visit_Tool(BaseTool):
             user_metadata={
                 "api_key_env": "SERPER_API_KEY",
                 "scrape_endpoint": "https://scrape.serper.dev/",
-                "llm_model_env": "WEBPAGE_VISIT_LLM_MODEL",
+                "llm_model_source": "services.models",
                 "max_urls": MAX_URLS,
                 "max_content_chars": MAX_CONTENT_CHARS,
                 "max_retries": SERPER_MAX_RETRIES,
