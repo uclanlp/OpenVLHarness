@@ -327,7 +327,7 @@ class AgentLoopTests(unittest.TestCase):
                         model_response("chat_completions", calls=[("first", "Probe_Tool", '{"query":"count"}')],
                                        usage={"total_tokens": 13}),
                         invalid], max_iterations=1)
-                    agent.adapter.raw_sft_enabled = raw_export
+                    agent.adapter.raw_trace_enabled = raw_export
                     agent.adapter.options["return_token_ids"] = raw_export
                     result = agent.generate("Count objects.", task_id=17)
                     extra = result["extra_records"]
@@ -341,12 +341,12 @@ class AgentLoopTests(unittest.TestCase):
                     self.assertEqual(len(trajectory["chat_history"]), 1)
                     self.assertTrue(trajectory["chat_history"][0]["tool_responses"][0]["ok"])
                     self.assertEqual(trajectory["messages"], fixed.requests[-1]["messages"])
-                    self.assertNotIn("raw_sft", trajectory)
+                    self.assertNotIn("raw_trace", trajectory)
                     if raw_export:
-                        self.assertEqual(trajectory["raw_sft_error"]["code"], "inference_failed")
-                        self.assertIn(trajectory["error"], trajectory["raw_sft_error"]["message"])
+                        self.assertEqual(trajectory["raw_trace_error"]["code"], "inference_failed")
+                        self.assertIn(trajectory["error"], trajectory["raw_trace_error"]["message"])
                     else:
-                        self.assertNotIn("raw_sft_error", trajectory)
+                        self.assertNotIn("raw_trace_error", trajectory)
 
     def test_usage_accumulates_nested_counts_and_ignores_boolean_and_text_fields(self):
         for protocol in ALIASES:

@@ -171,9 +171,9 @@ def test_raw_export_effective_token_setting_is_saved_and_prevents_resume_mix():
     config = _agent_cfg()
     config["services"]["models"]["orchestrator"]["return_token_ids"] = False
     ordinary = _manifest(load_agent_config(config))
-    raw = _manifest(load_agent_config(config, save_raw_trajectory=True))
+    raw = _manifest(load_agent_config(config, save_raw_trace=True))
     assert raw["config_snapshot_redacted"]["agent"]["services"]["models"]["orchestrator"]["return_token_ids"] is True
-    assert raw["resolved_model_profiles"]["orchestrator"]["profile"]["raw_sft_format"] == "qwen_chatml"
+    assert raw["resolved_model_profiles"]["orchestrator"]["profile"]["raw_trace_format"] == "qwen_chatml"
     assert raw["agent_config_hash"] != ordinary["agent_config_hash"]
     with pytest.raises(ValueError, match="agent config mismatch"):
         validate_manifest_compatibility(ordinary, raw)

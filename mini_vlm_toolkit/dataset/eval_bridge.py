@@ -630,8 +630,8 @@ def resolve_trajectory_path(eval_file: str, basename: str) -> str:
 
     Preference order, taking the first that actually exists:
 
-    1. ``<eval_dir>/raw_trajectories/<basename>``  — written when the
-       inference run used ``--save-raw-trajectory`` (intended for SFT).
+    1. ``<eval_dir>/raw_traces/<basename>``  — written when the
+       inference run used ``--save-raw-trace`` (token-based training traces).
     2. ``<eval_dir>/full_trajectories/<basename>``  — always written
        during inference; full agent messages / reasoning / predictions.
     3. Empty string when neither exists.  This happens for LVIS
@@ -641,11 +641,11 @@ def resolve_trajectory_path(eval_file: str, basename: str) -> str:
 
     ``eval_file`` is the predictions xlsx path (the same arg
     ``dataset.evaluate(...)`` receives); its parent directory is the
-    dataset run dir that contains ``raw_trajectories/`` and
+    dataset run dir that contains ``raw_traces/`` and
     ``full_trajectories/``.
     """
     eval_dir = os.path.dirname(os.path.abspath(eval_file))
-    raw = os.path.join(eval_dir, "raw_trajectories", basename)
+    raw = os.path.join(eval_dir, "raw_traces", basename)
     if os.path.isfile(raw):
         return raw
     full = os.path.join(eval_dir, "full_trajectories", basename)

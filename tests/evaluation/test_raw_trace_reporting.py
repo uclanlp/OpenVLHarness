@@ -1,4 +1,4 @@
-"""Requested raw SFT exports fail visibly without losing ordinary predictions."""
+"""Requested raw trace exports fail visibly without losing ordinary predictions."""
 
 import base64
 import copy
@@ -26,7 +26,7 @@ def _record(task_id=7):
     return {
         "task_id": task_id,
         "model_name": "qwen",
-        "trajectory": {"raw_sft": {
+        "trajectory": {"raw_trace": {
             "messages": [
                 {"role": "user", "content": [{"type": "text", "text": "Count."}]},
                 {"role": "assistant", "content": [{"type": "text", "text": "19"}]},
@@ -45,9 +45,9 @@ def _image_entry(filename="7_0.png"):
 def test_text_export_preserves_successful_format_and_input(tmp_path):
     record = _record()
     before = copy.deepcopy(record)
-    summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+    summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     assert json.loads((tmp_path / "7.json").read_text()) == {
-        "task_id": 7, "model_name": "qwen", "messages": record["trajectory"]["raw_sft"]["messages"],
+        "task_id": 7, "model_name": "qwen", "messages": record["trajectory"]["raw_trace"]["messages"],
     }
     assert record == before
     assert summary["exported_records"] == 1
@@ -57,36 +57,36 @@ def test_text_export_preserves_successful_format_and_input(tmp_path):
 
 def test_image_export_preserves_exact_bytes_and_relative_reference(tmp_path):
     record = _record()
-    raw = record["trajectory"]["raw_sft"]
+    raw = record["trajectory"]["raw_trace"]
     image = _image_entry()
     raw["images"].append(image)
     raw["messages"][0]["content"].append({"type": "image", "image": "images/7_0.png"})
-    summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+    summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     assert summary["exported_records"] == 1
     assert (tmp_path / "images" / image["filename"]).read_bytes() == base64.b64decode(image["bytes_b64"])
     assert json.loads((tmp_path / "7.json").read_text())["messages"] == raw["messages"]
 
 
 @pytest.mark.parametrize("trajectory,code", [
-    ({}, "raw_sft_missing"),
-    (None, "raw_sft_missing"),
-    ({"raw_sft_error": {"code": "missing_token_ids", "message": "Endpoint omitted completion token IDs."}}, "missing_token_ids"),
+    ({}, "raw_trace_missing"),
+    (None, "raw_trace_missing"),
+    ({"raw_trace_error": {"code": "missing_token_ids", "message": "Endpoint omitted completion token IDs."}}, "missing_token_ids"),
 ])
 def test_missing_and_agent_failed_exports_have_persistent_errors(tmp_path, caplog, trajectory, code):
     record = _record()
     record["trajectory"] = trajectory
     with caplog.at_level(logging.ERROR):
-        summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+        summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     error = json.loads((tmp_path / "errors" / "7.json").read_text())
     assert error["task_id"] == 7
     assert error["error"]["code"] == code
     if code == "missing_token_ids":
-        assert error["error"] == trajectory["raw_sft_error"]
+        assert error["error"] == trajectory["raw_trace_error"]
     assert summary["failed_records"] == 1
     assert summary["failure_details"][0]["code"] == code
     assert summary["failure_details"][0]["error_path"] == str(tmp_path / "errors" / "7.json")
     assert not (tmp_path / "7.json").exists()
-    assert f"Raw SFT export failed for task 7 [{code}]" in caplog.text
+    assert f"Raw trace export failed for task 7 [{code}]" in caplog.text
 
 
 @pytest.mark.parametrize("invalid_images", [
@@ -105,11 +105,11 @@ def test_missing_and_agent_failed_exports_have_persistent_errors(tmp_path, caplo
 ])
 def test_invalid_images_fail_before_any_success_artifacts(tmp_path, invalid_images):
     record = _record()
-    record["trajectory"]["raw_sft"]["images"] = invalid_images
-    summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+    record["trajectory"]["raw_trace"]["images"] = invalid_images
+    summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     assert summary["exported_records"] == 0
     assert summary["failed_records"] == 1
-    assert summary["failure_details"][0]["code"] == "raw_sft_invalid"
+    assert summary["failure_details"][0]["code"] == "raw_trace_invalid"
     assert (tmp_path / "errors" / "7.json").exists()
     assert not (tmp_path / "7.json").exists()
     assert not list((tmp_path / "images").glob("*"))
@@ -118,40 +118,40 @@ def test_invalid_images_fail_before_any_success_artifacts(tmp_path, invalid_imag
 @pytest.mark.parametrize("messages", [None, [], "conversation", ["assistant"]])
 def test_invalid_messages_are_not_reported_as_exported(tmp_path, messages):
     record = _record()
-    record["trajectory"]["raw_sft"]["messages"] = messages
-    summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+    record["trajectory"]["raw_trace"]["messages"] = messages
+    summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     assert summary["failed_records"] == 1
-    assert summary["failure_details"][0]["code"] == "raw_sft_invalid"
+    assert summary["failure_details"][0]["code"] == "raw_trace_invalid"
     assert not (tmp_path / "7.json").exists()
 
 
 def test_later_success_keeps_other_samples_failure_discoverable(tmp_path):
     failure = _record(7)
     failure["trajectory"] = {}
-    reporting_utils.write_raw_trajectory_jsons([failure], tmp_path)
-    reporting_utils.write_raw_trajectory_jsons([_record(8)], tmp_path)
+    reporting_utils.write_raw_trace_jsons([failure], tmp_path)
+    reporting_utils.write_raw_trace_jsons([_record(8)], tmp_path)
     assert json.loads((tmp_path / "_summary.json").read_text())["failed_records"] == 0
-    assert json.loads((tmp_path / "errors" / "7.json").read_text())["error"]["code"] == "raw_sft_missing"
+    assert json.loads((tmp_path / "errors" / "7.json").read_text())["error"]["code"] == "raw_trace_missing"
     assert (tmp_path / "8.json").exists()
     # A successful retry of the same sample clears its obsolete failure marker.
-    reporting_utils.write_raw_trajectory_jsons([_record(7)], tmp_path)
+    reporting_utils.write_raw_trace_jsons([_record(7)], tmp_path)
     assert not (tmp_path / "errors" / "7.json").exists()
 
 
 @pytest.mark.parametrize("trajectory", [
     {},
-    {"raw_sft_error": {"code": "missing_token_ids", "message": "No completion token IDs."}},
-    {"raw_sft": {"messages": [], "images": []}},
+    {"raw_trace_error": {"code": "missing_token_ids", "message": "No completion token IDs."}},
+    {"raw_trace": {"messages": [], "images": []}},
 ])
 def test_failed_reexport_removes_only_its_previous_success(tmp_path, trajectory):
     first = _record(7)
-    first["trajectory"]["raw_sft"]["images"] = [_image_entry()]
-    first["trajectory"]["raw_sft"]["messages"][0]["content"].append({"type": "image", "image": "images/7_0.png"})
-    reporting_utils.write_raw_trajectory_jsons([first, _record(8)], tmp_path)
+    first["trajectory"]["raw_trace"]["images"] = [_image_entry()]
+    first["trajectory"]["raw_trace"]["messages"][0]["content"].append({"type": "image", "image": "images/7_0.png"})
+    reporting_utils.write_raw_trace_jsons([first, _record(8)], tmp_path)
     other_export = (tmp_path / "8.json").read_bytes()
     failure = _record(7)
     failure["trajectory"] = trajectory
-    summary = reporting_utils.write_raw_trajectory_jsons([failure], tmp_path)
+    summary = reporting_utils.write_raw_trace_jsons([failure], tmp_path)
     assert summary["failed_records"] == 1
     assert not (tmp_path / "7.json").exists()
     assert (tmp_path / "errors" / "7.json").exists()
@@ -162,12 +162,12 @@ def test_failed_reexport_removes_only_its_previous_success(tmp_path, trajectory)
 @pytest.mark.parametrize("reference", [None, [], "7_0.png", "images/missing.png", "images/../7_0.png"])
 def test_dangling_message_image_references_are_rejected(tmp_path, reference):
     record = _record()
-    raw = record["trajectory"]["raw_sft"]
+    raw = record["trajectory"]["raw_trace"]
     raw["images"] = [_image_entry()]
     raw["messages"][0]["content"].append({"type": "image", "image": reference})
-    summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+    summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     assert summary["failed_records"] == 1
-    assert summary["failure_details"][0]["code"] == "raw_sft_invalid"
+    assert summary["failure_details"][0]["code"] == "raw_trace_invalid"
     assert "image references" in summary["failure_details"][0]["message"]
     assert not (tmp_path / "7.json").exists()
     assert not list((tmp_path / "images").glob("*"))
@@ -175,7 +175,7 @@ def test_dangling_message_image_references_are_rejected(tmp_path, reference):
 
 def test_image_write_failure_is_reported_without_raising(tmp_path, monkeypatch):
     record = _record()
-    record["trajectory"]["raw_sft"]["images"] = [_image_entry()]
+    record["trajectory"]["raw_trace"]["images"] = [_image_entry()]
     original_write = file_db.atomic_write
 
     def write(path, content, **kwargs):
@@ -184,10 +184,10 @@ def test_image_write_failure_is_reported_without_raising(tmp_path, monkeypatch):
         return original_write(path, content, **kwargs)
 
     monkeypatch.setattr(file_db, "atomic_write", write)
-    summary = reporting_utils.write_raw_trajectory_jsons([record], tmp_path)
+    summary = reporting_utils.write_raw_trace_jsons([record], tmp_path)
     assert summary["failed_records"] == 1
     assert json.loads((tmp_path / "errors" / "7.json").read_text())["error"] == {
-        "code": "raw_sft_write_failed", "message": "image storage unavailable",
+        "code": "raw_trace_write_failed", "message": "image storage unavailable",
     }
     assert not (tmp_path / "7.json").exists()
 
@@ -196,12 +196,12 @@ def test_unavailable_raw_directory_still_returns_and_logs_failure(tmp_path, capl
     out_dir = tmp_path / "occupied"
     out_dir.write_text("This path is a file.")
     with caplog.at_level(logging.ERROR):
-        summary = reporting_utils.write_raw_trajectory_jsons([_record()], out_dir)
+        summary = reporting_utils.write_raw_trace_jsons([_record()], out_dir)
     assert summary["failed_records"] == 1
-    assert summary["failure_details"][0]["code"] == "raw_sft_write_failed"
+    assert summary["failure_details"][0]["code"] == "raw_trace_write_failed"
     assert summary["failure_details"][0]["error_path"] is None
     assert summary["summary_path"] is None
-    assert "Could not write raw SFT error sidecar for task 7" in caplog.text
+    assert "Could not write raw trace error sidecar for task 7" in caplog.text
 
 
 @pytest.mark.usefixtures("synchronous_evaluation")
@@ -228,11 +228,11 @@ def test_raw_failures_preserve_ordinary_evaluation_sidecars(tmp_path, monkeypatc
                 "final_answer": "19",
             }
             if task_id == 20:
-                trajectory["raw_sft_error"] = {"code": "missing_token_ids", "message": "No completion token IDs."}
+                trajectory["raw_trace_error"] = {"code": "missing_token_ids", "message": "No completion token IDs."}
             elif task_id in (30, 40):
-                trajectory["raw_sft"] = _record(task_id)["trajectory"]["raw_sft"]
+                trajectory["raw_trace"] = _record(task_id)["trajectory"]["raw_trace"]
                 if task_id == 30:
-                    trajectory["raw_sft"]["images"] = [{"filename": "broken.png", "bytes_b64": "%%%"}]
+                    trajectory["raw_trace"]["images"] = [{"filename": "broken.png", "bytes_b64": "%%%"}]
             return {"prediction": "19", "extra_records": {
                 "trajectory": trajectory,
                 "tool_detections": [{"bbox": [1, 2, 3, 4], "score": 0.9}],
@@ -242,7 +242,7 @@ def test_raw_failures_preserve_ordinary_evaluation_sidecars(tmp_path, monkeypatc
     monkeypatch.delenv("FULL_TRAJECTORIES_LIMIT", raising=False)
     for enabled in (False, True):
         inference_image.infer_image_job(Model(), str(tmp_path / str(enabled)), "M", Dataset(),
-                                       html_limit=-1, save_raw_trajectory=enabled)
+                                       html_limit=-1, save_raw_trace=enabled)
     disabled = tmp_path / "False" / "RawExportSet"
     enabled = tmp_path / "True" / "RawExportSet"
     pd.testing.assert_frame_equal(inference_image.load(str(disabled / "M.tsv")),
@@ -253,7 +253,7 @@ def test_raw_failures_preserve_ordinary_evaluation_sidecars(tmp_path, monkeypatc
         for directory, suffix in (("full_trajectories", "json"), ("htmls", "html"), ("tool_detections", "json")):
             path = f"{directory}/{task_id}.{suffix}"
             assert (enabled / path).read_bytes() == (disabled / path).read_bytes()
-    raw_dir = enabled / "raw_trajectories"
+    raw_dir = enabled / "raw_traces"
     assert sorted(p.name for p in (raw_dir / "errors").iterdir()) == ["10.json", "20.json", "30.json"]
     assert (raw_dir / "40.json").exists()
-    assert not (disabled / "raw_trajectories").exists()
+    assert not (disabled / "raw_traces").exists()

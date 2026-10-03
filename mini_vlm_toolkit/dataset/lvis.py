@@ -535,7 +535,7 @@ class LVISBBoxDataset(ImageBaseDataset):
             # The per-row identity is captured as ``trajectory_file``
             # (matches the row's TSV index + ``.json``), so users can
             # cross-reference straight to ``full_trajectories/<file>``
-            # or ``raw_trajectories/<file>`` without parsing columns.
+            # or ``raw_traces/<file>`` without parsing columns.
             if evaluator_obj is not None:
                 per_row_records = extract_per_row_diagnostics(
                     evaluator_obj, iou_threshold=0.5, area_label='all',
@@ -562,8 +562,8 @@ class LVISBBoxDataset(ImageBaseDataset):
                     basename = (
                         f"{lvis_split}_{r['image_id']}_{r['category_id']}.json"
                     )
-                    # Absolute path (preferring raw_trajectories/ when
-                    # --save-raw-trajectory was set during inference,
+                    # Absolute path (preferring raw_traces/ when
+                    # --save-raw-trace was set during inference,
                     # falling back to full_trajectories/, and empty
                     # string when neither exists — the LVIS auto-
                     # extended-row case).

@@ -620,7 +620,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 # single ``trajectory_file`` matching prepare_odinw's
                 # row index format: ``<domain>_<split>_<image_id>_<category_id>.json``.
                 # That string is the basename used by full_trajectories/
-                # and raw_trajectories/, so users can cross-reference
+                # and raw_traces/, so users can cross-reference
                 # straight from this CSV to the agent's per-row JSON.
                 if evaluator_obj is not None:
                     domain_per_row = extract_per_row_diagnostics(

@@ -7,7 +7,7 @@ import re
 from ..contracts import VirtualCall
 from ..capabilities._base import failure
 from ..input import normalize_input, input_messages
-from ..services.raw_sft import RawSFTExportError
+from ..services.raw_trace import RawTraceExportError
 
 
 def _accumulate(into, values):
@@ -49,7 +49,7 @@ class MainAgent:
         turns, detections, usage = [], [], {}
         final = self.fail_msg
         error = None
-        capture = {} if self.adapter.raw_sft_enabled else None
+        capture = {} if self.adapter.raw_trace_enabled else None
         try:
             final = self._run(history, memory, turns, detections, usage, task_id, capture=capture)
         except (RuntimeError, OSError) as exc:
@@ -61,11 +61,11 @@ class MainAgent:
         if capture is not None:
             try:
                 if error:
-                    raise RawSFTExportError("inference_failed", f"Raw SFT export failed because inference did not complete: {error}")
-                trajectory["raw_sft"] = self.adapter.export_raw_sft(capture, task_id)
-            except RawSFTExportError as exc:
-                trajectory["raw_sft_error"] = {"code": exc.code, "message": str(exc)}
-                self.adapter.logger.error("Raw SFT export failed for task %s: %s", task_id, exc)
+                    raise RawTraceExportError("inference_failed", f"Raw trace export failed because inference did not complete: {error}")
+                trajectory["raw_trace"] = self.adapter.export_raw_trace(capture, task_id)
+            except RawTraceExportError as exc:
+                trajectory["raw_trace_error"] = {"code": exc.code, "message": str(exc)}
+                self.adapter.logger.error("Raw trace export failed for task %s: %s", task_id, exc)
         extra = {"trajectory": trajectory, "tool_detections": detections}
         if usage:
             extra["usage"] = {"total": usage}

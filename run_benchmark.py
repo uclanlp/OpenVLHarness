@@ -199,9 +199,9 @@ if __name__ == "__main__":
     parser.add_argument('--save-images', type=str, default='files', choices=['files', 'base64'],
                         help='How to store images in full_trajectories JSONs: "files" copies '
                              'them to a sibling images/ folder (default), "base64" inlines them as data URIs.')
-    parser.add_argument('--save-raw-trajectory', action='store_true',
-                        help='Also save raw tokenized trajectories under '
-                             '<work_dir>/<dataset>/raw_trajectories/ for SFT training. '
+    parser.add_argument('--save-raw-trace', action='store_true',
+                        help='Also save raw traces reconstructed from tokens under '
+                             '<work_dir>/<dataset>/raw_traces/ for training. '
                              'Supported for image/text datasets with qwen3-vl-8b-instruct only; automatically enables '
                              'return_token_ids in the effective run config. Requires the matching '
                              'Qwen tokenizer and a server that returns token IDs. Export failures '
@@ -254,7 +254,7 @@ if __name__ == "__main__":
             timeout=datetime.timedelta(seconds=int(os.environ.get('DIST_TIMEOUT', 3600)))
         )
 
-    agent_config = load_agent_config(args.config, save_raw_trajectory=args.save_raw_trajectory)
+    agent_config = load_agent_config(args.config, save_raw_trace=args.save_raw_trace)
     judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
     agent_config_version = require_config_version(
         agent_config,
@@ -362,8 +362,8 @@ if __name__ == "__main__":
             dist.barrier()
 
         dataset = build_dataset(dataset_name, **dataset_kwargs)
-        if args.save_raw_trajectory and dataset is not None and dataset.MODALITY == 'VIDEO':
-            raise ValueError("Raw SFT export supports Qwen image/text datasets only; the video runner does not support raw export.")
+        if args.save_raw_trace and dataset is not None and dataset.MODALITY == 'VIDEO':
+            raise ValueError("Raw trace export supports Qwen image/text datasets only; the video runner does not support raw export.")
         if dataset is not None and args.num_examples is not None:
             if args.shuffle:
                 import random
@@ -426,7 +426,7 @@ if __name__ == "__main__":
                     html_limit=html_limit,
                     enable_incremental_json=args.incremental_json,
                     save_images=args.save_images,
-                    save_raw_trajectory=args.save_raw_trajectory,
+                    save_raw_trace=args.save_raw_trace,
                     ignore_failed=args.ignore_failed,
                 )
 

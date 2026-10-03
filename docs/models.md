@@ -19,9 +19,9 @@ context reservation and the provider's output limit (`max_tokens` for Chat
 Completions, `max_output_tokens` for Responses). Explicit limits and the paper
 presets retain their configured budgets.
 
-## Raw SFT export (Qwen only)
+## Raw trace export (Qwen only)
 
-Pass `--save-raw-trajectory` to `run_benchmark.py` for image/text datasets using
+Pass `--save-raw-trace` to `run_benchmark.py` for image/text datasets using
 the `qwen3-vl-8b-instruct` profile. GPT, Kimi, other profiles and the video runner
 are rejected before their inference begins. The flag enables
 `services.models.<orchestrator-service>.return_token_ids: true` in the effective
@@ -32,7 +32,7 @@ paper preset remains `false`; there is no `extra_body` configuration to edit.
 python run_benchmark.py --data FSC147_test \
   --config configs/agent/qwen3_paper.yaml \
   --judge-config configs/judge_no_judge.yaml \
-  --num-examples 1 --num-proc 1 --save-raw-trajectory --save-html all
+  --num-examples 1 --num-proc 1 --save-raw-trace --save-html all
 ```
 
 Install `openvlharness[qwen]` and use the matching tokenizer/model snapshot from
@@ -45,13 +45,13 @@ error instead of disabling token reconstruction.
 The terminating response's tokens reconstruct Qwen ChatML, including its rendered
 tool calls and tool responses. Image bytes come from that response's exact request,
 after any context compaction or fallback. Successful exports populate
-`trajectory.raw_sft` and write `raw_trajectories/<task_id>.json` with relative image
-references under `raw_trajectories/images/`. This format is separate from the
+`trajectory.raw_trace` and write `raw_traces/<task_id>.json` with relative image
+references under `raw_traces/images/`. This format is separate from the
 ordinary full-trajectory JSON and HTML reports.
 
 If token IDs are missing, decoding fails, or image alignment is invalid, the agent
-records `trajectory.raw_sft_error`. The writer logs an error and saves
-`raw_trajectories/errors/<task_id>.json`. Predictions and normal reports remain
+records `trajectory.raw_trace_error`. The writer logs an error and saves
+`raw_traces/errors/<task_id>.json`. Predictions and normal reports remain
 available. `_summary.json` reports exports and failures for the writer's latest
 invocation; the per-sample error files persist across subsequent samples. Check
 those errors before using an export for training. Resume requires the same

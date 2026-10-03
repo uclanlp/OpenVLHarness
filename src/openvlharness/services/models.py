@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import requests
 import yaml
 from .http import retry_with_exponential_backoff, raise_for_status_with_detail
-from .raw_sft import RawSFTExportError, build_raw_sft_from_tokens
+from .raw_trace import RawTraceExportError, build_raw_trace_from_tokens
 
 
 def failure_text(payload):
@@ -29,17 +29,17 @@ def load_profile(alias):
     return cp.deepcopy(profiles[alias])
 
 
-def require_raw_sft_profile(alias):
-    message = "Raw SFT export is supported only for qwen3-vl-8b-instruct (Qwen/Qwen3-VL-8B-Instruct); GPT, Kimi and other profiles are unsupported."
+def require_raw_trace_profile(alias):
+    message = "Raw trace export is supported only for qwen3-vl-8b-instruct (Qwen/Qwen3-VL-8B-Instruct); GPT, Kimi and other profiles are unsupported."
     try:
         profile = load_profile(alias)
     except ValueError as exc:
         raise ValueError(message) from exc
     if (alias != "qwen3-vl-8b-instruct" or profile.get("model_id") != "Qwen/Qwen3-VL-8B-Instruct"
-            or profile.get("adapter") != "chat_completions" or profile.get("raw_sft_format") != "qwen_chatml"):
+            or profile.get("adapter") != "chat_completions" or profile.get("raw_trace_format") != "qwen_chatml"):
         raise ValueError(message)
-    if not isinstance(profile.get("raw_sft_tokenizer_revision"), str) or not profile["raw_sft_tokenizer_revision"]:
-        raise ValueError("Raw SFT export requires a registered matching Qwen tokenizer revision.")
+    if not isinstance(profile.get("raw_trace_tokenizer_revision"), str) or not profile["raw_trace_tokenizer_revision"]:
+        raise ValueError("Raw trace export requires a registered matching Qwen tokenizer revision.")
     return profile
 
 
@@ -93,7 +93,7 @@ class AuxiliaryModel:
 
 class ModelAdapter:
     def __init__(self, config, *, max_context_length=None, requester=None):
-        self.profile = (require_raw_sft_profile(config.get("alias")) if config.get("return_token_ids") is True
+        self.profile = (require_raw_trace_profile(config.get("alias")) if config.get("return_token_ids") is True
                         else load_profile(config.get("alias")))
         connection = {"alias", "base", "key", "timeout", "retry"}
         unknown = set(config) - connection - set(self.profile["allowed_options"])
@@ -127,7 +127,7 @@ class ModelAdapter:
             raise ValueError("Unsupported reasoning_effort")
         if type(self.options.get("return_token_ids", False)) is not bool:
             raise ValueError("return_token_ids must be boolean")
-        self.raw_sft_enabled = self.options.get("return_token_ids", False)
+        self.raw_trace_enabled = self.options.get("return_token_ids", False)
         for key, low, high in (("temperature", 0, 2), ("top_p", 0, 1),
                                ("presence_penalty", -2, 2), ("repetition_penalty", 0, None)):
             if key in self.options:
@@ -147,22 +147,22 @@ class ModelAdapter:
         self.counting_available = False
 
     def load_tokenizer(self):
-        if self.raw_sft_enabled or (self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length):
+        if self.raw_trace_enabled or (self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length):
             try:
                 from transformers import AutoTokenizer
-                options = ({"revision": self.profile["raw_sft_tokenizer_revision"]} if self.raw_sft_enabled else {})
+                options = ({"revision": self.profile["raw_trace_tokenizer_revision"]} if self.raw_trace_enabled else {})
                 try:
                     self._tokenizer = AutoTokenizer.from_pretrained(self.model, local_files_only=True, **options)
                 except OSError:
                     self._tokenizer = AutoTokenizer.from_pretrained(self.model, **options)
                 self.counting_available = True
             except (ImportError, OSError, ValueError) as exc:
-                if self.raw_sft_enabled:
-                    raise RawSFTExportError("tokenizer_unavailable", f"Raw SFT export requires the matching tokenizer for {self.model}; install openvlharness[qwen] and cache the registered revision.") from exc
+                if self.raw_trace_enabled:
+                    raise RawTraceExportError("tokenizer_unavailable", f"Raw trace export requires the matching tokenizer for {self.model}; install openvlharness[qwen] and cache the registered revision.") from exc
                 self.logger.warning("Tokenizer unavailable; provider enforces context limit: %s", exc)
 
-    def export_raw_sft(self, capture, task_id):
-        return build_raw_sft_from_tokens(capture.get("response"), capture.get("messages"), self._tokenizer, task_id)
+    def export_raw_trace(self, capture, task_id):
+        return build_raw_trace_from_tokens(capture.get("response"), capture.get("messages"), self._tokenizer, task_id)
 
     def encode_message(self, message):
         if self.protocol == "chat_completions":

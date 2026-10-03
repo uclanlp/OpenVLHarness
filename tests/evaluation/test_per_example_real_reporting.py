@@ -89,7 +89,7 @@ def test_real_reporting_writes_full_trajectories():
         inference_image.infer_image_job(
             _Model(), str(work_dir), "M", _Dataset(),
             html_limit=2,  # only first-2 by completion order
-            save_raw_trajectory=False,
+            save_raw_trace=False,
         )
 
         ds = work_dir / "ToySet"
@@ -124,8 +124,8 @@ def test_real_reporting_writes_full_trajectories():
         assert "Task 10" in html
         assert "ans-10" in html
 
-        # No raw_trajectories (save_raw_trajectory=False).
-        assert not (ds / "raw_trajectories").exists()
+        # No raw_traces (save_raw_trace=False).
+        assert not (ds / "raw_traces").exists()
 
         # Final xlsx and per-example record.json all present.
         xlsx = inference_image.load(str(ds / "M.xlsx"))

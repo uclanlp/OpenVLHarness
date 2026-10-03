@@ -626,7 +626,7 @@ def _iter_image_url_refs(messages):
     * Responses API: ``{type:"input_image", image_url:"data:..."}``
       → yields ``(node, "image_url")``.
 
-    Shared walker so full_trajectories and raw_trajectories see images in the
+    Shared walker so full_trajectories and raw_traces see images in the
     same top-to-bottom order they were appended during inference.
     """
     if not isinstance(messages, list):
@@ -749,11 +749,11 @@ def write_full_trajectory_jsons(records, out_dir, limit, save_images="base64"):
         dump(payload, output_path)
 
 
-def write_raw_trajectory_jsons(records, out_dir, limit=-1):
-    """Write per-sample SFT-ready raw trajectory JSONs under ``out_dir``.
+def write_raw_trace_jsons(records, out_dir, limit=-1):
+    """Write per-sample training-ready raw trace JSONs under ``out_dir``.
 
     Each record's agent has already tokenized + decoded its terminating
-    response into ``trajectory["raw_sft"] = {"messages": [...], "images":
+    response into ``trajectory["raw_trace"] = {"messages": [...], "images":
     [{"filename", "bytes_b64"}, ...]}``. Here we just base64-decode the
     images to ``<out_dir>/images/<filename>`` and dump a JSON per task.
 
@@ -781,27 +781,27 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
         error_path = os.path.join(out_dir, "errors", f"{task_id}.json")
         trajectory = record.get("trajectory")
         trajectory = trajectory if isinstance(trajectory, dict) else {}
-        raw_sft = trajectory.get("raw_sft")
-        error = trajectory.get("raw_sft_error")
+        raw_trace = trajectory.get("raw_trace")
+        error = trajectory.get("raw_trace_error")
         if isinstance(error, dict):
             error = {
-                "code": str(error.get("code") or "raw_sft_export_failed"),
-                "message": str(error.get("message") or "The agent could not export raw SFT messages."),
+                "code": str(error.get("code") or "raw_trace_export_failed"),
+                "message": str(error.get("message") or "The agent could not export raw trace messages."),
             }
-        elif not isinstance(raw_sft, dict):
+        elif not isinstance(raw_trace, dict):
             error = {
-                "code": "raw_sft_missing",
-                "message": "Raw SFT export was requested, but the trajectory contains no raw_sft payload.",
+                "code": "raw_trace_missing",
+                "message": "Raw trace export was requested, but the trajectory contains no raw_trace payload.",
             }
         else:
             error = None
             try:
-                messages = raw_sft.get("messages")
+                messages = raw_trace.get("messages")
                 if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) for m in messages):
-                    raise ValueError("raw_sft.messages must be a nonempty list of message objects.")
-                images = raw_sft.get("images", [])
+                    raise ValueError("raw_trace.messages must be a nonempty list of message objects.")
+                images = raw_trace.get("images", [])
                 if not isinstance(images, list):
-                    raise ValueError("raw_sft.images must be a list.")
+                    raise ValueError("raw_trace.images must be a list.")
                 decoded_images = {}
                 for number, entry in enumerate(images):
                     if not isinstance(entry, dict):
@@ -838,7 +838,7 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
                 # Validate the entire record before writing any of its images.
                 json.dumps(payload, ensure_ascii=False, cls=NumpyEncoder)
             except Exception as exc:
-                error = {"code": "raw_sft_invalid", "message": str(exc)}
+                error = {"code": "raw_trace_invalid", "message": str(exc)}
             if error is None:
                 try:
                     os.makedirs(images_subdir, exist_ok=True)
@@ -851,11 +851,11 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
                         pass
                     exported_count += 1
                 except Exception as exc:
-                    error = {"code": "raw_sft_write_failed", "message": str(exc)}
+                    error = {"code": "raw_trace_write_failed", "message": str(exc)}
         if error is not None:
             failure = {"task_id": copy.deepcopy(task_id), **error, "error_path": error_path}
             failures.append(failure)
-            logger.error("Raw SFT export failed for task %s [%s]: %s", task_id, error["code"], error["message"])
+            logger.error("Raw trace export failed for task %s [%s]: %s", task_id, error["code"], error["message"])
             # A failed re-export must not leave an older success available to
             # training-data consumers that enumerate the top-level JSON files.
             try:
@@ -864,7 +864,7 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
                 pass
             except OSError as exc:
                 failure["stale_output_error"] = str(exc)
-                logger.exception("Could not remove stale raw SFT export for task %s", task_id)
+                logger.exception("Could not remove stale raw trace export for task %s", task_id)
             try:
                 file_db.atomic_write(error_path, {
                     "task_id": copy.deepcopy(task_id),
@@ -872,7 +872,7 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
                     "error": error,
                 }, json_encoder=NumpyEncoder)
             except Exception:
-                logger.exception("Could not write raw SFT error sidecar for task %s", task_id)
+                logger.exception("Could not write raw trace error sidecar for task %s", task_id)
                 failure["error_path"] = None
 
     summary = {
@@ -890,7 +890,7 @@ def write_raw_trajectory_jsons(records, out_dir, limit=-1):
     try:
         file_db.atomic_write(summary_path, summary, json_encoder=NumpyEncoder)
     except Exception:
-        logger.exception("Could not write raw SFT summary to %s", summary_path)
+        logger.exception("Could not write raw trace summary to %s", summary_path)
         summary_path = None
     summary["summary_path"] = summary_path
     return summary
