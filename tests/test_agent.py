@@ -5,11 +5,18 @@ model encoders and per-question memory are exercised with an in-process model
 response queue and capabilities that record exactly which calls were executed.
 """
 import copy
+import base64
 import hashlib
+import io
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import threading
 import unittest
 from unittest.mock import patch
+
+from PIL import Image, UnidentifiedImageError
+from requests import HTTPError, Response
 
 from openvlharness.agent.agent import MainAgent
 from openvlharness.contracts import CapabilityResult
@@ -93,6 +100,91 @@ def contents(message):
 
 
 class AgentLoopTests(unittest.TestCase):
+    def test_url_images_reach_model_and_memory_from_one_download(self):
+        png = io.BytesIO()
+        Image.new("RGB", (3, 2), "blue").save(png, format="PNG")
+        data_urls = [IMAGE, "data:image/png;base64," + base64.b64encode(png.getvalue()).decode("ascii")]
+        image_bytes = [base64.b64decode(url.split(",", 1)[1]) for url in data_urls]
+        downloads = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                downloads.append(self.path)
+                body = image_bytes[0 if self.path == "/first.png" else 1]
+                self.send_response(200)
+                # Signed/storage URLs need not advertise an image content type.
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                for protocol in ALIASES:
+                    for input_form in ("typed", "strings"):
+                        with self.subTest(protocol=protocol, input_form=input_form):
+                            downloads.clear()
+                            paths = ["/first.png", "/second?download=1" if input_form == "typed" else "/second.png?download=1"]
+                            urls = [f"http://127.0.0.1:{server.server_port}{path}" for path in paths]
+                            if input_form == "typed":
+                                # M4Bench's URL-only branch emits two image dicts and text.
+                                question = [{"type": "image", "value": url, "detail": "high"} for url in urls]
+                                question.append({"type": "text", "value": "Compare these images."})
+                            else:
+                                question = urls + ["Compare these images."]
+                            original = copy.deepcopy(question)
+                            responses = [model_response(protocol, "<answer>different</answer>")]
+                            agent, fixed, _ = make_agent(protocol, responses)
+                            memory = MemoryStore()
+                            agent.memory_factory = lambda: memory
+                            result = agent.generate(question)
+                            self.assertEqual(result["prediction"], "different")
+                            self.assertEqual(len(fixed.requests), 1)
+                            self.assertEqual(downloads, paths)
+                            for index, data_url in enumerate(data_urls, 1):
+                                self.assertEqual(memory.resolve_image(f"input_image_{index}")[0], data_url)
+                                self.assertEqual(memory.resolve_image(f"image_{index}")[0], data_url)
+                            self.assertEqual(list(memory.state.images.registry), ["input_image_1", "input_image_2"])
+                            messages = wire_messages(protocol, fixed.requests[0])
+                            self.assertIn("input_image_1", contents(messages[2]))
+                            self.assertIn("input_image_2", contents(messages[2]))
+                            # Existing data-URL inputs give the same image encoding and history.
+                            local = [{"type": "image", "value": value,
+                                      **({"detail": "high"} if input_form == "typed" else {})} for value in data_urls]
+                            local.append({"type": "text", "value": "Compare these images."})
+                            expected_agent, expected, _ = make_agent(protocol, responses)
+                            expected_agent.generate(local)
+                            self.assertEqual(fixed.requests, expected.requests)
+                            self.assertEqual(question, original)
+                            self.assertEqual(result["extra_records"]["trajectory"]["input_messages"], original)
+            finally:
+                server.shutdown()
+                thread.join(timeout=5)
+
+    def test_url_image_download_errors_stop_before_model_requests(self):
+        for protocol in ALIASES:
+            for status, content, error in ((404, b"missing", HTTPError),
+                                           (200, b"not an image", UnidentifiedImageError)):
+                with self.subTest(protocol=protocol, status=status):
+                    response = Response()
+                    response.status_code = status
+                    response.url = "https://fixture.invalid/image"
+                    response._content = content
+                    response._content_consumed = True
+                    agent, fixed, _ = make_agent(protocol, [])
+                    question = [{"type": "image", "value": response.url}]
+                    with patch("openvlharness.input.requests.get", return_value=response) as download:
+                        with self.assertRaises(error):
+                            agent.generate(question)
+                    download.assert_called_once_with(response.url, timeout=30)
+                    self.assertEqual(fixed.requests, [])
+                    self.assertEqual(question, [{"type": "image", "value": response.url}])
+
     def test_tool_roundtrip_retains_ids_decodes_arguments_and_orders_evidence(self):
         def image_result(call, memory):
             ref = memory.register_image(IMAGE, provenance="tool_output:Probe_Tool")
