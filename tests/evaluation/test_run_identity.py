@@ -4,9 +4,16 @@ import pytest
 if importlib.util.find_spec("mini_vlm_toolkit") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
+import copy
+import json
 import re
+from importlib.resources import files
 from pathlib import Path
 
+import yaml
+
+from mini_vlm_toolkit.utils import run_identity
+from openvlharness.services import models
 
 from mini_vlm_toolkit.utils.run_identity import (  # noqa: E402
     build_agent_match_hash,
@@ -37,6 +44,94 @@ def _judge_cfg(version="v1", model_name="Qwen/Qwen3-VL-8B-Instruct", key="secret
         "key": key,
         "nproc": nproc,
     }
+
+
+def _manifest(config):
+    return build_run_manifest(
+        run_id="agent_v1__judge_v1", agent_config_version="v1", judge_config_version="v1",
+        agent_config=config, judge_config=_judge_cfg(),
+        config_path="configs/agent/qwen3_paper.yaml", judge_config_path="configs/judge.yaml",
+    )
+
+
+@pytest.fixture
+def local_registry(tmp_path, monkeypatch):
+    registry = {"profiles": {alias: models.load_profile(alias) for alias in
+                             ("qwen3-vl-8b-instruct", "gpt-6-luna")}}
+    path = tmp_path / "model_registry.yaml"
+    path.write_text(yaml.safe_dump(registry))
+    monkeypatch.setattr(models, "files", lambda package: tmp_path)
+    return path, registry
+
+
+def _config_with_auxiliary():
+    config = _agent_cfg()
+    config["services"]["models"]["auxiliary"] = {
+        "alias": "gpt-6-luna", "base": "https://fixture.invalid/v1", "key": "aux-secret",
+    }
+    return config
+
+
+@pytest.mark.parametrize("service", ["orchestrator", "auxiliary"])
+@pytest.mark.parametrize("field", ["prompt_bundle", "continue_empty_answer", "context_policy"])
+def test_manifest_rejects_changed_resolved_profile(local_registry, service, field):
+    path, registry = local_registry
+    config = _config_with_auxiliary()
+    existing = json.loads(json.dumps(_manifest(config)))
+    alias = config["services"]["models"][service]["alias"]
+    profile = registry["profiles"][alias]
+    original = copy.deepcopy(profile)
+    if field == "prompt_bundle":
+        profile[field] = "openai_v1" if profile[field] == "v8_instruct" else "v8_instruct"
+    elif field == "context_policy":
+        profile[field] = "provider_enforced" if profile[field] == "qwen_tokenizer" else "qwen_tokenizer"
+    else:
+        profile[field] = not profile[field]
+    path.write_text(yaml.safe_dump(registry))
+    expected = _manifest(config)
+    assert existing["agent_config_hash"] != expected["agent_config_hash"]
+    assert expected["agent_config_hash"] == build_agent_match_hash(config)
+    assert existing["resolved_model_profiles"][service]["profile"] == original
+    assert expected["resolved_model_profiles"][service]["profile"] == profile
+    assert "aux-secret" not in json.dumps(expected)
+    with pytest.raises(ValueError, match="agent config mismatch"):
+        validate_manifest_compatibility(existing, expected)
+
+
+@pytest.mark.parametrize("filename", ["v8_instruct_system.txt", "openai_v1_system.txt", "user_prefix.txt"])
+def test_manifest_rejects_prompt_content_change(tmp_path, monkeypatch, filename):
+    resources = files("openvlharness.prompts")
+    for name in ("v8_instruct_system.txt", "openai_v1_system.txt", "user_prefix.txt"):
+        (tmp_path / name).write_bytes(resources.joinpath(name).read_bytes())
+    monkeypatch.setattr(run_identity, "files", lambda package: tmp_path, raising=False)
+    config = _config_with_auxiliary()
+    existing = _manifest(config)
+    (tmp_path / filename).write_text("Changed prompt content")
+    expected = _manifest(config)
+    assert existing["agent_config_hash"] != expected["agent_config_hash"]
+    with pytest.raises(ValueError, match="agent config mismatch"):
+        validate_manifest_compatibility(existing, expected)
+
+
+def test_unreferenced_registry_entries_do_not_change_identity(local_registry):
+    path, registry = local_registry
+    config = _agent_cfg()
+    existing = _manifest(config)
+    registry["profiles"]["unused-model"] = copy.deepcopy(registry["profiles"]["gpt-6-luna"])
+    registry["profiles"]["gpt-6-luna"]["continue_empty_answer"] = True
+    path.write_text(yaml.safe_dump(registry))
+    validate_manifest_compatibility(existing, _manifest(config))
+
+
+def test_manifest_rejects_legacy_config_only_identity():
+    config = _agent_cfg()
+    expected = _manifest(config)
+    legacy = copy.deepcopy(expected)
+    legacy.pop("resolved_model_profiles", None)
+    legacy["agent_config_hash"] = run_identity.sha256_text(
+        run_identity.canonical_json(run_identity.strip_sensitive_fields(config)))
+    with pytest.raises(ValueError, match="agent config mismatch"):
+        validate_manifest_compatibility(legacy, expected)
 
 
 def test_build_run_id_contains_prefixed_versions():

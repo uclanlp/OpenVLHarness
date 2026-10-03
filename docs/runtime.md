@@ -80,6 +80,16 @@ limit; generated Python is not sandboxed.
 
 ## Deployment and extension boundaries
 
+Benchmark run manifests save the resolved profile for every configured model
+service, including auxiliaries, and SHA256 hashes of its bundled system prompt
+and the shared user prefix. The resume identity combines these with the agent
+configuration, excluding credentials. Editing a referenced registry entry or
+prompt content therefore rejects resume into the same run, even when the YAML
+alias is unchanged. Unreferenced registry entries do not affect the identity.
+Older manifests that hashed only the configuration are incompatible with this
+check; start a new run directory rather than mixing new inference into those
+saved results.
+
 The router acquires per-backend capacity before entering the thread pool. Depth
 and camera share one capacity group; queued GPU work does not block health
 requests. Gates are process-local: deploy one router worker per configured raw

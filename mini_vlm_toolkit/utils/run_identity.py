@@ -8,6 +8,7 @@ import json
 import os.path as osp
 import re
 from datetime import datetime, timezone
+from importlib.resources import files
 from typing import Any
 
 import yaml
@@ -143,10 +144,31 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _agent_identity_payload(agent_config: dict) -> dict:
+    """Resolve configured model behavior and prompts without initializing services."""
+    from openvlharness.services.models import load_profile
+
+    resources = files("openvlharness.prompts")
+    profiles = {}
+    for name, model in agent_config["services"]["models"].items():
+        profile = load_profile(model["alias"])
+        prompt_names = (profile["prompt_bundle"] + "_system.txt", "user_prefix.txt")
+        profiles[name] = {
+            "profile": profile,
+            "prompt_sha256": {
+                filename: hashlib.sha256(resources.joinpath(filename).read_bytes()).hexdigest()
+                for filename in prompt_names
+            },
+        }
+    return strip_sensitive_fields({
+        "config": agent_config,
+        "resolved_model_profiles": profiles,
+    })
+
+
 def build_agent_match_hash(agent_config: dict) -> str:
-    """Hash full agent config with sensitive fields removed."""
-    payload = strip_sensitive_fields(agent_config)
-    return sha256_text(canonical_json(payload))
+    """Hash config, resolved model profiles and prompt content, excluding secrets."""
+    return sha256_text(canonical_json(_agent_identity_payload(agent_config)))
 
 
 def build_judge_model_match_hash(judge_model_name: str) -> str:
@@ -167,15 +189,17 @@ def build_run_manifest(
 ) -> dict:
     """Build persisted run metadata for resume safety checks."""
     judge_model_name = require_judge_model_name(judge_config)
+    agent_identity = _agent_identity_payload(agent_config)
     return {
         "run_id": run_id,
         "agent_config_version": agent_config_version,
         "judge_config_version": judge_config_version,
-        "agent_config_hash": build_agent_match_hash(agent_config),
+        "agent_config_hash": sha256_text(canonical_json(agent_identity)),
+        "resolved_model_profiles": agent_identity["resolved_model_profiles"],
         "judge_model_name": judge_model_name,
         "judge_model_hash": build_judge_model_match_hash(judge_model_name),
         "matching_policy": {
-            "agent": "full_config_without_sensitive_fields",
+            "agent": "full_config_and_resolved_model_profiles_without_sensitive_fields",
             "judge": "model_name_only",
         },
         "config_paths": {
@@ -194,7 +218,7 @@ def validate_manifest_compatibility(existing: dict, expected: dict) -> None:
     """Raise ValueError when an existing manifest conflicts with this run request."""
     mismatches = []
     if existing.get("agent_config_hash") != expected.get("agent_config_hash"):
-        mismatches.append("agent config mismatch (excluding sensitive fields)")
+        mismatches.append("agent config mismatch (including resolved model profiles; excluding sensitive fields)")
     if existing.get("judge_model_name") != expected.get("judge_model_name"):
         mismatches.append("judge model mismatch")
     if mismatches:
