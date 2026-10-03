@@ -14,6 +14,11 @@ Aliases resolve through the explicit [model registry](../src/openvlharness/servi
 The vLLM served name must match the exact model ID, including capitalization;
 the shorter config alias is not the served name.
 
+When a model service omits `max_tokens`, the adapter uses 4096 for both local
+context reservation and the provider's output limit (`max_tokens` for Chat
+Completions, `max_output_tokens` for Responses). Explicit limits and the paper
+presets retain their configured budgets.
+
 ## Verified Qwen serving setup
 
 The before/after validation used an existing environment with vLLM **0.18.1**,

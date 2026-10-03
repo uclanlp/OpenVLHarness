@@ -68,6 +68,22 @@ class ModelProfileTests(unittest.TestCase):
 
 
 class ModelWireTests(unittest.TestCase):
+    def test_output_budget_reaches_provider_with_default_and_overrides(self):
+        for protocol in ALIASES:
+            for config in ({}, {"max_tokens": 16000}):
+                for options in (None, {}, {"max_tokens": 73}):
+                    with self.subTest(protocol=protocol, config=config, options=options):
+                        model = adapter(protocol, **config)
+                        reserved = config.get("max_tokens", 4096)
+                        expected = reserved if not options else options["max_tokens"]
+                        with patch("openvlharness.services.models.requests.post", return_value=response(body={})) as post:
+                            model.request([], options=options)
+                        wire = post.call_args.kwargs["json"]
+                        field = "max_tokens" if protocol == "chat_completions" else "max_output_tokens"
+                        self.assertEqual(wire[field], expected)
+                        self.assertEqual(model.max_tokens, reserved)
+                        self.assertEqual(model.options["max_tokens"], reserved)
+
     def test_native_request_bodies_match_old_and_leave_inputs_unchanged(self):
         for case in GOLDEN["wire"]:
             with self.subTest(protocol=case["protocol"]):

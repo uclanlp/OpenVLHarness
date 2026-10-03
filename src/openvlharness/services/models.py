@@ -103,6 +103,7 @@ class ModelAdapter:
         if type(self.retry) is not int or self.retry < 0 or type(self.timeout) not in (int, float) or self.timeout <= 0:
             raise ValueError("Model retry must be nonnegative and timeout must be positive")
         self.options = {key: value for key, value in config.items() if key not in connection}
+        self.options.setdefault("max_tokens", 4096)
         for key in ("max_tokens", "top_k"):
             if key in self.options and (type(self.options[key]) is not int or self.options[key] <= 0):
                 raise ValueError(f"{key} must be a positive integer")
@@ -120,7 +121,7 @@ class ModelAdapter:
                     raise ValueError(f"Invalid {key}")
         if max_context_length is not None and (type(max_context_length) is not int or max_context_length <= 0):
             raise ValueError("max_context_length must be a positive integer or null")
-        self.max_tokens = self.options.get("max_tokens", 4096)
+        self.max_tokens = self.options["max_tokens"]
         self.max_context_length = max_context_length
         self.logger = logging.getLogger("openvlharness.models")
         self._tokenizer = None
@@ -148,6 +149,7 @@ class ModelAdapter:
 
     def payload(self, messages, tools=None, tool_choice="auto", *, options=None, seed=None):
         options = cp.deepcopy(self.options if options is None else options)
+        options.setdefault("max_tokens", self.max_tokens)
         if self.protocol == "chat_completions":
             payload = {"model": self.model, "messages": cp.deepcopy(messages), **options}
             if seed is not None:
