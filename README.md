@@ -1,125 +1,135 @@
-# README
+# OpenVLHarness
 
+OpenVLHarness runs a visual language model through nine tool capabilities with
+per-question image, numerical-data and webpage memory. The paper presets use
+Qwen3-VL-8B-Instruct through Chat Completions or GPT-6-Luna through Responses.
+Search summarization and webpage extraction use greedy Qwen3-VL-8B-Instruct,
+including image inputs for multimodal search, with either orchestrator.
 
-## Tool Infra
-`mini_vlm_toolkit/tool_infra` contains the lightweight tool server/client stack used for tool execution. It keeps the tool server, client, tools, tests, and docs self-contained so they stay stable alongside the eval code. To get started, see `mini_vlm_toolkit/tool_infra/TUTORIAL_NEW.md`.
+## Install
 
-### Implemented Tools
+The client package is independent of the benchmark and GPU-service environments:
 
-| Tool | Description |
-| --- | --- |
-| `Camera_Trajectory_Tool` | Estimate per-image camera motion for two or more images of the same scene via the Depth-Anything pose endpoint; returns a bird's-eye-view plot plus movement and rotation summaries. |
-| `Crop_Tool` | Crop an image using 0-1000 normalized or pixel coordinates. |
-| `Depth_Estimation_Tool` | Estimate depth from an image using a Depth-Anything server. |
-| `DrawHorizontalLineByY_Tool` | Draw a horizontal line at the provided y coordinate. |
-| `DrawLine_Tool` | Draw a dashed line between two corners of a bounding box. |
-| `DrawVerticalLineByX_Tool` | Draw a vertical line at the provided x coordinate. |
-| `Gemini_Google_Search_Tool` | Gemini-backed Google search tool with optional citations. |
-| `Get_Tool_Schema` | Return the full parameter schema and usage guide for a named tool; used by deferred-schema agents such as `BaseAgentWithToolsV3`. |
-| `GroundingDINO_Tool` | Detect objects in an image using a GroundingDINO server and return bounding boxes. |
-| `Image_Edit_Tool` | Edit or compose one or more runtime images from a text instruction using a Qwen-Image-Edit server. |
-| `Image_Generation_Tool` | Generate a new image from a text prompt using a Qwen-Image server; the output is registered as a runtime image. |
-| `Image_Search_Tool` | Reverse image search on a runtime image via Serper Google Lens; returns visual matches with titles, source URLs, and thumbnails. |
-| `OCR_Tool` | Extract text strings from an image using an OCR server. |
-| `OverlayImages_Tool` | Overlay an image onto another with alpha blending. |
-| `Point_Tool` | Extract point coordinates from text or provided points and return 0-1000 normalized coordinates. |
-| `Python_Code_Generator_Tool` | Generate and execute simple Python code snippets for basic arithmetic calculations and math-related problems. |
-| `Python_Coding_Agent_Tool` | Ask an LLM to write Python over data bindings accumulated from earlier tool results (boxes, depth maps, OCR text); the agent executes the code locally and returns the printed output. |
-| `LLM_Direct_Generator_Tool` | Send OpenAI-compatible chat or embeddings requests to a configured server and return the full payload. |
-| `Python_Executor_Tool` | Execute a provided Python code snippet and return its output and variables. |
-| `Visual_Grounding_Tool` | Call the SAM3 segmentation server and return RLE masks with a rendered overlay. |
-| `SerpApi_Image_Search_Tool` | Search similar images with SerpApi Google Reverse Image Search from a public image URL. |
-| `SerpApi_Google_Lens_Tool` | Identify objects, landmarks, artwork, text, and more in an image using Google Lens via SerpApi. |
-| `Serper_Google_Search_Tool` | Serper-backed Google search tool that returns URLs. |
-| `Single_URL_QA_Tool` | Answer a query using content retrieved from a single URL. |
-| `Text_Search_Tool` | Serper-backed web search across web, image, news, scholar, maps, places, shopping, and patents endpoints, with optional LLM re-ranking and summarization; returned URLs become `webpage_url_N` refs. |
-| `Tracking_Tool` | Track a described target across an ordered sequence of images using SAM3 detections and Depth-Anything depth; returns per-frame tracks, 2D movement direction, and depth change. |
-| `Webpage_Visit_Tool` | Visit up to five URLs via Serper's scraping API and use an LLM to extract the evidence and a summary relevant to a stated goal. |
-| `Zoom_In_Tool` | Crop an image around a 0-1000 normalized bbox with optional padding. |
-| `ZoomInSubfigure_Tool` | Select and return subplots that match a textual description. |
-
-Config-driven subagent tools (`mini_vlm_toolkit/tool_infra/src/tools/subagent/`, one tool per YAML file in `SUBAGENT_CONFIG_DIR`) are registered dynamically at server start and are not listed above.
-
-## VLM Evaluation Usage
-Use `run_benchmark.py` to run VLM benchmarks with different agents and datasets.
-
-You can find the supported benchmark here: [link](https://aicarrier.feishu.cn/wiki/Qp7wwSzQ9iK1Y6kNUJVcr6zTnPe?table=tblsdEpLieDoCxtb&view=vewa8sGZrY)
-
-1. Install dependencies:
 ```bash
-pip install -r requirements.txt
-```
-2. Define your agent config in `configs/`. You can implement a new agent by inheriting from `mini_vlm_toolkit.agent.base.BaseAgent` and implementing `generate_inner`. Agent config must include top-level `agent_config_version`.
-3. For native tool-calling runs, use `agent_name: BaseAgentWithTools` (for example `configs/base_agent_with_tools.yaml`) and set `agent_kwargs.prompt_version` to `"v1"` or `"v2"` as needed (`base_agent_with_tools.yaml` currently defaults to `"v2"`). Persistent state memory defaults to image updates (`persistent_state_memory: {name: "image", emit_policy: "always"}`) and processes tool outputs before appending model-facing messages. For OpenAI GPT-5 models, you can also set `agent_kwargs.reasoning_effort` (for example `"medium"`).
-4. Configure LLM-as-judge in `configs/judge.yaml` and pass `--judge-config`. Judge config must include top-level `judge_config_version` and `model_name`.
-5. Run the benchmark with desired config/data. Example:
-```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-proc 4 --save-html 20
-```
-6. Outputs are written under:
-```text
-<work-dir>/<model_name>/<agent_class_lower>/<run_id>/<dataset>/
-  <model_name>_<result/acc>.<format>                # predictions
-  trajectories.jsonl                                # per-task trajectories
-  htmls/                                            # optional debug HTML reports
-<work-dir>/<model_name>/<agent_class_lower>/<run_id>/
-  run_manifest.json                                 # resume identity + matching policy
-  agent_config.redacted.yaml                        # copied once per run_id
-  judge_config.redacted.yaml                        # copied once per run_id
-```
-Where `run_id` is derived automatically as
-`agent_<agent_config_version>_judge_<judge_config_version>_<YYYYMMDD>_<HHMMSS>_<tag>`.
-Each run creates a unique timestamped directory, preventing accidental cache collisions.
-
-#### Optional:
-`--run-tag` sets a custom tag appended to the run directory name (default: `"default"`):
-```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --run-tag my_experiment
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+# For local Qwen context counting:
+pip install -e '.[qwen]'
+# On the tool-router host:
+pip install -e '.[server]'
 ```
 
-`--resume` finds and resumes the latest existing run that matches the agent/judge version prefix, instead of creating a new timestamped directory:
-```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --resume
+Raw SAM3, PaddleOCR-VL and Depth Anything 3 servers use separate environments.
+See [service setup](src/openvlharness/services/tools/README.md) for launch commands,
+provider credentials and the fixed paper tool settings. For the retained benchmark
+runner, install `requirements.txt` in an evaluation environment and install this
+package there. Those broader dependencies are unnecessary for client-only use.
+
+## Configure and run
+
+Choose [Qwen](configs/agent/qwen3_paper.yaml) or
+[Luna](configs/agent/gpt6_luna_paper.yaml). Each YAML separates agent policy,
+memory, capability selection, and deployment connections. Set the referenced
+environment variables before loading it:
+
+```bash
+export MODEL_BASE_URL=http://127.0.0.1:8222/v1  # Qwen; use your Responses endpoint for Luna
+export MODEL_API_KEY=empty                   # Set your provider key for a remote API
+export AUXILIARY_MODEL_BASE_URL=http://127.0.0.1:8222/v1
+export AUXILIARY_MODEL_API_KEY=empty
+export TOOL_SERVER_URL=http://127.0.0.1:8101
+export SAM3_SERVER_URL=http://127.0.0.1:8086
+export OCR_SERVER_URL=http://127.0.0.1:8085
+export DEPTH_ESTIMATION_SERVER_URL=http://127.0.0.1:8087
 ```
 
-`--num-examples` limits inference to the first N examples in the dataset (useful for quick testing):
-```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10
-```
+After starting the raw services and configuring search credentials, start the
+router with the same resolved agent-system configuration:
 
-`--shuffle` changes `--num-examples` from "take the first N" to "randomly sample N examples" from the dataset:
-```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10 --shuffle
+```bash
+python -m openvlharness.services.server --config configs/agent/qwen3_paper.yaml
 ```
 
-`--seed` sets the random seed used by `--shuffle` (default: `42`) so the sampled subset is reproducible:
+Then run a question in another process:
+
+```python
+from openvlharness.bootstrap import build_agent
+
+agent = build_agent("configs/agent/qwen3_paper.yaml")
+result = agent.generate([
+    {"type": "image", "value": "/path/to/image.jpg"},
+    {"type": "text", "value": "How many bottles are visible?"},
+])
+print(result["prediction"])
 ```
-python run_benchmark.py --config configs/base_agent_with_tools.yaml --judge-config configs/judge.yaml --data MMStar --num-examples 10 --shuffle --seed 123
+
+`generate` creates fresh memory for every question. Its return value includes
+`extra_records.trajectory` and grounding detections for reporting. The client
+imports only the selected capability files; the router imports only configured
+tool implementations. Unregistered model aliases and unsupported options fail
+at startup. To add another served model, explicitly register its ID, protocol,
+prompt and context policy in
+[model_registry.yaml](src/openvlharness/services/model_registry.yaml). Kimi's
+planned transport is Chat Completions; this release's tested profiles are Qwen
+and Luna. An alternative auxiliary model can use a registered profile, while the
+paper default remains multimodal Qwen.
+
+## Capabilities
+
+| Public tool | Paper implementation and result |
+| --- | --- |
+| `Visual_Grounding_Tool` | SAM3 boxes, scores, RLE masks and numbered overlay |
+| `OCR_Tool` | PaddleOCR-VL text, also available as `ocr_result["text"]` |
+| `Depth_Estimation_Tool` | Depth Anything 3 visualization and float32 array binding |
+| `Camera_Trajectory_Tool` | Ordered DA3 poses, float32 intrinsics/extrinsics and visualization |
+| `Zoom_In_Tool` | Crop using 0–1000 coordinates and padding |
+| `Text_Search_Tool` | Serper web/image/news/scholar/maps/places/shopping/patent search |
+| `Image_Search_Tool` | Serper Lens reverse image search |
+| `Webpage_Visit_Tool` | Serper scrape and Qwen evidence extraction, up to five URLs |
+| `Python_Coding_Agent_Tool` | Orchestrator-matched code generation, then local execution on copied bindings |
+
+The optional `extensions` registry enables `grounding_dino` as a replacement
+for `grounding`; it keeps the public `Visual_Grounding_Tool` signature. DINO stores
+`segment_<query>` with `pred_boxes` and `pred_scores`; masks and mask count are
+null. It does not invoke SAM3 to manufacture masks. Remove a capability from
+`capabilities.tools` to omit it from the agent and router.
+
+Code execution copies input bindings and has a 30-second limit. It executes
+Python in the calling process and **is not a security sandbox**. The worker-thread
+timeout cannot necessarily interrupt a blocked native-library or network call.
+Use an isolated deployment appropriate for the data and generated code.
+
+See [runtime design](docs/runtime.md) for contracts, ownership, retries and the
+two intentional changes from the old runtime.
+
+## Benchmark evaluation
+
+The existing dataset loaders and evaluators remain under `mini_vlm_toolkit`.
+Set `LMUData` to a local disk for downloads and generated artifacts. FSC147 and
+ODinW have deterministic counting/box metrics and do not require an LLM judge:
+
+```bash
+export LMUData=/path/to/local/datasets
+python run_benchmark.py \
+  --config configs/agent/qwen3_paper.yaml \
+  --judge-config configs/judge_no_judge.yaml \
+  --data FSC147_test --num-examples 12 --shuffle --seed 42 \
+  --num-proc 1 --save-html all --work-dir /path/to/local/runs
 ```
 
-`--save-html` controls HTML report generation:
-- `--save-html 0` (default): disable HTML output.
-- `--save-html N`: generate top `N` tasks ranked by trajectory/chat-history length.
-- `--save-html all`: generate HTML for all tasks.
+Use `ODinW13_bbox_test_qwen3` for ODinW, and `configs/judge.yaml` for benchmarks
+that require a judge. The no-judge preset passes an actual null model into the
+evaluator. `--num-examples` limits the evaluated sample, `--shuffle --seed`
+selects a repeatable subset, and `--num-proc` controls concurrent examples.
 
-`--save-images` controls how images are stored inside the per-task
-`full_trajectories/<task_id>.json` files:
-- `--save-images files` (default): every user/tool image is decoded and
-  written to a sibling `full_trajectories/images/` folder as
-  `<task_id>_<idx>.<ext>`, and the corresponding `image_url` entries in the
-  saved messages are rewritten to relative paths like `images/51_0.jpg`.
-  Keeps the JSON files small and gives downstream tooling (e.g. SFT data
-  conversion) real on-disk paths.
-- `--save-images base64`: keep inline `data:image/...;base64,...` URIs in
-  the messages (legacy behavior). No `images/` folder is created.
-
-`--incremental-json` enables real-time JSONL output during inference:
-- When enabled, writes `{model_name}_incremental.jsonl` in the dataset work directory.
-- Each completed task is appended as a JSON object per line as results arrive.
-- Useful for debugging and monitoring progress without waiting for the full run to complete.
-- You can monitor results in real-time using `tail -f <work-dir>/.../<model_name>_incremental.jsonl`.
-
-Note: define your data root with `LMUData` in `.env` (capital D).
+Each run creates a unique directory under
+`<work-dir>/<model>/<agent>/<run_id>/<dataset>/`, containing predictions,
+`trajectories.jsonl`, full trajectories and optional HTML reports. The parent
+contains the resume manifest, redacted configurations and a router environment
+snapshot. `--resume` requires matching run configuration. `--save-images files`
+(the default) writes attachments beside full trajectories; `base64` keeps them
+inline. `--incremental-json` writes results as examples complete.
 
 ### Benchmarks hosted on HuggingFace
 The splits below (prompts, annotations and images) are hosted at
@@ -139,9 +149,20 @@ ODinW evaluation also downloads its ground-truth annotations to `LMUData/GLIP` u
 document how each split was built from its original source. `CountQA` and `PixmoCount_*`
 are instead built from their original sources on first use (see `countqa.py`, `pixmo_count.py`).
 
-## Local Visualization Server
-To visualize trajectories, download the full_trajectories directory and run this command to start a local visualization server:
+## Validation and historical source
+
+```bash
+pip install -e '.[test,server]'
+python -m pytest tests -q
 ```
-streamlit run configs/cf-testing/visualize_server.py --trajectory-dir <path-to-trajectories>
-```
-Then open the provided localhost URL in your browser to explore the trajectories with an interactive interface.
+
+The fixtures preserve old public schemas, prompts, model payloads, memory values
+and tool evidence. They cover both native protocols, numeric dtype/shape, local
+execution, error envelopes and shared backend concurrency. Regression evidence
+and the small live comparison are described in [release validation](docs/validation.md).
+
+The old runtime is recorded at commit
+`b98e5a540c4867eab20e07166c274e7ca8b8b9fe` on `opensource`. Its agent classes,
+configuration format and cache artifacts are not compatibility APIs for the new
+package. Dataset preparation and evaluation remain available in their original
+locations.

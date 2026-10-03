@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "openvlharness"
 version = "0.1.0"
 description = "A visual tool agent with persistent per-question memory"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["requests>=2.28", "PyYAML>=6", "numpy>=1.24", "Pillow>=9", "jsonschema>=4"]
 
