@@ -366,6 +366,38 @@ class AgentLoopTests(unittest.TestCase):
                 self.assertEqual(probe.invocations, [])
                 self.assertEqual(len(fixed.requests), 1)
 
+    def test_invalid_responses_output_records_protocol_error_and_preserves_partial_turns(self):
+        for body in ({}, {"output": None}, {"output": False}, {"output": 0}, {"output": ""}, {"output": {}}):
+            for after_tool in (False, True):
+                with self.subTest(body=body, after_tool=after_tool):
+                    queue = []
+                    if after_tool:
+                        queue.append(model_response("responses", calls=[("kept", "Probe_Tool", '{"query":"count"}')],
+                                                    usage={"total_tokens": 13}))
+                    queue.append(body)
+                    agent, fixed, probe = make_agent("responses", queue)
+                    result = agent.generate("Question")
+                    trajectory = result["extra_records"]["trajectory"]
+                    self.assertEqual(result["prediction"], MainAgent.fail_msg)
+                    self.assertEqual(trajectory["error"], "Invalid responses payload: output must be a list")
+                    self.assertEqual(len(fixed.requests), 2 if after_tool else 1)
+                    self.assertEqual(len(probe.invocations), int(after_tool))
+                    self.assertEqual(len(trajectory["chat_history"]), int(after_tool))
+                    self.assertEqual(trajectory["messages"], fixed.requests[-1]["input"])
+                    if after_tool:
+                        self.assertEqual(trajectory["chat_history"][0]["tool_responses"][0]["tool_call_id"], "kept")
+                        self.assertEqual(result["extra_records"]["usage"]["total"]["total_tokens"], 13)
+
+    def test_explicit_empty_responses_output_finishes_without_protocol_error(self):
+        agent, fixed, probe = make_agent("responses", [{"output": []}])
+        result = agent.generate("Question")
+        trajectory = result["extra_records"]["trajectory"]
+        self.assertEqual(result["prediction"], MainAgent.fail_msg)
+        self.assertNotIn("error", trajectory)
+        self.assertEqual(len(trajectory["chat_history"]), 1)
+        self.assertEqual(len(fixed.requests), 1)
+        self.assertEqual(probe.invocations, [])
+
     def test_runtime_context_fallback_is_chat_only_and_uses_first_user_without_tools(self):
         for protocol in ALIASES:
             with self.subTest(protocol=protocol):

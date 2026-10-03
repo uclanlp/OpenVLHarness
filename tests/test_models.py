@@ -180,10 +180,15 @@ class ModelParsingTests(unittest.TestCase):
 
     def test_malformed_top_level_response_fails_loudly(self):
         for protocol, bodies in [("chat_completions", [None, [], {}, {"choices": []}, {"choices": [None]}, {"choices": [{"message": "text"}]}]),
-                                  ("responses", [None, [], {"output": "not a list"}])]:
+                                  ("responses", [None, [], {}, {"output": None}, {"output": False},
+                                                 {"output": 0}, {"output": ""}, {"output": {}},
+                                                 {"output": "not a list"}])]:
             for body in bodies:
                 with self.subTest(protocol=protocol, body=body), self.assertRaises(RuntimeError):
                     adapter(protocol).parse(body, 0)
+
+    def test_explicit_empty_responses_output_is_valid(self):
+        self.assertEqual(adapter("responses").parse({"output": []}, 0), ("", [], None))
 
     def test_multi_call_policy_preserves_every_id_and_suppressed_parse_error(self):
         chat_calls = [{"id": "first", "function": {"name": "A", "arguments": "{bad"}},

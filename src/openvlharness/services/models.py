@@ -363,7 +363,7 @@ class ModelAdapter:
             calls = self._enforce_single_tool_call_per_message(
                 self._normalize_tool_calls(message.get("tool_calls"), turn_idx), turn_idx=turn_idx, phase=phase)
             return text, calls, message
-        output = response.get("output") or []
+        output = response.get("output")
         if not isinstance(output, list):
             raise RuntimeError("Invalid responses payload: output must be a list")
         calls = self._normalize_responses_tool_calls(self._extract_function_calls(output), turn_idx)
