@@ -117,6 +117,12 @@ Two intentional semantic changes accompany extraction:
 2. DINO uses `segment_<query>` with `pred_boxes`/`pred_scores` and null masks/count.
    Its evidence describes bounding boxes and does not claim mask availability.
 
+Review intentionally changes the model-visible Text Search description to match
+caller-selected `search_type`, summarization and retained source results. It no
+longer promises automatic intent classification or numbered citations. Search
+arguments, service controls and the official Qwen multimodal summarizer are
+unchanged; this description change alters the tool schema sent to the model.
+
 Reporting additionally retains partial trajectories on transport exceptions and
 records Qwen usage totals. These reporting fields do not alter model inputs.
 

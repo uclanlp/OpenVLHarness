@@ -287,7 +287,11 @@ class CapabilityBoundaryTests(unittest.TestCase):
             modified = capability.public_schema()
             modified["function"]["parameters"]["properties"].clear()
             self.assertEqual(capability.public_schema(), schema)
-        self.assertEqual(actual, SCHEMAS)
+        expected = copy.deepcopy(SCHEMAS)
+        for schema in expected:
+            if schema["function"]["name"] == "Text_Search_Tool":
+                schema["function"]["description"] = text_search.PUBLIC_SCHEMA["function"]["description"]
+        self.assertEqual(actual, expected)  # Only the documented Text Search description changes.
         self.assertEqual(len({schema["function"]["name"] for schema in actual}), 9)
 
     def test_s01_hidden_arguments_never_reach_service_or_memory(self):

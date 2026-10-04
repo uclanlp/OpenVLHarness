@@ -120,23 +120,7 @@ from ._base import BaseCapability
 
 PUBLIC_SCHEMA = {'type': 'function',
  'function': {'name': 'Text_Search_Tool',
-              'description': 'Search the web with intelligent query routing and optional LLM '
-                             'summarization. Given a text query, this tool automatically '
-                             'classifies the query intent and routes it to the best search '
-                             'endpoint — general web search, image search (find images by text), '
-                             'news, academic papers (scholar), maps, local places, shopping, or '
-                             'patents. You can also specify the search_type to choose a specialist '
-                             'endpoint.\n'
-                             '\n'
-                             'Returns a coherent summary of search results with inline citations '
-                             '[1], [2], ... followed by a Citations block listing source titles '
-                             'and URLs. This format supports multi-round search: read the summary '
-                             'for quick understanding, then visit specific cited URLs for deeper '
-                             'info.\n'
-                             '\n'
-                             'Use this tool when you need to discover information, find URLs, or '
-                             'gather search results. For reading actual webpage content, use '
-                             'Webpage_Visit_Tool after obtaining URLs from the citations.',
+              'description': 'Search the caller-selected endpoint using search_type: general web search (the default), images, news, scholar, maps, places, shopping, or patents. Summarizes the retrieved evidence and returns retained, reranked results with source titles, snippets or metadata, and available links. Image search can include retained images and a multimodal summary. Use the summary and retained sources to plan follow-up searches; use Webpage_Visit_Tool to read a source page in detail.',
               'parameters': {'type': 'object',
                              'properties': {'query': {'type': 'string',
                                                       'description': 'The search query string. Can '
