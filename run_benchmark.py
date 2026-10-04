@@ -341,7 +341,9 @@ if __name__ == "__main__":
                         else run_manifest["config_snapshot_redacted"]["judge"])
         judge_config_version = require_config_version(judge_config, field_name="judge_config_version", label="Judge config")
         judge_kwargs = load_judge_config(judge_config)
-        if judge_kwargs.get("model") is not None and judge_kwargs.get("key") == "<REDACTED>":
+        # Local matching policies do not construct an API judge.
+        if (judge_kwargs.get("model") not in (None, "exact_matching", "extract_matching")
+                and judge_kwargs.get("key") == "<REDACTED>"):
             raise ValueError("Saved judge credentials are redacted; supply --judge-config for the evaluator's judge")
         logger.info("Evaluating saved %s/%s outputs without an inference agent", agent_class, model_name)
         logger.info("LLM Judge Configurations: %s", redact_sensitive_fields(judge_kwargs))

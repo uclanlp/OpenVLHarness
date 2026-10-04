@@ -76,6 +76,42 @@ def test_eval_cli_needs_only_saved_outputs_and_optional_judge(tmp_path, monkeypa
     assert (root / "run_manifest.json").read_bytes() == before
 
 
+@pytest.mark.parametrize("judge_model,needs_credentials", [
+    (None, False), ("exact_matching", False), ("extract_matching", False), ("gpt-4o", True),
+])
+def test_eval_redacted_placeholder_key_allows_local_matching(tmp_path, monkeypatch, no_inference,
+                                                           judge_model, needs_credentials):
+    from mini_vlm_toolkit.utils.run_identity import redact_sensitive_fields
+
+    root, manifest = saved_run(tmp_path)
+    judge = {"judge_config_version": "matching", "model_name": judge_model, "key": "empty"}
+    manifest["config_snapshot_redacted"]["judge"] = redact_sensitive_fields(judge)
+    assert manifest["config_snapshot_redacted"]["judge"]["key"] == "<REDACTED>"
+    manifest_path = root / "run_manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    before = manifest_path.read_bytes()
+    calls = []
+
+    def evaluate(path, **kwargs):
+        rows = pd.read_csv(path, sep="\t")
+        assert (rows["prediction"] == rows["answer"]).all()
+        calls.append(kwargs)
+
+    dataset = SimpleNamespace(MODALITY="IMAGE", evaluate=evaluate)
+    monkeypatch.setattr(datasets, "build_dataset", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(sys, "argv", [str(CLI), "--mode", "eval", "--data", "ToyEval",
+                                     "--run-dir", str(root)])
+    if needs_credentials:
+        with pytest.raises(ValueError, match="Saved judge credentials are redacted; supply --judge-config"):
+            runpy.run_path(str(CLI), run_name="__main__")
+        assert not calls
+    else:
+        runpy.run_path(str(CLI), run_name="__main__")
+        assert len(calls) == 1
+        assert calls[0]["model"] == judge_model
+    assert manifest_path.read_bytes() == before
+
+
 def test_eval_discovery_uses_saved_metadata_and_latest_complete_predictions(tmp_path, monkeypatch, no_inference):
     module = runpy.run_path(str(CLI))
     saved_run(tmp_path, "run_1")
