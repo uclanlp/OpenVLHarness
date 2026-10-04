@@ -1,0 +1,167 @@
+{
+  "purpose": "Frozen perception integration checks; not a full benchmark estimate.",
+  "seed": 42,
+  "source_manifest_sha256": "bd0edb4cac8f927d0c4052799c4c8157b1e536d047ad282e1f3a5bf7e5d84eb2",
+  "datasets": {
+    "ODinW13_bbox_test_qwen3": {
+      "selection": "Seed 42; one uniformly selected positive row (num_instances > 0) per alphabetically ordered domain, candidate rows sorted by index. Positive-only selection avoids undefined AP in a one-image domain with no GT objects.",
+      "samples": [
+        {
+          "index": "AerialMaritimeDrone_large_test_5",
+          "image": "images/ODinW/AerialMaritimeDrone_large/DJI_0262_JPG.rf.fb3b37a9448a5afcccef1176d205a338.jpg",
+          "image_sha256": "f19e73e92cb9df3130ab0995c0fe00dc8c2839de2cbea36d19ef79c82f67c0e5",
+          "question_sha256": "94cb081bbe0d6fd1c9393f527bb06c9fec2d6d37002911cae312d1b5f6a22850"
+        },
+        {
+          "index": "Aquarium_Aquarium_Combined.v2-raw-1024.coco_test_15",
+          "image": "images/ODinW/Aquarium_Aquarium_Combined.v2-raw-1024.coco/IMG_2532_jpeg_jpg.rf.2afeb76e5d9372dbbd6fbc53d5b75675.jpg",
+          "image_sha256": "d983f621259f96b10d3869d7006a6c62f4e6c04ca783ca461a6a47038b0a8efb",
+          "question_sha256": "77391ac2a15e9205e4977035f092bae7fea0075ccd95181b86edc305fb6713a6"
+        },
+        {
+          "index": "CottontailRabbits_test_0",
+          "image": "images/ODinW/CottontailRabbits/animals-rabbits_OGSPXCGUXJ_jpg.rf.12057f59aeb96269d0c271cf997fe5a5.jpg",
+          "image_sha256": "1b6ec94ee68eb22200cf81e0654256aeb113927f5f0995984935b76744fc05d4",
+          "question_sha256": "4ec5f87e17db64b323101ef0bed78380b033e233d57c64cd92bf1e115db796e1"
+        },
+        {
+          "index": "EgoHands_generic_test_440",
+          "image": "images/ODinW/EgoHands_generic/PUZZLE_OFFICE_H_B_frame_2268_jpg.rf.e62ae64fc190a98fcd71fc7d6516880b.jpg",
+          "image_sha256": "41c73f934d6e276b84662a0100255e703122211900c0335e17e1790f49d441ea",
+          "question_sha256": "77313293c498c92e1f1df0537ccec423eb2a773444d3223d7815f2eadbae574e"
+        },
+        {
+          "index": "NorthAmericaMushrooms_North_American_Mushrooms.v1-416x416.coco_test_2",
+          "image": "images/ODinW/NorthAmericaMushrooms_North_American_Mushrooms.v1-416x416.coco/chicken01_jpg.rf.6232850cea082a1ecc27f121c60ceb10.jpg",
+          "image_sha256": "102bdffd92db52999abf48638f92df09e7319296aad12bc31b38177d929ef27c",
+          "question_sha256": "78b7a824abf6c8ec392938d74f28138ab9de9d50dee754b010a265c08831d5e3"
+        },
+        {
+          "index": "Packages_Raw_test_0",
+          "image": "images/ODinW/Packages_Raw/PXL_20201103_181916758_jpg.rf.143b472aca26adaf77dbc094c9b1fa3b.jpg",
+          "image_sha256": "54fbbb5577ece9becf942cdec6e0d0909961dc28eb5fc28c93966b644598efdb",
+          "question_sha256": "bab1a8f1dcb35e0db8768c22850ed6b9087e89c4d74057d50b80523fe3a78aa7"
+        },
+        {
+          "index": "PascalVOC_test_1850",
+          "image": "images/ODinW/PascalVOC/2009_001713_jpg.rf.8eaf34dcdb7fabc26c10205eb11f6b41.jpg",
+          "image_sha256": "3f6db869a7a078f531c6321c9881054db24244969e672df413ff57cd23e7096f",
+          "question_sha256": "e2d57cbf29a593345c38f8e015e0076c044b58ed737de95331877969f4bfdfc2"
+        },
+        {
+          "index": "Raccoon_Raccoon.v2-raw.coco_test_12",
+          "image": "images/ODinW/Raccoon_Raccoon.v2-raw.coco/raccoon-62_jpg.rf.a055b6e5102faea5fa404472bbc7a5fc.jpg",
+          "image_sha256": "402fdc8351cd605b72bc1a37b82441733888d6fcacccc296a53898f0821d256f",
+          "question_sha256": "34e177121b8d77e55efc685198352dfe788fce50bf027b2f87500810c7e0702d"
+        },
+        {
+          "index": "ShellfishOpenImages_raw_test_51",
+          "image": "images/ODinW/ShellfishOpenImages_raw/0186f92cb40b91db_jpg.rf.d14430a806966e604801d02e8415cafe.jpg",
+          "image_sha256": "dd010ba688c1fcabe98d89e0e681e734a5944613987c44a2d1ebf02f9cab41a8",
+          "question_sha256": "1b032bdcf7c400ee2d716d4a18e6edece4d8e1ee61196dac7ef746027a45f804"
+        },
+        {
+          "index": "VehiclesOpenImages_416x416_test_11",
+          "image": "images/ODinW/VehiclesOpenImages_416x416/7baf801decfab71a_jpg.rf.1atdX9M2VU1J7hd8ePoy.jpg",
+          "image_sha256": "6396ab9ec228e8552338bd0158e7c131b7afb49598a13c3b141d73352feb93b9",
+          "question_sha256": "8e5339f010dc0d6ac76af4832ab0e81c3b59fe8edaede8301b16fcda545727f9"
+        },
+        {
+          "index": "pistols_export_test_770",
+          "image": "images/ODinW/pistols_export/armas (238).jpg.rf.42247895817283b6ae466daedc03fb62.jpg",
+          "image_sha256": "a710f4e49ada574a3a457c8c321936e6b4aef4506a4d84e06bf31d3b03de76f0",
+          "question_sha256": "cfc60f1833f9478a0571b0ed63f0f82c83ad272daac339f05cec28828bb7252c"
+        },
+        {
+          "index": "pothole_test_19",
+          "image": "images/ODinW/pothole/img-42_jpg.rf.532fb8eb05b1efc570c5e4165e614201.jpg",
+          "image_sha256": "4f7c13aa39625a97c7c42dbebbb034810c13c71443bf3aedfe16dbaecbf8e6ae",
+          "question_sha256": "f85b2c4905c47b278d8cbab13c0dc84a47126013b6e5b26379c9694b01eb3fac"
+        },
+        {
+          "index": "thermalDogsAndPeople_test_4",
+          "image": "images/ODinW/thermalDogsAndPeople/IMG_0027_jpg.rf.888f9a5d05a43267ac39a7c09cd0fc4b.jpg",
+          "image_sha256": "288f374ad1bd734ba23d08ec526baeb6f0a372412d2f4c323ad4382050bee9df",
+          "question_sha256": "acd6125a68b1e8b6c1e9e823e035e725360792dbb733d3db664e8e7da465b785"
+        }
+      ]
+    },
+    "FSC147_test": {
+      "selection": "Same seeded RNG after ODinW; count rank quartiles crossed with within-quartile count-per-megapixel rank tertiles, one uniform row per cell. Count and density ties broken by index. Density is an image-level proxy, not annotated object area.",
+      "samples": [
+        {
+          "index": "1096",
+          "image": "images/FSC147/7459.jpg",
+          "image_sha256": "0ea34109e4c77c5679125e22bf350b4eaed5ae7db7108ecd6e58786ac4dec7a8",
+          "question_sha256": "63c8b7a22299b09c4167e2a0148dc02e0fd870913624992e9ffc370de7ae9f6b"
+        },
+        {
+          "index": "1079",
+          "image": "images/FSC147/6833.jpg",
+          "image_sha256": "3821ea6d3cf851aada2f81b064d45075d000add8bdcc89f1da3f5b3897c45bef",
+          "question_sha256": "504b1fb42b6d0708961ce3646ebdf14be9f429470255f5e9f93cbd6c127c087c"
+        },
+        {
+          "index": "1116",
+          "image": "images/FSC147/7192.jpg",
+          "image_sha256": "692649c522582436e62d414319a34ec5e5e1d0e9f31643c0ec65ffd48042ec52",
+          "question_sha256": "e050053491c831d16553adb8ae024425ee26fccb4ea31e765a8504ede98e73d2"
+        },
+        {
+          "index": "219",
+          "image": "images/FSC147/2177.jpg",
+          "image_sha256": "767f32b94e7ecfc3332fe98eba64d4f4bde2115d9c12409b323c98a3c9992b4c",
+          "question_sha256": "181c76f8d56cd6682cf8f5895c80a0c9364b11c78a41541f666d9cd96d1eb544"
+        },
+        {
+          "index": "26",
+          "image": "images/FSC147/307.jpg",
+          "image_sha256": "402307edcfe7adb89918ebc1adda96237fdf4393437f1d314166205b2407d6b8",
+          "question_sha256": "3198d97ebb7f1d4a03dc96c81e7a50ae4e6c0beeaa33fe87eaf6cb098735d488"
+        },
+        {
+          "index": "652",
+          "image": "images/FSC147/5372.jpg",
+          "image_sha256": "932b963672e4b700ae1d1b290b93e6f9c2c4080f6b710c781a18a06b5772e26e",
+          "question_sha256": "8472134bf492797c8fc8f13a4d51e3007555ca44ceed86e611ae98690eb22a1d"
+        },
+        {
+          "index": "783",
+          "image": "images/FSC147/5849.jpg",
+          "image_sha256": "0c57b35c7ddf55ba85991a0d64c1278cb07641bd9e22fcbe38104825c3aad0d1",
+          "question_sha256": "3198d97ebb7f1d4a03dc96c81e7a50ae4e6c0beeaa33fe87eaf6cb098735d488"
+        },
+        {
+          "index": "1017",
+          "image": "images/FSC147/6810.jpg",
+          "image_sha256": "1cce83c1c6922aa26534da89e39516d69eecc6e59464ee981e8aa92616ae8c67",
+          "question_sha256": "087c5474d56102d4bbe5e2262338fb5e0074ed1a5dc5c1e0a5a619d815cb1849"
+        },
+        {
+          "index": "742",
+          "image": "images/FSC147/5808.jpg",
+          "image_sha256": "fb0f4da8961394c2e311e7abd792c9f922d67ca00ef9d053c36420e094e714f3",
+          "question_sha256": "6bfb697b3c9f6adec9244a902d32c2558304f1c587661b3fd5e26ba6150b9261"
+        },
+        {
+          "index": "1152",
+          "image": "images/FSC147/6739.jpg",
+          "image_sha256": "a25925c9eb059b55824dd76944bc642d7fceea2aa5176848a84cfe6b1ce35068",
+          "question_sha256": "47ac7b06602ace0ca8bd56ce33b40a5a892207b0196e6608ff05b73d37805479"
+        },
+        {
+          "index": "866",
+          "image": "images/FSC147/6272.jpg",
+          "image_sha256": "bddab08d71eb128d003dc4099b01616d57a158f7750a0199ac3ba34111d06834",
+          "question_sha256": "181c76f8d56cd6682cf8f5895c80a0c9364b11c78a41541f666d9cd96d1eb544"
+        },
+        {
+          "index": "865",
+          "image": "images/FSC147/6271.jpg",
+          "image_sha256": "50fe7f300015d5690334294168ade79e4b8d90e9d03095910e168306a6c42700",
+          "question_sha256": "181c76f8d56cd6682cf8f5895c80a0c9364b11c78a41541f666d9cd96d1eb544"
+        }
+      ]
+    }
+  }
+}
