@@ -54,8 +54,9 @@ def process_tool_output(payload, prepared, tool_metadata=None):
         image_parts = []
 
     pred_scores = result.get("pred_scores")
-    if isinstance(pred_scores, list):
-        mask_count = len(pred_scores)
+    pred_boxes = result.get("pred_boxes", [])
+    if isinstance(pred_boxes, list):
+        mask_count = len(pred_boxes)
     else:
         mask_count = _safe_int(result.get("num_masks"), default=0)
 
@@ -63,8 +64,7 @@ def process_tool_output(payload, prepared, tool_metadata=None):
     prompt = str(result.get("prompt") or "").strip()
 
     tool_detection = None
-    if mask_count > 0 and image_ref:
-        pred_boxes = result.get("pred_boxes", [])
+    if mask_count > 0:
         orig_w = result.get("orig_img_w", 1)
         orig_h = result.get("orig_img_h", 1)
 
@@ -110,9 +110,11 @@ def process_tool_output(payload, prepared, tool_metadata=None):
         boxes_block = f"```json\n[\n{inner}\n]```"
         text = (
             f"{tool_name} grounded {mask_count} objects for the prompt {prompt!r}. "
-            f"Their corresponding bounding boxes (on a 0-1000 scale, [x1, y1, x2, y2]) are: {boxes_block}. "
-            f"The object numbers correspond to the labeled masks rendered in the following image, which you can refer to as {image_ref}."
+            f"Their corresponding bounding boxes (on a 0-1000 scale, [x1, y1, x2, y2]) are: {boxes_block}."
         )
+        if image_ref:
+            text += (f" The object numbers correspond to the labeled masks rendered in the following image, "
+                     f"which you can refer to as {image_ref}.")
     else:
         text = (
             f"{tool_name} grounded {mask_count} objects for the prompt {prompt!r}."

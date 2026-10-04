@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image, UnidentifiedImageError
 from requests import HTTPError, Response
@@ -456,6 +456,26 @@ class AgentLoopTests(unittest.TestCase):
                 for request in [fixed.requests[2], fixed.requests[4]]:
                     self.assertNotIn("tool_generated_image_1", json.dumps(request))
                     self.assertNotIn("webpage_url_1", json.dumps(request))
+
+    def test_grounding_without_overlay_reaches_model_evidence_and_detection_sidecar(self):
+        from openvlharness.capabilities.grounding import Capability
+
+        for protocol in ALIASES:
+            with self.subTest(protocol=protocol):
+                client = Mock()
+                client.execute.return_value = {"ok": True, "result": {"prompt": "shoe",
+                    "pred_boxes": [[10, 5, 40, 20]], "pred_scores": [0.8], "orig_img_h": 100, "orig_img_w": 200}}
+                capability = Capability(backend="sam3_segment", client_config={}, client=client)
+                agent, fixed, _ = make_agent(protocol, [
+                    model_response(protocol, calls=[("ground", capability.name, '{"query":"shoe","image_id":"input_image_1"}')]),
+                    model_response(protocol, '<answer>[{"bbox_2d": [50, 50, 200, 200]}]</answer>')], capability)
+                result = agent.generate([{"type": "image", "value": IMAGE}, {"type": "text", "value": "Find shoes"}])
+                detections = result["extra_records"]["tool_detections"]
+                self.assertEqual(len(detections), 1)
+                self.assertEqual(detections[0]["boxes_xyxy_pixels"], [[10, 5, 40, 20]])
+                self.assertEqual(detections[0]["scores"], [0.8])
+                self.assertIn("bbox_2d", json.dumps(fixed.requests[1]))
+                self.assertNotIn("tool_generated_image_", json.dumps(wire_messages(protocol, fixed.requests[1])))
 
     def test_caller_input_and_system_prompt_are_not_mutated_between_runs(self):
         for protocol in ALIASES:

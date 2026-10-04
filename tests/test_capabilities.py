@@ -118,6 +118,30 @@ class CapabilityBoundaryTests(unittest.TestCase):
         self.assertEqual(plain(result.artifact_refs), [{"kind": "image", "id": "tool_generated_image_1"},
                                                      {"kind": "binding", "id": "segment_red_shoe"}])
 
+    def test_sam3_detections_and_evidence_do_not_require_an_overlay(self):
+        raw = {"prompt": "shoe", "pred_boxes": [[10.25, 5.5, 40.75, 20.0]],
+               "pred_scores": [0.81234], "orig_img_h": 100, "orig_img_w": 200}
+        for scores in (True, False):
+            with self.subTest(scores=scores):
+                response = copy.deepcopy(raw)
+                if not scores:
+                    del response["pred_scores"]
+                capability, _ = make_capability("Visual_Grounding_Tool", response)
+                result = capability.invoke(VirtualCall("without_overlay", capability.name,
+                    {"query": "shoe", "image_id": "input_image_1"}), new_memory())
+                self.assertTrue(result.ok, result.error)
+                self.assertEqual(result.data["boxes"], raw["pred_boxes"])
+                self.assertIsNone(result.data["rendered_image"])
+                text = result.evidence[0]["text"]
+                self.assertIn('"bbox_2d": [51, 55, 204, 200]', text)
+                self.assertNotIn("labeled masks rendered", text)
+                self.assertNotIn("did not successfully ground", text)
+                if scores:
+                    self.assertEqual(result.detection, {"tool_name": capability.name, "category_query": "shoe",
+                        "boxes_xyxy_pixels": raw["pred_boxes"], "scores": raw["pred_scores"],
+                        "image_width": 200, "image_height": 100})
+                else:
+                    self.assertIsNone(result.detection)
     def test_g01_empty_sam3_is_success_with_old_evidence_and_no_detection(self):
         case = OLD["cases"]["sam3_empty"]
         result, memory, _ = replay(case)
