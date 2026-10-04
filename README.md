@@ -232,15 +232,28 @@ unsuffixed metrics files; alternate metrics include the mode in their filenames.
 
 ### Inspect and resume runs
 
-Results are saved under `<work-dir>/<model>/<agent>/<run_id>/<dataset>/`, including
-predictions, metrics, `trajectories.jsonl`, and full trajectory JSON. Use
-`--save-html all` to browse the tool evidence in HTML reports. Images are written
-beside trajectories by default; `--save-images base64` embeds them instead.
+Results are saved under `<work-dir>/<model>/<agent>/<run_id>/<dataset>/`.
+For image/text benchmarks, the main artifacts are:
 
-The run directory also records redacted configurations, resolved model profiles,
-and service metadata. Add `--resume` to continue a compatible partial run; changes
-to the effective configuration require a new run. `--incremental-json` appends
-results as examples finish.
+| Artifact | Contents |
+| --- | --- |
+| `<model>.xlsx` | Predictions; set `PRED_FORMAT=tsv` or `PRED_FORMAT=json` to change the format |
+| Dataset-specific metric files | Scores and diagnostics written by the evaluator |
+| `input_snapshot.json` | Inputs selected for this dataset run |
+| `full_trajectories/<sample_id>.json` | Agent messages, tool results and final answer |
+| `full_trajectories/images/` | Copied trajectory images; `--save-images base64` embeds images instead |
+| `tool_detections/<sample_id>.json` | Detection sidecars for samples with grounding results |
+| `htmls/<sample_id>.html` | Browsable tool evidence when `--save-html all` is supplied |
+| `<model>_incremental.jsonl` | Streaming results when `--incremental-json` is supplied |
+
+The video runner additionally writes `trajectories.jsonl`. Prediction filenames
+use the model ID's final component, such as `Qwen3-VL-8B-Instruct`.
+
+The parent run directory contains `run_manifest.json`,
+`agent_config.redacted.yaml`, `judge_config.redacted.yaml`, and
+`tool_env_snapshot.json`, recording the effective configuration, resolved model
+profiles and service metadata. Add `--resume` to continue a compatible partial
+run; changes to the effective configuration require a new run.
 
 To evaluate saved predictions, select the run directly:
 

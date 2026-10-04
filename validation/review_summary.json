@@ -1,0 +1,115 @@
+{
+  "reviewed_source_commit": "2741a4326345de126898d456dfc8d5dea9f29983",
+  "scope": "Small-set wiring/regression validation; not full benchmark or statistical performance equivalence.",
+  "offline_suite": {
+    "passed_tests": 246,
+    "passed_subtests": 351,
+    "skips": 0,
+    "inherited_deprecation_warnings": 14
+  },
+  "replay": {
+    "rows": 60,
+    "boundary_checks": 1452,
+    "unchanged_predictions": 60,
+    "exception_rows": 0,
+    "request_error_rows": 0,
+    "equal_checks": 1254,
+    "changed_checks": {
+      "intentional_text_search_description": 152,
+      "bounded_variable_previews_and_process_repr_addresses": 6,
+      "corrected_depth_height_width_description": 13,
+      "approved_ocr_binding_and_downstream_fixed_code_effects": 27
+    },
+    "runtime_sources_unchanged": true
+  },
+  "live": {
+    "completed_cases": 60,
+    "perception_cases": 50,
+    "supplemental_cases": 10,
+    "model_request_errors": 0,
+    "tool_protocol_errors": 0,
+    "missing_required_artifacts": 0,
+    "fsc_count_parse_failures": 0,
+    "recovered_execution_errors": 2,
+    "models": {
+      "qwen": {
+        "odinw_ap": 66.99,
+        "fsc_mae": 16.0,
+        "fsc_rmse": 31.27,
+        "unchanged_dataset_predictions_vs_extraction": 22,
+        "dataset_cases": 25,
+        "recovered_errors": [
+          {
+            "group": "supplemental",
+            "index": "camera_coding",
+            "tool": "Python_Coding_Agent_Tool",
+            "execution_error": "name 'np' is not defined"
+          }
+        ]
+      },
+      "luna": {
+        "odinw_ap": 78.12,
+        "fsc_mae": 13.33,
+        "fsc_rmse": 30.2,
+        "unchanged_dataset_predictions_vs_extraction": 16,
+        "dataset_cases": 25,
+        "recovered_errors": [
+          {
+            "group": "supplemental",
+            "index": "depth_coding",
+            "tool": "Python_Coding_Agent_Tool",
+            "execution_error": "name 'numpy' is not defined"
+          }
+        ]
+      }
+    },
+    "search_outcomes": {
+      "qwen": {
+        "tool_calls": [
+          "Image_Search_Tool",
+          "Text_Search_Tool",
+          "Webpage_Visit_Tool",
+          "Webpage_Visit_Tool",
+          "Webpage_Visit_Tool"
+        ],
+        "lens_no_matches": true,
+        "retained_images": 0
+      },
+      "luna": {
+        "tool_calls": [
+          "Image_Search_Tool",
+          "Text_Search_Tool",
+          "Webpage_Visit_Tool"
+        ],
+        "lens_no_matches": false,
+        "retained_images": 3
+      }
+    },
+    "captured_gateway_responses": 96,
+    "gateway_errors": 0,
+    "captured_truncations": 0,
+    "empty_webpage_extractions_using_content_fallback": 1
+  },
+  "evaluation_only": {
+    "real_datasets": 2,
+    "inference_and_network_forbidden": true,
+    "manifest_and_predictions_unchanged": true,
+    "saved_tsv_overrides_environment_json": true
+  },
+  "external_evidence_sha256": {
+    "logs/full_suite.log": "d3ae570552cbdd9b7dbcfde1247be1e05077691e74293968b1ff3ddea5ac9ed4",
+    "evidence/review_audit.json": "185f18c3782ae1278bbb1ea4a0a08d218261dabe2019282982f6406d759356d7",
+    "evidence/native_audit.json": "9ae9ed480d2ca780a06f19a52149c4b1b5a904be04a65f15b1ef8c1b69e1624a",
+    "evidence/replay_classification.json": "6ab15aed3817f2f809b9fa298357d75449e22490b4442cd6f82161467f2641a4",
+    "evidence/eval_only_real.json": "acaf0ac96ef2db5f2319ba7d501a7908b9a6a95e53a3820ec66378325f07d9c8",
+    "evidence/review_source_identity.json": "8e07fe7dcf5c9676b1587b34ec00e86448a180c8786d040eb505d2cb0d74aa8c",
+    "evidence/released_scripts_checks.json": "b3c9f9e709e395711fa2bfbef6ff7588cf5145a19ba6762ed8bfcbbd68d1af6c"
+  },
+  "limitations": [
+    "Serper returned zero visual matches for the Qwen search case; its answer did not verify the brand.",
+    "Qwen perception uses canonical trajectories without raw provider-response captures.",
+    "Live DINO/Kimi, clean GPU dependency installations and live context-capacity/iteration-exhaustion are outside this repeat.",
+    "Responses reasoning-item preservation remains an inherited, unresolved omission."
+  ],
+  "public_selection_sha256": "d23ba23c6d95a9e01b13f5830dc2ef088ac6818446db306339c87c891251aa57"
+}

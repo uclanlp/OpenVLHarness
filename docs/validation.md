@@ -1,5 +1,76 @@
 # Release validation
 
+## Reviewed release checks
+
+The reviewed implementation is commit `2741a4326345de126898d456dfc8d5dea9f29983`.
+The complete offline suite passes **246 tests and 351 subtests**, with no skips
+and 14 inherited Matplotlib/Pyparsing deprecation warnings. This includes the
+retained evaluator/reporting tests and review regressions for raw trace export,
+URL images, resolved run identities, provider validation, context compaction,
+subprocess execution, tool errors, grounding/depth contracts and evaluation-only
+startup. See the [reproducible evidence index](../validation/README.md) for commands,
+fixtures and the frozen sample selection.
+
+A fresh replay at this commit reuses all 60 saved native-response trajectories
+and checks 1,452 boundaries. All 60 final predictions are unchanged, with no
+request errors or replay exceptions. Of the boundary checks, 1,254 match exactly;
+the 198 changed checks are confined to these intentional changes:
+
+| Change | Affected checks |
+| --- | ---: |
+| Caller-selected Text Search description | 152 |
+| Depth size described as `[height, width]` | 13 |
+| Bounded variable previews and process-specific function addresses | 6 |
+| OCR binding and its effects on saved generated code | 27 |
+
+The Text Search description is an intentional model-input change. Live runs at
+this revision therefore validate continued operation, not identical prompts or
+statistical performance equivalence. Runtime source hashes were unchanged during
+the replay. Full captures remain outside Git.
+
+The perception subset was also rerun from the public
+[`validation/run_perception.py`](../validation/run_perception.py) entrypoint after
+restarting Qwen, SAM3, DA3, OCR and both tool routers with the cached checkpoints
+and frozen model settings. The same 13 ODinW and 12 FSC147 examples were used for
+each backbone, with constant-score grounding and no judge:
+
+| Backbone | ODinW AP: extraction → review | FSC MAE: extraction → review | FSC RMSE: extraction → review |
+| --- | --- | --- | --- |
+| Qwen3-VL-8B | 70.94 → 66.99 | 16.00 → 16.00 | 31.27 → 31.27 |
+| GPT-6-Luna | 67.73 → 78.12 | 14.67 → 13.33 | 30.42 → 30.20 |
+
+All 50 perception cases completed without recorded request/tool failures or count
+parse failures. Qwen's 12 FSC predictions are unchanged. Live differences include
+Qwen skipping a mushroom grounding call, Luna selecting starfish instead of
+stingray, and different count/zoom decisions. The runs preserve those decisions;
+no valid prediction was rerun to improve the scores.
+
+All ten supplemental chains also completed with matching tool-call/result IDs
+and saved JSON/HTML artifacts. Both OCR/coding chains returned 19; depth and camera
+arrays remained usable by generated Python. Two programs omitted a NumPy import
+(Qwen camera and Luna depth); their execution errors were retained and both agents
+recovered on the next call. There were no request/protocol failures.
+
+Live search has an explicit limitation: Serper returned zero visual matches for
+the Qwen case, which completed without verifying the product brand. Luna received
+matches, sent eight image parts to the Qwen multimodal summarizer, retained three
+images, and verified the brand through text search and a webpage visit. One Qwen
+webpage extraction returned empty JSON fields and used the existing page-content
+fallback. These outcomes remain in the evidence; they are not replaced by retries
+for a better answer. Captured supplemental/provider replies had no truncations;
+Qwen's perception run retained canonical trajectories without raw provider captures.
+
+The real evaluation-only CLI subsequently scored both saved Qwen datasets with
+agent/config/profile/tokenizer initialization and all network requests blocked.
+It used the saved TSV format despite a conflicting `PRED_FORMAT=json` environment,
+accepted an absent inference-config path, and left predictions and the run
+manifest unchanged. Both evaluators received `model=None, score_mode=constant`.
+Released preparation and ChartMimic demonstration commands were also checked for
+explicit source arguments and successful `--help` execution; author attributions
+remain intact.
+
+## Original extraction comparison
+
 The baseline is `opensource` commit
 `b98e5a540c4867eab20e07166c274e7ca8b8b9fe`. Validation uses the same frozen
 examples and model/raw-tool checkpoints before and after extraction:
@@ -14,10 +85,11 @@ The two backbones are Qwen3-VL-8B-Instruct (Chat Completions) and GPT-6-Luna
 metrics; FSC147 uses direct count parsing. No LLM judge is used. These small
 sets validate wiring and regressions; they are not full benchmark estimates.
 
-## Deterministic replay
+### Deterministic replay during extraction
 
-All 60 baseline trajectories were replayed with saved model and raw tool
-responses, network access forbidden. The check covers 1,452 boundaries,
+During the original extraction validation, all 60 baseline trajectories were
+replayed with saved model and raw tool responses, network access forbidden.
+The check covers 1,452 boundaries,
 including all 152 model request histories/settings, resolved tool arguments,
 processed evidence, memory images/arrays/descriptors, environment emissions,
 detections and predictions.
@@ -34,9 +106,11 @@ No unexplained differences remain. The retained mismatches are:
 Checked-in fixtures preserve public schemas, provider requests, memory and tool
 results independently of current implementation. The offline suite also covers
 shared depth/camera capacity, responsive health while queued, failure cleanup,
-worker-thread execution timeouts, optional imports and copied numerical bindings.
+optional imports and copied numerical bindings. Review coverage now also exercises
+killable subprocess deadlines, exception-catching infinite loops, concurrent
+stdout isolation and bounded output/variable previews.
 
-## Fresh comparison
+### Live extraction comparison
 
 Fresh runs use separate capture, router and output directories; the baseline
 predictions and observations are immutable. Live response text, web results and
@@ -86,8 +160,9 @@ The added slice shifts in the opposite direction from the initial gap. These
 observations support the trajectory-level diagnosis of model variation, without
 claiming statistical equivalence from a small sample.
 
-The final offline suite passes 123 tests and 215 subtests, including retained
-real evaluator/reporting tests after removing old runtime modules. An actual
+The extraction-era checks passed 123 tests and 215 subtests, plus 60 retained
+dataset/evaluation utility tests. The complete reviewed suite count above
+supersedes those historical counts. An actual
 public CLI run on a frozen FSC image produced predictions, direct metrics,
 full trajectories, HTML, copied images and detection sidecars with judge=None.
 An evaluation-only resume after retirement preserved all prior CLI artifacts and
@@ -113,6 +188,11 @@ Luna's two webpage extractions succeeded. The content fallback is retained and
 reported explicitly; it was not a provider substitution or JSON parse failure.
 
 ## Retained limitations found during validation
+
+The Responses path inherits an omission of returned reasoning items from manually
+managed tool continuations. The archived implementation has the same omission;
+the captured Luna requests completed, but the effect on reasoning quality is
+unmeasured. Reasoning preservation has not been changed in this release review.
 
 The additional old-code control encountered one upstream HTTP500 after four
 successful turns. That failed attempt remains recorded separately; the same
