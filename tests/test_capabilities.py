@@ -315,6 +315,20 @@ class CapabilityBoundaryTests(unittest.TestCase):
         self.assertIsNone(result.data)
         self.assertEqual(memory.state.bindings.bindings, {})
 
+    def test_returned_generation_failure_preserves_structured_cause_and_never_executes(self):
+        for error in ("LLM request failed: unavailable", {"code": "quota", "message": "quota exhausted"}):
+            with self.subTest(error=error):
+                capability, _ = make_capability("Python_Coding_Agent_Tool",
+                    {"error": error, "generated_code": "print('should not run')"})
+                with patch("openvlharness.services.tools.python_executor_local.executor.execute_python_code") as execute:
+                    result = capability.invoke(VirtualCall("failed_generation", capability.name,
+                        {"objective": "Compute"}), new_memory())
+                execute.assert_not_called()
+                self.assertEqual(result.data["generation_error"], error)
+                self.assertIsNone(result.data["execution_error"])
+                self.assertIn(str(error), result.evidence[0]["text"])
+                self.assertNotIn("executed", result.evidence[0]["text"])
+
     def test_g02_dino_adapter_uses_virtual_name_and_null_segmentation_fields(self):
         raw = {"boxes": [[10.25, 5.5, 40.75, 20.0]], "boxes_normalized": [[51.25, 55, 203.75, 200]],
                "scores": [0.81234], "labels": ["shoe"], "size": [100, 200],

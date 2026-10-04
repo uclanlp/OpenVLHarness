@@ -267,7 +267,7 @@ class RouterContractTests(unittest.TestCase):
         self.assertIsNone(result.error)
         self.assertEqual(result.artifact_refs, [])
 
-    def test_generation_returned_error_and_thrown_failure_keep_old_router_distinction(self):
+    def test_generation_returned_error_and_thrown_failure_preserve_causes(self):
         config = config_for("coding")
         for tool, expected_ok in ((FakeTool({"error": "LLM returned empty code", "raw_response": ""}), True),
                                   (FakeTool(error=RuntimeError("generation transport unavailable")), False)):
@@ -279,7 +279,9 @@ class RouterContractTests(unittest.TestCase):
                 self.assertEqual(result.ok, expected_ok)
                 if expected_ok:
                     self.assertEqual(result.payload["result"]["error"], "LLM returned empty code")
-                    self.assertEqual(result.evidence, [{"type": "text", "text": "(No code was generated.)"}])
+                    self.assertEqual(result.data["generation_error"], "LLM returned empty code")
+                    self.assertIsNone(result.data["execution_error"])
+                    self.assertEqual(result.evidence, [{"type": "text", "text": "Generation error: LLM returned empty code"}])
                 else:
                     self.assertEqual(result.error["code"], "tool_execution_error")
                     self.assertIn("generation transport unavailable", result.error["message"])

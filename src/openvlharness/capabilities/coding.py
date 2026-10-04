@@ -2,14 +2,14 @@
 
 Python_Coding_Agent_Tool turns a natural-language objective into code using
 available binding descriptions, then executes it locally on copied values and
-presents printed output, variable previews and execution errors.
+presents printed output, variable previews, generation errors and execution errors.
 """
 
 PROCESSOR_MODE = "custom"
 
 
 def process_tool_output(payload, prepared, tool_metadata=None):
-    """Render generated code, printed output or execution errors with output images.
+    """Render generation failures, generated code and execution diagnostics.
 
     Args:
         payload: Execute envelope with the backend result.
@@ -30,9 +30,12 @@ def process_tool_output(payload, prepared, tool_metadata=None):
     generated_code = result.get("generated_code", "")
     printed_output = result.get("printed_output", "")
     execution_error = result.get("execution_error", "")
+    generation_error = result.get("error")
 
     text_parts = []
-    if generated_code:
+    if generation_error is not None:
+        text_parts.append(f"Generation error: {generation_error}")
+    elif generated_code:
         text_parts.append(
             f"Coding agent generated and executed the following Python code:\n"
             f"```python\n{generated_code}\n```\n\n"
@@ -40,12 +43,13 @@ def process_tool_output(payload, prepared, tool_metadata=None):
     else:
         text_parts.append("(No code was generated.)")
 
-    if execution_error:
-        text_parts.append(f"Execution error: {execution_error}")
-    elif printed_output:
-        text_parts.append(f"Execution output:\n{printed_output}")
-    elif generated_code and not execution_error:
-        text_parts.append("(Code executed successfully but produced no printed output.)")
+    if generation_error is None:
+        if execution_error:
+            text_parts.append(f"Execution error: {execution_error}")
+        elif printed_output:
+            text_parts.append(f"Execution output:\n{printed_output}")
+        elif generated_code:
+            text_parts.append("(Code executed successfully but produced no printed output.)")
 
     text = "\n\n".join(text_parts)
 
@@ -103,7 +107,8 @@ from typing import TypedDict
 class Output(TypedDict):
     """Generated code, execution text, variable previews and output image IDs.
 
-    execution_error reports failures without discarding generated_code. variables
+    generation_error preserves a returned generator failure; execution_error
+    reports local execution failures without discarding generated_code. variables
     contains text representations rather than live Python values.
     """
     generated_code: str | None
@@ -111,6 +116,7 @@ class Output(TypedDict):
     variables: dict[str, str]
     execution_code: str | None
     execution_error: str | None
+    generation_error: str | dict | None
     images: list[str] | None
 
 
@@ -137,7 +143,8 @@ class Capability(BaseCapability):
             prepare_execution_context, execute_python_code, CodeExecutionTimeoutError)
         payload = super().execute(call, args, memory)
         result = payload.get("result")
-        if payload.get("ok") is True and isinstance(result, dict) and result.get("generated_code"):
+        if (payload.get("ok") is True and isinstance(result, dict)
+                and result.get("error") is None and result.get("generated_code")):
             timeout = self.service_config.get("execution_timeout_seconds", 30)
             try:
                 execution = execute_python_code(result["generated_code"],
@@ -154,4 +161,5 @@ class Capability(BaseCapability):
         result = result if isinstance(result, dict) else {}
         return {"generated_code": result.get("generated_code"), "printed_output": result.get("printed_output", ""),
             "variables": result.get("variables", {}), "execution_code": result.get("execution_code"),
-            "execution_error": result.get("execution_error"), "images": prepared["image_refs"] or None}
+            "execution_error": result.get("execution_error"), "generation_error": result.get("error"),
+            "images": prepared["image_refs"] or None}
