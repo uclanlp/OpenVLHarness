@@ -433,10 +433,31 @@ class CapabilityBoundaryTests(unittest.TestCase):
         text = "\n".join(part["text"] for part in result.evidence if part["type"] == "text")
         self.assertNotIn("labeled masks", text)
         self.assertIn("bounding boxes", text)
-        self.assertIn(json.dumps(raw["boxes_normalized"]), text)
+        self.assertEqual(result.data["boxes_normalized"], [[51, 55, 204, 200]])
+        self.assertIn(json.dumps(result.data["boxes_normalized"]), text)
         self.assertIsNone(result.data["rendered_image"])
         self.assertEqual(result.detection["tool_name"], "Visual_Grounding_Tool")
         self.assertEqual(result.detection["boxes_xyxy_pixels"], raw["boxes"])
+
+    def test_grounding_masks_and_dino_coordinates_follow_canonical_types(self):
+        from typing import get_type_hints
+
+        self.assertEqual(get_type_hints(grounding.Output)["masks"], list[str] | None)
+        for boxes, expected in (([[-10.5, 1.55, 210.5, 110.5]], [[0, 16, 1000, 1000]]),
+                                ([], []), (None, None)):
+            with self.subTest(boxes=boxes):
+                raw = {"boxes": boxes, "scores": [] if not boxes else [0.8], "size": [100, 200],
+                       "boxes_normalized": [[-999.5, 9999.5, 1.1, 2.2]]}
+                capability, _ = make_capability("Visual_Grounding_Tool", raw, backend="grounding_dino")
+                memory = new_memory()
+                result = capability.invoke(VirtualCall("dino", capability.name,
+                    {"query": "red shoe", "image_id": "input_image_1"}), memory)
+                self.assertTrue(result.ok, result.error)
+                self.assertEqual(result.data["boxes_normalized"], expected)
+                self.assertIsNone(result.data["masks"])
+                self.assertIsNone(result.data["num_masks"])
+                self.assertEqual(memory.state.bindings.bindings["segment_red_shoe"]["pred_boxes"], boxes)
+                self.assertEqual(result.payload["result"]["boxes_normalized"], raw["boxes_normalized"])
 
 
 if __name__ == "__main__":

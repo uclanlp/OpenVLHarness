@@ -10,6 +10,14 @@ import math
 PROCESSOR_MODE = "custom"
 
 
+def _normalized_boxes(boxes, size):
+    """Convert pixel xyxy boxes to rounded integers bounded to the 0–1000 scale."""
+    if boxes is None or not size or not all(size):
+        return None
+    return [[min(max(round(value / size[1 if index % 2 == 0 else 0] * 1000), 0), 1000)
+             for index, value in enumerate(box)] for box in boxes]
+
+
 def _safe_int(value, default=0):
     """Coerce a value to an integer, returning default when conversion fails."""
     try:
@@ -180,8 +188,9 @@ class Output(TypedDict):
     """Canonical grounding output with pixel and normalized boxes.
 
     size is [height, width]; boxes are pixel xyxy and boxes_normalized use the
-    0–1000 xyxy scale. scores and labels align with boxes. Segmentation masks and
-    num_masks are None for Grounding DINO. rendered_image is a memory image ID.
+    bounded integer 0–1000 xyxy scale. scores and labels align with boxes. SAM3
+    masks are COCO RLE counts strings interpreted using size. masks and num_masks
+    are None for Grounding DINO. rendered_image is a memory image ID.
     """
     query: str
     model_id: str | None
@@ -190,7 +199,7 @@ class Output(TypedDict):
     boxes_normalized: list[list[int]] | None  # 0..1000 xyxy
     scores: list[float] | None
     labels: list[str] | None
-    masks: list[dict] | None
+    masks: list[str] | None
     num_masks: int | None
     rendered_image: str | None  # Memory image handle
 
@@ -235,7 +244,7 @@ class Capability(BaseCapability):
     def _dino_evidence(payload, prepared, tool_metadata=None):
         """Render DINO boxes with explicit mask unavailability and optional score sidecars."""
         result = payload.get("result") or {}
-        boxes = result.get("boxes_normalized")
+        boxes = _normalized_boxes(result.get("boxes"), result.get("size"))
         text = ("Visual_Grounding_Tool returned bounding boxes on the 0–1000 scale "
                 "([x1, y1, x2, y2]):\n" + json.dumps(boxes, ensure_ascii=False)
                 + "\nSegmentation masks are unavailable for this backend.")
@@ -272,10 +281,7 @@ class Capability(BaseCapability):
         size = result.get("size") if dino else [result.get("orig_img_h"), result.get("orig_img_w")]
         boxes = result.get("boxes" if dino else "pred_boxes")
         scores = result.get("scores" if dino else "pred_scores")
-        normalized = result.get("boxes_normalized") if dino else None
-        if not dino and size and all(size) and boxes is not None:
-            normalized = [[min(max(round(v / size[1 if i % 2 == 0 else 0] * 1000), 0), 1000)
-                for i, v in enumerate(box)] for box in boxes]
+        normalized = _normalized_boxes(boxes, size)
         return {"query": result.get("prompt", call.arguments.get("query")),
             "model_id": result.get("model_id", result.get("model")), "size": size,
             "boxes": boxes, "boxes_normalized": normalized, "scores": scores,
