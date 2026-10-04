@@ -286,41 +286,11 @@ with open('{output_file}', 'w') as f:
 
 
 if __name__ == "__main__":
-    # sys.path.insert(0, '/home/<user>/project/Princess-s-CHI')
+    import argparse
 
+    parser = argparse.ArgumentParser(description="Compare generated and reference chart color features.")
+    parser.add_argument("--generated-code", required=True, help="Generated chart Python file")
+    parser.add_argument("--golden-code", required=True, help="Reference chart Python file")
+    args = parser.parse_args()
     evaluator = ColorEvaluator()
-    # evaluator = TextEvaluator()
-
-    golden_code_dir = f"{os.environ['PROJECT_PATH']}/dataset/ori_500/"
-    generation_code_dir = f"{os.environ['PROJECT_PATH']}/results/chart2code_Phi-3-vision-128k-instruct_DirectAgent_results/direct/"
-
-    # list python files in the directory
-    golden_code_files = [f for f in os.listdir(golden_code_dir) if f.endswith(".py")]
-
-    # for golden_code_file in golden_code_files:
-    # print(golden_code_file)
-    # generation_code_file = generation_code_dir + golden_code_file
-    # evaluator(generation_code_file, golden_code_dir + golden_code_file)
-
-    # write a multi-processing version
-    def _muti_process_run(rank, data, num_processes):
-        for i in range(rank, len(data), num_processes):
-            golden_code_file = data[i]
-            generation_code_file = generation_code_dir + golden_code_file
-            evaluator(generation_code_file, golden_code_dir + golden_code_file)
-
-    evaluator = ColorEvaluator()
-    processes = []
-    num_processes = 20
-    for rank in range(num_processes):
-        p = Process(
-            target=_muti_process_run, args=(rank, golden_code_files, num_processes)
-        )
-        p.start()
-        processes.append(p)
-    for p in processes:
-        p.join()
-
-    # golden_code_file = f"{os.environ['PROJECT_PATH']}/dataset/ori_500/line_5.py"
-    # generation_code_file = f"{os.environ['PROJECT_PATH']}/results/chart2code_gpt-4-vision-preview_DirectAgent_results/direct/line_5.py"
-    # evaluator(generation_code_file, golden_code_file)
+    print(evaluator(args.generated_code, args.golden_code))

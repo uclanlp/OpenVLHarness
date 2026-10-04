@@ -195,12 +195,11 @@ for ax in all_axes:
 
 
 if __name__ == "__main__":
-    # sys.path.insert(0, '/home/<user>/project/Princess-s-CHI')
+    import argparse
 
+    parser = argparse.ArgumentParser(description="Compare generated and reference chart text features.")
+    parser.add_argument("--generated-code", required=True, help="Generated chart Python file")
+    parser.add_argument("--golden-code", required=True, help="Reference chart Python file")
+    args = parser.parse_args()
     evaluator = TextEvaluator(use_axs=False)
-    # evaluator = TextEvaluator()
-
-    generation_code_file = "/home/<user>/project/Princess-s-CHI/dataset/line/line_7.py"
-    golden_code_file = "/home/<user>/project/Princess-s-CHI/results/chart2code_gpt_DirectAgent_results/direct/line_7.py"
-
-    evaluator(generation_code_file, golden_code_file)
+    print(evaluator(args.generated_code, args.golden_code))
