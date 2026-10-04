@@ -276,6 +276,23 @@ class ModelTransportTests(unittest.TestCase):
         self.assertEqual(post.call_count, 1)
         sleep.assert_not_called()
 
+    def test_http_status_overrides_numeric_host_and_misleading_error_text(self):
+        model = adapter("responses", base="http://192.168.1.23:8222/v1", retry=2)
+        with patch("openvlharness.services.models.requests.post", side_effect=[
+                response(503, {"detail": "unavailable"}), response(200, {"output": []})]) as post, \
+             patch("openvlharness.services.http.time.sleep") as sleep:
+            self.assertEqual(model.request([]), {"output": []})
+            self.assertEqual(post.call_count, 2)
+            self.assertEqual(sleep.call_count, 1)
+        with patch("openvlharness.services.models.requests.post", return_value=
+                response(400, {"detail": "internal connection to worker 503 is invalid"})) as post, \
+             patch("openvlharness.services.http.time.sleep") as sleep:
+            with self.assertRaisesRegex(RuntimeError, "400 internal connection") as caught:
+                model.request([])
+            self.assertEqual(caught.exception.status_code, 400)
+            self.assertEqual(post.call_count, 1)
+            sleep.assert_not_called()
+
 
 class ModelContextTests(unittest.TestCase):
     def test_context_window_must_leave_room_after_output_and_margin(self):

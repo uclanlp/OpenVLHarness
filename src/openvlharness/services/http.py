@@ -1,10 +1,17 @@
 """HTTP errors and transient retry policy shared by model and tool clients."""
 import json
 import random
-import re
 import time
 import requests
 DEFAULT_ERROR_BODY_LIMIT = 2048
+
+class HTTPStatusError(RuntimeError):
+    """HTTP failure carrying the numeric response status independently of its text."""
+
+    def __init__(self, message, status_code):
+        """Preserve the bounded diagnostic message and actual HTTP response status."""
+        super().__init__(message)
+        self.status_code = status_code
 
 def _stringify_detail(detail):
     """Convert an HTTP error detail to readable text, preserving None."""
@@ -51,14 +58,14 @@ def extract_error_detail(response, max_chars=DEFAULT_ERROR_BODY_LIMIT):
     return detail, payload
 
 def raise_for_status_with_detail(response, prefix=None, max_chars=DEFAULT_ERROR_BODY_LIMIT):
-    """Raise RuntimeError with HTTP status and bounded server detail on failure."""
+    """Raise HTTPStatusError with structured status and bounded detail on failure."""
     if response.ok:
         return
     detail, _payload = extract_error_detail(response, max_chars=max_chars)
     message = f"{response.status_code} {detail or response.reason}"
     if prefix:
         message = f"{prefix}: {message}"
-    raise RuntimeError(message)
+    raise HTTPStatusError(message, response.status_code)
 
 def retry_with_exponential_backoff(
     func,
@@ -80,7 +87,9 @@ def retry_with_exponential_backoff(
 
     Returns:
         A callable that retries timeouts, connection failures and recognized
-        transient status/error text. Nontransient and exhausted errors propagate.
+        transient HTTP statuses. Nontransient and exhausted errors propagate.
+        Status information takes precedence over exception class; error text is
+        never interpreted as transport metadata.
     """
 
     def wrapper(*args, **kwargs):
@@ -90,33 +99,13 @@ def retry_with_exponential_backoff(
             try:
                 return func(*args, **kwargs)
             except Exception as exc:
-                message = str(exc).lower()
-                status_code = None
-                matches = re.findall(r"\b([1-5]\d{2})\b", message)
-                if matches:
-                    try:
-                        status_code = int(matches[0])
-                    except ValueError:
-                        status_code = None
-
+                status_code = getattr(exc, "status_code", None)
+                response = getattr(exc, "response", None)
+                if status_code is None and response is not None:
+                    status_code = response.status_code
                 transient_statuses = {408, 429, 500, 502, 503, 504}
-                transient = False
-                if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
-                    transient = True
-                elif status_code in transient_statuses:
-                    transient = True
-                else:
-                    transient = any(
-                        token in message
-                        for token in (
-                            "rate limit",
-                            "timed out",
-                            "timeout",
-                            "too many requests",
-                            "internal",
-                            "connection",
-                        )
-                    )
+                transient = (status_code in transient_statuses if status_code is not None else
+                             isinstance(exc, (requests.Timeout, requests.ConnectionError)))
                 if not transient:
                     raise
                 num_retries += 1

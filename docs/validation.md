@@ -117,8 +117,10 @@ reported explicitly; it was not a provider substitution or JSON parse failure.
 The additional old-code control encountered one upstream HTTP500 after four
 successful turns. That failed attempt remains recorded separately; the same
 fixed examples were recovered under a new control label. An offline reproducer
-confirmed the inherited numeric-host retry-classification edge described in
-[runtime contracts](runtime.md) in both implementations.
+confirmed a numeric-host retry-classification bug in both implementations at
+that time. Subsequent review fixes replace text parsing with structured HTTP
+status checks; numeric-host 503 and misleading-body 400 cases have regression
+coverage. The saved experiment artifacts retain their original behavior.
 
 Sixty existing dataset/evaluation utility tests also pass after retirement, once
 LMUData is configured. Their stale-lock concurrency test emits a thread-level

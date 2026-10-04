@@ -133,8 +133,9 @@ on POSIX, its inherited process group. Blocking calls and exception-catching loo
 cannot suppress this deadline. The executor does not change the agent's stdout
 or signal handlers. Generated code still has normal process permissions.
 
-The inherited retry classifier has a known numeric-host edge case: it extracts
-the first three-digit number in an exception message. An endpoint containing
-127.0.0.1 can therefore be mistaken for a status code before the actual HTTP500,
-so a generic provider error may not be retried. Both runtimes reproduce this
-behavior; it is recorded for review rather than changed during parity validation.
+Native HTTP retry classification uses structured response status: 408, 429, 500,
+502, 503 and 504 are transient. Other HTTP statuses are not retried, regardless
+of endpoint digits or words such as "internal connection" in the body. Without
+an HTTP status, requests timeout/connection exceptions are retried; arbitrary
+exception text is not used to infer retryability. Structured tool failure
+envelopes remain single-attempt results.
