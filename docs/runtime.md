@@ -53,6 +53,11 @@ the generation service receives only descriptors. Generated variables are not
 persisted as new memory bindings. A local `execution_error` stays inside a
 successful generation result, matching the baseline boundary.
 
+Depth results validate base64 encoding, positive `[height, width]` dimensions,
+the exact float32 byte count and finite values before registering any artifacts.
+Malformed depth results fail explicitly and do not advertise a usable array or
+leave partial bindings. Both `depth_shape` and `size` use `[height, width]` order.
+
 Environment Update retains image/data/webpage section order and the exact
 preamble. The default `always` policy may repeat unchanged inventory after a
 successful call. `on_change` preserves the original change detector. The URL

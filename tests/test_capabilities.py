@@ -4,6 +4,7 @@ Old evidence, binding descriptors, arrays, references and schemas are frozen in
 fixtures/capabilities. OCR storage and the DINO adapter are intentional additions.
 """
 import concurrent.futures
+import base64
 import copy
 import dataclasses
 import json
@@ -33,6 +34,15 @@ CAPABILITIES = [
     (web_visit, "serper_webpage_visit"), (coding, "python_coding_agent"),
 ]
 BY_NAME = {module.Capability.name: (module, backend) for module, backend in CAPABILITIES}
+
+
+def corrected_depth_descriptors(descriptors):
+    """Account for the explicit dimension-description correction in frozen fixtures."""
+    expected = copy.deepcopy(descriptors)
+    for descriptor in expected.values():
+        if descriptor["source_tool"] == "Depth_Estimation_Tool" and "size" in descriptor["fields"]:
+            descriptor["fields"]["size"]["description"] = "[height, width] of source image"
+    return expected
 
 
 def plain(value):
@@ -93,7 +103,7 @@ class CapabilityBoundaryTests(unittest.TestCase):
         # must remain equal rather than forbidding extra diagnostic fields.
         self.assertEqual({key: result.prepared[key] for key in case["prepared"]}, case["prepared"])
         self.assertEqual(plain(memory.state.bindings.bindings), case["bindings"])
-        self.assertEqual(memory.describe_bindings(), case["descriptors"])
+        self.assertEqual(memory.describe_bindings(), corrected_depth_descriptors(case["descriptors"]))
         actual_images = plain(memory.state.images)
         actual_images.pop("last_snapshot", None)
         self.assertEqual(actual_images, case["images"])
@@ -162,6 +172,47 @@ class CapabilityBoundaryTests(unittest.TestCase):
         self.assertNotIn("depth_meters_b64", binding)
         self.assertEqual(result.data["binding"], "depth_result")
         self.assertEqual(result.data["units"], "meters")
+
+    def test_depth_rejects_malformed_arrays_before_registering_any_artifact(self):
+        valid = OLD["cases"]["depth"]["response"]
+        changes = [
+            {"depth_meters_b64": "not base64!"}, {"depth_meters_b64": None},
+            {"depth_meters_b64": ""}, {"depth_meters_b64": "AAAA"},
+            {"depth_shape": [3, 2]}, {"depth_shape": [2, -1]}, {"depth_shape": [0, 2]},
+            {"depth_shape": [True, 4]}, {"depth_shape": [2.0, 2]}, {"depth_shape": [4]},
+            {"depth_meters_b64": base64.b64encode(np.array([1, 2, 3, np.nan], dtype=np.float32).tobytes()).decode()},
+            {"size": [1, 0]},
+        ]
+        for updates in changes + [{"depth_shape": None}]:
+            with self.subTest(updates=updates):
+                response = dict(valid, **updates)
+                if updates == {"depth_shape": None}:
+                    del response["depth_shape"]
+                capability, _ = make_capability("Depth_Estimation_Tool", response)
+                memory = new_memory()
+                before = copy.deepcopy(memory.state.images.registry)
+                result = capability.invoke(VirtualCall("bad_depth", capability.name,
+                    {"image_id": "input_image_1"}), memory)
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error["code"], "invalid_tool_result")
+                self.assertEqual(result.payload["tool_call_id"], "bad_depth")
+                self.assertEqual(memory.state.images.registry, before)
+                self.assertEqual(memory.state.bindings.bindings, {})
+                self.assertEqual(result.evidence, [])
+
+    def test_depth_rectangular_size_is_height_width_and_array_is_usable(self):
+        array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        capability, _ = make_capability("Depth_Estimation_Tool", {"size": [2, 3], "depth_shape": [2, 3],
+            "depth_meters_b64": base64.b64encode(array.tobytes()).decode()})
+        memory = new_memory()
+        result = capability.invoke(VirtualCall("rectangular_depth", capability.name,
+            {"image_id": "input_image_1"}), memory)
+        self.assertTrue(result.ok, result.error)
+        self.assertEqual(result.data["size"], [2, 3])
+        binding = result.data["binding"]
+        np.testing.assert_array_equal(memory.state.bindings.bindings[binding]["depth_meters"], array)
+        self.assertEqual(memory.describe_bindings()[binding]["fields"]["size"]["description"],
+                         "[height, width] of source image")
 
     def test_d01_camera_arrays_preserve_order_reference_frame_and_float32(self):
         case = OLD["cases"]["camera"]
@@ -288,7 +339,9 @@ class CapabilityBoundaryTests(unittest.TestCase):
         result, memory, client = replay(case, memory, response=case["generator_response"],
                                         service_config={"execution_timeout_seconds": 1})
         self.assert_old_replay(result, memory, case)
-        client.execute.assert_called_once_with(case["name"], case["resolved_arguments"], tool_call_id="call_fixture")
+        expected_args = copy.deepcopy(case["resolved_arguments"])
+        expected_args["binding_descriptors"] = corrected_depth_descriptors(expected_args["binding_descriptors"])
+        client.execute.assert_called_once_with(case["name"], expected_args, tool_call_id="call_fixture")
         self.assertEqual(result.data["printed_output"], "99.0")
         self.assertIsInstance(result.data["variables"]["new_values"], str)
         self.assertEqual(plain(memory.state.bindings.bindings), before)
