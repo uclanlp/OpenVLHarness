@@ -69,6 +69,7 @@ def load_agent_config(config, *, save_raw_trace=False):
     for section in ("agent", "memory", "capabilities", "services"):
         if not isinstance(config.get(section), dict):
             raise ValueError(f"{section} must be a mapping")
+    memory_factory(config["memory"])()
     agent = config["agent"]
     if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed"}:
         raise ValueError("Unknown agent options")
@@ -161,7 +162,6 @@ def load_agent_config(config, *, save_raw_trace=False):
         timeout = executor.get("timeout_seconds", 30)
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("Local executor timeout_seconds must be positive and finite")
-    memory_factory(config["memory"])()
     return config
 
 
@@ -182,6 +182,9 @@ def memory_factory(config):
     entries = config.get("modules")
     if not isinstance(entries, list) or any(not isinstance(entry, dict) or "name" not in entry for entry in entries):
         raise ValueError("memory.modules must be a list of named mappings")
+    if not any(entry["name"] == "image" for entry in entries):
+        raise ValueError("memory.modules must include image; disabling persistent image memory is unsupported "
+                         "because vision tools require resolved image references")
     limit = 20
     for entry in entries:
         if set(entry) - ({"name", "webpage_env_update_limit"} if entry["name"] == "url" else {"name"}):

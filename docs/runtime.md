@@ -31,6 +31,10 @@ memory, with binding references in depth/camera canonical data.
 
 ## Memory and turn order
 
+Agent configurations must include the `image` module in `memory.modules`.
+Disabling persistent image memory is rejected at startup because vision tools
+require registered image references; this release does not implement that ablation.
+
 Each question begins with fresh memory. Input images receive `input_image_N`
 handles; tool images receive `tool_generated_image_N`. Exact data-URL identity,
 aliases, counter advancement and lazy image fetching preserve the old behavior.

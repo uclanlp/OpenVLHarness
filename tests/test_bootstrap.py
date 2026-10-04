@@ -176,8 +176,24 @@ class BootstrapBoundaryTests(unittest.TestCase):
             with self.subTest(memory=memory):
                 with self.assertRaises(ValueError):
                     memory_factory(memory)()
-        factory = memory_factory({"modules": [{"name": "url", "webpage_env_update_limit": None}]})
+        factory = memory_factory({"modules": [{"name": "image"}, {"name": "url", "webpage_env_update_limit": None}]})
         self.assertIsNot(factory().state, factory().state)
+
+    def test_image_memory_cannot_be_disabled_before_model_or_capability_setup(self):
+        with patch("openvlharness.bootstrap.ModelAdapter") as adapter, \
+             patch("openvlharness.bootstrap.build_capabilities") as capabilities:
+            for modules in ([], [{"name": "tool_context"}], [{"name": "url"}]):
+                for constructor in (load_agent_config, build_agent):
+                    with self.subTest(modules=modules, constructor=constructor.__name__):
+                        config = config_for("grounding", "depth", "zoom")
+                        config["memory"]["modules"] = modules
+                        with self.assertRaisesRegex(ValueError, "must include image.*unsupported"):
+                            constructor(config)
+            adapter.assert_not_called()
+            capabilities.assert_not_called()
+        config = config_for("grounding")
+        config["memory"]["modules"] = [{"name": "image"}]
+        self.assertEqual(load_agent_config(config)["memory"], config["memory"])
 
     def test_build_agent_loads_packaged_prompts_and_same_backbone_coding_connection(self):
         config = config_for("coding", "ocr")
