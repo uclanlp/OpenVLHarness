@@ -8,15 +8,20 @@ coding prompt and a 4096-token generation budget. GPT uses Responses with
 medium reasoning; Qwen uses Chat Completions with temperature 0. The generator
 does not inherit the full orchestrator conversation or sampling settings.
 
-Actual NumPy arrays stay on the agent host. The local executor receives copied
-bindings, captures stdout and returns repr strings for variables. Mutating the
+Actual NumPy arrays stay on the agent host. The local executor serializes copied
+bindings into a disposable subprocess, preserving array dtype and shape. It
+captures child stdout separately from agent threads and returns bounded variable
+previews. Stdout capture retains at most 64 KiB, with a truncation marker. At most
+64 variables are shown, with 2,048 characters per preview and a 16,384-character
+total preview budget. Mutating the
 execution copy does not mutate memory, and new variables are not automatically
 persisted as typed bindings or converted to image artifacts.
 
 Configure `services.tools.python_executor_local` with `transport: local` and
-`timeout_seconds: 30` for the paper path. The main-thread alarm and worker-thread
-trace limit stop Python loops. They do not guarantee interruption of arbitrary
-blocking native code or network calls. Execution is not a security sandbox;
+`timeout_seconds: 30` for the paper path. A positive finite deadline covers child
+startup, execution and preview rendering. On expiry the worker is forcibly killed;
+on POSIX the entire process group is killed, including children that inherit it.
+This stops blocking calls and loops that catch Python exceptions. Execution is not a security sandbox;
 run the agent with permissions appropriate for generated Python.
 
 A thrown generator exception is a failed tool envelope. A returned generator

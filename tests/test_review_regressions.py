@@ -42,35 +42,30 @@ class ReleaseReviewRegressions(unittest.TestCase):
             signal.signal(signal.SIGALRM, original_handler)
             signal.setitimer(signal.ITIMER_REAL, *original_timer)
 
-    def test_parallel_coding_keeps_stdout_per_question_and_restores_process_stdout(self):
-        original_stdout = sys.stdout
-        original_redirect = contextlib.redirect_stdout
-        first_started = threading.Event()
+    def test_parallel_coding_keeps_stdout_separate_from_unrelated_agent_threads(self):
+        import io
+        import tempfile
+        import time
 
-        @contextlib.contextmanager
-        def observed_redirect(stream):
-            with original_redirect(stream):
-                first_started.set()
-                yield
-
-        try:
-            with patch("openvlharness.services.tools.python_executor_local.executor.contextlib.redirect_stdout", observed_redirect), \
-                 concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                left = pool.submit(execute_python_code,
-                    "import time\nprint('LEFT_START')\ntime.sleep(0.12)\nprint('LEFT_END')",
-                    prepare_execution_context({}), 2)
-                self.assertTrue(first_started.wait(2))
-                right = pool.submit(execute_python_code,
-                    "import time\nprint('RIGHT_START')\ntime.sleep(0.20)\nprint('RIGHT_END')",
-                    prepare_execution_context({}), 2)
-                left_result, right_result = left.result(timeout=5), right.result(timeout=5)
-            restored = sys.stdout is original_stdout
-        finally:
-            # Even a regression must not corrupt pytest's own output capture.
-            sys.stdout = original_stdout
+        parent_output = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp, contextlib.redirect_stdout(parent_output), \
+             concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            ready = Path(temp) / "ready"
+            left = pool.submit(execute_python_code,
+                "from pathlib import Path\nimport time\nprint('LEFT_START')\n"
+                "Path(ready_path).touch()\ntime.sleep(0.3)\nprint('LEFT_END')",
+                prepare_execution_context({"ready_path": str(ready)}), 3)
+            deadline = time.monotonic() + 3
+            while not ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists())
+            self.assertIs(sys.stdout, parent_output)
+            print("UNRELATED_AGENT_OUTPUT")
+            right = pool.submit(execute_python_code, "print('RIGHT')", prepare_execution_context({}), 3)
+            left_result, right_result = left.result(timeout=5), right.result(timeout=5)
         self.assertEqual(left_result["printed_output"], "LEFT_START\nLEFT_END")
-        self.assertEqual(right_result["printed_output"], "RIGHT_START\nRIGHT_END")
-        self.assertTrue(restored)
+        self.assertEqual(right_result["printed_output"], "RIGHT")
+        self.assertEqual(parent_output.getvalue(), "UNRELATED_AGENT_OUTPUT\n")
 
     def test_credentials_in_endpoint_userinfo_are_rejected_before_logging_or_requests(self):
         secret_url = "http://fixture-user:fixture-password@fixture.invalid:8222"

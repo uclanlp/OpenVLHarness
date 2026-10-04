@@ -121,11 +121,13 @@ See [raw export setup and failure reporting](models.md#raw-trace-export-qwen-onl
 
 Additional boundary fixes found during extraction reject malformed grounding/page
 records before artifact registration and credentials embedded in endpoint URLs.
-Local coding capture is serialized because Python stdout redirection is process-
-global; the old concurrent path could mix output from different questions. Main-
-thread execution supports fractional timeout values and restores the previous
-signal handler/timer. These are separately tested corrections for malformed input
-and concurrent execution, outside the valid single-worker parity reference.
+Local coding executes in a disposable subprocess with copied NumPy bindings.
+Child stdout is captured separately from agent threads, with a 64-KiB retained
+output limit and bounded variable previews. The positive finite deadline covers
+startup, execution and preview rendering; expiry forcibly kills the worker and,
+on POSIX, its inherited process group. Blocking calls and exception-catching loops
+cannot suppress this deadline. The executor does not change the agent's stdout
+or signal handlers. Generated code still has normal process permissions.
 
 The inherited retry classifier has a known numeric-host edge case: it extracts
 the first three-digit number in an exception message. An endpoint containing

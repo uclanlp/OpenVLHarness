@@ -1,10 +1,9 @@
 """Execute generated Python locally using validated, copied context bindings.
 
-Execution captures stdout under a process-wide lock and runs with normal
-Python builtins. This module provides time limits, not a security sandbox.
+Execution runs in a killable subprocess with bounded output and variable
+previews. Normal Python builtins are available; this is not a security sandbox.
 """
 
-import contextlib
 import copy
 import keyword
 import math
@@ -12,14 +11,26 @@ import re
 import signal
 import sys
 import threading
-import time
 from dataclasses import dataclass
-from io import StringIO
+import json
+import os
+import pickle
+import reprlib
+import selectors
+import subprocess
+import tempfile
+from itertools import islice
+from pathlib import Path
 
 import numpy as np
 
 
 RESERVED_CONTEXT_NAMES = {"__builtins__"}
+MAX_OUTPUT_BYTES = 65536
+MAX_VARIABLES = 64
+MAX_VARIABLE_PREVIEW = 2048
+MAX_VARIABLE_TOTAL = 16384
+TRUNCATION_MARKER = "... (truncated)"
 
 
 class CodeExecutionTimeoutError(Exception):
@@ -31,60 +42,6 @@ class CodeExecutionTimeoutError(Exception):
 class PreparedExecutionContext:
     """Validated binding values to copy into a generated-code execution namespace."""
     bindings: dict
-
-
-@contextlib.contextmanager
-def _trace_timeout(seconds):
-    """Current-thread timeout fallback for worker-thread code execution.
-
-    Benchmark inference runs model.generate in ThreadPoolExecutor workers.
-    SIGALRM cannot be installed there, so use a per-thread trace hook to keep
-    generated Python loops from hanging collection forever. This only traces
-    the current worker thread and is restored immediately after execution.
-    """
-    deadline = time.monotonic() + seconds
-    previous_trace = sys.gettrace()
-
-    def trace(frame, event, arg):
-        if time.monotonic() >= deadline:
-            raise CodeExecutionTimeoutError("Execution timed out")
-        return trace
-
-    sys.settrace(trace)
-    try:
-        yield
-    finally:
-        sys.settrace(previous_trace)
-
-
-@contextlib.contextmanager
-def _timeout(seconds):
-    """Timeout context manager for generated code execution."""
-    if not seconds or seconds <= 0:
-        yield
-        return
-    if threading.current_thread() is not threading.main_thread():
-        with _trace_timeout(seconds):
-            yield
-        return
-    if not hasattr(signal, "SIGALRM"):
-        yield
-        return
-
-    def handler(signum, frame):
-        raise CodeExecutionTimeoutError("Execution timed out")
-
-    previous_handler = signal.signal(signal.SIGALRM, handler)
-    previous_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
-    started = time.monotonic()
-    try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
-        if previous_timer[0]:
-            signal.setitimer(signal.ITIMER_REAL,
-                max(previous_timer[0] - (time.monotonic() - started), 0.000001), previous_timer[1])
 
 
 def extract_python_code(text):
@@ -99,20 +56,34 @@ def extract_python_code(text):
     return text.strip()
 
 
-def _safe_repr(value, max_length=None):
-    """Return an exception-safe representation with optional head/tail truncation."""
+class _PreviewRenderer(reprlib.Repr):
+    """Bound container previews while retaining dictionary insertion order."""
+
+    def repr_dict(self, value, level):
+        """Render a bounded prefix of key/value pairs without sorting bindings."""
+        if not value:
+            return "{}"
+        if level <= 0:
+            return "{...}"
+        items = [f"{self.repr1(key, level - 1)}: {self.repr1(item, level - 1)}"
+                 for key, item in islice(value.items(), self.maxdict)]
+        if len(value) > self.maxdict:
+            items.append("...")
+        return "{" + ", ".join(items) + "}"
+
+
+def _safe_repr(value, max_length=MAX_VARIABLE_PREVIEW):
+    """Render bounded previews of strings, containers, arrays and custom objects."""
+    renderer = _PreviewRenderer()
+    renderer.maxstring = renderer.maxother = max_length
+    renderer.maxlist = renderer.maxtuple = renderer.maxdict = 20
     try:
-        representation = repr(value)
-    except Exception as exc:
-        representation = f"<repr_error {type(value).__name__}: {exc}>"
-    else:
-        if not isinstance(representation, str):
-            representation = f"<repr_error {type(value).__name__}: non-string repr>"
-    if max_length and len(representation) > max_length:
-        marker = " ... (truncated) ... "
-        head = (max_length - len(marker)) // 2
-        tail = max_length - len(marker) - head
-        return f"{representation[:head]}{marker}{representation[-tail:]}"
+        with np.printoptions(threshold=50, edgeitems=3):
+            representation = renderer.repr(value)
+    except Exception:
+        representation = f"<repr_error {type(value).__name__}>"
+    if len(representation) > max_length:
+        representation = representation[:max_length - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER
     return representation
 
 
@@ -189,15 +160,19 @@ def prepare_execution_context(context_bindings=None):
 
 
 def _render_namespace_variables(namespace):
-    """Render non-dunder execution variables as exception-safe text representations."""
-    visible_items = [
-        (key, value)
-        for key, value in namespace.items()
-        if not key.startswith("__")
-    ]
-    rendered = {}
-    for key, value in visible_items:
-        rendered[key] = _safe_repr(value)
+    """Bound the number, individual length and total size of variable previews."""
+    rendered, remaining = {}, MAX_VARIABLE_TOTAL
+    for key, value in namespace.items():
+        if key.startswith("__"):
+            continue
+        if len(rendered) >= MAX_VARIABLES or remaining < MAX_VARIABLE_PREVIEW:
+            rendered["__truncated__"] = TRUNCATION_MARKER
+            break
+        name = key[:128]
+        reserve = len("__truncated__") + len(TRUNCATION_MARKER)
+        preview = _safe_repr(value, min(MAX_VARIABLE_PREVIEW, remaining - len(name) - reserve))
+        rendered[name] = preview
+        remaining -= len(name) + len(preview)
     return rendered
 
 
@@ -209,60 +184,114 @@ def sanitize_code(code):
     return code
 
 
-# redirect_stdout changes process-global state. Concurrent benchmark questions
-# must not interleave their capture contexts or leak stdout into another result.
-_EXECUTION_LOCK = threading.RLock()
+def _worker_main(result_path):
+    """Execute one serialized request and write only JSON diagnostics to its file."""
+    try:
+        code, bindings = pickle.load(sys.stdin.buffer)
+        namespace = copy.deepcopy(bindings)
+        exec(code, namespace, namespace)
+        result = {"variables": _render_namespace_variables(namespace)}
+    except BaseException as exc:
+        if isinstance(exc, SystemExit):
+            message = "SystemExit is not allowed in executed code"
+        else:
+            try:
+                message = str(exc)[:MAX_VARIABLE_PREVIEW]
+            except BaseException:
+                message = "Unable to render execution exception"
+        result = {"error": message, "error_type": type(exc).__name__}
+    Path(result_path).write_text(json.dumps(result), encoding="utf-8")
 
 
-def execute_python_code(
-    code,
-    prepared_context,
-    timeout_seconds=10,
-):
-    """Execute generated Python on deep-copied bindings and capture its stdout.
+def _kill_process_group(process):
+    """Stop the worker and any children that retain its POSIX process group."""
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        elif process.poll() is None:
+            process.kill()
+    except ProcessLookupError:
+        pass
+
+
+def execute_python_code(code, prepared_context, timeout_seconds=10):
+    """Execute Python in a disposable subprocess with copied NumPy bindings.
 
     Args:
-        code: Nonempty Python text, optionally inside a Markdown code fence.
-        prepared_context: PreparedExecutionContext with validated input bindings.
-        timeout_seconds: Positive deadline in seconds; a falsy/nonpositive value
-            disables it. Worker-thread tracing cannot interrupt blocking native
-            calls; main-thread deadlines require SIGALRM support.
+        code: Nonempty Python text, optionally in a Markdown code fence.
+        prepared_context: Validated bindings to serialize into the child process.
+        timeout_seconds: Positive finite deadline covering startup, execution and
+            variable rendering. On expiry the process group is forcibly killed.
 
     Returns:
-        A mapping with stripped printed_output, repr-based variables and the
-        extracted/sanitized execution_code.
+        Stripped printed_output (at most 64 KiB including a truncation marker),
+        bounded repr-based variables and the extracted/sanitized execution_code.
+        Stdout, including native writes, is captured only from the child process.
 
     Raises:
-        ValueError: Code is empty.
-        CodeExecutionTimeoutError: The active timeout interrupts execution.
-        RuntimeError: Generated code attempts SystemExit.
+        ValueError: Code is empty or the timeout is not positive and finite.
+        CodeExecutionTimeoutError: The child exceeds the deadline.
+        RuntimeError: Execution fails or the child exits without a result.
 
-    Other exceptions from generated code propagate. A process-wide lock prevents
-    stdout capture from overlapping with other calls to this function. Execution
-    has access to normal builtins and is not sandboxed.
+    Bindings are serialized locally, retaining NumPy dtype and shape. Generated
+    code has normal process permissions; process isolation is not a sandbox.
     """
     if not code:
         raise ValueError("code is required")
+    if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive and finite")
+    exec_code = sanitize_code(extract_python_code(code))
+    captured = bytearray()
+    truncated = False
+    stop_reader = threading.Event()
 
-    exec_code = extract_python_code(code)
-    exec_code = sanitize_code(exec_code)
+    def drain(stream):
+        nonlocal truncated
+        with stream, selectors.DefaultSelector() as selector:
+            selector.register(stream, selectors.EVENT_READ)
+            while not stop_reader.is_set():
+                if not selector.select(timeout=0.1):
+                    continue
+                chunk = os.read(stream.fileno(), 8192)
+                if not chunk:
+                    break
+                room = MAX_OUTPUT_BYTES - len(captured)
+                captured.extend(chunk[:room])
+                truncated = truncated or len(chunk) > room
 
-    namespace = copy.deepcopy(prepared_context.bindings)
-    stdout_buffer = StringIO()
+    with tempfile.TemporaryDirectory(prefix="openvlharness-python-") as temp:
+        result_path = Path(temp) / "result.json"
+        with tempfile.TemporaryFile() as request:
+            pickle.dump((exec_code, prepared_context.bindings), request, protocol=pickle.HIGHEST_PROTOCOL)
+            request.seek(0)
+            environment = dict(os.environ, OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
+            process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), str(result_path)],
+                stdin=request, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                start_new_session=True, env=environment)
+            reader = threading.Thread(target=drain, args=(process.stdout,), daemon=True)
+            reader.start()
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as exc:
+                raise CodeExecutionTimeoutError("Execution timed out") from exc
+            finally:
+                _kill_process_group(process)
+                process.wait()
+                reader.join(timeout=1)
+                stop_reader.set()
+                reader.join()
+        if not result_path.is_file():
+            raise RuntimeError(f"Python worker exited without a result (exit code {process.returncode})")
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    output = bytes(captured)
+    if truncated:
+        marker = ("\n" + TRUNCATION_MARKER).encode()
+        output = output[:MAX_OUTPUT_BYTES - len(marker)] + marker
+    return {"printed_output": output.decode("utf-8", errors="replace").strip(),
+            "variables": result["variables"], "execution_code": exec_code}
 
-    try:
-        with _EXECUTION_LOCK, _timeout(timeout_seconds):
-            with contextlib.redirect_stdout(stdout_buffer):
-                exec(exec_code, namespace, namespace)
-    except SystemExit as exc:
-        if exc.code is None:
-            message = "SystemExit is not allowed in executed code"
-        else:
-            message = f"SystemExit is not allowed in executed code: {exc.code!r}"
-        raise RuntimeError(message) from exc
 
-    return {
-        "printed_output": stdout_buffer.getvalue().strip(),
-        "variables": _render_namespace_variables(namespace),
-        "execution_code": exec_code,
-    }
+if __name__ == "__main__":
+    _worker_main(sys.argv[1])

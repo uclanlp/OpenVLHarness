@@ -1,6 +1,7 @@
 """Load the agent-system configuration and wire explicit runtime dependencies."""
 import copy
 import importlib
+import math
 import os
 import re
 from importlib.resources import files
@@ -158,8 +159,8 @@ def load_agent_config(config, *, save_raw_trace=False):
         if executor.get("transport", "local") != "local" or set(executor) - {"transport", "timeout_seconds"}:
             raise ValueError("The paper coding executor supports local transport only")
         timeout = executor.get("timeout_seconds", 30)
-        if type(timeout) not in (int, float) or timeout <= 0:
-            raise ValueError("Local executor timeout_seconds must be positive")
+        if type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("Local executor timeout_seconds must be positive and finite")
     memory_factory(config["memory"])()
     return config
 
