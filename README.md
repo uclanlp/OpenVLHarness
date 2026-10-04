@@ -242,6 +242,19 @@ and service metadata. Add `--resume` to continue a compatible partial run; chang
 to the effective configuration require a new run. `--incremental-json` appends
 results as examples finish.
 
+To evaluate saved predictions, select the run directly:
+
+```bash
+python run_benchmark.py --mode eval --run-dir "$RUN_DIR" --data FSC147_val
+```
+
+Evaluation reads the saved model identity, prediction format and judge configuration;
+it does not load the inference agent, tokenizer or tool connections. Supply
+`--judge-config` when changing the judge or replacing redacted judge credentials.
+Inference resumes still validate the effective configuration and resolved model
+profiles. Without `--run-dir`, evaluation discovers the latest complete saved run
+under `--work-dir`; use `--run-dir` when several model/agent identities are present.
+
 For **Qwen-only token-level export**, add `--save-raw-trace`. This writes per-sample
 JSON and images under `raw_traces/`, with explicit error records for export
 failures. It requires a matching tokenizer and a server that returns token IDs;

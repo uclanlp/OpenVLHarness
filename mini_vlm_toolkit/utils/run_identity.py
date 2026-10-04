@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import os.path as osp
 import re
 from datetime import datetime, timezone
@@ -190,8 +191,12 @@ def build_run_manifest(
     """Build persisted run metadata for resume safety checks."""
     judge_model_name = require_judge_model_name(judge_config)
     agent_identity = _agent_identity_payload(agent_config)
+    orchestrator = agent_config["agent"]["model_service"]
     return {
         "run_id": run_id,
+        "model_id": agent_identity["resolved_model_profiles"][orchestrator]["profile"]["model_id"],
+        "agent_class": agent_config["agent_name"],
+        "prediction_format": os.environ.get("PRED_FORMAT") or "xlsx",
         "agent_config_version": agent_config_version,
         "judge_config_version": judge_config_version,
         "agent_config_hash": sha256_text(canonical_json(agent_identity)),
