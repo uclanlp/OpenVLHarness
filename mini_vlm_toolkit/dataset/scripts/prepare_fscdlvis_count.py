@@ -20,8 +20,8 @@ Outputs (under $LMUData):
 Usage:
 
     python -m mini_vlm_toolkit.dataset.scripts.prepare_fscdlvis_count \
-        [--fscd-root /local/<user>/tool-vision/FSCD/FSCD_LVIS] \
-        [--lvis-taxonomy /data2/.../lvis-api/data/lvis_v1_val.json] \
+        --fscd-root "$FSCD_ROOT" \
+        --lvis-taxonomy "$LVIS_TAXONOMY" \
         [--output-dir $LMUData]
 
 Eval is handled by ``FSC147Dataset`` (the standard counting evaluator);
@@ -61,11 +61,6 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-# Edit-friendly path constants. Override via CLI when the FSCD folder moves.
-FSCD_LVIS_ROOT_DEFAULT = '/local/<user>/tool-vision/FSCD/FSCD_LVIS'
-LVIS_TAXONOMY_JSON_DEFAULT = (
-    '/data/<user>/bak/grounding_data/lvis-api/data/lvis_v1_val.json'
-)
 
 # (ann_file_in_annotations/, split_name, index_prefix)
 SPLITS: List[Tuple[str, str, str]] = [
@@ -168,13 +163,12 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument(
-        '--fscd-root', default=FSCD_LVIS_ROOT_DEFAULT,
-        help=f'FSCD-LVIS dataset root (default: {FSCD_LVIS_ROOT_DEFAULT}).',
+        '--fscd-root', required=True,
+        help='Path to the unpacked FSCD dataset root.',
     )
     parser.add_argument(
-        '--lvis-taxonomy', default=LVIS_TAXONOMY_JSON_DEFAULT,
-        help=f'Path to lvis_v1_val.json for category names '
-             f'(default: {LVIS_TAXONOMY_JSON_DEFAULT}).',
+        '--lvis-taxonomy', required=True,
+        help='Path to lvis_v1_val.json containing category names.',
     )
     parser.add_argument(
         '--output-dir', default=None,

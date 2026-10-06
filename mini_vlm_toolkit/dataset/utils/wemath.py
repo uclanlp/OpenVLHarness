@@ -122,7 +122,6 @@ def evaluate_calculate_metrics(merged_2steps, merged_3steps):
         ((merged_3steps['joker_1'] == True) & (merged_3steps['joker_2'] == True) & (merged_3steps['joker_3'] == True))
         & (merged_3steps['joker_multi'] == True)
     ]
-    # metrics.to_csv("/Users/<user>/Desktop/测试结果/error_anal/csv/gpt4o-0626.csv", index = False)
     return metrics
 
 

@@ -1,9 +1,9 @@
 import yaml
 import os
 
-def load_judge_config(config_path: str) -> dict:
+def load_judge_config(config_path: str | dict) -> dict:
     """
-    Load judge configuration from a YAML file.
+    Load judge configuration from a YAML file or saved configuration mapping.
     
     Expected YAML structure:
     ```yaml
@@ -16,19 +16,22 @@ def load_judge_config(config_path: str) -> dict:
     ```
     
     Args:
-        config_path: Path to YAML config file
+        config_path: Path to YAML config file, or a configuration mapping.
     
     Returns:
         Dictionary with judge configuration parameters
     """
-    if config_path is None or not os.path.exists(config_path):
+    if not isinstance(config_path, dict) and (config_path is None or not os.path.exists(config_path)):
         return {
             'model': 'exact_matching',
             'nproc': 4,
             'retry': 3,
         }
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
+    if isinstance(config_path, dict):
+        config = config_path
+    else:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
     
     judge_kwargs = {
         'model': config.get('model_name'),

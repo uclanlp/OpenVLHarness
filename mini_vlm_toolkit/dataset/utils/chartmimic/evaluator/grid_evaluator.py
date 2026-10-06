@@ -169,13 +169,11 @@ with open('{output_file}', 'w') as f:
 
 
 if __name__ == "__main__":
-    # sys.path.insert(0, '/home/<user>/project/Princess-s-CHI')
+    import argparse
 
+    parser = argparse.ArgumentParser(description="Compare generated and reference chart grid features.")
+    parser.add_argument("--generated-code", required=True, help="Generated chart Python file")
+    parser.add_argument("--golden-code", required=True, help="Reference chart Python file")
+    args = parser.parse_args()
     evaluator = GridEvaluator()
-
-    for idx in range(1, 40):
-        print(f"Processing {idx}")
-        generation_code_file = f"/home/<user>/project/Princess-s-CHI/dataset/line/line_{idx}.py"
-        golden_code_file = f"/home/<user>/project/Princess-s-CHI/results/chart2code_gpt_DirectAgent_results/direct/line_{idx}.py"
-        evaluator(generation_code_file, golden_code_file)
-        print()
+    print(evaluator(args.generated_code, args.golden_code))

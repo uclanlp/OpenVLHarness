@@ -334,13 +334,12 @@ class ODinWBBoxDataset(ImageBaseDataset):
             write_json,
         )
 
-        # Phase 2: decide which score_mode(s) to run.  When SCORE_MODE is
-        # NOT explicitly set and sidecars are present, we run BOTH modes
-        # in a single evaluate() call and emit two sets of metrics files
-        # (primary + alternate) so the score-utility ablation needs no
-        # second invocation.
+        # Config takes precedence over SCORE_MODE. Without either override,
+        # sidecars select both modes (original primary, constant alternate).
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
-        modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
+        modes_to_run, primary_mode = _resolve_score_modes(
+            tool_detections_dir, score_mode=judge_kwargs.get('score_mode'),
+        )
 
         eval_scope = self._resolve_eval_scope(self.dataset_name)
         coords_space = self._resolve_coords_space(self.dataset_name)
@@ -620,7 +619,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
                 # single ``trajectory_file`` matching prepare_odinw's
                 # row index format: ``<domain>_<split>_<image_id>_<category_id>.json``.
                 # That string is the basename used by full_trajectories/
-                # and raw_trajectories/, so users can cross-reference
+                # and raw_traces/, so users can cross-reference
                 # straight from this CSV to the agent's per-row JSON.
                 if evaluator_obj is not None:
                     domain_per_row = extract_per_row_diagnostics(

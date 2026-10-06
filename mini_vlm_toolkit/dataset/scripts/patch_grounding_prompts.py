@@ -64,7 +64,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         '--lmu-data',
-        default=os.environ.get('LMUData', '/local/<user>/tool-vision/lmu_data'),
+        default=os.environ.get('LMUData'),
         help='Path to the LMUData root (default: $LMUData).',
     )
     parser.add_argument(
@@ -72,6 +72,8 @@ def main():
         help='Report what would be patched without writing.',
     )
     args = parser.parse_args()
+    if not args.lmu_data:
+        parser.error("Set --lmu-data or the LMUData environment variable")
 
     patterns = ['LVIS_bbox_*.tsv', 'ODinW13_bbox_*.tsv', 'ODinW35_bbox_*.tsv']
     paths = []

@@ -1,0 +1,788 @@
+{
+  "provenance": {
+    "source_commit": "b98e5a540c4867eab20e07166c274e7ca8b8b9fe",
+    "method": "Offline execution of immutable old memory functions, with image downloads stubbed.",
+    "source_sha256": {
+      "memory/modules/image.py": "0389f1b29962df4de4ce08d8442d4d7adb4407c8db804ff4370c3d27909c1710",
+      "memory/modules/url.py": "c528cba246da867e398853d12004e63dedfb156a6be05e4024e9fccb3e2d623e",
+      "memory/modules/tool_context.py": "ecee671725435ac50da7ca1ca4b5b65fa2be9c746750e31f8eb0d8ad88177fcf",
+      "memory/persistent_state_memory.py": "fa02b5ffa62384dc2c3d203dfbce4f5861ed06cdaf44e878271118c6a4b31a7f"
+    }
+  },
+  "data_urls": {
+    "red": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+    "blue": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+    "green": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg=="
+  },
+  "input_order": {
+    "initial_messages": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- input_image_2: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+      }
+    ],
+    "images": {
+      "registry": {
+        "input_image_1": {
+          "id": "input_image_1",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image_1",
+            "input_image_1"
+          ]
+        },
+        "input_image_2": {
+          "id": "input_image_2",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image_2",
+            "input_image_2"
+          ]
+        }
+      },
+      "alias_to_ref": {
+        "input_image_1": "input_image_1",
+        "image_1": "input_image_1",
+        "input_image_2": "input_image_2",
+        "image_2": "input_image_2"
+      },
+      "url_to_ref": {
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2"
+      },
+      "tool_generated_counter": 0,
+      "last_snapshot": [
+        [
+          "input_image_1",
+          "user_input"
+        ],
+        [
+          "input_image_2",
+          "user_input"
+        ]
+      ]
+    }
+  },
+  "duplicate_inputs": {
+    "registry": {
+      "input_image_1": {
+        "id": "input_image_1",
+        "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+        "source": "user_input",
+        "aliases": [
+          "image_1",
+          "image_2",
+          "input_image_1",
+          "input_image_2"
+        ]
+      },
+      "input_image_3": {
+        "id": "input_image_3",
+        "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+        "source": "user_input",
+        "aliases": [
+          "image_3",
+          "input_image_3"
+        ]
+      }
+    },
+    "alias_to_ref": {
+      "input_image_1": "input_image_1",
+      "image_1": "input_image_1",
+      "input_image_2": "input_image_1",
+      "image_2": "input_image_1",
+      "input_image_3": "input_image_3",
+      "image_3": "input_image_3"
+    },
+    "url_to_ref": {
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_3"
+    },
+    "tool_generated_counter": 0,
+    "last_snapshot": [
+      [
+        "input_image_1",
+        "user_input"
+      ],
+      [
+        "input_image_3",
+        "user_input"
+      ]
+    ]
+  },
+  "duplicate_outputs": {
+    "refs": [
+      "input_image_1",
+      "tool_generated_image_1",
+      "tool_generated_image_1",
+      "input_image_1",
+      "tool_generated_image_2"
+    ],
+    "images": {
+      "registry": {
+        "input_image_1": {
+          "id": "input_image_1",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image",
+            "image.jpeg",
+            "image.jpg",
+            "image.png",
+            "image_1",
+            "input_image_1"
+          ]
+        },
+        "tool_generated_image_1": {
+          "id": "tool_generated_image_1",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+          "source": "tool_output:Zoom_In_Tool",
+          "aliases": [
+            "tool_generated_image_1"
+          ]
+        },
+        "tool_generated_image_2": {
+          "id": "tool_generated_image_2",
+          "data_url": "data:image/x-png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "source": "tool_output:Zoom_In_Tool",
+          "aliases": [
+            "tool_generated_image_2"
+          ]
+        }
+      },
+      "alias_to_ref": {
+        "input_image_1": "input_image_1",
+        "image_1": "input_image_1",
+        "image": "input_image_1",
+        "image.jpg": "input_image_1",
+        "image.jpeg": "input_image_1",
+        "image.png": "input_image_1",
+        "tool_generated_image_1": "tool_generated_image_1",
+        "tool_generated_image_2": "tool_generated_image_2"
+      },
+      "url_to_ref": {
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1",
+        "data:image/x-png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "tool_generated_image_2"
+      },
+      "tool_generated_counter": 2,
+      "last_snapshot": null
+    }
+  },
+  "download_dedup_counter_gap": {
+    "resolution": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+      "input_image_1",
+      "http_download"
+    ],
+    "next_refs": [
+      "tool_generated_image_2"
+    ],
+    "images": {
+      "registry": {
+        "input_image_1": {
+          "id": "input_image_1",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "https://fixture.invalid/same.png",
+            "image",
+            "image.jpeg",
+            "image.jpg",
+            "image.png",
+            "image_1",
+            "input_image_1"
+          ]
+        },
+        "tool_generated_image_2": {
+          "id": "tool_generated_image_2",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+          "source": "tool_output:Zoom_In_Tool",
+          "aliases": [
+            "tool_generated_image_2"
+          ]
+        }
+      },
+      "alias_to_ref": {
+        "input_image_1": "input_image_1",
+        "image_1": "input_image_1",
+        "image": "input_image_1",
+        "image.jpg": "input_image_1",
+        "image.jpeg": "input_image_1",
+        "image.png": "input_image_1",
+        "https://fixture.invalid/same.png": "input_image_1",
+        "tool_generated_image_2": "tool_generated_image_2"
+      },
+      "url_to_ref": {
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_2"
+      },
+      "tool_generated_counter": 2,
+      "last_snapshot": null
+    }
+  },
+  "lookups": {
+    "1": [
+      {
+        "query": " input_IMAGE_1 ",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "image_1",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "/invented/image_1",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "image.jpg",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "unknown.png",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          "single_image_registry_default"
+        ]
+      },
+      {
+        "query": "",
+        "result": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "query": null,
+        "result": [
+          null,
+          null,
+          null
+        ]
+      }
+    ],
+    "2": [
+      {
+        "query": " input_IMAGE_1 ",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "image_1",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "/invented/image_1",
+        "result": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "input_image_1",
+          null
+        ]
+      },
+      {
+        "query": "image.jpg",
+        "result": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "query": "unknown.png",
+        "result": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "query": "",
+        "result": [
+          null,
+          null,
+          null
+        ]
+      },
+      {
+        "query": null,
+        "result": [
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  },
+  "capability_boundary_reference_only": {
+    "missing": {
+      "args": {},
+      "rewrites": [],
+      "errors": []
+    },
+    "plural": {
+      "args": {
+        "image_base64s": [
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+          "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg=="
+        ],
+        "_image_ids": [
+          "input_image_2",
+          "input_image_1"
+        ]
+      },
+      "rewrites": [
+        {
+          "field": "args.image_ids",
+          "target_field": "args.image_base64s",
+          "original": "input_image_2",
+          "image_ref": "input_image_2"
+        },
+        {
+          "field": "args.image_ids",
+          "target_field": "args.image_base64s",
+          "original": "input_image_1",
+          "image_ref": "input_image_1"
+        }
+      ],
+      "errors": []
+    },
+    "unresolved_plural": {
+      "args": {
+        "image_ids": [
+          "input_image_2",
+          "missing"
+        ]
+      },
+      "rewrites": [
+        {
+          "field": "args.image_ids",
+          "target_field": "args.image_base64s",
+          "original": "input_image_2",
+          "image_ref": "input_image_2"
+        }
+      ],
+      "errors": [
+        {
+          "field": "args.image_ids",
+          "value": [
+            "missing"
+          ],
+          "reason": "unresolved_image_reference",
+          "available_image_ids": [
+            "input_image_1",
+            "input_image_2"
+          ]
+        }
+      ]
+    }
+  },
+  "lazy_success": {
+    "ref": "tool_generated_image_1",
+    "first": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+      "tool_generated_image_1",
+      "lazy_fetch"
+    ],
+    "second": [
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+      "tool_generated_image_1",
+      null
+    ],
+    "fetch_calls": 1,
+    "images": {
+      "registry": {
+        "input_image_1": {
+          "id": "input_image_1",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image_1",
+            "input_image_1"
+          ]
+        },
+        "input_image_2": {
+          "id": "input_image_2",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image_2",
+            "input_image_2"
+          ]
+        },
+        "tool_generated_image_1": {
+          "id": "tool_generated_image_1",
+          "url": "https://fixture.invalid/lazy.png",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==",
+          "source": "tool_output:Text_Search_Tool",
+          "aliases": [
+            "https://fixture.invalid/lazy.png",
+            "tool_generated_image_1"
+          ]
+        }
+      },
+      "alias_to_ref": {
+        "input_image_1": "input_image_1",
+        "image_1": "input_image_1",
+        "input_image_2": "input_image_2",
+        "image_2": "input_image_2",
+        "tool_generated_image_1": "tool_generated_image_1",
+        "https://fixture.invalid/lazy.png": "tool_generated_image_1"
+      },
+      "url_to_ref": {
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+        "https://fixture.invalid/lazy.png": "tool_generated_image_1",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkaGBgYGBgYmBgYGBgAAAGKgCE5tEtPAAAAABJRU5ErkJggg==": "tool_generated_image_1"
+      },
+      "tool_generated_counter": 1,
+      "last_snapshot": null
+    }
+  },
+  "lazy_failure": {
+    "resolution": [
+      null,
+      null,
+      null
+    ],
+    "fetch_calls": 2,
+    "images": {
+      "registry": {
+        "input_image_1": {
+          "id": "input_image_1",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image_1",
+            "input_image_1"
+          ]
+        },
+        "input_image_2": {
+          "id": "input_image_2",
+          "data_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==",
+          "source": "user_input",
+          "aliases": [
+            "image_2",
+            "input_image_2"
+          ]
+        },
+        "tool_generated_image_1": {
+          "id": "tool_generated_image_1",
+          "url": "https://fixture.invalid/lazy.png",
+          "data_url": null,
+          "source": "tool_output:Text_Search_Tool",
+          "aliases": [
+            "https://fixture.invalid/lazy.png",
+            "tool_generated_image_1"
+          ]
+        }
+      },
+      "alias_to_ref": {
+        "input_image_1": "input_image_1",
+        "image_1": "input_image_1",
+        "input_image_2": "input_image_2",
+        "image_2": "input_image_2",
+        "tool_generated_image_1": "tool_generated_image_1",
+        "https://fixture.invalid/lazy.png": "tool_generated_image_1"
+      },
+      "url_to_ref": {
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==": "input_image_1",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNkYPjPwMDAxMDAwMDAAAALHwEDmIWXfgAAAABJRU5ErkJggg==": "input_image_2",
+        "https://fixture.invalid/lazy.png": "tool_generated_image_1"
+      },
+      "tool_generated_counter": 1,
+      "last_snapshot": null
+    }
+  },
+  "url_rewrite": {
+    "input": "Page https://www.example.com:8443/a_(b). Repeat https://www.example.com:8443/a_(b)! Photo https://cdn.example.com/view?id=3 <img> and https://cdn.example.com/photo.PNG?size=2, next https://example.com/end.",
+    "output": "Page [webpage_url_1]. Repeat [webpage_url_1]! Photo [tool_generated_image_1] and [tool_generated_image_2], next [webpage_url_2].",
+    "images": {
+      "registry": {
+        "tool_generated_image_1": {
+          "id": "tool_generated_image_1",
+          "url": "https://cdn.example.com/view?id=3",
+          "data_url": null,
+          "source": "tool_output:Text_Search_Tool",
+          "aliases": [
+            "https://cdn.example.com/view?id=3",
+            "tool_generated_image_1"
+          ]
+        },
+        "tool_generated_image_2": {
+          "id": "tool_generated_image_2",
+          "url": "https://cdn.example.com/photo.PNG?size=2",
+          "data_url": null,
+          "source": "tool_output:Text_Search_Tool",
+          "aliases": [
+            "https://cdn.example.com/photo.PNG?size=2",
+            "tool_generated_image_2"
+          ]
+        }
+      },
+      "alias_to_ref": {
+        "tool_generated_image_1": "tool_generated_image_1",
+        "https://cdn.example.com/view?id=3": "tool_generated_image_1",
+        "tool_generated_image_2": "tool_generated_image_2",
+        "https://cdn.example.com/photo.png?size=2": "tool_generated_image_2"
+      },
+      "url_to_ref": {
+        "https://cdn.example.com/view?id=3": "tool_generated_image_1",
+        "https://cdn.example.com/photo.PNG?size=2": "tool_generated_image_2"
+      },
+      "tool_generated_counter": 2,
+      "last_snapshot": null
+    },
+    "urls": {
+      "webpage_registry": {
+        "webpage_url_1": {
+          "url": "https://www.example.com:8443/a_(b)",
+          "domain": "example.com:8443",
+          "source": "tool_output:Text_Search_Tool",
+          "first_seen_turn": 3
+        },
+        "webpage_url_2": {
+          "url": "https://example.com/end",
+          "domain": "example.com",
+          "source": "tool_output:Text_Search_Tool",
+          "first_seen_turn": 3
+        }
+      },
+      "url_to_ref": {
+        "https://www.example.com:8443/a_(b)": "webpage_url_1",
+        "https://example.com/end": "webpage_url_2"
+      },
+      "webpage_counter": 2,
+      "last_webpage_counter": -1
+    },
+    "resolve_input": [
+      "[webpage_url_1]",
+      {
+        "nested": " webpage_url_2 "
+      },
+      "webpage_url_999",
+      "https://unseen.example/"
+    ],
+    "resolve_output": [
+      "https://www.example.com:8443/a_(b)",
+      {
+        "nested": "https://example.com/end"
+      },
+      "webpage_url_999",
+      "https://unseen.example/"
+    ],
+    "rewrites": [
+      {
+        "field": "urls[0]",
+        "original": "[webpage_url_1]",
+        "resolved": "https://www.example.com:8443/a_(b)",
+        "webpage_url_ref": "webpage_url_1"
+      },
+      {
+        "field": "urls[1].nested",
+        "original": " webpage_url_2 ",
+        "resolved": "https://example.com/end",
+        "webpage_url_ref": "webpage_url_2"
+      }
+    ]
+  },
+  "bindings": {
+    "queries": [
+      "Red fox / 2",
+      "red-fox-2",
+      "99 Bottles !!",
+      "!!!",
+      "",
+      "An exceptionally long query with repeated spaces",
+      "An exceptionally long query with repeated spaces"
+    ],
+    "keys": [
+      "depth_red_fox_2",
+      "depth_red_fox_2_2",
+      "depth_q_99_bottles",
+      "depth",
+      "depth_result",
+      "depth_an_exceptionally_long_query_wi",
+      "depth_an_exceptionally_long_query_wi_2"
+    ],
+    "counters": {
+      "depth_red_fox_2": 2,
+      "depth_q_99_bottles": 1,
+      "depth": 1,
+      "depth_result": 1,
+      "depth_an_exceptionally_long_query_wi": 2
+    },
+    "value": {
+      "depth_meters": {
+        "values": [
+          [
+            0.0,
+            1.25
+          ],
+          [
+            2.5,
+            4.0
+          ]
+        ],
+        "dtype": "float32",
+        "shape": [
+          2,
+          2
+        ]
+      },
+      "depth_shape": [
+        2,
+        2
+      ],
+      "colormap": "turbo",
+      "size": [
+        2,
+        2
+      ]
+    },
+    "args": {
+      "query": "Test Depth",
+      "image_id": "input_image_1",
+      "image_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+      "binding_descriptors": {
+        "private": "ignored"
+      },
+      "long_value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "short_value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "count": 3
+    },
+    "descriptor": {
+      "key": "depth_test_depth",
+      "source_tool": "Depth_Estimation_Tool",
+      "source_args": {
+        "query": "Test Depth",
+        "short_value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "count": 3
+      },
+      "fields": {
+        "depth_meters": {
+          "dtype": "ndarray shape=(2, 2) dtype=float32",
+          "description": "per-pixel metric depth in meters",
+          "shape_hint": "",
+          "preview": "range=[0, 4]"
+        },
+        "depth_shape": {
+          "dtype": "list[int] len=2",
+          "description": "[height, width] of depth map",
+          "shape_hint": "",
+          "preview": "[2, 2]"
+        },
+        "colormap": {
+          "dtype": "str len=5",
+          "description": "colormap used for depth visualization",
+          "shape_hint": "",
+          "preview": "'turbo'"
+        },
+        "size": {
+          "dtype": "list[int] len=2",
+          "description": "[width, height] of source image",
+          "shape_hint": "",
+          "preview": "[2, 2]"
+        }
+      }
+    },
+    "descriptions": {
+      "depth_meters": "per-pixel metric depth in meters",
+      "depth_shape": "[height, width] of depth map",
+      "colormap": "colormap used for depth visualization",
+      "size": "[width, height] of source image"
+    }
+  },
+  "environment_always": {
+    "initial": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+      }
+    ],
+    "unchanged": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+      }
+    ],
+    "combined": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_test_depth: dict (keys: depth_meters, depth_shape, colormap, size)\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+      }
+    ],
+    "unchanged_after": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_test_depth: dict (keys: depth_meters, depth_shape, colormap, size)\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+      }
+    ],
+    "failed": [],
+    "after_failed": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- tool_generated_image_1: tool_output:Text_Search_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_test_depth: dict (keys: depth_meters, depth_shape, colormap, size)\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+      }
+    ]
+  },
+  "environment_on_change": {
+    "initial": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths."
+      }
+    ],
+    "unchanged": [],
+    "combined": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_test_depth: dict (keys: depth_meters, depth_shape, colormap, size)\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+      }
+    ],
+    "unchanged_after": [],
+    "failed": [],
+    "after_failed": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- input_image_1: user_input\n- tool_generated_image_1: tool_output:Text_Search_Tool\nWhen a tool needs image input, pass one of these IDs via the *_image_id field.\nDo NOT invent image file names or paths.\n\nAvailable data bindings (auto-injected into Python_Coding_Agent_Tool):\n- depth_test_depth: dict (keys: depth_meters, depth_shape, colormap, size)\n\nCurrently registered webpage URL refs:\n- webpage_url_1: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+      }
+    ]
+  },
+  "inventory_limit": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Environment Update (not a new question):\nCurrently available image IDs for tool calls:\n- (none)\nNo images are available, but you can still use text-based tools (e.g. Text_Search_Tool, Webpage_Visit_Tool) to answer the question.\n\nCurrently registered webpage URL refs:\n- webpage_url_6: tool_output:Text_Search_Tool (example.com)\n- webpage_url_7: tool_output:Text_Search_Tool (example.com)\n- webpage_url_8: tool_output:Text_Search_Tool (example.com)\n- webpage_url_9: tool_output:Text_Search_Tool (example.com)\n- webpage_url_10: tool_output:Text_Search_Tool (example.com)\n- webpage_url_11: tool_output:Text_Search_Tool (example.com)\n- webpage_url_12: tool_output:Text_Search_Tool (example.com)\n- webpage_url_13: tool_output:Text_Search_Tool (example.com)\n- webpage_url_14: tool_output:Text_Search_Tool (example.com)\n- webpage_url_15: tool_output:Text_Search_Tool (example.com)\n- webpage_url_16: tool_output:Text_Search_Tool (example.com)\n- webpage_url_17: tool_output:Text_Search_Tool (example.com)\n- webpage_url_18: tool_output:Text_Search_Tool (example.com)\n- webpage_url_19: tool_output:Text_Search_Tool (example.com)\n- webpage_url_20: tool_output:Text_Search_Tool (example.com)\n- webpage_url_21: tool_output:Text_Search_Tool (example.com)\n- webpage_url_22: tool_output:Text_Search_Tool (example.com)\n- webpage_url_23: tool_output:Text_Search_Tool (example.com)\n- webpage_url_24: tool_output:Text_Search_Tool (example.com)\n- webpage_url_25: tool_output:Text_Search_Tool (example.com)\nWhen you want to visit a webpage, pass a webpage_url_N to Webpage_Visit_Tool.urls."
+      }
+    ],
+    "oldest_resolution": "https://example.com/page/1"
+  }
+}

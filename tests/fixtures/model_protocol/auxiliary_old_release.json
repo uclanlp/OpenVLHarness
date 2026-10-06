@@ -1,0 +1,126 @@
+{
+  "provenance": {
+    "revision": "b98e5a540c4867eab20e07166c274e7ca8b8b9fe",
+    "source": "mini_vlm_toolkit/tool_infra/src/llm/engine.py",
+    "source_sha256": "ab124ed0d7c586dc553001c1797cb02ead2429c9dc8171bff7a6df5852af1bca",
+    "method": "Unchanged LLMEngine AST with mocked OpenAI constructor; generate greedy text/multimodal bodies."
+  },
+  "cases": [
+    {
+      "input": "Plain webpage content",
+      "system": "extract useful evidence",
+      "budget": 16384,
+      "expected": {
+        "model": "Qwen/Qwen3-VL-8B-Instruct",
+        "messages": [
+          {
+            "role": "system",
+            "content": "extract useful evidence"
+          },
+          {
+            "role": "user",
+            "content": "Plain webpage content"
+          }
+        ],
+        "max_tokens": 16384,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "extra_body": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        }
+      }
+    },
+    {
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Candidate 1"
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+                "detail": "high"
+              }
+            }
+          ]
+        }
+      ],
+      "system": "rerank candidates",
+      "budget": 4096,
+      "expected": {
+        "model": "Qwen/Qwen3-VL-8B-Instruct",
+        "messages": [
+          {
+            "role": "system",
+            "content": "rerank candidates"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Candidate 1"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8DAwMDAxMDAwMDAAAANHQEDasKb6QAAAABJRU5ErkJggg==",
+                  "detail": "high"
+                }
+              }
+            ]
+          }
+        ],
+        "max_tokens": 4096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "extra_body": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        }
+      }
+    },
+    {
+      "input": [
+        {
+          "role": "system",
+          "content": "existing system"
+        },
+        {
+          "role": "user",
+          "content": "text"
+        }
+      ],
+      "system": "must not duplicate",
+      "budget": 4096,
+      "expected": {
+        "model": "Qwen/Qwen3-VL-8B-Instruct",
+        "messages": [
+          {
+            "role": "system",
+            "content": "existing system"
+          },
+          {
+            "role": "user",
+            "content": "text"
+          }
+        ],
+        "max_tokens": 4096,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "extra_body": {
+          "chat_template_kwargs": {
+            "enable_thinking": false
+          }
+        }
+      }
+    }
+  ]
+}

@@ -630,8 +630,8 @@ def resolve_trajectory_path(eval_file: str, basename: str) -> str:
 
     Preference order, taking the first that actually exists:
 
-    1. ``<eval_dir>/raw_trajectories/<basename>``  — written when the
-       inference run used ``--save-raw-trajectory`` (intended for SFT).
+    1. ``<eval_dir>/raw_traces/<basename>``  — written when the
+       inference run used ``--save-raw-trace`` (token-based training traces).
     2. ``<eval_dir>/full_trajectories/<basename>``  — always written
        during inference; full agent messages / reasoning / predictions.
     3. Empty string when neither exists.  This happens for LVIS
@@ -641,11 +641,11 @@ def resolve_trajectory_path(eval_file: str, basename: str) -> str:
 
     ``eval_file`` is the predictions xlsx path (the same arg
     ``dataset.evaluate(...)`` receives); its parent directory is the
-    dataset run dir that contains ``raw_trajectories/`` and
+    dataset run dir that contains ``raw_traces/`` and
     ``full_trajectories/``.
     """
     eval_dir = os.path.dirname(os.path.abspath(eval_file))
-    raw = os.path.join(eval_dir, "raw_trajectories", basename)
+    raw = os.path.join(eval_dir, "raw_traces", basename)
     if os.path.isfile(raw):
         return raw
     full = os.path.join(eval_dir, "full_trajectories", basename)
@@ -945,23 +945,32 @@ def _sort_grounding_per_row(rows: List[Dict]) -> List[Dict]:
     return sorted(rows, key=lambda r: (-f1_score(r), -iou_key(r)))
 
 
-def _resolve_score_modes(tool_detections_dir: str) -> Tuple[List[str], str]:
+def _resolve_score_modes(
+    tool_detections_dir: str, score_mode: Optional[str] = None,
+) -> Tuple[List[str], str]:
     """Decide which score_mode(s) to run for one ``evaluate()`` call.
 
     Resolution order:
 
-    1. ``$SCORE_MODE`` env var, if set to ``constant`` or ``original`` →
+    1. Explicit ``score_mode`` from the judge config → run that single mode.
+       Must be ``constant`` or ``original``; invalid values raise ValueError.
+    2. ``$SCORE_MODE`` env var, if set to ``constant`` or ``original`` →
        run that single mode.
-    2. Sidecars present (``tool_detections/`` dir with at least one entry)
+    3. Sidecars present (``tool_detections/`` dir with at least one entry)
        → run BOTH ``original`` (primary) and ``constant`` (alternate) so
        the score-utility ablation is produced in one shot.
-    3. Else → run ``constant`` only.
+    4. Else → run ``constant`` only.
 
     Returns ``(modes, primary)`` where ``modes`` is the ordered list of
     modes to evaluate (primary first) and ``primary`` is the mode whose
     output files are the un-suffixed ``_metrics.json`` / ``_acc.csv``;
     other modes are written as ``_metrics_<mode>.json`` / ``_acc_<mode>.csv``.
     """
+    if score_mode is not None:
+        if not isinstance(score_mode, str) or score_mode.strip().lower() not in ("constant", "original"):
+            raise ValueError("score_mode must be 'constant' or 'original'.")
+        mode = score_mode.strip().lower()
+        return [mode], mode
     override = os.environ.get("SCORE_MODE", "").strip().lower()
     if override in ("constant", "original"):
         return [override], override

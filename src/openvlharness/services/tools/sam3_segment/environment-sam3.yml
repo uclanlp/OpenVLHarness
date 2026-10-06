@@ -1,0 +1,10 @@
+# Portable environment seed, not an export of a developer's full environment.
+# After activation, run install.sh from this directory to install the raw server.
+# Stage 1 used Python 3.10.14; see ../README.md for observed versions and limits.
+name: openvlharness-sam3
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - git

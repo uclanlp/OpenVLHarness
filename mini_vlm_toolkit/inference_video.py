@@ -19,7 +19,7 @@ FAIL_MSG = 'Failed to obtain answer via API.'
 def infer_data_api(
     model, work_dir, model_name, dataset, samples_dict={}, api_nproc=4,
     enable_incremental_json=False,
-    html_limit=0, save_images="files", save_raw_trajectory=False,
+    html_limit=0, save_images="files", save_raw_trace=False,
 ):
     rank, world_size = get_rank_and_world_size()
     assert rank == 0 and world_size == 1
@@ -86,7 +86,7 @@ def infer_data_api(
             model.generate,
             work_dir=work_dir, dataset=dataset, dataset_name=dataset_name,
             model_name=model_name, agent_class=agent_class,
-            save_images=save_images, save_raw_trajectory=save_raw_trajectory,
+            save_images=save_images, save_raw_trace=save_raw_trace,
             html_limit=html_limit, full_trajectories_limit=html_limit,
         )
         incremental_json = (
@@ -114,7 +114,7 @@ def infer_data_api(
 def infer_data(
     model, model_name, work_dir, dataset, out_file=None, *,
     verbose=False, api_nproc=4, enable_incremental_json=False,
-    html_limit=0, save_images="files", save_raw_trajectory=False,
+    html_limit=0, save_images="files", save_raw_trace=False,
 ):
     rank, world_size = get_rank_and_world_size()
     dataset_name = dataset.dataset_name
@@ -137,7 +137,7 @@ def infer_data(
         samples_dict={k: sample_map[k] for k in sample_indices},
         api_nproc=api_nproc, enable_incremental_json=enable_incremental_json,
         html_limit=html_limit, save_images=save_images,
-        save_raw_trajectory=save_raw_trajectory,
+        save_raw_trace=save_raw_trace,
     )
     return model
 
@@ -155,7 +155,7 @@ def infer_video_job(
         html_limit=0,
         enable_incremental_json=False,
         save_images="files",
-        save_raw_trajectory=False,
+        save_raw_trace=False,
     ):
 
     if dataset_name is None:
@@ -175,7 +175,7 @@ def infer_video_job(
         verbose=verbose, api_nproc=api_nproc,
         enable_incremental_json=enable_incremental_json,
         html_limit=html_limit, save_images=save_images,
-        save_raw_trajectory=save_raw_trajectory,
+        save_raw_trace=save_raw_trace,
     )
     if world_size > 1:
         dist.barrier()

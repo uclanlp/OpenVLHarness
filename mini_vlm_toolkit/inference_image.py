@@ -11,7 +11,7 @@ from .utils.reporting_utils import (
     build_trajectory_records,
     write_input_snapshot_json,
     write_raw_response_jsons,
-    write_raw_trajectory_jsons,
+    write_raw_trace_jsons,
     build_complete_messages_from_trajectory,
     render_html_report,
     _replace_data_uris_with_files,
@@ -84,7 +84,7 @@ def _make_committed_gen(
     model_name,
     agent_class,
     save_images,
-    save_raw_trajectory,
+    save_raw_trace,
     html_limit,
     full_trajectories_limit=-1,
 ):
@@ -97,7 +97,8 @@ def _make_committed_gen(
         0 = never)
       - ``tool_detections/<idx>.json`` (only if non-empty)
       - ``htmls/<idx>.html`` (first-N by completion order, gated by html_limit)
-      - ``raw_trajectories/<idx>.json`` (if requested + ``raw_sft`` present)
+      - ``raw_traces/<idx>.json`` or ``raw_traces/errors/<idx>.json``
+        (if raw export was requested)
     """
     # Disk escape hatch (ported from bryan/qwen25): full_trajectories/ (mostly saved images) is
     # ~99.7% of run output. FULL_TRAJECTORIES_LIMIT caps it: 0 = save none, N = first N per
@@ -166,10 +167,10 @@ def _make_committed_gen(
                             html_text,
                         )
 
-                # 4) raw_trajectories/<idx>.json — if requested + raw_sft present
-                if save_raw_trajectory:
-                    write_raw_trajectory_jsons(
-                        [rec0], osp.join(work_dir, "raw_trajectories"), limit=-1,
+                # 4) Requested raw export, including explicit per-sample failures.
+                if save_raw_trace:
+                    write_raw_trace_jsons(
+                        [rec0], osp.join(work_dir, "raw_traces"), limit=-1,
                     )
 
             # 5) canonical record + done flag — last, so a crash before this
@@ -184,7 +185,7 @@ def infer_data_api(
     model, work_dir, model_name, dataset, *,
     index_set=None, api_nproc=4, ignore_failed=False,
     enable_incremental_json=False,
-    html_limit=0, save_images="files", save_raw_trajectory=False,
+    html_limit=0, save_images="files", save_raw_trace=False,
 ):
     rank, world_size = get_rank_and_world_size()
     assert rank == 0 and world_size == 1
@@ -261,7 +262,7 @@ def infer_data_api(
             model.generate,
             work_dir=work_dir, dataset=dataset, dataset_name=dataset_name,
             model_name=model_name, agent_class=agent_class,
-            save_images=save_images, save_raw_trajectory=save_raw_trajectory,
+            save_images=save_images, save_raw_trace=save_raw_trace,
             html_limit=html_limit,
         )
         incremental_json = (
@@ -288,7 +289,7 @@ def infer_data_api(
 def infer_data(
     model, model_name, work_dir, dataset, out_file=None, *,
     verbose=False, api_nproc=4, enable_incremental_json=False,
-    html_limit=0, save_images="files", save_raw_trajectory=False,
+    html_limit=0, save_images="files", save_raw_trace=False,
     ignore_failed=False,
 ):
     """Run inference for ``dataset`` under ``work_dir``.
@@ -309,7 +310,7 @@ def infer_data(
         ignore_failed=ignore_failed,
         enable_incremental_json=enable_incremental_json,
         html_limit=html_limit, save_images=save_images,
-        save_raw_trajectory=save_raw_trajectory,
+        save_raw_trace=save_raw_trace,
     )
     return model
 
@@ -424,7 +425,7 @@ def infer_image_job(
     enable_incremental_json=False,
     use_dataset_subdir=True,
     save_images="files",
-    save_raw_trajectory=False,
+    save_raw_trace=False,
 ):
     """
     Main inference job wrapper for image datasets with pre/post processing.
@@ -470,7 +471,7 @@ def infer_image_job(
         verbose=verbose, api_nproc=api_nproc,
         enable_incremental_json=enable_incremental_json,
         html_limit=html_limit, save_images=save_images,
-        save_raw_trajectory=save_raw_trajectory, ignore_failed=ignore_failed,
+        save_raw_trace=save_raw_trace, ignore_failed=ignore_failed,
     )
     if world_size > 1:
         dist.barrier()
@@ -503,7 +504,7 @@ def infer_image_job(
         )
 
         # raw_response is opt-in per agent. The other per-task artifacts
-        # (full_trajectories/, tool_detections/, htmls/, raw_trajectories/)
+        # (full_trajectories/, tool_detections/, htmls/, raw_traces/)
         # are already written at commit time inside the worker wrapper.
         if getattr(model, 'save_raw_response', False):
             full_records = build_trajectory_records(

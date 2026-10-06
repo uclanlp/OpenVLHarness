@@ -4,8 +4,9 @@ load_dotenv(".env")
 import json
 import os
 import argparse
+from pathlib import Path
 import yaml
-from mini_vlm_toolkit.agent import build_agent, load_agent_config
+from openvlharness.bootstrap import build_agent, load_agent_config
 from mini_vlm_toolkit.dataset import build_dataset
 import datetime
 from mini_vlm_toolkit.smp import *
@@ -23,6 +24,7 @@ from mini_vlm_toolkit.utils.run_identity import (
     build_run_id,
     build_run_manifest,
     validate_manifest_compatibility,
+    redact_sensitive_fields,
 )
 
 RANK = int(os.environ.get('RANK', 0))
@@ -137,91 +139,96 @@ def _find_resumable_run_dir(
     )
 
 
-# Keys that should be redacted in tool env snapshots (API keys, secrets).
-_SENSITIVE_ENV_PATTERNS = (
-    "KEY", "SECRET", "TOKEN", "PASSWORD", "CREDENTIAL",
-)
+def _saved_evaluation_identity(manifest):
+    """Read model and agent names from saved metadata without resolving current profiles."""
+    config = manifest.get("config_snapshot_redacted", {}).get("agent", {})
+    service = config.get("agent", {}).get("model_service")
+    profile = manifest.get("resolved_model_profiles", {}).get(service, {}).get("profile", {})
+    model = manifest.get("model_id") or profile.get("model_id")
+    agent_class = manifest.get("agent_class") or config.get("agent_name")
+    if not isinstance(model, str) or not model.strip() or not isinstance(agent_class, str) or not agent_class:
+        raise ValueError("Saved run manifest lacks model/agent identity required for evaluation")
+    model_name = model.split("/")[-1]
+    if model_name in {"", ".", ".."}:
+        raise ValueError("Saved model identity has an invalid output filename")
+    return model_name, agent_class
 
 
-def _is_sensitive_env_key(key):
-    key_upper = str(key).upper()
-    return any(pattern in key_upper for pattern in _SENSITIVE_ENV_PATTERNS)
+def _saved_prediction_files(pred_root, manifest, datasets, sample_filter):
+    """Locate saved prediction files independently of the current PRED_FORMAT setting."""
+    model_name, _ = _saved_evaluation_identity(manifest)
+    root = Path(_artifact_root_for_sample_filter(pred_root, sample_filter))
+    predictions = {}
+    for dataset in datasets:
+        directory = root / dataset
+        preferred = manifest.get("prediction_format")
+        preferred_path = directory / f"{model_name}.{preferred}"
+        if preferred in {"xlsx", "tsv", "json"} and preferred_path.is_file():
+            predictions[dataset] = str(preferred_path)
+            continue
+        candidates = [directory / f"{model_name}.{extension}" for extension in ("xlsx", "tsv", "json", "pkl")]
+        candidates = [path for path in candidates if path.is_file()]
+        if len(candidates) != 1:
+            raise ValueError(f"Expected one saved prediction file for {dataset} under {directory}; "
+                             f"found {len(candidates)}. Check --run-dir and --sample-filter.")
+        predictions[dataset] = str(candidates[0])
+    return predictions
 
 
-def _redact_env_value(key, value):
-    if _is_sensitive_env_key(key):
-        return "<REDACTED>"
-    return value
+def _prepare_evaluation_run(args, logger):
+    """Select saved outputs without expanding inference settings or constructing an agent.
 
-
-def _redact_env_map(env):
-    return {
-        k: _redact_env_value(k, v)
-        for k, v in env.items()
-    }
+    An explicit run directory is authoritative. Discovery inspects saved manifests
+    under work_dir, optionally filtering by the unexpanded agent config's alias and
+    version. Multiple model/agent families require an explicit run directory.
+    """
+    if args.run_dir:
+        path = Path(args.run_dir).resolve()
+        manifest = _load_json(path / "run_manifest.json")
+        predictions = _saved_prediction_files(path, manifest, args.data, args.sample_filter)
+        return str(path), manifest, *_saved_evaluation_identity(manifest), predictions
+    selector = parse_yaml_mapping(args.config, label="Agent metadata filter") if args.config else None
+    candidates = []
+    for manifest_path in Path(args.work_dir).glob("*/*/*/run_manifest.json"):
+        try:
+            manifest = _load_json(manifest_path)
+            config = manifest.get("config_snapshot_redacted", {}).get("agent", {})
+            if selector:
+                service = selector.get("agent", {}).get("model_service")
+                alias = selector.get("services", {}).get("models", {}).get(service, {}).get("alias")
+                saved_service = config.get("agent", {}).get("model_service")
+                saved_alias = config.get("services", {}).get("models", {}).get(saved_service, {}).get("alias")
+                if (manifest.get("agent_config_version") != selector.get("agent_config_version")
+                        or config.get("agent_name") != selector.get("agent_name") or saved_alias != alias):
+                    continue
+            identity = _saved_evaluation_identity(manifest)
+            predictions = _saved_prediction_files(manifest_path.parent, manifest, args.data, args.sample_filter)
+        except (ValueError, OSError, TypeError) as exc:
+            logger.debug("Skipping saved run %s: %s", manifest_path.parent, exc)
+            continue
+        candidates.append((manifest.get("created_at_utc", ""), str(manifest_path.parent), manifest, identity, predictions))
+    if not candidates:
+        raise FileNotFoundError("No saved run contains the requested predictions; supply --run-dir")
+    if len({item[3] for item in candidates}) != 1:
+        raise ValueError("Saved runs contain multiple model/agent identities; select one with --run-dir")
+    _, root, manifest, identity, predictions = max(candidates, key=lambda item: (item[0], item[1]))
+    return root, manifest, *identity, predictions
 
 
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
-    """Save tool env snapshot and warn if .env file diverges from running server."""
+    """Record the selected router and resolved service configuration, without secrets."""
     import requests as _requests
-
-    tool_base = None
-    if agent_config and isinstance(agent_config, dict):
-        tool_base = (agent_config.get("agent_kwargs") or {}).get("tool_base")
-    tool_base = tool_base or "http://localhost:8101"
-
-    # 1. Read from running server
-    server_env = None
+    services = (agent_config or {}).get("services", {})
+    base_url = services.get("client", {}).get("base_url")
+    snapshot = {"configured": redact_sensitive_fields(services), "server": None}
     try:
-        resp = _requests.get(f"{tool_base}/env", timeout=5)
-        resp.raise_for_status()
-        parsed_env = resp.json()
-        if isinstance(parsed_env, dict):
-            server_env = _redact_env_map(parsed_env)
-    except Exception:
-        pass
-
-    # 2. Read from .env file on disk
-    file_env = {}
-    tool_infra_dir = os.path.join(os.path.dirname(__file__), "mini_vlm_toolkit", "tool_infra")
-    for name in [".env.rui", ".env"]:
-        env_path = os.path.join(tool_infra_dir, name)
-        if os.path.isfile(env_path):
-            with open(env_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    k, _, v = line.partition("=")
-                    file_env[k.strip()] = v.strip()
-            break
-
-    # 3. Compare and warn on mismatch
-    mismatches = {}
-    if server_env and file_env:
-        for key, server_val in server_env.items():
-            if key.startswith("_") or _is_sensitive_env_key(key):
-                continue
-            file_val = file_env.get(key)
-            if file_val is not None and file_val != server_val:
-                mismatches[key] = {"server": server_val, "file": file_val}
-                msg = (
-                    f"⚠ Tool env MISMATCH: {key} — "
-                    f"server='{server_val}' vs file='{file_val}'. "
-                    f"Did you edit .env without restarting the tool server?"
-                )
-                logger.warning(msg)
-                print(f"\n{'='*60}\nWARNING: {msg}\n{'='*60}\n")
-
-    # 4. Save server env (ground truth) or file env (fallback)
-    snapshot = server_env or _redact_env_map(file_env)
-    if snapshot:
-        if mismatches:
-            snapshot["_MISMATCHES"] = mismatches
-        snapshot_path = os.path.join(pred_root, "tool_env.snapshot.json")
-        with open(snapshot_path, "w") as f:
-            json.dump(snapshot, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved tool env snapshot: {snapshot_path}")
+        response = _requests.get(f"{base_url}/env", timeout=5)
+        response.raise_for_status()
+        snapshot["server"] = redact_sensitive_fields(response.json())
+    except Exception as exc:
+        snapshot["server_error"] = type(exc).__name__
+        logger.warning("Router environment snapshot unavailable: %s", type(exc).__name__)
+    _write_json(os.path.join(pred_root, "tool_env_snapshot.json"), snapshot)
 
 
 def _prepare_run_root(pred_root, manifest, logger):
@@ -259,21 +266,23 @@ def _prepare_run_root(pred_root, manifest, logger):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data', type=str, nargs='+', help='Names of Datasets')
-    parser.add_argument('--config', type=str, default='configs/base_agent_with_tools.yaml', help='Path to agent config file')
-    parser.add_argument('--judge-config', type=str, default='configs/judge.yaml', help='Path to judge config file')
-    parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='Select running mode')
+    parser.add_argument('--data', type=str, nargs='+', required=True, help='Names of Datasets')
+    parser.add_argument('--config', type=str, default=None, help='Agent-system config for inference (default: configs/agent/qwen3_paper.yaml); optional metadata filter for eval discovery')
+    parser.add_argument('--judge-config', type=str, default=None, help='Judge config override; inference defaults to configs/judge.yaml, eval uses the saved judge configuration')
+    parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='all: infer and evaluate; infer: generate predictions; eval: evaluate saved outputs without loading an inference agent')
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
     parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
     parser.add_argument('--save-images', type=str, default='files', choices=['files', 'base64'],
                         help='How to store images in full_trajectories JSONs: "files" copies '
                              'them to a sibling images/ folder (default), "base64" inlines them as data URIs.')
-    parser.add_argument('--save-raw-trajectory', action='store_true',
-                        help='Also save raw tokenized trajectories under '
-                             '<work_dir>/<dataset>/raw_trajectories/ for SFT training. '
-                             'Requires the agent config to request '
-                             'extra_body.return_token_ids=true on a vLLM-compatible server.')
+    parser.add_argument('--save-raw-trace', action='store_true',
+                        help='Also save raw traces reconstructed from tokens under '
+                             '<work_dir>/<dataset>/raw_traces/ for training. '
+                             'Supported for image/text datasets with qwen3-vl-8b-instruct only; automatically enables '
+                             'return_token_ids in the effective run config. Requires the matching '
+                             'Qwen tokenizer and a server that returns token IDs. Export failures '
+                             'are recorded per sample; GPT/Kimi are rejected before inference.')
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
     parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
     parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
@@ -291,10 +300,9 @@ if __name__ == "__main__":
                              'sentinel (see inference_image.infer_image_job).')
     parser.add_argument(
         '--run-dir', type=str, default=None,
-        help='Path to an existing run directory. When set, all current behavior is bypassed: '
-             'no new run dir is created, --resume scanning is skipped, and result files are '
-             'read/written directly under this directory. Useful for re-evaluating a completed run '
-             '(e.g. with --mode eval to apply LLM judge to an existing inference output).'
+        help='Existing run directory. Evaluation uses its saved model identity and predictions '
+             'without an inference config or agent. Inference resumes still require matching '
+             'configuration/profile identity. Skips automatic run discovery and directory creation.'
     )
     parser.add_argument(
         '--keep-file-db', action='store_true',
@@ -315,6 +323,9 @@ if __name__ == "__main__":
 
     logger = get_logger("RUN")
 
+    if args.mode == "eval" and WORLD_SIZE > 1:
+        raise ValueError("Evaluation-only mode runs in one process; launch without distributed inference settings")
+
     if WORLD_SIZE > 1:
         import torch.distributed as dist
         dist.init_process_group(
@@ -322,94 +333,111 @@ if __name__ == "__main__":
             timeout=datetime.timedelta(seconds=int(os.environ.get('DIST_TIMEOUT', 3600)))
         )
 
-    agent_config = load_agent_config(args.config)
-    judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
-    agent_config_version = require_config_version(
-        agent_config,
-        field_name="agent_config_version",
-        label="Agent config",
-    )
-    judge_config_version = require_config_version(
-        judge_config,
-        field_name="judge_config_version",
-        label="Judge config",
-    )
-    agent = build_agent(args.config)
-    judge_kwargs = load_judge_config(args.judge_config)
-    model_name = agent.model.split('/')[-1]
-    agent_class = agent.__class__.__name__
-
-    logger.info(f"LLM Judge Configurations: {judge_kwargs}")
-    logger.info(f"Initialized agent of class {agent_class} with model {model_name}")
-
-    parent_dir = os.path.join(args.work_dir, model_name, agent_class.lower())
-
-    if args.run_dir:
-        # Use the specified directory directly. Skip resume scanning and
-        # new-dir creation. This is the path for re-evaluating completed runs.
-        pred_root = os.path.abspath(args.run_dir)
-        if not os.path.isdir(pred_root):
-            raise FileNotFoundError(f"--run-dir does not exist: {pred_root}")
-        run_id = os.path.basename(pred_root)
-        run_manifest = build_run_manifest(
-            run_id=run_id,
-            agent_config_version=agent_config_version,
-            judge_config_version=judge_config_version,
-            agent_config=agent_config,
-            judge_config=judge_config,
-            config_path=args.config,
-            judge_config_path=args.judge_config,
-        )
-        run_manifest_path = os.path.join(pred_root, "run_manifest.json")
-        if not os.path.exists(run_manifest_path):
-            raise ValueError(f"--run-dir missing run_manifest.json: {pred_root}")
-        existing_manifest = _load_json(run_manifest_path)
-        validate_manifest_compatibility(existing_manifest, run_manifest)
-        logger.info(f"Using specified run directory: {pred_root}")
-    elif args.resume:
-        # Build a temporary manifest for compatibility checking (run_id filled after finding dir)
-        tmp_manifest = build_run_manifest(
-            run_id="__resume_pending__",
-            agent_config_version=agent_config_version,
-            judge_config_version=judge_config_version,
-            agent_config=agent_config,
-            judge_config=judge_config,
-            config_path=args.config,
-            judge_config_path=args.judge_config,
-        )
-        pred_root = _find_resumable_run_dir(
-            parent_dir, agent_config_version, judge_config_version,
-            tmp_manifest, args.data, model_name, logger,
-            mode=args.mode,
-            sample_filter=args.sample_filter,
-        )
-        run_id = os.path.basename(pred_root)
-        run_manifest = build_run_manifest(
-            run_id=run_id,
-            agent_config_version=agent_config_version,
-            judge_config_version=judge_config_version,
-            agent_config=agent_config,
-            judge_config=judge_config,
-            config_path=args.config,
-            judge_config_path=args.judge_config,
-        )
-        logger.info(f"Resuming existing run: {pred_root}")
+    if args.mode == "eval":
+        pred_root, run_manifest, model_name, agent_class, saved_predictions = _prepare_evaluation_run(args, logger)
+        run_id = run_manifest["run_id"]
+        agent_config_version = run_manifest["agent_config_version"]
+        judge_config = (parse_yaml_mapping(args.judge_config, label="Judge config") if args.judge_config
+                        else run_manifest["config_snapshot_redacted"]["judge"])
+        judge_config_version = require_config_version(judge_config, field_name="judge_config_version", label="Judge config")
+        judge_kwargs = load_judge_config(judge_config)
+        # Local matching policies do not construct an API judge.
+        if (judge_kwargs.get("model") not in (None, "exact_matching", "extract_matching")
+                and judge_kwargs.get("key") == "<REDACTED>"):
+            raise ValueError("Saved judge credentials are redacted; supply --judge-config for the evaluator's judge")
+        logger.info("Evaluating saved %s/%s outputs without an inference agent", agent_class, model_name)
+        logger.info("LLM Judge Configurations: %s", redact_sensitive_fields(judge_kwargs))
     else:
-        run_id = build_run_id(agent_config_version, judge_config_version, run_tag=args.run_tag)
-        pred_root = os.path.join(parent_dir, run_id)
-        run_manifest = build_run_manifest(
-            run_id=run_id,
-            agent_config_version=agent_config_version,
-            judge_config_version=judge_config_version,
-            agent_config=agent_config,
-            judge_config=judge_config,
-            config_path=args.config,
-            judge_config_path=args.judge_config,
+        args.config = args.config or "configs/agent/qwen3_paper.yaml"
+        args.judge_config = args.judge_config or "configs/judge.yaml"
+        agent_config = load_agent_config(args.config, save_raw_trace=args.save_raw_trace)
+        judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
+        agent_config_version = require_config_version(
+            agent_config,
+            field_name="agent_config_version",
+            label="Agent config",
         )
-        if RANK == 0:
-            _prepare_run_root(pred_root, run_manifest, logger)
-        if WORLD_SIZE > 1:
-            dist.barrier()
+        judge_config_version = require_config_version(
+            judge_config,
+            field_name="judge_config_version",
+            label="Judge config",
+        )
+        agent = build_agent(agent_config)
+        judge_kwargs = load_judge_config(args.judge_config)
+        model_name = agent.model.split('/')[-1]
+        agent_class = agent.__class__.__name__
+
+        logger.info(f"LLM Judge Configurations: {redact_sensitive_fields(judge_kwargs)}")
+        logger.info(f"Initialized agent of class {agent_class} with model {model_name}")
+
+        parent_dir = os.path.join(args.work_dir, model_name, agent_class.lower())
+
+        if args.run_dir:
+            # Use the specified directory directly. Skip resume scanning and
+            # new-dir creation. This is the path for re-evaluating completed runs.
+            pred_root = os.path.abspath(args.run_dir)
+            if not os.path.isdir(pred_root):
+                raise FileNotFoundError(f"--run-dir does not exist: {pred_root}")
+            run_id = os.path.basename(pred_root)
+            run_manifest = build_run_manifest(
+                run_id=run_id,
+                agent_config_version=agent_config_version,
+                judge_config_version=judge_config_version,
+                agent_config=agent_config,
+                judge_config=judge_config,
+                config_path=args.config,
+                judge_config_path=args.judge_config,
+            )
+            run_manifest_path = os.path.join(pred_root, "run_manifest.json")
+            if not os.path.exists(run_manifest_path):
+                raise ValueError(f"--run-dir missing run_manifest.json: {pred_root}")
+            existing_manifest = _load_json(run_manifest_path)
+            validate_manifest_compatibility(existing_manifest, run_manifest)
+            logger.info(f"Using specified run directory: {pred_root}")
+        elif args.resume:
+            # Build a temporary manifest for compatibility checking (run_id filled after finding dir)
+            tmp_manifest = build_run_manifest(
+                run_id="__resume_pending__",
+                agent_config_version=agent_config_version,
+                judge_config_version=judge_config_version,
+                agent_config=agent_config,
+                judge_config=judge_config,
+                config_path=args.config,
+                judge_config_path=args.judge_config,
+            )
+            pred_root = _find_resumable_run_dir(
+                parent_dir, agent_config_version, judge_config_version,
+                tmp_manifest, args.data, model_name, logger,
+                mode=args.mode,
+                sample_filter=args.sample_filter,
+            )
+            run_id = os.path.basename(pred_root)
+            run_manifest = build_run_manifest(
+                run_id=run_id,
+                agent_config_version=agent_config_version,
+                judge_config_version=judge_config_version,
+                agent_config=agent_config,
+                judge_config=judge_config,
+                config_path=args.config,
+                judge_config_path=args.judge_config,
+            )
+            logger.info(f"Resuming existing run: {pred_root}")
+        else:
+            run_id = build_run_id(agent_config_version, judge_config_version, run_tag=args.run_tag)
+            pred_root = os.path.join(parent_dir, run_id)
+            run_manifest = build_run_manifest(
+                run_id=run_id,
+                agent_config_version=agent_config_version,
+                judge_config_version=judge_config_version,
+                agent_config=agent_config,
+                judge_config=judge_config,
+                config_path=args.config,
+                judge_config_path=args.judge_config,
+            )
+            if RANK == 0:
+                _prepare_run_root(pred_root, run_manifest, logger)
+            if WORLD_SIZE > 1:
+                dist.barrier()
 
     logger.info(
         f"Run identity: run_id={run_id} "
@@ -430,6 +458,8 @@ if __name__ == "__main__":
             dist.barrier()
 
         dataset = build_dataset(dataset_name, **dataset_kwargs)
+        if args.mode != "eval" and args.save_raw_trace and dataset is not None and dataset.MODALITY == 'VIDEO':
+            raise ValueError("Raw trace export supports Qwen image/text datasets only; the video runner does not support raw export.")
         if dataset is not None and args.num_examples is not None:
             if args.shuffle:
                 import random
@@ -463,7 +493,8 @@ if __name__ == "__main__":
             logger.info(
                 f"Using filtered artifact root for {dataset_name}: {artifact_root}"
             )
-        result_file = get_pred_file_path(artifact_root, model_name, dataset_name, use_env_format=True)
+        result_file = (saved_predictions[dataset_name] if args.mode == "eval" else
+                       get_pred_file_path(artifact_root, model_name, dataset_name, use_env_format=True))
         if dataset is None:
             logger.error(f'Dataset {dataset_name} is not valid, will be skipped. ')
             continue
@@ -492,7 +523,7 @@ if __name__ == "__main__":
                     html_limit=html_limit,
                     enable_incremental_json=args.incremental_json,
                     save_images=args.save_images,
-                    save_raw_trajectory=args.save_raw_trajectory,
+                    save_raw_trace=args.save_raw_trace,
                     ignore_failed=args.ignore_failed,
                 )
 

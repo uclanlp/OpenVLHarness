@@ -398,13 +398,12 @@ class LVISBBoxDataset(ImageBaseDataset):
             _resolve_score_modes,
         )
 
-        # Phase 2: decide which score_mode(s) to run.  When SCORE_MODE is
-        # NOT explicitly set and sidecars are present, we run BOTH modes
-        # in a single evaluate() call and emit two sets of metrics files
-        # (primary + alternate) so the score-utility ablation needs no
-        # second invocation.
+        # Config takes precedence over SCORE_MODE. Without either override,
+        # sidecars select both modes (original primary, constant alternate).
         tool_detections_dir = osp.join(osp.dirname(eval_file), 'tool_detections')
-        modes_to_run, primary_mode = _resolve_score_modes(tool_detections_dir)
+        modes_to_run, primary_mode = _resolve_score_modes(
+            tool_detections_dir, score_mode=judge_kwargs.get('score_mode'),
+        )
 
         data = load(eval_file)
         if not isinstance(data, pd.DataFrame):
@@ -535,7 +534,7 @@ class LVISBBoxDataset(ImageBaseDataset):
             # The per-row identity is captured as ``trajectory_file``
             # (matches the row's TSV index + ``.json``), so users can
             # cross-reference straight to ``full_trajectories/<file>``
-            # or ``raw_trajectories/<file>`` without parsing columns.
+            # or ``raw_traces/<file>`` without parsing columns.
             if evaluator_obj is not None:
                 per_row_records = extract_per_row_diagnostics(
                     evaluator_obj, iou_threshold=0.5, area_label='all',
@@ -562,8 +561,8 @@ class LVISBBoxDataset(ImageBaseDataset):
                     basename = (
                         f"{lvis_split}_{r['image_id']}_{r['category_id']}.json"
                     )
-                    # Absolute path (preferring raw_trajectories/ when
-                    # --save-raw-trajectory was set during inference,
+                    # Absolute path (preferring raw_traces/ when
+                    # --save-raw-trace was set during inference,
                     # falling back to full_trajectories/, and empty
                     # string when neither exists — the LVIS auto-
                     # extended-row case).
