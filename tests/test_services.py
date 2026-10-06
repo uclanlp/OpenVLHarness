@@ -22,6 +22,7 @@ from openvlharness.contracts import ServiceResult, VirtualCall
 from openvlharness.memory.store import MemoryStore
 from openvlharness.services.client import ToolClient
 from openvlharness.services.server import create_app
+from openvlharness.services.tools.base import ToolArgumentError
 
 
 def config_for(*names):
@@ -100,6 +101,21 @@ class RouterContractTests(unittest.TestCase):
         self.assertEqual(missing["error"]["code"], "tool_not_found")
         self.assertEqual(missing["tool_call_id"], "call_missing")
         self.assertEqual(missing["meta"]["http_status"], 404)
+        self.assertEqual(post.call_count, 2)
+
+    def test_t01_invalid_tool_arguments_return_400_without_retry(self):
+        tool = FakeTool(error=ToolArgumentError("fixture argument rejection"))
+        app = create_app(config_for("camera_pose"), implementations={"camera_trajectory": tool})
+        with TestClient(app) as http, patch("openvlharness.services.http.requests.post", side_effect=wire_post(http)) as post:
+            result = ToolClient("http://router.invalid", timeout_seconds=9, retry=3).execute(
+                "Camera_Trajectory_Tool", {}, tool_call_id="call_bad_args")
+            forbidden = ToolClient("http://router.invalid", retry=3).execute(
+                "Camera_Trajectory_Tool", {"server_url": "http://elsewhere.invalid"}, tool_call_id="call_forbidden")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["meta"]["http_status"], 400)
+        self.assertEqual(result["error"], {"code": "tool_execution_error", "message": "fixture argument rejection",
+                                          "detail": {"exception_type": "ToolArgumentError"}})
+        self.assertEqual(forbidden["meta"]["http_status"], 400)
         self.assertEqual(post.call_count, 2)
 
     def test_t01_transport_timeout_retries_are_bounded_and_retain_same_request(self):

@@ -8,7 +8,7 @@ import os
 
 import requests
 
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.http_utils import raise_for_status_with_detail
 from openvlharness.services.tools.image_utils import decode_base64_image_data
 
@@ -124,9 +124,9 @@ class Depth_Estimation_Tool(BaseTool):
             RuntimeError: The depth service returns an HTTP error.
         """
         if not image_path and not image_base64:
-            raise ValueError("image_path or image_base64 is required")
+            raise ToolArgumentError("image_path or image_base64 is required")
         if image_path and image_base64:
-            raise ValueError("Provide exactly one of image_path or image_base64")
+            raise ToolArgumentError("Provide exactly one of image_path or image_base64")
         if image_path and not os.path.isfile(image_path):
             raise FileNotFoundError(f"image_path not found: {image_path}")
 

@@ -6,7 +6,7 @@ and returns extracted code. Execution belongs to the calling capability.
 
 import os
 
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.python_coding_agent.catalog import build_rich_data_catalog
 from openvlharness.services.tools.python_executor_local.executor import extract_python_code
 
@@ -134,7 +134,7 @@ class Python_Coding_Agent_Tool(BaseTool):
             ValueError: The objective is empty.
         """
         if not objective:
-            raise ValueError("objective is required")
+            raise ToolArgumentError("objective is required")
 
         user_prompt = self._build_prompt(objective, binding_descriptors)
         messages = [

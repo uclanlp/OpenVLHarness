@@ -283,18 +283,8 @@ class SparBench(ImageBaseDataset):
                 if k not in ('tabulated_keys', 'tabulated_results')
             )
 
-            cols = list(summary_clean.keys())
-
-            # overall / Low / Middle / High
-            row_summary = {c: None for c in cols}
-            for k in ('overall', 'Low', 'Middle', 'High'):
-                if k in summary_clean:
-                    row_summary[k] = summary_clean[k]
-
-            # overall, Low, Middle, High && subtasks
-            row_full = dict(summary_clean)
-
-            acc_df = pd.DataFrame([row_summary, row_full], columns=cols)
+            # One row: overall, Low, Middle, High, then subtasks.
+            acc_df = pd.DataFrame([summary_clean], columns=list(summary_clean.keys()))
             acc_df.to_csv(acc_tsv_path, sep='\t', index=False)
             print(f'[save] accuracy table saved to {acc_tsv_path}')
 
@@ -422,4 +412,5 @@ class SparBench(ImageBaseDataset):
             if key is not None:
                 out[key] = task_metrics[key]
 
-        return out
+        # Report percentages, matching the other spatial benchmarks.
+        return OrderedDict((k, v * 100.0) for k, v in out.items())

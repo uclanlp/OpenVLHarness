@@ -84,7 +84,7 @@ router errors retain their call IDs and are returned once. Fatal HTTP400/401
 are not retried. Search uses the OpenAI SDK's separate two-retry policy, with a
 five-second connection timeout and 600-second remaining timeouts. Coding uses
 the orchestrator backbone and native protocol, a fresh prompt, 4096 output tokens
-and a separate 120-second request timeout. Its local executor has a 30-second
+and a separate 600-second request timeout. Its local executor has a 30-second
 limit; generated Python is not sandboxed.
 
 ## Deployment and extension boundaries

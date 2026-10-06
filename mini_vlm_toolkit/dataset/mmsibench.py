@@ -136,7 +136,6 @@ class MMSIVideoBench(VideoBaseDataset):
     }
 
     _CATEGORY_TASK_ORDER = None
-    LMUData_root = LMUDataRoot()
 
     def __init__(self, dataset, pack=False, nframe=0, fps=-1):
         super().__init__(dataset=dataset, pack=pack, nframe=nframe, fps=fps)
@@ -286,7 +285,7 @@ class MMSIVideoBench(VideoBaseDataset):
             data['image_path'] = data['image_path'].map(to_abs)
             data['ref_images'] = data['ref_images'].map(to_abs)
 
-        new_data_path = os.path.join(self.LMUData_root, 'MMSIVideoBench_abs_path.tsv')
+        new_data_path = os.path.join(LMUDataRoot(), 'MMSIVideoBench_abs_path.tsv')
         dump(data, new_data_path)
 
         return dict(data_file=new_data_path, root=dataset_path)

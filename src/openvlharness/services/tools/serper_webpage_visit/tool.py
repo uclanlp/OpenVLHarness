@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import requests
 
 from openvlharness.services.models import AuxiliaryModel
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.serper_common import SerperClient, get_serper_api_key, strip_think_tags
 
 logger = logging.getLogger(__name__)
@@ -591,11 +591,11 @@ class Webpage_Visit_Tool(BaseTool):
         its model, endpoint or credentials.
         """
         if not urls or not isinstance(urls, list):
-            raise ValueError("urls must be a non-empty list of strings")
+            raise ToolArgumentError("urls must be a non-empty list of strings")
         if len(urls) > MAX_URLS:
-            raise ValueError(f"Too many URLs ({len(urls)}). Maximum is {MAX_URLS}.")
+            raise ToolArgumentError(f"Too many URLs ({len(urls)}). Maximum is {MAX_URLS}.")
         if not goal or not isinstance(goal, str):
-            raise ValueError("goal is required and must be a non-empty string")
+            raise ToolArgumentError("goal is required and must be a non-empty string")
 
         engine = self.llm_engine
 

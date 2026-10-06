@@ -1,4 +1,8 @@
 """Shared metadata and execution interface for concrete tool backends."""
+class ToolArgumentError(ValueError):
+    """Invalid task arguments supplied by the caller; the router reports HTTP 400."""
+
+
 class BaseTool:
     """Base interface for backend metadata, readiness checks and execution."""
     require_llm_engine = False

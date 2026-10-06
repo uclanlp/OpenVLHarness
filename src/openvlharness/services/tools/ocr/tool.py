@@ -10,7 +10,7 @@ import os
 import requests
 from PIL import ImageOps
 
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.http_utils import raise_for_status_with_detail
 from openvlharness.services.tools.image_utils import load_image, load_image_base64, pil_to_base64
 
@@ -102,9 +102,9 @@ class OCR_Tool(BaseTool):
             RuntimeError: The server reports an error or an unexpected response structure.
         """
         if not image_path and not image_base64:
-            raise ValueError("image_path or image_base64 is required")
+            raise ToolArgumentError("image_path or image_base64 is required")
         if image_path and image_base64:
-            raise ValueError("Provide exactly one of image_path or image_base64")
+            raise ToolArgumentError("Provide exactly one of image_path or image_base64")
 
         if image_path:
             pil_image = load_image(image_path)

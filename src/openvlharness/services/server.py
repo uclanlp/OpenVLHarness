@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from ..bootstrap import load_agent_config, build_capabilities, RAW_BACKENDS
 from ..contracts import ServiceResult
 from .models import ModelAdapter, AuxiliaryModel
+from .tools.base import ToolArgumentError
 from .envelope import _normalize_result_payload, _build_error_payload, _build_success_payload
 
 BACKEND_GROUPS = {
@@ -82,8 +83,8 @@ def create_app(config, *, implementations=None):
                 tool = cls(llm_engine=AuxiliaryModel(settings["models"][model_name]))
             elif cap.backend == "python_coding_agent":
                 model_name = service.get("model_service", config["agent"]["model_service"])
-                # Code-generation requests use a dedicated 120-second HTTP timeout.
-                tool = cls(model_adapter=ModelAdapter({**settings["models"][model_name], "timeout": 120}))
+                # Code-generation requests use a dedicated 600-second HTTP timeout.
+                tool = cls(model_adapter=ModelAdapter({**settings["models"][model_name], "timeout": 600}))
             else:
                 tool = cls()
         registry[cap.concrete_name] = (tool, cap.backend, service)
@@ -131,7 +132,7 @@ def create_app(config, *, implementations=None):
             forbidden = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
                          "box_threshold", "text_threshold", "num_results", "gl", "hl"} & set(args)
             if forbidden:
-                raise ValueError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
+                raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
             if backend in RAW_BACKENDS:
                 args["server_url"] = service["server_url"]
             result = tool.execute(**args)
@@ -142,8 +143,10 @@ def create_app(config, *, implementations=None):
             meta.update(extra)
             return _build_success_payload(request.tool_name, request.tool_call_id, result, meta), 200
         except Exception as exc:
+            # Invalid caller arguments are client errors; everything else is a backend failure.
+            status = 400 if isinstance(exc, ToolArgumentError) else 500
             return _build_error_payload(request.tool_name, request.tool_call_id, "tool_execution_error",
-                str(exc), {"exception_type": type(exc).__name__}), 500
+                str(exc), {"exception_type": type(exc).__name__}), status
 
     @app.post("/execute")
     async def call(request: ExecuteRequest):

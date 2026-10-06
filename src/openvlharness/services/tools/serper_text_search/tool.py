@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from openvlharness.services.models import AuxiliaryModel
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.serper_common import (
     ALL_SEARCH_TYPES,
     SerperClient,
@@ -961,7 +961,7 @@ class Text_Search_Tool(BaseTool):
         not task arguments. Failed image fetches fall back to available text evidence.
         """
         if not query or not isinstance(query, str):
-            raise ValueError("query is required and must be a non-empty string")
+            raise ToolArgumentError("query is required and must be a non-empty string")
         num_results, gl, hl = self._num_results, None, None
 
         # --- Resolve search type ---

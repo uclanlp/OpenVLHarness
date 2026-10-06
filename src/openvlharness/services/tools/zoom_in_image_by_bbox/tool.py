@@ -3,7 +3,7 @@
 Zoom_In_Tool expands a 0–1000 xyxy box by normalized padding, clips it to image
 bounds and returns the crop as PNG base64.
 """
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.image_utils import (
     coerce_xyxy,
     pil_to_base64,
@@ -90,10 +90,10 @@ class Zoom_In_Tool(BaseTool):
             ValueError: Image source, coordinates, padding or the resulting crop is invalid.
         """
         if coords is None or len(coords) != 4:
-            raise ValueError("coords must be a list of four values")
+            raise ToolArgumentError("coords must be a list of four values")
         padding = float(padding)
         if padding < 50:
-            raise ValueError("padding must be at least 50")
+            raise ToolArgumentError("padding must be at least 50")
         image = resolve_image_input(image_path=image_path, image_base64=image_base64)
         x1, y1, x2, y2 = [float(v) for v in coords]
         # Apply padding

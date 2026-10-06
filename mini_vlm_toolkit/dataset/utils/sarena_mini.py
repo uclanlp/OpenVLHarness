@@ -37,7 +37,11 @@ except ImportError:
 
 # ================= Configuration =================
 
-SARENA_ROOT = os.path.join(LMUDataRoot(), "SArena_MINI_SrcData")
+def _sarena_root():
+    """Resolve the SArena source-data directory when it is needed, not at import."""
+    return os.path.join(LMUDataRoot(), "SArena_MINI_SrcData")
+
+
 SARENA_URL = "https://huggingface.co/datasets/JoeLeelyf/SArena-VLMEvalKit/resolve/main/SArena_MINI.zip"
 SARENA_ZIP_MD5 = "d49fe7241d16b54aa33a09e90d95af96"
 TOKENIZER_PATH = "OpenGVLab/InternVL3-8B"
@@ -91,9 +95,9 @@ def check_md5(file_path, expected_md5):
 
 
 def download_and_extract_sarena():
-    zip_path = os.path.join(SARENA_ROOT, "SArena_MINI.zip")
-    if not os.path.exists(SARENA_ROOT):
-        os.makedirs(SARENA_ROOT)
+    zip_path = os.path.join(_sarena_root(), "SArena_MINI.zip")
+    if not os.path.exists(_sarena_root()):
+        os.makedirs(_sarena_root())
 
     need_download = not os.path.exists(zip_path)
     if not need_download and SARENA_ZIP_MD5:
@@ -111,10 +115,10 @@ def download_and_extract_sarena():
             print(f"Download failed: {e}")
             return
 
-    if not os.path.exists(os.path.join(SARENA_ROOT, "Icon")):
+    if not os.path.exists(os.path.join(_sarena_root(), "Icon")):
         print("Extracting SArena.zip...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(SARENA_ROOT)
+            zip_ref.extractall(_sarena_root())
 
 
 def load_gt_captions(caption_path):
@@ -478,7 +482,7 @@ def evaluate_sarena_mini(eval_file, tokenizer_path=TOKENIZER_PATH):
 
     try:
         for category, l2_prefix, rel_path, _ in TASK_CONFIGS:
-            src_path = os.path.join(SARENA_ROOT, rel_path)
+            src_path = os.path.join(_sarena_root(), rel_path)
 
             if not os.path.exists(src_path):
                 print(f"[Warning] File not found: {rel_path}. Skipping task.")
@@ -495,11 +499,11 @@ def evaluate_sarena_mini(eval_file, tokenizer_path=TOKENIZER_PATH):
 
             if "Generation" in l2_prefix:
                 if "Icon" in category:
-                    target_caption_file = os.path.join(SARENA_ROOT, "Icon/generation/caption.jsonl")
+                    target_caption_file = os.path.join(_sarena_root(), "Icon/generation/caption.jsonl")
                 elif "Illustration" in category:
-                    target_caption_file = os.path.join(SARENA_ROOT, "illustration/caption.jsonl")
+                    target_caption_file = os.path.join(_sarena_root(), "illustration/caption.jsonl")
                 elif "Chemistry" in category:
-                    target_caption_file = os.path.join(SARENA_ROOT, "chemistry/caption.jsonl")
+                    target_caption_file = os.path.join(_sarena_root(), "chemistry/caption.jsonl")
 
             if target_caption_file and os.path.exists(target_caption_file):
                 caption_map = load_gt_captions(target_caption_file)
@@ -604,7 +608,7 @@ def evaluate_sarena_mini(eval_file, tokenizer_path=TOKENIZER_PATH):
                 try:
                     if "Icon" in category and "Edit" in l2_prefix:
                         task_name = EDIT_TASK_MAP.get(l2_prefix, 'unknown')
-                        gt_root = os.path.join(SARENA_ROOT, 'Icon/edit')
+                        gt_root = os.path.join(_sarena_root(), 'Icon/edit')
 
                         process_editing_batch(gt_root, task_dir, task_name, edit_calculator)
                         has_processed_edit = True
@@ -616,11 +620,11 @@ def evaluate_sarena_mini(eval_file, tokenizer_path=TOKENIZER_PATH):
                         task_type = 'text2svg' if 'T2SVG' in l2_prefix else 'img2svg'
 
                         if bench_name == 'Icon':
-                            gt_root = os.path.join(SARENA_ROOT, 'Icon/generation')
+                            gt_root = os.path.join(_sarena_root(), 'Icon/generation')
                         elif bench_name == 'Illustration':
-                            gt_root = os.path.join(SARENA_ROOT, 'illustration')
+                            gt_root = os.path.join(_sarena_root(), 'illustration')
                         elif bench_name == 'Chemistry':
-                            gt_root = os.path.join(SARENA_ROOT, 'chemistry')
+                            gt_root = os.path.join(_sarena_root(), 'chemistry')
 
                         metrics_res = evaluate_generation(
                             bench_name, task_type, gt_root, task_dir, tokenizer_path

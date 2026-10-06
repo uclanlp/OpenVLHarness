@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import requests
 
-from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.http_utils import raise_for_status_with_detail
 from openvlharness.services.tools.image_utils import decode_base64_image_data
 
@@ -211,15 +211,15 @@ class Camera_Trajectory_Tool(BaseTool):
             RuntimeError: The pose service returns an HTTP error.
         """
         if not image_paths and not image_base64s:
-            raise ValueError("image_paths or image_base64s is required")
+            raise ToolArgumentError("image_paths or image_base64s is required")
         if image_paths and image_base64s:
-            raise ValueError(
+            raise ToolArgumentError(
                 "Provide exactly one of image_paths or image_base64s"
             )
 
         if image_paths is not None:
             if not isinstance(image_paths, list) or len(image_paths) < 2:
-                raise ValueError(
+                raise ToolArgumentError(
                     "Camera_Trajectory_Tool requires at least 2 image_paths. "
                     "For single-image depth, use Depth_Estimation_Tool."
                 )
@@ -227,7 +227,7 @@ class Camera_Trajectory_Tool(BaseTool):
             source_ids = _image_ids or image_paths
         else:
             if not isinstance(image_base64s, list) or len(image_base64s) < 2:
-                raise ValueError(
+                raise ToolArgumentError(
                     "Camera_Trajectory_Tool requires at least 2 image_base64s. "
                     "For single-image depth, use Depth_Estimation_Tool."
                 )

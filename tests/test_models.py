@@ -531,7 +531,7 @@ class AuxiliaryModelTests(unittest.TestCase):
         self.sdk.chat.completions.create.assert_not_called()
 
     @unittest.skipUnless(importlib.util.find_spec("fastapi"), "server extra is required for router wiring test")
-    def test_router_coder_uses_separate_120_second_timeout_and_4096_budget(self):
+    def test_router_coder_uses_separate_600_second_timeout_and_4096_budget(self):
         from openvlharness.services.server import create_app
         for protocol, alias in ALIASES.items():
             with self.subTest(protocol=protocol):
@@ -547,7 +547,7 @@ class AuxiliaryModelTests(unittest.TestCase):
                           {"output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "```python\nprint(7)\n```"}]}]})
                 with patch("openvlharness.services.models.requests.post", return_value=response(body=native)) as post:
                     self.assertEqual(coder.execute("Print seven"), {"generated_code": "print(7)"})
-                self.assertEqual(post.call_args.kwargs["timeout"], 120)
+                self.assertEqual(post.call_args.kwargs["timeout"], 600)
                 self.assertEqual(coder.model_adapter.retry, 8)
                 wire = post.call_args.kwargs["json"]
                 self.assertEqual(wire["max_tokens" if protocol == "chat_completions" else "max_output_tokens"], 4096)
