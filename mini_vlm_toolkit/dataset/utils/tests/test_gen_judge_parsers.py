@@ -46,6 +46,7 @@ _factip = _load("judge_factip")
 _wise = _load("judge_wise")
 _t2i = _load("judge_t2i_factualbench")
 sg = _load("judge_searchgen")
+_worldvqa = _load("judge_worldvqa")
 
 parse_judge_knowgen_judgement = _knowgen.parse_judge_knowgen_judgement
 parse_judge_factip_judgement = _factip.parse_judge_factip_judgement
@@ -54,6 +55,7 @@ parse_concept_rating = _t2i.parse_concept_rating
 parse_task_score = _t2i.parse_task_score
 parse_integration_score = _t2i.parse_integration_score
 metric_for_tier = _t2i.metric_for_tier
+parse_judge_worldvqa_judgement = _worldvqa.parse_judge_worldvqa_judgement
 
 
 # --------------------------------------------------------------------------
@@ -240,3 +242,51 @@ def test_factip_accepts_integers_in_range():
             "aesthetics": 5, "text_relevance_ip": 5, "overall_score": 5,
         }))
         assert out["verdict"], f"clarity={good!r} is legal and must be accepted"
+
+
+# --------------------------------------------------------------------------
+# WorldVQA: Correct / Incorrect / Unattempted from the final "Label:" line
+# --------------------------------------------------------------------------
+
+def test_worldvqa_label_line_forms_parse():
+    cases = {
+        "Names the exact landmark.\nLabel: Correct": "correct",
+        "1. **Evaluation**: wrong entity\n2. **Label**: Incorrect": "incorrect",
+        "Evaluation: refuses.\nLabel: \"Unattempted\"": "unattempted",
+        "Evaluation: fine\n**Label:** Correct.": "correct",
+    }
+    for text, want in cases.items():
+        out = parse_judge_worldvqa_judgement(text)
+        assert out["category"] == want, text
+        assert out["correct"] == (1 if want == "correct" else 0)
+
+
+def test_worldvqa_only_the_last_standalone_label_line_counts():
+    """A label named inside the reasoning must not override the final verdict."""
+    out = parse_judge_worldvqa_judgement(
+        "The label Incorrect was considered, but the answer matches.\n**Label**: Correct")
+    assert out["category"] == "correct"
+    out = parse_judge_worldvqa_judgement("Label: Incorrect\nEvaluation: on reflection\nLabel: Correct")
+    assert out["category"] == "correct"
+
+
+def test_worldvqa_missing_or_trailing_label_is_a_parse_failure():
+    for text in ("", "Evaluation: the answer is correct",
+                 "Evaluation: x\nLabel: Correct because it matches"):
+        out = parse_judge_worldvqa_judgement(text)
+        assert out["category"] == "parse_error", repr(text)
+        assert out["correct"] == 0
+
+
+def test_worldvqa_official_example_labels_parse():
+    labels = [line for line in _worldvqa.JUDGE_WORLDVQA_PROMPT.splitlines() if line.startswith("Label:")]
+    assert len(labels) == 6
+    got = [parse_judge_worldvqa_judgement(line)["category"] for line in labels]
+    assert got == ["incorrect", "correct", "correct", "unattempted", "incorrect", "unattempted"]
+
+
+def test_worldvqa_raw_reply_is_kept_untruncated():
+    long_reply = "Evaluation: " + "x" * 2000 + "\nLabel: Incorrect"
+    assert parse_judge_worldvqa_judgement(long_reply)["raw"] == long_reply
+    garbage = "y" * 2000
+    assert parse_judge_worldvqa_judgement(garbage)["raw"] == garbage

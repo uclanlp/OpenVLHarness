@@ -1,4 +1,4 @@
-"""Judge_WorldVQA — byte-exact port of the WorldVQA paper grader.
+"""Judge_WorldVQA — the WorldVQA paper judge prompt and a strict verdict parser.
 
 WorldVQA (arXiv 2602.02537v1, Moonshot AI) — "Measuring Atomic World
 Knowledge in Multimodal Large Language Models" — evaluates via an LLM
@@ -10,7 +10,9 @@ judge that classifies predictions into ``Correct`` / ``Incorrect`` /
   - Incorrect — contradicts GT, wrong entity/value, or too coarse.
   - Unattempted — model explicitly refuses / says "I don't know" / etc.
 
-Byte-exact prompt from ``WorldVQA/eval/eval.py::JUDGE_WORLDQA_PROMPT_EN``.
+The prompt is byte-identical to ``WorldVQA/eval/eval.py::JUDGE_WORLDQA_PROMPT_EN`` and is sent
+as a single user message, as upstream does. The parser takes the verdict from the last
+standalone ``Label:`` line and reports anything else as a parse failure.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from typing import Any, Dict
 
 
 # ---------------------------------------------------------------------------
-# System prompt — byte-exact from WorldVQA/eval/eval.py:22
+# Judge prompt — byte-identical to WorldVQA/eval/eval.py:22 (JUDGE_WORLDQA_PROMPT_EN)
 # ---------------------------------------------------------------------------
 JUDGE_WORLDVQA_PROMPT = """
 ### Role

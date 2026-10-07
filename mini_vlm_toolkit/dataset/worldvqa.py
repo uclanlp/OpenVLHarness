@@ -4,14 +4,22 @@
 a 3000-sample VQA benchmark measuring visual entity naming / grounding
 across 8 categories and 3 difficulty levels, bilingual (zh + non-zh).
 
-Data source: HuggingFace dataset ``moonshotai/WorldVQA`` (single TSV file
-with columns ``index, category, question, answer, image, language,
-difficulty``). Images are stored inline as base64 PNG in the TSV; this
-dataset class passes them through as-is (framework accepts base64
-strings for ``type: image`` entries).
+Data sources:
+  * ``WorldVQA`` (3000 rows): HuggingFace dataset ``moonshotai/WorldVQA``, a single TSV
+    with columns ``index, category, question, answer, image, language, difficulty`` and
+    images inline as base64.
+  * ``WorldVQA_VDR300`` (the 300 rows Vision-DeepResearch reports on):
+    ``uclanlp/OpenVLHarness-Evaluation-Datasets``, a TSV plus an image archive.
+``build_prompt`` always passes image files; inline base64 images are decoded to files by
+``dump_image()``.
 
-Judge: byte-exact port of ``WorldVQA/eval/eval.py``'s Correct/Incorrect/
-Unattempted classifier. Metric: accuracy = mean(correct) over all rows. A judge
+Judge (``judge_worldvqa``, the default): the prompt is byte-identical to
+``JUDGE_WORLDQA_PROMPT_EN`` in ``WorldVQA/eval/eval.py`` and reasoning is stripped from the
+prediction as upstream does. The verdict is the last standalone ``Label:`` line of the reply
+(upstream instead looks for the substring "Correct"); a reply without one is retried.
+``MMDR_JUDGE_PROMPT`` selects ``judge_vdr`` / ``judge_rs`` / ``hle`` instead.
+
+Metric: accuracy = mean(correct) over all rows. A judge
 call that still fails after retries stops evaluation with no score written.
 Aggregation by category, difficulty, and language.
 """

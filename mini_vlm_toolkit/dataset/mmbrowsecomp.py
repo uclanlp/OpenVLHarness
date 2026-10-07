@@ -105,34 +105,36 @@ class MMBrowseCompDataset(ImageBaseDataset):
         super().__init__(dataset=dataset, skip_noimg=skip_noimg)
 
     def load_data(self, dataset):
-        """Load MMBrowseComp data.
+        """Load MMBrowseComp data, in this order:
 
-        Tries (in order):
-        1. HuggingFace Hub (mmbrowsecomp/MMBrowseComp) if no local JSONL found.
-        2. Local JSONL files (legacy path).
+        1. A JSONL named explicitly via ``MMBROWSECOMP_JSONL`` or the ``jsonl_path`` argument.
+        2. The hosted split on the OpenVLHarness eval repo (exactly the 243 questions with images).
+        3. A local JSONL found in the default locations under ``$LMUData``.
+        4. The upstream HuggingFace dataset ``mmbrowsecomp/MMBrowseComp``.
         """
         root = LMUDataRoot()
         mmbc_dir = osp.join(root, 'MMBrowseComp')
 
-        # --- Try local JSONL first (legacy) ---
-        candidates = [
-            os.environ.get('MMBROWSECOMP_JSONL'),
-            self._jsonl_path,
+        explicit = [p for p in (os.environ.get('MMBROWSECOMP_JSONL'), self._jsonl_path) if p]
+        missing = [p for p in explicit if not osp.isfile(p)]
+        if missing:
+            raise FileNotFoundError(f'MMBrowseComp JSONL not found: {missing[0]}')
+        discovered = [
             osp.join(mmbc_dir, 'MMBrowseComp_400_decrypted.jsonl'),
             osp.join(mmbc_dir, 'MMBrowseComp_400.jsonl'),
             osp.join(root, 'MMBrowseComp_400_decrypted.jsonl'),
             osp.join(root, 'MMBrowseComp_400.jsonl'),
         ]
-        candidates = [osp.abspath(p) for p in candidates if p and osp.isfile(p)]
-        jsonl_path = candidates[0] if candidates else None
+        discovered = [p for p in discovered if osp.isfile(p)]
 
-        if dataset in HF_SPLITS:
+        if explicit:
+            df = self._load_from_jsonl(osp.abspath(explicit[0]))
+        elif dataset in HF_SPLITS:
             df = load_hf_split(self, dataset)
-        elif jsonl_path is None:
-            # --- Fallback: load from HuggingFace Hub ---
-            df = self._load_from_hf(mmbc_dir)
+        elif discovered:
+            df = self._load_from_jsonl(osp.abspath(discovered[0]))
         else:
-            df = self._load_from_jsonl(jsonl_path)
+            df = self._load_from_hf(mmbc_dir)
 
         # Ensure 'level' column exists (defaults to 0 if not present)
         if 'level' not in df.columns:
