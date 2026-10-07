@@ -84,7 +84,7 @@ def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
 
     # Try to extract Label
     label = None
-    m = re.search(r'label\s*[::]?\s*"?(correct|incorrect|unattempted)', text, re.IGNORECASE)
+    m = re.search(r'label\**\s*[::]?\s*\**\s*"?(correct|incorrect|unattempted)', text, re.IGNORECASE)
     if m:
         label = m.group(1).lower()
     else:

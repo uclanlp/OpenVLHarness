@@ -11,8 +11,9 @@ dataset class passes them through as-is (framework accepts base64
 strings for ``type: image`` entries).
 
 Judge: byte-exact port of ``WorldVQA/eval/eval.py``'s Correct/Incorrect/
-Unattempted classifier. Metric: accuracy = mean(correct) over rows where
-category != 'failed'. Aggregation by category, difficulty, and language.
+Unattempted classifier. Metric: accuracy = mean(correct) over all rows; a
+judge error counts as incorrect, as in the other benchmarks here (upstream
+drops such rows instead). Aggregation by category, difficulty, and language.
 """
 
 import json
@@ -168,18 +169,7 @@ class WorldVQADataset(ImageBaseDataset):
         # the standard dump_image() and pass file paths — BaseAgent.preproc_content
         # resolves image items through parse_file (i.e. expects a file path), so a
         # raw base64 value trips its `assert item['type'] == 'text'` guard.
-        msgs: List[Dict[str, Any]] = []
-        try:
-            for p in self.dump_image(line):
-                msgs.append(dict(type='image', value=p))
-        except Exception:
-            img_val = line.get('image', '')
-            if isinstance(img_val, str) and img_val:
-                msgs.append(dict(type='image', value=img_val))
-            elif isinstance(img_val, list):
-                for img in img_val:
-                    if img:
-                        msgs.append(dict(type='image', value=str(img)))
+        msgs: List[Dict[str, Any]] = [dict(type='image', value=p) for p in self.dump_image(line)]
 
         question = str(line.get('question', ''))
         is_zh = str(line.get('language', 'en')).lower() == 'zh'
