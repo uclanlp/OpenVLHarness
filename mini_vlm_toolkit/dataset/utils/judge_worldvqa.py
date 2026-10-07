@@ -11,8 +11,8 @@ judge that classifies predictions into ``Correct`` / ``Incorrect`` /
   - Unattempted — model explicitly refuses / says "I don't know" / etc.
 
 The prompt is byte-identical to ``WorldVQA/eval/eval.py::JUDGE_WORLDQA_PROMPT_EN`` and is sent
-as a single user message, as upstream does. The parser takes the verdict from the last
-standalone ``Label:`` line and reports anything else as a parse failure.
+as a single user message, as upstream does. The parser takes the verdict from the ``Label:``
+line that ends the reply and reports anything else as a parse failure.
 """
 
 from __future__ import annotations
@@ -163,23 +163,25 @@ def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
       - ``reasoning``: the judge's evaluation text
       - ``raw``: the full judge reply
     """
-    text = (content or "").strip()
+    raw = content or ""
+    text = raw.strip()
 
-    # The verdict is the last "Label: <verdict>" line (see _LABEL_LINE). Mentions of a label inside
-    # the reasoning, or a label line with trailing text, do not count; no such line is a parse
-    # failure that the caller retries, never a verdict.
+    # The verdict is the "Label: <verdict>" line (see _LABEL_LINE) that ends the reply; only
+    # whitespace may follow it. A label mentioned inside the reasoning, a label line with more text
+    # on it, or any content after the verdict makes the reply a parse failure that the caller
+    # retries, never a verdict.
     matches = list(_LABEL_LINE.finditer(text))
-    if not matches:
-        return dict(correct=0, category='parse_error', reasoning='judge_worldvqa failed to parse', raw=text)
+    if not matches or text[matches[-1].end():].strip():
+        return dict(correct=0, category='parse_error', reasoning='judge_worldvqa failed to parse', raw=raw)
     m = matches[-1]
     label = m.group(1).lower()
 
-    # The prompt ends with "Evaluation:", so the reasoning is whatever precedes the label.
+    # The prompt ends with "Evaluation:", so the reasoning is whatever precedes the label line.
     reason = text[:m.start()]
     em = _EVALUATION_HEADER.search(reason)
     if em:
         reason = reason[em.end():]
-    reason = re.sub(r'[\s*]*\d*\.?[\s*]*$', '', reason).strip()
+    reason = reason.strip()
 
     if label == 'correct':
         correct = 1
@@ -190,5 +192,5 @@ def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
         correct=correct,
         category=label,
         reasoning=(reason or f'Label: {label}'),
-        raw=text,
+        raw=raw,
     )

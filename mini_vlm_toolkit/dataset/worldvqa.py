@@ -15,8 +15,8 @@ Data sources:
 
 Judge (``judge_worldvqa``, the default): the prompt is byte-identical to
 ``JUDGE_WORLDQA_PROMPT_EN`` in ``WorldVQA/eval/eval.py`` and reasoning is stripped from the
-prediction as upstream does. The verdict is the last standalone ``Label:`` line of the reply
-(upstream instead looks for the substring "Correct"); a reply without one is retried.
+prediction as upstream does. The verdict is the ``Label:`` line that ends the reply (upstream
+instead looks for the substring "Correct"); any other reply is retried.
 ``MMDR_JUDGE_PROMPT`` selects ``judge_vdr`` / ``judge_rs`` / ``hle`` instead.
 
 Metric: accuracy = mean(correct) over all rows. A judge

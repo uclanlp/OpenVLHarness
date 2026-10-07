@@ -278,6 +278,13 @@ def test_worldvqa_only_the_last_standalone_label_line_counts():
     assert out["category"] == "correct"
 
 
+def test_worldvqa_content_after_the_verdict_is_a_parse_failure():
+    for text in ("Evaluation: x\nLabel: Correct\ntrailing explanation",
+                 "Evaluation: x\nLabel: Correct\n\nActually the answer is wrong."):
+        assert parse_judge_worldvqa_judgement(text)["category"] == "parse_error", repr(text)
+    assert parse_judge_worldvqa_judgement("Evaluation: x\nLabel: Correct\n\n  \n")["category"] == "correct"
+
+
 def test_worldvqa_missing_or_trailing_label_is_a_parse_failure():
     for text in ("", "Evaluation: the answer is correct",
                  "Evaluation: x\nLabel: Correct because it matches",
@@ -296,13 +303,20 @@ def test_worldvqa_official_example_labels_parse():
 
 
 def test_worldvqa_raw_reply_is_kept_untruncated():
-    long_reply = "Evaluation: " + "x" * 2000 + "\nLabel: Incorrect"
+    long_reply = "\n  Evaluation: " + "x" * 2000 + "\nLabel: Incorrect\n\n"
     assert parse_judge_worldvqa_judgement(long_reply)["raw"] == long_reply
-    garbage = "y" * 2000
+    garbage = "  " + "y" * 2000 + "\n"
     assert parse_judge_worldvqa_judgement(garbage)["raw"] == garbage
 
 
 def test_worldvqa_reasoning_starts_after_the_evaluation_header():
     out = parse_judge_worldvqa_judgement(
         "1. **Evaluation**: a re-evaluation of the photo shows the landmark.\n2. **Label**: Correct")
-    assert out["reasoning"] == "a re-evaluation of the photo shows the landmark"
+    assert out["reasoning"] == "a re-evaluation of the photo shows the landmark."
+
+
+def test_worldvqa_reasoning_keeps_trailing_numbers():
+    out = parse_judge_worldvqa_judgement("Evaluation: the ground truth year is 1994\nLabel: Incorrect")
+    assert out["reasoning"] == "the ground truth year is 1994"
+    out = parse_judge_worldvqa_judgement("1. **Evaluation**: it is 2.5 m tall\n2. **Label**: Correct")
+    assert out["reasoning"] == "it is 2.5 m tall"
