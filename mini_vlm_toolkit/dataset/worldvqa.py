@@ -55,9 +55,11 @@ def _grade_item_judge_worldvqa(model, item):
     )
 
     prediction = str(item.get('prediction', ''))
-    # Strip <think>...</think> to match upstream (WorldVQA/eval.py:273-278)
-    if '</think>' in prediction:
+    # Strip reasoning exactly as upstream judge_response does (WorldVQA/eval/eval.py).
+    if '<think>' in prediction and '</think>' in prediction:
         prediction = prediction.split('</think>')[-1].strip()
+    elif 'think>' in prediction:
+        prediction = prediction.split('think>')[-1].strip()
 
     question = str(item.get('question', ''))
     gt_answer = str(item.get('answer', ''))
