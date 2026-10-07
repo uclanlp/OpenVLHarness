@@ -1,6 +1,7 @@
 from mini_vlm_toolkit import *
 from ..smp import *
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
@@ -703,13 +704,14 @@ class ImageShortQADataset(ImageBaseDataset):
         # (MMSearch-R1 paper §4.1). On first use, fetch from public GitHub
         # LFS and convert parquet → TSV + images. After this, parent
         # load_data finds the TSV at the expected LMUData path.
-        if dataset == 'Infoseek_GDM_test':
+        hosted = dataset in HF_SPLITS
+        if dataset == 'Infoseek_GDM_test' and not hosted:
             from ..smp.file import LMUDataRoot
             _ensure_infoseek_test_subset(LMUDataRoot(), dataset_name='Infoseek_GDM_test')
         # EncyclopedicVQA test: paper-aligned 2K subset (seed=42 sample
         # of 5750 test rows). First-time builds TSV + extracts images
         # from iNat2021 / GoogleLandmarksV2 tars (MMDR_EVQA_DATA_ROOT).
-        if dataset == 'EncyclopedicVQA_test':
+        if dataset == 'EncyclopedicVQA_test' and not hosted:
             from ..smp.file import LMUDataRoot
             _ensure_evqa_test_subset(LMUDataRoot(), dataset_name='EncyclopedicVQA_test')
         # EncyclopedicVQA val: all 2950 rows (no sampling).
@@ -721,22 +723,22 @@ class ImageShortQADataset(ImageBaseDataset):
         # FVQA train + test: HuggingFace ``lmms-lab/FVQA`` auto-download
         # (same data as MMSearch-R1 fvqa_{split}). First use grabs the
         # HF dataset, writes TSV + extracts images. ~MB-scale, fast.
-        if dataset in ('FVQA_test', 'FVQA_train'):
+        if dataset in ('FVQA_test', 'FVQA_train') and not hosted:
             from ..smp.file import LMUDataRoot
             split = 'test' if dataset == 'FVQA_test' else 'train'
             _ensure_fvqa_subset(LMUDataRoot(), split=split)
 
         # *_test_mini = 300 random sub of underlying full TSV (seed=42).
         # Ensure underlying full exists, then materialise the mini TSV.
-        if dataset == 'Infoseek_GDM_test_mini':
+        if dataset == 'Infoseek_GDM_test_mini' and not hosted:
             from ..smp.file import LMUDataRoot
             _ensure_infoseek_test_subset(LMUDataRoot(), 'Infoseek_GDM_test')
             _write_test_mini(LMUDataRoot(), 'Infoseek_GDM_test', 'Infoseek_GDM_test_mini')
-        if dataset == 'EncyclopedicVQA_test_mini':
+        if dataset == 'EncyclopedicVQA_test_mini' and not hosted:
             from ..smp.file import LMUDataRoot
             _ensure_evqa_test_subset(LMUDataRoot(), 'EncyclopedicVQA_test')
             _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_test', 'EncyclopedicVQA_test_mini')
-        if dataset == 'FVQA_test_mini':
+        if dataset == 'FVQA_test_mini' and not hosted:
             from ..smp.file import LMUDataRoot
             _write_test_mini(LMUDataRoot(), 'FVQA_test', 'FVQA_test_mini')
 
@@ -751,7 +753,7 @@ class ImageShortQADataset(ImageBaseDataset):
                                 split='val', n_samples=None)
             _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_val', 'EncyclopedicVQA_val_mini')
 
-        df = super().load_data(dataset)
+        df = load_hf_split(self, dataset) if hosted else super().load_data(dataset)
         df = _restore_literal_na_answers(df, getattr(self, 'data_path', ''))
 
         # FVQA_train-only: optional category subset filter.

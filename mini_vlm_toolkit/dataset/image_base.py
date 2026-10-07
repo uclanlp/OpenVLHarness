@@ -5,6 +5,14 @@ from .hf_release import HF_DATASET_MD5, HF_SPLITS, ensure_hf_images, hf_tsv_url
 
 
 def img_root_map(dataset):
+    hosted_folder = {
+        'FVQA_test': 'FVQA', 'FVQA_test_mini': 'FVQA',
+        'Infoseek_GDM_test': 'Infoseek_GDM', 'Infoseek_GDM_test_mini': 'Infoseek_GDM',
+        'EncyclopedicVQA_test': 'EncyclopedicVQA', 'EncyclopedicVQA_test_mini': 'EncyclopedicVQA',
+        'hle': 'HLE', 'SimpleVQA_EN': 'SimpleVQA', 'WorldVQA_VDR300': 'WorldVQA',
+    }
+    if dataset in hosted_folder:
+        return hosted_folder[dataset]
     if 'MMBrowseComp' in dataset:
         return 'MMBrowseComp'
     if dataset == 'MMSearchPlus':

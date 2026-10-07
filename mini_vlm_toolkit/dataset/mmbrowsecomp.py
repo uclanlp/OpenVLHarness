@@ -13,6 +13,7 @@ import pandas as pd
 import validators
 
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from .utils.vqa_eval import process_line, hit_calculate
 from ..smp import (
     LMUDataRoot,
@@ -125,7 +126,9 @@ class MMBrowseCompDataset(ImageBaseDataset):
         candidates = [osp.abspath(p) for p in candidates if p and osp.isfile(p)]
         jsonl_path = candidates[0] if candidates else None
 
-        if jsonl_path is None:
+        if dataset in HF_SPLITS:
+            df = load_hf_split(self, dataset)
+        elif jsonl_path is None:
             # --- Fallback: load from HuggingFace Hub ---
             df = self._load_from_hf(mmbc_dir)
         else:

@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from ..smp import *  # noqa: F401,F403
 from ..smp.file import get_intermediate_file_path
 
@@ -417,6 +418,8 @@ class VDRBench(ImageBaseDataset):
         return ["VDRBench", "VDRBench_Full"]
 
     def load_data(self, dataset: str) -> pd.DataFrame:
+        if dataset in HF_SPLITS:
+            return load_hf_split(self, dataset)
         lmu_root = LMUDataRoot()
         ann_path = osp.join(lmu_root, f"{dataset}.tsv")
         if osp.exists(ann_path):

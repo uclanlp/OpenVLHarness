@@ -45,6 +45,7 @@ from urllib.parse import urlparse
 import pandas as pd
 
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
 from ..smp import *
 from ..smp.file import LMUDataRoot, get_intermediate_file_path
@@ -380,6 +381,8 @@ class VisBrowseBenchDataset(ImageBaseDataset):
     # -- Data loading: auto-convert from encrypted JSONL on first use ----
 
     def load_data(self, dataset):
+        if dataset in HF_SPLITS:
+            return load_hf_split(self, dataset)
         data_root = LMUDataRoot()
         tsv_path = osp.join(data_root, f'{dataset}.tsv')
 
