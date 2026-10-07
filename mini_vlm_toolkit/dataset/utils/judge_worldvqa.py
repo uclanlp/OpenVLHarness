@@ -136,22 +136,31 @@ def build_judge_worldvqa_prompt(question: str, model_answer: str, ground_truth_a
     )
 
 
+_LABEL_LINE = re.compile(
+    r'^[ \t]*(?:\d+\.[ \t]*)?\**[ \t]*label[ \t]*\**[ \t]*[:：][ \t]*\**[ \t]*["\'“]?'
+    r'(correct|incorrect|unattempted)["\'”]?[ \t]*\**[ \t]*\.?[ \t]*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
 def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
     """Parse the judge output into a structured verdict.
 
     Returns dict with:
       - ``correct``: 1 (Correct) / 0 (Incorrect or Unattempted)
       - ``category``: 'correct' | 'incorrect' | 'unattempted' | 'parse_error'
-      - ``reasoning``: extracted evaluation string (truncated 500)
-      - ``raw``: original content (truncated 500)
+      - ``reasoning``: the judge's evaluation text
+      - ``raw``: the full judge reply
     """
     text = (content or "").strip()
 
-    # The judge must end with an explicit "Label: <verdict>" line (optionally Markdown-bolded);
-    # anything else is a parse failure that the caller retries, never a verdict.
-    m = re.search(r'label\**\s*[:：]?\s*\**\s*"?(correct|incorrect|unattempted)', text, re.IGNORECASE)
-    if not m:
+    # The verdict is the last line of the form "Label: <verdict>" (optionally numbered, bolded or
+    # quoted). Mentions of a label inside the reasoning, or a label line with trailing text, do not
+    # count; no such line is a parse failure that the caller retries, never a verdict.
+    matches = list(_LABEL_LINE.finditer(text))
+    if not matches:
         return dict(correct=0, category='parse_error', reasoning='judge_worldvqa failed to parse', raw=text)
+    m = matches[-1]
     label = m.group(1).lower()
 
     # The prompt ends with "Evaluation:", so the reasoning is whatever precedes the label.
