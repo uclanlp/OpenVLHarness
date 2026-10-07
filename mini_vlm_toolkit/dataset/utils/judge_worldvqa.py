@@ -52,11 +52,76 @@ Please strictly follow this two-line format for your output:
 2. **Label**: [Final classification: "Correct", "Incorrect", or "Unattempted"]
 
 ---
-### Input
+### Examples
 
+**Example 1 (Incorrect - Granularity Mismatch/Too Coarse)**
+Input:
+'''
+Question: 图片中属于什么类型的田地？
+Model Answer: 图片中展示的是梯田。梯田是在山坡地上开垦并修筑的阶梯状农田。
+Ground Truth Answer: 龙脊梯田
+'''
+Evaluation: 标准答案特指“龙脊梯田”，模型只回答了通用的“梯田”。模型答案层级比答案层级更粗略，未能提供标准答案所需的特指信息，属于层级不一致导致的回答错误。
+Label: Incorrect
+
+**Example 2 (Correct - Finer Granularity)**
+Input:
+'''
+Question: What weather phenomenon is in the image?
+Model Answer: Based on the visual evidence in the image, the weather phenomenon shown is a **severe storm with extremely high winds**, most likely a **tornado** or a very powerful **hurricane/typhoon**.
+Ground Truth Answer: High winds
+'''
+Evaluation: The ground truth is "high winds," and a "tornado" is a more specific and granular type of high wind. The semantics are correct and the detail is finer.
+Label: Correct
+
+**Example 3 (Correct)**
+Input:
+'''
+Question: 图中内容是什么品牌的logo？
+Model Answer: via浏览器
+Ground Truth Answer: via
+'''
+Evaluation: 模型答案“via浏览器”包含了标准答案“via”，核心语义一致，且“via浏览器”是更具体的描述，层级上是匹配的。
+Label: Correct
+
+**Example 4 (Unattempted)**
+Input:
+'''
+Question: Which athlete is in the image?
+Model Answer: I cannot answer this question as I do not have relevant sports data.
+Ground Truth Answer: Wout Weghorst
+'''
+Evaluation: The model explicitly states its inability to answer and provides no incorrect information.
+Label: Unattempted
+
+**Example 5 (Incorrect)**
+Input:
+'''
+Question: 图片中展示的是什么苹果品种？
+Model Answer: 我觉得可能是阿克苏苹果。
+Ground Truth Answer: 烟台苹果
+'''
+Evaluation: 虽然模型用了“可能”等词汇，但它给出的具体答案“阿克苏苹果”与标准答案“烟台苹果”不符，提供了错误信息。
+Label: Incorrect
+
+**Example 6 (Unattempted)**
+Input:
+'''
+Question: What is the name of the insect in this image?
+Model Answer: This is a photo of an insect. To find the species, consult an entomologist or use recognition software.
+Ground Truth Answer: Japanese rhinoceros beetle
+'''
+Evaluation: The model does not attempt to name the insect and suggests the user search elsewhere, providing no incorrect information.
+Label: Unattempted
+
+---
+### Current Task
+Input:
+'''
 Question: {question}
 Model Answer: {model_answer}
 Ground Truth Answer: {ground_truth_answer}
+'''
 
 Evaluation:
 """
@@ -76,35 +141,25 @@ def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
 
     Returns dict with:
       - ``correct``: 1 (Correct) / 0 (Incorrect or Unattempted)
-      - ``category``: 'correct' | 'incorrect' | 'unattempted'
+      - ``category``: 'correct' | 'incorrect' | 'unattempted' | 'parse_error'
       - ``reasoning``: extracted evaluation string (truncated 500)
       - ``raw``: original content (truncated 500)
     """
     text = (content or "").strip()
 
-    # Try to extract Label
-    label = None
-    m = re.search(r'label\**\s*[::]?\s*\**\s*"?(correct|incorrect|unattempted)', text, re.IGNORECASE)
-    if m:
-        label = m.group(1).lower()
-    else:
-        # Fallback: look for any of the three keywords in the last 200 chars
-        tail = text[-200:].lower()
-        for candidate in ('correct', 'incorrect', 'unattempted'):
-            # Match whole word only
-            if re.search(r'\b' + candidate + r'\b', tail):
-                # Prefer specific match; incorrect trumps correct if both appear
-                label = candidate
-                # Don't break — allow later candidates to override
-        # If no label found, treat as incorrect
-        if label is None:
-            label = 'incorrect'
+    # The judge must end with an explicit "Label: <verdict>" line (optionally Markdown-bolded);
+    # anything else is a parse failure that the caller retries, never a verdict.
+    m = re.search(r'label\**\s*[:：]?\s*\**\s*"?(correct|incorrect|unattempted)', text, re.IGNORECASE)
+    if not m:
+        return dict(correct=0, category='parse_error', reasoning='judge_worldvqa failed to parse', raw=text)
+    label = m.group(1).lower()
 
-    # Extract evaluation reasoning
-    reason = ''
-    m = re.search(r'evaluation\s*[::]?\s*([^\n]*)', text, re.IGNORECASE)
-    if m:
-        reason = m.group(1).strip()
+    # The prompt ends with "Evaluation:", so the reasoning is whatever precedes the label.
+    reason = text[:m.start()]
+    em = re.search(r'evaluation\**\s*[:：]?\s*\**', reason, re.IGNORECASE)
+    if em:
+        reason = reason[em.end():]
+    reason = re.sub(r'[\s*]*\d*\.?[\s*]*$', '', reason).strip()
 
     if label == 'correct':
         correct = 1

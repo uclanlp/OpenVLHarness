@@ -80,6 +80,9 @@ def _grade_item_judge_worldvqa(model, item):
             continue
         last = out
         parsed = parse_judge_worldvqa_judgement(str(out))
+        if parsed['category'] == 'parse_error':
+            retry -= 1
+            continue
         return dict(
             correct=parsed['correct'],
             category=parsed['category'],
@@ -89,7 +92,7 @@ def _grade_item_judge_worldvqa(model, item):
     return dict(
         correct=0,
         category='error',
-        reasoning=f'judge_worldvqa unreachable: {str(last)[:200]}' if last else 'judge unreachable',
+        reasoning=f'judge_worldvqa unparseable: {str(last)[:200]}' if last else 'judge unreachable',
     )
 
 
