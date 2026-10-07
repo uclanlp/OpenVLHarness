@@ -254,6 +254,14 @@ def test_worldvqa_label_line_forms_parse():
         "1. **Evaluation**: wrong entity\n2. **Label**: Incorrect": "incorrect",
         "Evaluation: refuses.\nLabel: \"Unattempted\"": "unattempted",
         "Evaluation: fine\n**Label:** Correct.": "correct",
+        "Evaluation: x\n2. **Label**: [Incorrect]": "incorrect",
+        "Evaluation: x\nLabel: [Final classification: \"Correct\"]": "correct",
+        "Evaluation: x\nLabel: `Unattempted`": "unattempted",
+        "Evaluation: x\n- **Label**: Incorrect": "incorrect",
+        "Evaluation: x\n### Label: Correct": "correct",
+        "Evaluation: x\nFinal Label: Correct": "correct",
+        "Evaluation: x\nLabel:\nCorrect": "correct",
+        "Evaluation: x\nLabel: Correct (finer granularity)": "correct",
     }
     for text, want in cases.items():
         out = parse_judge_worldvqa_judgement(text)
@@ -272,7 +280,9 @@ def test_worldvqa_only_the_last_standalone_label_line_counts():
 
 def test_worldvqa_missing_or_trailing_label_is_a_parse_failure():
     for text in ("", "Evaluation: the answer is correct",
-                 "Evaluation: x\nLabel: Correct because it matches"):
+                 "Evaluation: x\nLabel: Correct because it matches",
+                 "Evaluation: x\nLabel: Correct or Incorrect",
+                 "Evaluation: x\nLabel: Correctness unclear"):
         out = parse_judge_worldvqa_judgement(text)
         assert out["category"] == "parse_error", repr(text)
         assert out["correct"] == 0
@@ -290,3 +300,9 @@ def test_worldvqa_raw_reply_is_kept_untruncated():
     assert parse_judge_worldvqa_judgement(long_reply)["raw"] == long_reply
     garbage = "y" * 2000
     assert parse_judge_worldvqa_judgement(garbage)["raw"] == garbage
+
+
+def test_worldvqa_reasoning_starts_after_the_evaluation_header():
+    out = parse_judge_worldvqa_judgement(
+        "1. **Evaluation**: a re-evaluation of the photo shows the landmark.\n2. **Label**: Correct")
+    assert out["reasoning"] == "a re-evaluation of the photo shows the landmark"

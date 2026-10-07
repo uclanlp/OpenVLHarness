@@ -138,9 +138,18 @@ def build_judge_worldvqa_prompt(question: str, model_answer: str, ground_truth_a
     )
 
 
+# A verdict line: optional list marker / heading / bold, an optional "Final", "Label", a colon, then
+# the verdict, optionally wrapped in brackets, backticks, quotes or bold (also the prompt's own
+# "[Final classification: ...]" template), optionally followed by a parenthetical and a period.
+# The verdict may sit on the line after "Label:". Anything else after the verdict is rejected.
 _LABEL_LINE = re.compile(
-    r'^[ \t]*(?:\d+\.[ \t]*)?\**[ \t]*label[ \t]*\**[ \t]*[:：][ \t]*\**[ \t]*["\'“]?'
-    r'(correct|incorrect|unattempted)["\'”]?[ \t]*\**[ \t]*\.?[ \t]*$',
+    r'^[ \t]*(?:[-*•]|\d+[.)]|#+)?[ \t]*[*_]*[ \t]*(?:final[ \t]+)?label[ \t]*[*_]*[ \t]*[:：][ \t]*[*_]*'
+    r'[ \t]*(?:\n[ \t]*)?[\[(`"\'“*_]*[ \t]*(?:final[ \t]+classification[ \t]*[:：][ \t]*)?[\[(`"\'“*_]*'
+    r'(correct|incorrect|unattempted)\b[\])`"\'”*_]*[ \t]*(?:\([^)\n]*\))?[ \t]*[\])`"\'”*_]*[ \t]*\.?[ \t]*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+_EVALUATION_HEADER = re.compile(
+    r'^[ \t]*(?:[-*•]|\d+[.)]|#+)?[ \t]*[*_]*[ \t]*evaluation[ \t]*[*_]*[ \t]*[:：][ \t]*[*_]*',
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -156,9 +165,9 @@ def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
     """
     text = (content or "").strip()
 
-    # The verdict is the last line of the form "Label: <verdict>" (optionally numbered, bolded or
-    # quoted). Mentions of a label inside the reasoning, or a label line with trailing text, do not
-    # count; no such line is a parse failure that the caller retries, never a verdict.
+    # The verdict is the last "Label: <verdict>" line (see _LABEL_LINE). Mentions of a label inside
+    # the reasoning, or a label line with trailing text, do not count; no such line is a parse
+    # failure that the caller retries, never a verdict.
     matches = list(_LABEL_LINE.finditer(text))
     if not matches:
         return dict(correct=0, category='parse_error', reasoning='judge_worldvqa failed to parse', raw=text)
@@ -167,7 +176,7 @@ def parse_judge_worldvqa_judgement(content: str) -> Dict[str, Any]:
 
     # The prompt ends with "Evaluation:", so the reasoning is whatever precedes the label.
     reason = text[:m.start()]
-    em = re.search(r'evaluation\**\s*[:：]?\s*\**', reason, re.IGNORECASE)
+    em = _EVALUATION_HEADER.search(reason)
     if em:
         reason = reason[em.end():]
     reason = re.sub(r'[\s*]*\d*\.?[\s*]*$', '', reason).strip()

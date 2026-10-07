@@ -96,7 +96,9 @@ class ImageBaseDataset:
         if 'image_path' in data:
             paths = [toliststr(x) for x in data['image_path']]
             data['image_path'] = [x[0] if len(x) == 1 else x for x in paths]
-            if self.meta_only:
+            # A loader that read a hosted split's rows from somewhere else (e.g. a user-supplied
+            # file) sets _images_from_hf = False so its paths are not checked against the archive.
+            if self.meta_only and getattr(self, '_images_from_hf', True):
                 ensure_hf_images(dataset, self.img_root, [p for x in paths for p in x])
 
         if np.all([istype(x, int) for x in data['index']]):

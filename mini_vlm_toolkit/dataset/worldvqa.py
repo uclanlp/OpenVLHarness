@@ -233,12 +233,11 @@ class WorldVQADataset(ImageBaseDataset):
 
         model = build_judge(**judge_kwargs)
         if model is None or not model.working():
-            logger.error(
+            logger.error(DEBUG_MESSAGE)
+            raise RuntimeError(
                 'WorldVQA evaluation requires a working judge model. '
                 'Please configure judge_kwargs properly.'
             )
-            logger.error(DEBUG_MESSAGE)
-            return pd.DataFrame()
 
         # Judge-specific output stems so switching judges never overwrites
         # another judge's grade / detail / acc files.

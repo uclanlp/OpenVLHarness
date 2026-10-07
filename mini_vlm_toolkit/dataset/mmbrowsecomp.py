@@ -105,12 +105,13 @@ class MMBrowseCompDataset(ImageBaseDataset):
         super().__init__(dataset=dataset, skip_noimg=skip_noimg)
 
     def load_data(self, dataset):
-        """Load MMBrowseComp data, in this order:
+        """Load MMBrowseComp data.
 
-        1. A JSONL named explicitly via ``MMBROWSECOMP_JSONL`` or the ``jsonl_path`` argument.
-        2. The hosted split on the OpenVLHarness eval repo (exactly the 243 questions with images).
-        3. A local JSONL found in the default locations under ``$LMUData``.
-        4. The upstream HuggingFace dataset ``mmbrowsecomp/MMBrowseComp``.
+        A JSONL named explicitly via ``MMBROWSECOMP_JSONL`` or the ``jsonl_path`` argument wins;
+        otherwise the hosted split on the OpenVLHarness eval repo is used (exactly the 243
+        questions with images). JSONLs in the default ``$LMUData`` locations and the upstream
+        ``mmbrowsecomp/MMBrowseComp`` dataset are only consulted if MMBrowseComp is removed from
+        ``hf_release.HF_SPLITS``.
         """
         root = LMUDataRoot()
         mmbc_dir = osp.join(root, 'MMBrowseComp')
@@ -129,6 +130,7 @@ class MMBrowseCompDataset(ImageBaseDataset):
 
         if explicit:
             df = self._load_from_jsonl(osp.abspath(explicit[0]))
+            self._images_from_hf = False
         elif dataset in HF_SPLITS:
             df = load_hf_split(self, dataset)
         elif discovered:

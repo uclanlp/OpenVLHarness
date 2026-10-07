@@ -225,7 +225,9 @@ class SimpleVQA(ImageBaseDataset):
 class SimpleVQA_EN(SimpleVQA):
     """SimpleVQA filtered to English-only rows (language == 'EN').
 
-    Loads the shared SimpleVQA TSV and filters to English-only samples.
+    Loads the hosted SimpleVQA_EN split from the OpenVLHarness eval repo: the 300 English
+    questions we evaluate on. The language filter below is then a no-op; it only matters if
+    SimpleVQA_EN is removed from ``hf_release.HF_SPLITS`` and the full SimpleVQA TSV is used.
 
     Scoring uses the HLE-style binary judge (extract_final_answer +
     correct yes/no JSON) instead of the parent class's Chinese-style

@@ -249,6 +249,8 @@ def _restore_literal_na_answers(df, source, cols=('answer',)):
     only cells that are NaN in ``df`` and non-empty in ``source`` are changed.
     """
     import pandas as pd
+    if not any(col in df and df[col].isna().any() for col in cols):
+        return df
     if isinstance(source, str):
         if not source or not osp.exists(source):
             return df
@@ -658,7 +660,7 @@ class ImageShortQADataset(ImageBaseDataset):
         'Infoseek_GDM_val': '',
         # FVQA_test, Infoseek_GDM_test, EncyclopedicVQA_test and hle are loaded from the
         # OpenVLHarness eval repo (hf_release.HF_SPLITS). The builders and URLs described
-        # for them below only run for a split that is not hosted there.
+        # for them below are kept only for the case that a split is removed from HF_SPLITS.
         #
         # Infoseek_GDM_test = paper-aligned 2K subset (MMSearch-R1 paper §4.1).
         # First use auto-downloads the parquet from GitHub LFS (see
@@ -697,9 +699,10 @@ class ImageShortQADataset(ImageBaseDataset):
     }
 
     def load_data(self, dataset):
-        # Hosted splits come straight from the eval repo; the builders below
+        # Hosted splits come straight from the eval repo. The builders below
         # (GitHub LFS parquet for Infoseek_GDM_test, lmms-lab/FVQA, the EVQA
-        # tars) only run for splits that are not hosted.
+        # tars) are used by FVQA_train / EncyclopedicVQA_val and would only be
+        # used for the test splits if those were removed from HF_SPLITS.
         hosted = dataset in HF_SPLITS
         if dataset == 'Infoseek_GDM_test' and not hosted:
             from ..smp.file import LMUDataRoot
