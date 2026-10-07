@@ -11,9 +11,9 @@ dataset class passes them through as-is (framework accepts base64
 strings for ``type: image`` entries).
 
 Judge: byte-exact port of ``WorldVQA/eval/eval.py``'s Correct/Incorrect/
-Unattempted classifier. Metric: accuracy = mean(correct) over all rows; a
-judge error counts as incorrect, as in the other benchmarks here (upstream
-drops such rows instead). Aggregation by category, difficulty, and language.
+Unattempted classifier. Metric: accuracy = mean(correct) over all rows. A judge
+call that still fails after retries stops evaluation with no score written.
+Aggregation by category, difficulty, and language.
 """
 
 import json
@@ -117,6 +117,11 @@ def _grade_item_generic(model, item, judge_name):
             parsed = grade_with_hle_judge(model, question, answer, prediction)
     except Exception as e:
         return dict(correct=0, category='error', reasoning=f'{judge_name} error: {e}')
+    reasoning = str(parsed.get('reasoning', ''))
+    # The shared judges report exhausted retries / unparseable replies as correct=0 with these
+    # reasonings; that is a judge failure, not a verdict.
+    if reasoning == 'judge unreachable after retries' or reasoning.startswith('unparseable:'):
+        return dict(correct=0, category='error', reasoning=reasoning)
     correct = int(parsed.get('correct', 0))
     return dict(
         correct=correct,
@@ -238,8 +243,10 @@ class WorldVQADataset(ImageBaseDataset):
         for i in range(len(data)):
             item = data.iloc[i]
             idx = str(item['index'])
-            if idx not in result_cache:
-                items_to_grade.append(item)
+            # A cached judge failure is not a grade: judge it again.
+            if result_cache.get(idx, {}).get('category') != 'error' and idx in result_cache:
+                continue
+            items_to_grade.append(item)
 
         if items_to_grade:
             if judge_name == 'judge_worldvqa':
@@ -258,8 +265,15 @@ class WorldVQADataset(ImageBaseDataset):
             )
             result_cache = load(result_file)
             for k, v in zip(keys, res):
-                if k not in result_cache:
+                if k not in result_cache or result_cache[k].get('category') == 'error':
                     result_cache[k] = v
+
+        failed = [str(i) for i in data['index'] if result_cache.get(str(i), {}).get('category') == 'error']
+        if failed:
+            raise RuntimeError(
+                f'WorldVQA [{judge_name}]: the judge failed on {len(failed)}/{len(data)} items after '
+                f'retries (e.g. index {failed[0]}: {result_cache[failed[0]].get("reasoning", "")[:200]}). '
+                f'No score written; fix the judge and re-run evaluate, which re-judges only these items.')
 
         for col, default in [
             ('correct', 0),
