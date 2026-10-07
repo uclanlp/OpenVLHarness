@@ -656,6 +656,10 @@ class ImageShortQADataset(ImageBaseDataset):
         # Empty URL = no auto-download; local TSV is authoritative.
         'Infoseek_GDM_train': '',
         'Infoseek_GDM_val': '',
+        # FVQA_test, Infoseek_GDM_test, EncyclopedicVQA_test and hle are loaded from the
+        # OpenVLHarness eval repo (hf_release.HF_SPLITS). The builders and URLs described
+        # for them below only run for a split that is not hosted there.
+        #
         # Infoseek_GDM_test = paper-aligned 2K subset (MMSearch-R1 paper §4.1).
         # First use auto-downloads the parquet from GitHub LFS (see
         # _INFOSEEK_TEST_PARQUET_URL below), converts to TSV + extracts
@@ -693,10 +697,9 @@ class ImageShortQADataset(ImageBaseDataset):
     }
 
     def load_data(self, dataset):
-        # Special-case: Infoseek_GDM_test is the paper-aligned 2K subset
-        # (MMSearch-R1 paper §4.1). On first use, fetch from public GitHub
-        # LFS and convert parquet → TSV + images. After this, parent
-        # load_data finds the TSV at the expected LMUData path.
+        # Hosted splits come straight from the eval repo; the builders below
+        # (GitHub LFS parquet for Infoseek_GDM_test, lmms-lab/FVQA, the EVQA
+        # tars) only run for splits that are not hosted.
         hosted = dataset in HF_SPLITS
         if dataset == 'Infoseek_GDM_test' and not hosted:
             from ..smp.file import LMUDataRoot
