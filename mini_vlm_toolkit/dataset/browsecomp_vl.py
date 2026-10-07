@@ -26,6 +26,7 @@ import subprocess
 import pandas as pd
 
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
 from ..smp import *
 from ..smp.file import get_intermediate_file_path, LMUDataRoot
@@ -393,6 +394,8 @@ class BrowseCompVLDataset(ImageBaseDataset):
 
     def load_data(self, dataset):
         # First-use auto-prep: sparse-clone DeepResearch + build TSV.
+        if dataset in HF_SPLITS:
+            return load_hf_split(self, dataset)
         if dataset == 'BrowseCompVL':
             _ensure_browsecompvl_data(LMUDataRoot())
         return super().load_data(dataset)

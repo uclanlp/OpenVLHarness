@@ -16,6 +16,9 @@ and spatial splits by ``scripts/backup_eval_datasets.py``. Datasets whose TSV em
 images only need their DATASET_URL pointed at ``hf_tsv_url``.
 """
 
+import base64
+import hashlib
+import json
 import logging
 import os
 import os.path as osp
@@ -43,6 +46,21 @@ HF_SPLITS = {
     'OmniSpatialBench_default': 'OmniSpatial',
     'OmniSpatialBench_zeroshot_cot': 'OmniSpatial',
     'OmniSpatialBench_manual_cot': 'OmniSpatial',
+    # multimodal search and general VQA (exactly the questions we evaluate on)
+    'FVQA_test': 'FVQA',
+    'Infoseek_GDM_test': 'Infoseek_GDM',
+    'EncyclopedicVQA_test': 'EncyclopedicVQA',
+    'MMSearch': 'MMSearch',
+    'MMSearchPlus': 'MMSearchPlus',
+    'hle': 'HLE',
+    'BrowseCompVL': 'BrowseCompVL',
+    'RealXBench': 'RealXBench',
+    'MMBrowseComp': 'MMBrowseComp',
+    'VDRBench': 'VDRBench',
+    'VisBrowseBench': 'VisBrowseBench',
+    'SimpleVQA': 'SimpleVQA',
+    'SimpleVQA_EN': 'SimpleVQA',
+    'WorldVQA_VDR300': 'WorldVQA',
 }
 
 # MD5 of each hosted TSV (printed by build_hf_release).
@@ -57,6 +75,20 @@ HF_DATASET_MD5 = {
     'ODinW13_bbox_val_qwen3': '55ae98c3e4ffa1c3292f4939f1b52012',
     'FREAK_MCQ': '92a97ca0d72e0c47859e865968ddeb42',
     'FREAK_VQA': '3fa7094fad677caf2225a2fea83f1cd0',
+    'FVQA_test': '74c81f819890526042102701cb538c77',
+    'Infoseek_GDM_test': 'e1aedfd8d6ac8b0af665ed611cf3cc73',
+    'EncyclopedicVQA_test': 'defa1c8d92362a9895a661e048af0587',
+    'MMSearch': '7b69f9c912f32a668228a943f1cb06ef',
+    'MMSearchPlus': '042d455af098d0b556307c6c63360c46',
+    'hle': 'bf6120b926904d7752f0ff2eca88636b',
+    'BrowseCompVL': '0899409decc7a20472633a0f5cf64a47',
+    'RealXBench': 'e8485e9b5b8261dd317ed45c038e54c2',
+    'MMBrowseComp': 'c7c78ee9fbd7c0321e9f1cba4b29e109',
+    'VDRBench': '887e364a005cad5479813872d0350164',
+    'VisBrowseBench': '08ee00f73d9bf0d06629ac3e7258b549',
+    'SimpleVQA': '87a55db6b42507a80f11e8e1c84c190f',
+    'SimpleVQA_EN': '198c569fd852a95cb0fd830cf6e9d650',
+    'WorldVQA_VDR300': 'adaf33776d1b16f77782032d989a2a36',
 }
 
 
@@ -99,3 +131,65 @@ def ensure_hf_glip(lmu_root):
     if not osp.isdir(glip_root):
         _download_and_unpack('GLIP.zip', lmu_root)
     return glip_root
+
+
+# Splits whose questions and answers are hosted encrypted, as in their official releases
+# (MMSearch-Plus, MM-BrowseComp, VisBrowse-Bench). Same scheme and passwords as upstream:
+# base64 of the UTF-8 text XOR-ed with a SHA-256-derived key; the password is the row's
+# ``canary``. Each entry lists the encrypted text columns and the encrypted list columns
+# (JSON lists of ciphertexts) with the in-memory form the dataset class expects:
+# 'repr' -> str(list), 'json' -> json.dumps(list), 'list' -> a Python list.
+HF_ENCRYPTED = {
+    'MMSearchPlus': (('question', 'answer'), {'alternative_gt_answers': 'repr'}),
+    'MMBrowseComp': (('question', 'answer'), {'checklist': 'list'}),
+    'VisBrowseBench': (('question', 'answer'), {'ground_truth_list': 'json'}),
+}
+
+
+def _derive_key(password, length):
+    key = hashlib.sha256(password.encode()).digest()
+    return key * (length // len(key)) + key[: length % len(key)]
+
+
+def decrypt_text(ciphertext_b64, password):
+    data = base64.b64decode(ciphertext_b64)
+    return bytes(a ^ b for a, b in zip(data, _derive_key(password, len(data)))).decode()
+
+
+def decrypt_hf_split(dataset, data):
+    """Decrypt the encrypted columns of a hosted split in place; no-op for plain splits."""
+    if dataset not in HF_ENCRYPTED:
+        return data
+    text_cols, list_cols = HF_ENCRYPTED[dataset]
+    passwords = [str(x) for x in data['canary']]
+    for col in text_cols:
+        data[col] = [decrypt_text(str(v), pw) for v, pw in zip(data[col], passwords)]
+    for col, form in list_cols.items():
+        values = [[decrypt_text(x, pw) for x in json.loads(str(v))]
+                  for v, pw in zip(data[col], passwords)]
+        if form == 'repr':
+            values = [str(v) for v in values]
+        elif form == 'json':
+            values = [json.dumps(v) for v in values]
+        data[col] = values
+    return data.drop(columns=['canary'])
+
+
+def _absolute_image_paths(value, img_root):
+    """Hosted ``image_path`` holds file names relative to ``images/<folder>/``."""
+    value = str(value)
+    if value.startswith('['):
+        return [osp.join(img_root, x) for x in json.loads(value)]
+    return osp.join(img_root, value)
+
+
+def load_hf_split(dataset_obj, dataset):
+    """Load a hosted split for ``dataset_obj``: TSV (MD5-checked), decryption and image paths.
+
+    Images are fetched afterwards by ``ImageBaseDataset.__init__`` via ``ensure_hf_images``.
+    """
+    data = dataset_obj.prepare_tsv(hf_tsv_url(dataset), HF_DATASET_MD5.get(dataset))
+    data = decrypt_hf_split(dataset, data)
+    data['image_path'] = [_absolute_image_paths(v, dataset_obj.img_root) for v in data['image_path']]
+    return data
+

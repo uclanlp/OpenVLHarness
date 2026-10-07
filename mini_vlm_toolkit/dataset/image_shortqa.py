@@ -1,6 +1,7 @@
 from mini_vlm_toolkit import *
 from ..smp import *
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
@@ -238,6 +239,45 @@ def _evqa_data_roots(lmu_root: str):
     )
 
 
+def _restore_literal_na_answers(df, source, cols=('answer',)):
+    """Restore answer strings that pandas' default NA parsing turned into NaN.
+
+    Some ground-truth answers are literally 'None', 'NA' or 'null' (e.g. three
+    InfoSeek test questions), and ``pd.read_csv`` / ``pd.read_excel`` read them
+    as NaN by default. ``source`` is either the dataset TSV path or a DataFrame
+    that already holds the literal strings; rows are matched on ``index`` and
+    only cells that are NaN in ``df`` and non-empty in ``source`` are changed.
+    """
+    import pandas as pd
+    if not any(col in df and df[col].isna().any() for col in cols):
+        return df
+    if isinstance(source, str):
+        if not source or not osp.exists(source):
+            return df
+        source = pd.read_csv(source, sep='\t', keep_default_na=False, dtype=str)
+    if source is None or 'index' not in df or 'index' not in source:
+        return df
+    for col in cols:
+        if col not in df or col not in source:
+            continue
+        valid = source[col].notna() & (source[col].astype(str) != '')
+        lookup = dict(zip(source.loc[valid, 'index'].astype(str),
+                          source.loc[valid, col].astype(str)))
+        missing = df[col].isna()
+        if not missing.any():
+            continue
+        restored = df.loc[missing, 'index'].astype(str).map(lookup)
+        restored = restored[restored.notna()]
+        if len(restored):
+            df[col] = df[col].astype(object)
+            df.loc[restored.index, col] = restored
+    return df
+
+
+_DEFAULT_SUBSET_SPLITS = ('FVQA_test', 'Infoseek_GDM_test', 'EncyclopedicVQA_test')
+_DEFAULT_SUBSET_N = 300
+
+
 def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
                      n: int = 300, seed: int = 42):
     """Materialise an N-row random subset TSV from an existing full-eval TSV.
@@ -245,9 +285,7 @@ def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
     Idempotent: skip if mini TSV already exists. Image files are shared
     with the full variant (no copy — image_path column in TSV unchanged).
 
-    Used for *_test_mini variants of FVQA / Infoseek_GDM / EncyclopedicVQA,
-    so expensive-backbone runs (gpt-5 etc.) can hit a fixed-N cheap subset
-    while the full variant stays available for cheaper Qwen runs.
+    Used for the FVQA_train_mini / EncyclopedicVQA_val_mini variants.
     """
     full_tsv = osp.join(lmu_root, f'{full_name}.tsv')
     mini_tsv = osp.join(lmu_root, f'{mini_name}.tsv')
@@ -258,7 +296,7 @@ def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
             f'Cannot build {mini_name}: underlying {full_tsv} missing. '
             f'Trigger the full variant first.')
     import pandas as pd
-    df = pd.read_csv(full_tsv, sep='\t')
+    df = pd.read_csv(full_tsv, sep='\t', keep_default_na=False, dtype=str)
     if len(df) > n:
         df = df.sample(n=n, random_state=seed).reset_index(drop=True)
     df.to_csv(mini_tsv, sep='\t', index=False, quoting=__import__('csv').QUOTE_ALL)
@@ -620,6 +658,10 @@ class ImageShortQADataset(ImageBaseDataset):
         # Empty URL = no auto-download; local TSV is authoritative.
         'Infoseek_GDM_train': '',
         'Infoseek_GDM_val': '',
+        # FVQA_test, Infoseek_GDM_test, EncyclopedicVQA_test and hle are loaded from the
+        # OpenVLHarness eval repo (hf_release.HF_SPLITS). The builders and URLs described
+        # for them below are kept only for the case that a split is removed from HF_SPLITS.
+        #
         # Infoseek_GDM_test = paper-aligned 2K subset (MMSearch-R1 paper §4.1).
         # First use auto-downloads the parquet from GitHub LFS (see
         # _INFOSEEK_TEST_PARQUET_URL below), converts to TSV + extracts
@@ -642,17 +684,8 @@ class ImageShortQADataset(ImageBaseDataset):
         # experience-learning use. Test (2000 subset) stays the eval split.
         # Same image-resolution path as EncyclopedicVQA_test.
         'EncyclopedicVQA_val': '',
-        # *_test_mini = 300 random sub of the full eval set (seed=42).
-        # Use for expensive backbones (gpt-5 etc.) where running full
-        # 1800-2000 samples is cost-prohibitive. Same seed → consistent
-        # 300 across runs. Subset materialised at first load_data; image
-        # files shared with the full variant (no extra disk).
-        'FVQA_test_mini':            '',
-        'Infoseek_GDM_test_mini':    '',
-        'EncyclopedicVQA_test_mini': '',
         # *_train_mini / *_val_mini = 300 random sub (seed=42) of the
-        # corresponding train/val TSV. Same _write_test_mini helper as
-        # the test_mini variants; image files shared with the full
+        # corresponding train/val TSV; image files shared with the full
         # variant (no extra disk).
         'FVQA_train_mini':           '',
         'EncyclopedicVQA_val_mini':  '',
@@ -666,17 +699,18 @@ class ImageShortQADataset(ImageBaseDataset):
     }
 
     def load_data(self, dataset):
-        # Special-case: Infoseek_GDM_test is the paper-aligned 2K subset
-        # (MMSearch-R1 paper §4.1). On first use, fetch from public GitHub
-        # LFS and convert parquet → TSV + images. After this, parent
-        # load_data finds the TSV at the expected LMUData path.
-        if dataset == 'Infoseek_GDM_test':
+        # Hosted splits come straight from the eval repo. The builders below
+        # (GitHub LFS parquet for Infoseek_GDM_test, lmms-lab/FVQA, the EVQA
+        # tars) are used by FVQA_train / EncyclopedicVQA_val and would only be
+        # used for the test splits if those were removed from HF_SPLITS.
+        hosted = dataset in HF_SPLITS
+        if dataset == 'Infoseek_GDM_test' and not hosted:
             from ..smp.file import LMUDataRoot
             _ensure_infoseek_test_subset(LMUDataRoot(), dataset_name='Infoseek_GDM_test')
         # EncyclopedicVQA test: paper-aligned 2K subset (seed=42 sample
         # of 5750 test rows). First-time builds TSV + extracts images
         # from iNat2021 / GoogleLandmarksV2 tars (MMDR_EVQA_DATA_ROOT).
-        if dataset == 'EncyclopedicVQA_test':
+        if dataset == 'EncyclopedicVQA_test' and not hosted:
             from ..smp.file import LMUDataRoot
             _ensure_evqa_test_subset(LMUDataRoot(), dataset_name='EncyclopedicVQA_test')
         # EncyclopedicVQA val: all 2950 rows (no sampling).
@@ -688,24 +722,10 @@ class ImageShortQADataset(ImageBaseDataset):
         # FVQA train + test: HuggingFace ``lmms-lab/FVQA`` auto-download
         # (same data as MMSearch-R1 fvqa_{split}). First use grabs the
         # HF dataset, writes TSV + extracts images. ~MB-scale, fast.
-        if dataset in ('FVQA_test', 'FVQA_train'):
+        if dataset in ('FVQA_test', 'FVQA_train') and not hosted:
             from ..smp.file import LMUDataRoot
             split = 'test' if dataset == 'FVQA_test' else 'train'
             _ensure_fvqa_subset(LMUDataRoot(), split=split)
-
-        # *_test_mini = 300 random sub of underlying full TSV (seed=42).
-        # Ensure underlying full exists, then materialise the mini TSV.
-        if dataset == 'Infoseek_GDM_test_mini':
-            from ..smp.file import LMUDataRoot
-            _ensure_infoseek_test_subset(LMUDataRoot(), 'Infoseek_GDM_test')
-            _write_test_mini(LMUDataRoot(), 'Infoseek_GDM_test', 'Infoseek_GDM_test_mini')
-        if dataset == 'EncyclopedicVQA_test_mini':
-            from ..smp.file import LMUDataRoot
-            _ensure_evqa_test_subset(LMUDataRoot(), 'EncyclopedicVQA_test')
-            _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_test', 'EncyclopedicVQA_test_mini')
-        if dataset == 'FVQA_test_mini':
-            from ..smp.file import LMUDataRoot
-            _write_test_mini(LMUDataRoot(), 'FVQA_test', 'FVQA_test_mini')
 
         # train / val mini variants (300 random seed=42 of full).
         # Ensure full TSV exists, then materialise mini TSV that shares images.
@@ -718,7 +738,8 @@ class ImageShortQADataset(ImageBaseDataset):
                                 split='val', n_samples=None)
             _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_val', 'EncyclopedicVQA_val_mini')
 
-        df = super().load_data(dataset)
+        df = load_hf_split(self, dataset) if hosted else super().load_data(dataset)
+        df = _restore_literal_na_answers(df, getattr(self, 'data_path', ''))
 
         # FVQA_train-only: optional category subset filter.
         # FVQA train rows carry a ``category`` column with values
@@ -744,25 +765,21 @@ class ImageShortQADataset(ImageBaseDataset):
                 df = df[df['category'].astype(str).str.lower() == cat].reset_index(drop=True)
                 print(f"[FVQA_train] FVQA_CATEGORY={cat}: filtered {before} → {len(df)} rows")
 
-        # FVQA_test default subsample: 1800 → 300 random rows (seed=42).
-        # Full 1800 is too expensive for routine baselines; 300 matches the
-        # WebWatcher-style budget used for SimpleVQA_EN / LIVEVQA_v2 so the
-        # numbers are directly comparable.
-        #   FVQA_TEST_ALL=false (default, unset) → 300 subset, seed=42
-        #   FVQA_TEST_ALL=true                  → full 1800
-        if dataset == 'FVQA_test':
-            raw = os.environ.get('FVQA_TEST_ALL', '').strip().lower()
+        # FVQA_test / Infoseek_GDM_test / EncyclopedicVQA_test evaluate on a
+        # fixed 300-row subset (random_state=42) by default; set
+        # <DATASET>_ALL=true (FVQA_TEST_ALL, INFOSEEK_GDM_TEST_ALL,
+        # ENCYCLOPEDICVQA_TEST_ALL) for the full split.
+        if dataset in _DEFAULT_SUBSET_SPLITS:
+            env = f'{dataset.upper()}_ALL'
+            raw = os.environ.get(env, '').strip().lower()
             if raw not in ('', 'true', 'false'):
-                raise ValueError(
-                    f"FVQA_TEST_ALL must be 'true' or 'false' (unset = false); got {raw!r}"
-                )
-            test_all = (raw == 'true')
-            if not test_all and len(df) > 300:
+                raise ValueError(f"{env} must be 'true' or 'false' (unset = false); got {raw!r}")
+            if raw == 'true':
+                print(f"[{dataset}] {env}=true: keeping full {len(df)} rows")
+            elif len(df) > _DEFAULT_SUBSET_N:
                 before = len(df)
-                df = df.sample(n=300, random_state=42).reset_index(drop=True)
-                print(f"[FVQA_test] FVQA_TEST_ALL=false (default): subsampled {before} → {len(df)} rows (seed=42)")
-            elif test_all:
-                print(f"[FVQA_test] FVQA_TEST_ALL=true: keeping full {len(df)} rows")
+                df = df.sample(n=_DEFAULT_SUBSET_N, random_state=42).reset_index(drop=True)
+                print(f"[{dataset}] default subset: {before} → {len(df)} rows (seed=42); {env}=true for all")
         return df
 
     # It returns a DataFrame
@@ -770,6 +787,7 @@ class ImageShortQADataset(ImageBaseDataset):
         data = load(eval_file)
         _ = self.dataset_name
         assert 'answer' in data and 'prediction' in data
+        data = _restore_literal_na_answers(data, getattr(self, 'data', None))
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
 
@@ -799,9 +817,6 @@ class ImageShortQADataset(ImageBaseDataset):
             'EncyclopedicVQA_test':        'judge_rs',
             'EncyclopedicVQA_val':         'judge_rs',
             # 300-sample mini variants inherit underlying default
-            'FVQA_test_mini':              'judge_rs',
-            'Infoseek_GDM_test_mini':      'judge_rs',
-            'EncyclopedicVQA_test_mini':   'judge_rs',
             'FVQA_train_mini':             'judge_rs',
             'EncyclopedicVQA_val_mini':    'judge_rs',
         }
@@ -809,8 +824,6 @@ class ImageShortQADataset(ImageBaseDataset):
                                 'Infoseek_GDM_val',
                                 'Infoseek_GDM_test',
                                 'EncyclopedicVQA_test', 'EncyclopedicVQA_val',
-                                'FVQA_test_mini', 'Infoseek_GDM_test_mini',
-                                'EncyclopedicVQA_test_mini',
                                 'FVQA_train_mini',
                                 'EncyclopedicVQA_val_mini'}
         _default_judge = _DATASET_DEFAULT_JUDGE.get(self.dataset_name, 'hle')

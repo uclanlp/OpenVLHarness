@@ -5,6 +5,14 @@ from .hf_release import HF_DATASET_MD5, HF_SPLITS, ensure_hf_images, hf_tsv_url
 
 
 def img_root_map(dataset):
+    hosted_folder = {
+        'FVQA_test': 'FVQA',
+        'Infoseek_GDM_test': 'Infoseek_GDM',
+        'EncyclopedicVQA_test': 'EncyclopedicVQA',
+        'hle': 'HLE', 'SimpleVQA_EN': 'SimpleVQA', 'WorldVQA_VDR300': 'WorldVQA',
+    }
+    if dataset in hosted_folder:
+        return hosted_folder[dataset]
     if 'MMBrowseComp' in dataset:
         return 'MMBrowseComp'
     if dataset == 'MMSearchPlus':
@@ -88,7 +96,9 @@ class ImageBaseDataset:
         if 'image_path' in data:
             paths = [toliststr(x) for x in data['image_path']]
             data['image_path'] = [x[0] if len(x) == 1 else x for x in paths]
-            if self.meta_only:
+            # A loader that read a hosted split's rows from somewhere else (e.g. a user-supplied
+            # file) sets _images_from_hf = False so its paths are not checked against the archive.
+            if self.meta_only and getattr(self, '_images_from_hf', True):
                 ensure_hf_images(dataset, self.img_root, [p for x in paths for p in x])
 
         if np.all([istype(x, int) for x in data['index']]):

@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from ..smp import *  # noqa: F401,F403 - provides LMUDataRoot, load, dump, osp
 from ..smp.file import get_intermediate_file_path
 
@@ -396,6 +397,8 @@ class MMSearchEnd2End(ImageBaseDataset):
         - area / subfield: metadata used for breakdown statistics
         - image_path: optional relative path to cached query image
         """
+        if dataset in HF_SPLITS:
+            return load_hf_split(self, dataset)
         lmu_root = LMUDataRoot()
         # Reuse processed annotations if they already exist on disk, similar to MMStar, AI2D, etc.
         ann_path = osp.join(lmu_root, f"{dataset}.tsv")

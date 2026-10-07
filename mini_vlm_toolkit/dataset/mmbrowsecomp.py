@@ -13,6 +13,7 @@ import pandas as pd
 import validators
 
 from .image_base import ImageBaseDataset
+from .hf_release import HF_SPLITS, load_hf_split
 from .utils.vqa_eval import process_line, hit_calculate
 from ..smp import (
     LMUDataRoot,
@@ -106,30 +107,36 @@ class MMBrowseCompDataset(ImageBaseDataset):
     def load_data(self, dataset):
         """Load MMBrowseComp data.
 
-        Tries (in order):
-        1. HuggingFace Hub (mmbrowsecomp/MMBrowseComp) if no local JSONL found.
-        2. Local JSONL files (legacy path).
+        A JSONL named explicitly via ``MMBROWSECOMP_JSONL`` or the ``jsonl_path`` argument wins;
+        otherwise the hosted split on the OpenVLHarness eval repo is used (exactly the 243
+        questions with images). JSONLs in the default ``$LMUData`` locations and the upstream
+        ``mmbrowsecomp/MMBrowseComp`` dataset are only consulted if MMBrowseComp is removed from
+        ``hf_release.HF_SPLITS``.
         """
         root = LMUDataRoot()
         mmbc_dir = osp.join(root, 'MMBrowseComp')
 
-        # --- Try local JSONL first (legacy) ---
-        candidates = [
-            os.environ.get('MMBROWSECOMP_JSONL'),
-            self._jsonl_path,
+        explicit = [p for p in (os.environ.get('MMBROWSECOMP_JSONL'), self._jsonl_path) if p]
+        missing = [p for p in explicit if not osp.isfile(p)]
+        if missing:
+            raise FileNotFoundError(f'MMBrowseComp JSONL not found: {missing[0]}')
+        discovered = [
             osp.join(mmbc_dir, 'MMBrowseComp_400_decrypted.jsonl'),
             osp.join(mmbc_dir, 'MMBrowseComp_400.jsonl'),
             osp.join(root, 'MMBrowseComp_400_decrypted.jsonl'),
             osp.join(root, 'MMBrowseComp_400.jsonl'),
         ]
-        candidates = [osp.abspath(p) for p in candidates if p and osp.isfile(p)]
-        jsonl_path = candidates[0] if candidates else None
+        discovered = [p for p in discovered if osp.isfile(p)]
 
-        if jsonl_path is None:
-            # --- Fallback: load from HuggingFace Hub ---
-            df = self._load_from_hf(mmbc_dir)
+        if explicit:
+            df = self._load_from_jsonl(osp.abspath(explicit[0]))
+            self._images_from_hf = False
+        elif dataset in HF_SPLITS:
+            df = load_hf_split(self, dataset)
+        elif discovered:
+            df = self._load_from_jsonl(osp.abspath(discovered[0]))
         else:
-            df = self._load_from_jsonl(jsonl_path)
+            df = self._load_from_hf(mmbc_dir)
 
         # Ensure 'level' column exists (defaults to 0 if not present)
         if 'level' not in df.columns:

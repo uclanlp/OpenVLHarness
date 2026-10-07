@@ -7,6 +7,7 @@ import ast
 import math
 from openai import OpenAI
 from mini_vlm_toolkit.dataset.image_base import ImageBaseDataset
+from mini_vlm_toolkit.dataset.hf_release import HF_SPLITS, load_hf_split
 from mini_vlm_toolkit.smp import misc, file
 from mini_vlm_toolkit.smp.file import get_intermediate_file_path
 from mini_vlm_toolkit.dataset.utils.simplevqa import *
@@ -107,6 +108,11 @@ class SimpleVQA(ImageBaseDataset):
         "SimpleVQA": "e3ce3c11df59a2a15d37489a8b245a87",
     }
 
+    def load_data(self, dataset):
+        if dataset in HF_SPLITS:
+            return load_hf_split(self, dataset)
+        return super().load_data(dataset)
+
     def build_prompt(self, line: Union[int, pd.Series], qa_type: str = 'Direct') -> List[Dict[str, str]]:
         """
         Build a prompt for the model from a data line.
@@ -122,7 +128,7 @@ class SimpleVQA(ImageBaseDataset):
             line = self.data.iloc[line]
 
         if self.meta_only:
-            tgt_path = misc.toliststr(line["image"])
+            tgt_path = misc.toliststr(line["image_path"])
         else:
             tgt_path = self.dump_image(line)
 
@@ -219,7 +225,9 @@ class SimpleVQA(ImageBaseDataset):
 class SimpleVQA_EN(SimpleVQA):
     """SimpleVQA filtered to English-only rows (language == 'EN').
 
-    Loads the shared SimpleVQA TSV and filters to English-only samples.
+    Loads the hosted SimpleVQA_EN split from the OpenVLHarness eval repo: the 300 English
+    questions we evaluate on. The language filter below is then a no-op; it only matters if
+    SimpleVQA_EN is removed from ``hf_release.HF_SPLITS`` and the full SimpleVQA TSV is used.
 
     Scoring uses the HLE-style binary judge (extract_final_answer +
     correct yes/no JSON) instead of the parent class's Chinese-style
@@ -236,9 +244,12 @@ class SimpleVQA_EN(SimpleVQA):
     }
 
     def load_data(self, dataset):
-        url = "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv"
-        file_md5 = self.DATASET_MD5.get(dataset, None)
-        data = self.prepare_tsv(url, file_md5)
+        if dataset in HF_SPLITS:
+            data = load_hf_split(self, dataset)
+        else:
+            url = "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv"
+            file_md5 = self.DATASET_MD5.get(dataset, None)
+            data = self.prepare_tsv(url, file_md5)
         if "language" in data.columns:
             before = len(data)
             data = data[data["language"] == "EN"].reset_index(drop=True)
