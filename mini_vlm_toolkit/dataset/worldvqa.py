@@ -124,30 +124,19 @@ def _grade_item_generic(model, item, judge_name):
     )
 
 
-# ---------------------------------------------------------------------------------------------
-# WorldVQA_VDR300 — our own 3000 rows restricted to the 300 Vision-DeepResearch evaluates on.
-# The slicing itself lives in dataset/utils/vdr_subset.py; the reasoning for having a separate
-# dataset name at all is documented there.
-#
-# Running the 300 rows directly avoids inferring all 3,000 and rescoring 300 afterwards.
-# Measured 2026-09-09: all 300 of their indices are present in our 3,000-row build, 0 missing.
-_VDR300_NAME = 'WorldVQA_VDR300'
-_VDR300_EXPECTED = 300
-
-
 class WorldVQADataset(ImageBaseDataset):
     """WorldVQA — 3000 samples measuring atomic world knowledge.
 
     Two addressable sets:
       * ``WorldVQA``         all 3000 rows (upstream full set)
-      * ``WorldVQA_VDR300``  the 300 rows Vision-DeepResearch reports on (see the block above)
+      * ``WorldVQA_VDR300``  the 300 rows Vision-DeepResearch reports on, hosted on the HF eval repo
     """
 
     TYPE = 'VQA'
 
     DATASET_URL = {
         'WorldVQA': '',
-        _VDR300_NAME: '',
+        'WorldVQA_VDR300': '',
     }
     DATASET_MD5 = {}
 
@@ -156,20 +145,10 @@ class WorldVQADataset(ImageBaseDataset):
         return list(cls.DATASET_URL)
 
     def load_data(self, dataset):
-        """WorldVQA is shipped as a single TSV on HuggingFace.
-
-        The upstream file has embedded base64 images so we cache the
-        downloaded TSV directly under ``$LMUData/WorldVQA.tsv`` without
-        re-reformatting.
-
-        ⛔ Both dataset names read the SAME cached TSV. Deriving the path from `dataset` would make
-          WorldVQA_VDR300 look for a WorldVQA_VDR300.tsv that does not exist and then download the
-          full upstream file INTO that name -- i.e. a 3000-row file called _VDR300.
-        """
+        """``WorldVQA_VDR300`` is read from the HF eval repo as is; ``WorldVQA`` is the upstream TSV
+        (embedded base64 images), cached under ``$LMUData/WorldVQA.tsv``."""
         if dataset in HF_SPLITS:
-            data = load_hf_split(self, dataset)
-            from .utils.vdr_subset import apply_vdr_subset
-            return apply_vdr_subset(data, 'worldvqa', _VDR300_EXPECTED, _VDR300_NAME)
+            return load_hf_split(self, dataset)
         data_root = LMUDataRoot()
         tsv_path = osp.join(data_root, 'WorldVQA.tsv')
         if not osp.exists(tsv_path):
@@ -179,12 +158,7 @@ class WorldVQADataset(ImageBaseDataset):
             import shutil
             shutil.copyfile(src, tsv_path)
         self.data_path = tsv_path
-        data = load(tsv_path)
-
-        if dataset == _VDR300_NAME:
-            from .utils.vdr_subset import apply_vdr_subset
-            data = apply_vdr_subset(data, 'worldvqa', _VDR300_EXPECTED, _VDR300_NAME)
-        return data
+        return load(tsv_path)
 
     def build_prompt(self, line):
         if isinstance(line, int):
