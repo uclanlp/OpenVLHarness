@@ -272,6 +272,10 @@ def _restore_literal_na_answers(df, source, cols=('answer',)):
     return df
 
 
+_DEFAULT_SUBSET_SPLITS = ('FVQA_test', 'Infoseek_GDM_test', 'EncyclopedicVQA_test')
+_DEFAULT_SUBSET_N = 300
+
+
 def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
                      n: int = 300, seed: int = 42):
     """Materialise an N-row random subset TSV from an existing full-eval TSV.
@@ -279,9 +283,7 @@ def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
     Idempotent: skip if mini TSV already exists. Image files are shared
     with the full variant (no copy — image_path column in TSV unchanged).
 
-    Used for *_test_mini variants of FVQA / Infoseek_GDM / EncyclopedicVQA,
-    so expensive-backbone runs (gpt-5 etc.) can hit a fixed-N cheap subset
-    while the full variant stays available for cheaper Qwen runs.
+    Used for the FVQA_train_mini / EncyclopedicVQA_val_mini variants.
     """
     full_tsv = osp.join(lmu_root, f'{full_name}.tsv')
     mini_tsv = osp.join(lmu_root, f'{mini_name}.tsv')
@@ -676,17 +678,8 @@ class ImageShortQADataset(ImageBaseDataset):
         # experience-learning use. Test (2000 subset) stays the eval split.
         # Same image-resolution path as EncyclopedicVQA_test.
         'EncyclopedicVQA_val': '',
-        # *_test_mini = 300 random sub of the full eval set (seed=42).
-        # Use for expensive backbones (gpt-5 etc.) where running full
-        # 1800-2000 samples is cost-prohibitive. Same seed → consistent
-        # 300 across runs. Subset materialised at first load_data; image
-        # files shared with the full variant (no extra disk).
-        'FVQA_test_mini':            '',
-        'Infoseek_GDM_test_mini':    '',
-        'EncyclopedicVQA_test_mini': '',
         # *_train_mini / *_val_mini = 300 random sub (seed=42) of the
-        # corresponding train/val TSV. Same _write_test_mini helper as
-        # the test_mini variants; image files shared with the full
+        # corresponding train/val TSV; image files shared with the full
         # variant (no extra disk).
         'FVQA_train_mini':           '',
         'EncyclopedicVQA_val_mini':  '',
@@ -728,20 +721,6 @@ class ImageShortQADataset(ImageBaseDataset):
             split = 'test' if dataset == 'FVQA_test' else 'train'
             _ensure_fvqa_subset(LMUDataRoot(), split=split)
 
-        # *_test_mini = 300 random sub of underlying full TSV (seed=42).
-        # Ensure underlying full exists, then materialise the mini TSV.
-        if dataset == 'Infoseek_GDM_test_mini' and not hosted:
-            from ..smp.file import LMUDataRoot
-            _ensure_infoseek_test_subset(LMUDataRoot(), 'Infoseek_GDM_test')
-            _write_test_mini(LMUDataRoot(), 'Infoseek_GDM_test', 'Infoseek_GDM_test_mini')
-        if dataset == 'EncyclopedicVQA_test_mini' and not hosted:
-            from ..smp.file import LMUDataRoot
-            _ensure_evqa_test_subset(LMUDataRoot(), 'EncyclopedicVQA_test')
-            _write_test_mini(LMUDataRoot(), 'EncyclopedicVQA_test', 'EncyclopedicVQA_test_mini')
-        if dataset == 'FVQA_test_mini' and not hosted:
-            from ..smp.file import LMUDataRoot
-            _write_test_mini(LMUDataRoot(), 'FVQA_test', 'FVQA_test_mini')
-
         # train / val mini variants (300 random seed=42 of full).
         # Ensure full TSV exists, then materialise mini TSV that shares images.
         if dataset == 'FVQA_train_mini':
@@ -780,25 +759,21 @@ class ImageShortQADataset(ImageBaseDataset):
                 df = df[df['category'].astype(str).str.lower() == cat].reset_index(drop=True)
                 print(f"[FVQA_train] FVQA_CATEGORY={cat}: filtered {before} → {len(df)} rows")
 
-        # FVQA_test default subsample: 1800 → 300 random rows (seed=42).
-        # Full 1800 is too expensive for routine baselines; 300 matches the
-        # WebWatcher-style budget used for SimpleVQA_EN / LIVEVQA_v2 so the
-        # numbers are directly comparable.
-        #   FVQA_TEST_ALL=false (default, unset) → 300 subset, seed=42
-        #   FVQA_TEST_ALL=true                  → full 1800
-        if dataset == 'FVQA_test':
-            raw = os.environ.get('FVQA_TEST_ALL', '').strip().lower()
+        # FVQA_test / Infoseek_GDM_test / EncyclopedicVQA_test evaluate on a
+        # fixed 300-row subset (random_state=42) by default; set
+        # <DATASET>_ALL=true (FVQA_TEST_ALL, INFOSEEK_GDM_TEST_ALL,
+        # ENCYCLOPEDICVQA_TEST_ALL) for the full split.
+        if dataset in _DEFAULT_SUBSET_SPLITS:
+            env = f'{dataset.upper()}_ALL'
+            raw = os.environ.get(env, '').strip().lower()
             if raw not in ('', 'true', 'false'):
-                raise ValueError(
-                    f"FVQA_TEST_ALL must be 'true' or 'false' (unset = false); got {raw!r}"
-                )
-            test_all = (raw == 'true')
-            if not test_all and len(df) > 300:
+                raise ValueError(f"{env} must be 'true' or 'false' (unset = false); got {raw!r}")
+            if raw == 'true':
+                print(f"[{dataset}] {env}=true: keeping full {len(df)} rows")
+            elif len(df) > _DEFAULT_SUBSET_N:
                 before = len(df)
-                df = df.sample(n=300, random_state=42).reset_index(drop=True)
-                print(f"[FVQA_test] FVQA_TEST_ALL=false (default): subsampled {before} → {len(df)} rows (seed=42)")
-            elif test_all:
-                print(f"[FVQA_test] FVQA_TEST_ALL=true: keeping full {len(df)} rows")
+                df = df.sample(n=_DEFAULT_SUBSET_N, random_state=42).reset_index(drop=True)
+                print(f"[{dataset}] default subset: {before} → {len(df)} rows (seed=42); {env}=true for all")
         return df
 
     # It returns a DataFrame
@@ -836,9 +811,6 @@ class ImageShortQADataset(ImageBaseDataset):
             'EncyclopedicVQA_test':        'judge_rs',
             'EncyclopedicVQA_val':         'judge_rs',
             # 300-sample mini variants inherit underlying default
-            'FVQA_test_mini':              'judge_rs',
-            'Infoseek_GDM_test_mini':      'judge_rs',
-            'EncyclopedicVQA_test_mini':   'judge_rs',
             'FVQA_train_mini':             'judge_rs',
             'EncyclopedicVQA_val_mini':    'judge_rs',
         }
@@ -846,8 +818,6 @@ class ImageShortQADataset(ImageBaseDataset):
                                 'Infoseek_GDM_val',
                                 'Infoseek_GDM_test',
                                 'EncyclopedicVQA_test', 'EncyclopedicVQA_val',
-                                'FVQA_test_mini', 'Infoseek_GDM_test_mini',
-                                'EncyclopedicVQA_test_mini',
                                 'FVQA_train_mini',
                                 'EncyclopedicVQA_val_mini'}
         _default_judge = _DATASET_DEFAULT_JUDGE.get(self.dataset_name, 'hle')
