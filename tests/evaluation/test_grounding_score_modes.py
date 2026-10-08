@@ -9,7 +9,7 @@ import pytest
 if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
-for dependency in ("pandas", "torch", "validators"):
+for dependency in ("pandas", "validators"):
     pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
 
 import pandas as pd

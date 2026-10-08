@@ -4,12 +4,12 @@ import pytest
 
 @pytest.fixture
 def synchronous_evaluation(monkeypatch):
-    from openvlharness_eval import inference_image
+    from openvlharness_eval import runner
 
     def run(func, tasks, save=None, keys=None, **kwargs):
         results = [func(**task) for task in tasks]
         if save is not None:
-            inference_image.dump(dict(zip(keys, results)), save)
+            runner.dump(dict(zip(keys, results)), save)
         return results
 
-    monkeypatch.setattr(inference_image, "track_progress_rich", run)
+    monkeypatch.setattr(runner, "track_progress_rich", run)

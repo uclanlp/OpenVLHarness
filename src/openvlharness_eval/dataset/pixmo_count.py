@@ -115,7 +115,7 @@ class PixmoCount(ImageVQADataset):
         data['answer'] = [str(x) for x in data['answer']]
 
         model_name = judge_kwargs.get('model', None)
-        if model_name:
+        if model_name and model_name != 'exact_matching':
             method = self._get_eval_method()
             data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
             predictions = data['extracted_answer'].apply(

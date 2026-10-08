@@ -4,7 +4,7 @@ import pytest
 if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
-for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
+for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
     pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
 
 import json

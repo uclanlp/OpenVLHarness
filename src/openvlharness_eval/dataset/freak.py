@@ -65,7 +65,7 @@ class FREAKMCQDataset(ImageMCQDataset):
             data['question'] = data['prompt']
 
         # Build judge model for LLM fallback
-        model = judge_kwargs.get('model', 'exact_matching')
+        model = (judge_kwargs.get('model') or 'exact_matching')
         if model == 'exact_matching':
             model = None
         else:
@@ -84,7 +84,7 @@ class FREAKMCQDataset(ImageMCQDataset):
         data['hit'] = [1 if e == a else 0 for e, a in zip(extracted, data['mcq_GT'])]
 
         # Derive name_str from judge model for result file naming
-        model_name = judge_kwargs.get('model', 'exact_matching')
+        model_name = (judge_kwargs.get('model') or 'exact_matching')
         name_str_map = {"chatgpt-0125": "openai", "gpt-4-0125": "gpt4"}
         name_str = name_str_map.get(model_name, model_name)
         if "/" in name_str:
@@ -172,7 +172,7 @@ class FREAKVQADataset(ImageVQADataset):
         data['hit'] = scores
 
         # Derive name_str from judge model for result file naming
-        model_name = judge_kwargs.get('model', 'exact_matching')
+        model_name = (judge_kwargs.get('model') or 'exact_matching')
         name_str_map = {"chatgpt-0125": "openai", "gpt-4-0125": "gpt4"}
         name_str = name_str_map.get(model_name, model_name)
         if "/" in name_str:

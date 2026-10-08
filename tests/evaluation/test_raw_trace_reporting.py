@@ -12,13 +12,13 @@ import pytest
 if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
-for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
+for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
     pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
 
 import pandas as pd
 from PIL import Image
 
-from openvlharness_eval import inference_image
+from openvlharness_eval import runner
 from openvlharness_eval.utils import file_db, reporting_utils
 
 
@@ -241,12 +241,12 @@ def test_raw_failures_preserve_ordinary_evaluation_sidecars(tmp_path, monkeypatc
     monkeypatch.setenv("PRED_FORMAT", "tsv")
     monkeypatch.delenv("FULL_TRAJECTORIES_LIMIT", raising=False)
     for enabled in (False, True):
-        inference_image.infer_image_job(Model(), str(tmp_path / str(enabled)), "M", Dataset(),
+        runner.infer_image_job(Model(), str(tmp_path / str(enabled)), "M", Dataset(),
                                        html_limit=-1, save_raw_trace=enabled)
     disabled = tmp_path / "False" / "RawExportSet"
     enabled = tmp_path / "True" / "RawExportSet"
-    pd.testing.assert_frame_equal(inference_image.load(str(disabled / "M.tsv")),
-                                  inference_image.load(str(enabled / "M.tsv")))
+    pd.testing.assert_frame_equal(runner.load(str(disabled / "M.tsv")),
+                                  runner.load(str(enabled / "M.tsv")))
     for task_id in (10, 20, 30, 40):
         assert file_db.load_record(str(enabled), task_id) == file_db.load_record(str(disabled), task_id)
         assert (enabled / "_done" / f"{task_id}.flag").exists()

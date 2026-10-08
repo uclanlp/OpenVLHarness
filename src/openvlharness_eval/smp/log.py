@@ -1,4 +1,5 @@
 import logging
+import sys
 logging.basicConfig(
     format='[%(asctime)s] %(levelname)s - %(filename)s: %(funcName)s - %(lineno)d: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S')
@@ -18,14 +19,8 @@ def get_logger(name, log_file=None, log_level=logging.INFO, file_mode='w'):
     stream_handler = logging.StreamHandler()
     handlers = [stream_handler]
 
-    try:
-        import torch.distributed as dist
-        if dist.is_available() and dist.is_initialized():
-            rank = dist.get_rank()
-        else:
-            rank = 0
-    except ImportError:
-        rank = 0
+    dist = sys.modules.get('torch.distributed')  # only consult torch if the caller already loaded it
+    rank = dist.get_rank() if dist is not None and dist.is_available() and dist.is_initialized() else 0
 
     if rank == 0 and log_file is not None:
         file_handler = logging.FileHandler(log_file, file_mode)

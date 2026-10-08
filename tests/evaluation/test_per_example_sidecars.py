@@ -12,7 +12,7 @@ import pytest
 if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
-for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
+for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
     pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
 
 
@@ -23,7 +23,7 @@ import tempfile
 
 import pandas as pd
 
-from openvlharness_eval import inference_image
+from openvlharness_eval import runner
 from openvlharness_eval.utils import file_db
 
 pytestmark = pytest.mark.usefixtures("synchronous_evaluation")
@@ -66,7 +66,7 @@ class _Model:
 def test_per_example_sidecars_replace_supp_pkl():
     with _patch_env({"PRED_FORMAT": "xlsx"}), tempfile.TemporaryDirectory() as tmp:
         work_dir = Path(tmp)
-        inference_image.infer_image_job(_Model(), str(work_dir), "M", _Dataset())
+        runner.infer_image_job(_Model(), str(work_dir), "M", _Dataset())
 
         ds_dir = work_dir / "ToySet"
 
@@ -87,7 +87,7 @@ def test_per_example_sidecars_replace_supp_pkl():
             assert rec["prediction"] == f"ans-{idx}"
 
         # Aggregated xlsx contains all predictions.
-        result = inference_image.load(str(ds_dir / "M.xlsx"))
+        result = runner.load(str(ds_dir / "M.xlsx"))
         preds = dict(zip(result["index"], result["prediction"]))
         assert preds == {10: "ans-10", 20: "ans-20", 30: "ans-30"}
 
@@ -95,7 +95,7 @@ def test_per_example_sidecars_replace_supp_pkl():
 def test_second_run_short_circuits():
     with _patch_env({"PRED_FORMAT": "xlsx"}), tempfile.TemporaryDirectory() as tmp:
         work_dir = Path(tmp)
-        inference_image.infer_image_job(_Model(), str(work_dir), "M", _Dataset())
+        runner.infer_image_job(_Model(), str(work_dir), "M", _Dataset())
 
         # Spy on the model: a second invocation must not call generate().
         class _Spy(_Model):
@@ -104,7 +104,7 @@ def test_second_run_short_circuits():
                 _Spy.calls += 1
                 return super().generate(**kwargs)
 
-        inference_image.infer_image_job(_Spy(), str(work_dir), "M", _Dataset())
+        runner.infer_image_job(_Spy(), str(work_dir), "M", _Dataset())
         assert _Spy.calls == 0  # result file existed → no-op
 
 
@@ -127,7 +127,7 @@ def test_resume_after_partial_commit():
                 return {"prediction": f"new-{task_id}",
                         "extra_records": {"trajectory": {"messages": []}}}
 
-        inference_image.infer_image_job(_Spy(), str(Path(tmp)), "M", _Dataset())
+        runner.infer_image_job(_Spy(), str(Path(tmp)), "M", _Dataset())
 
         # Only idx 10 and 30 should have been re-run.
         assert sorted(_Spy.seen) == [10, 30]

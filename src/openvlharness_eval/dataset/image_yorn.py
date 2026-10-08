@@ -46,7 +46,7 @@ class ImageYORNDataset(ImageBaseDataset):
         storage = get_intermediate_file_path(eval_file, '_auxmatch')
         tmp_file = get_intermediate_file_path(eval_file, '_tmp', 'pkl')
         # for experience learning
-        model_name = judge_kwargs.get('model', 'exact_matching')
+        model_name = (judge_kwargs.get('model') or 'exact_matching')
         if "/" in model_name:
             model_name = model_name.split("/")[-1]
         result_file = get_intermediate_file_path(eval_file, f'_{model_name}_result', 'xlsx')
@@ -63,8 +63,8 @@ class ImageYORNDataset(ImageBaseDataset):
             data['extracted'] = [ans_map[x] for x in data['index']]
             unknown = data[data['extracted'] == 'Unknown']
 
-            model = judge_kwargs.get('model', 'exact_matching')
-            if model == 'exact_matching':
+            model = (judge_kwargs.get('model') or 'exact_matching')
+            if model in (None, 'exact_matching'):  # a null judge model means heuristic matching only
                 model = None
             else:
                 model = build_judge(**judge_kwargs)

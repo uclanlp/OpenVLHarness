@@ -1,11 +1,9 @@
-"""Image inference utilities for multi-modal models."""
+"""Inference runner: feeds benchmark rows to an agent and writes predictions, trajectories and reports."""
 
 import copy
 import itertools
 import os
 import warnings
-import torch
-import torch.distributed as dist
 import pandas as pd
 from .utils.reporting_utils import (
     build_trajectory_records,
@@ -449,8 +447,6 @@ def infer_image_job(
         work_dir = osp.join(work_dir, dataset_name)
     if rank == 0 and not osp.exists(work_dir):
         os.makedirs(work_dir, exist_ok=True)
-    if world_size > 1:
-        dist.barrier()
     pred_dataset = dataset_name if use_dataset_subdir else None
     result_file = get_pred_file_path(work_dir, model_name, pred_dataset, use_env_format=True)
 
@@ -462,8 +458,6 @@ def infer_image_job(
     # Replaces the legacy _PREV.pkl seed.
     if osp.exists(result_file) and ignore_failed and rank == 0:
         _seed_done_from_xlsx(work_dir, result_file)
-    if world_size > 1:
-        dist.barrier()
 
     # ========== Inference (per-example sidecars) ==========
     infer_data(
@@ -473,8 +467,6 @@ def infer_image_job(
         html_limit=html_limit, save_images=save_images,
         save_raw_trace=save_raw_trace, ignore_failed=ignore_failed,
     )
-    if world_size > 1:
-        dist.barrier()
 
     # ========== Aggregation ==========
     if rank == 0:
@@ -514,9 +506,6 @@ def infer_image_job(
                 scrub_images=False, strip_assistant_content=False,
             )
             write_raw_response_jsons(full_records, osp.join(work_dir, "raw_response"))
-
-    if world_size > 1:
-        dist.barrier()
     return model
 
 

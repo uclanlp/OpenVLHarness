@@ -1,5 +1,4 @@
 import os
-from ...smp import load_env
 
 INTERNAL = os.environ.get('INTERNAL', 0)
 
@@ -36,7 +35,7 @@ def resolve_judge_max_tokens(judge_kwargs) -> int:
 
 
 def build_judge(**kwargs):
-    from ..api import OpenAIWrapper, HFChatModel
+    from ..api import OpenAIWrapper
     model = kwargs.pop('model', None)
     kwargs.pop('nproc', None)
     # ``judge_max_tokens`` is the YAML-facing knob for the judge's per-call
@@ -76,6 +75,7 @@ def build_judge(**kwargs):
         model_version = LOCAL_LLM
 
     if model == 'llama31-8b':
+        from ..api import HFChatModel
         model = HFChatModel(model_version, **kwargs)
     else:
         model = OpenAIWrapper(model_version, **kwargs)

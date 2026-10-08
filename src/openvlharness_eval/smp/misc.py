@@ -163,23 +163,6 @@ def _minimal_ext_cmd(cmd, cwd=None):
     out = subprocess.Popen(cmd, stdout=subprocess.PIPE, env=env, cwd=cwd).communicate()[0]
     return out
 
-def githash(fallback='unknown', digits=8):
-    if digits is not None and not isinstance(digits, int):
-        raise TypeError('digits must be None or an integer')
-    try:
-        import vlmeval
-    except ImportError as e:
-        import logging
-        logging.error(f'ImportError: {str(e)}')
-        return fallback
-    try:
-        out = _minimal_ext_cmd(['git', 'rev-parse', 'HEAD'], cwd=openvlharness_eval.__path__[0])
-        sha = out.strip().decode('ascii')
-        if digits is not None:
-            sha = sha[:digits]
-    except OSError:
-        sha = fallback
-    return sha
 
 def dict_merge(dct, merge_dct):
     for k, _ in merge_dct.items():
@@ -188,39 +171,12 @@ def dict_merge(dct, merge_dct):
         else:
             dct[k] = merge_dct[k]
 
-def youtube_dl(idx):
-    cmd = f'youtube-dl -f best -f mp4 "{idx}"  -o {idx}.mp4'
-    os.system(cmd)
 
 def run_command(cmd):
     if isinstance(cmd, str):
         cmd = cmd.split()
     return subprocess.check_output(cmd).decode()
 
-def load_env():
-    import logging
-    logging.basicConfig(
-        format='[%(asctime)s] %(levelname)s - %(filename)s: %(funcName)s - %(lineno)d: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S')
-
-    try:
-        import vlmeval
-    except ImportError:
-        logging.error('VLMEval is not installed. Failed to import environment variables from .env file. ')
-        return
-    pth = osp.realpath(openvlharness_eval.__path__[0])
-    pth = osp.join(pth, '../.env')
-    pth = osp.realpath(pth)
-    if not osp.exists(pth):
-        logging.error(f'Did not detect the .env file at {pth}, failed to load. ')
-        return
-
-    from dotenv import dotenv_values
-    values = dotenv_values(pth)
-    for k, v in values.items():
-        if v is not None and len(v):
-            os.environ[k] = v
-    logging.info(f'API Keys successfully loaded from {pth}')
 
 def pip_install_robust(package):
     import sys

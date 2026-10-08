@@ -1,9 +1,4 @@
-try:
-    from .inference_video import infer_video_job
-except Exception:  # pragma: no cover - optional runtime dependency (e.g., torch)
-    infer_video_job = None
+"""OpenVLHarness evaluation layer: benchmark loaders, judges and the inference runner."""
+from .runner import infer_image_job
 
-try:
-    from .inference_image import infer_image_job
-except Exception:  # pragma: no cover - optional runtime dependency (e.g., torch)
-    infer_image_job = None
+__all__ = ["infer_image_job"]

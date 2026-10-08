@@ -26,12 +26,12 @@ from openvlharness import bootstrap
 from openvlharness_eval import dataset as datasets
 import datetime
 from openvlharness_eval.smp import *
-from openvlharness_eval import infer_video_job, infer_image_job
+from openvlharness_eval import infer_image_job
 from openvlharness_eval.utils import load_judge_config
 from openvlharness_eval.utils import file_db
 from openvlharness_eval.utils.eval_injection import merge_eval_into_trajectories
 
-# Matches FAIL_MSG in openvlharness_eval.inference_image / .inference_video; the
+# Matches FAIL_MSG in openvlharness_eval.runner; the
 # sentinel prediction written when an example fails to produce an answer.
 FAIL_MSG = 'Failed to obtain answer via API.'
 from openvlharness_eval.utils.run_identity import (
@@ -314,7 +314,7 @@ def main(argv=None):
     parser.add_argument('--ignore-failed', action='store_true',
                         help='With --run-dir on a run that already has a prediction file: keep every '
                              'non-failed row and re-run only rows whose prediction is the harness failure '
-                             'sentinel (see inference_image.infer_image_job).')
+                             'sentinel (see runner.infer_image_job).')
     parser.add_argument(
         '--run-dir', type=str, default=None,
         help='Existing run directory. Evaluation uses its saved model identity and predictions '
@@ -343,12 +343,6 @@ def main(argv=None):
     if args.mode == "eval" and WORLD_SIZE > 1:
         raise ValueError("Evaluation-only mode runs in one process; launch without distributed inference settings")
 
-    if WORLD_SIZE > 1:
-        import torch.distributed as dist
-        dist.init_process_group(
-            backend='nccl',
-            timeout=datetime.timedelta(seconds=int(os.environ.get('DIST_TIMEOUT', 3600)))
-        )
 
     if args.mode == "eval":
         pred_root, run_manifest, model_name, agent_class, saved_predictions = _prepare_evaluation_run(args, logger)
@@ -519,30 +513,18 @@ def main(argv=None):
         if args.mode != "eval":
             logger.info(f"Start inference on dataset {dataset_name} with model {model_name}")
             # Perform the Inference
-            if dataset.MODALITY == 'VIDEO':
-                infer_video_job(
-                    agent,
-                    artifact_root,
-                    model_name,
-                    dataset,
-                    dataset_name,
-                    api_nproc=args.num_proc,
-                    html_limit=html_limit,
-                    enable_incremental_json=args.incremental_json,
-                )
-            else:
-                infer_image_job(
-                    agent,
-                    artifact_root,
-                    model_name,
-                    dataset,
-                    api_nproc=args.num_proc,
-                    html_limit=html_limit,
-                    enable_incremental_json=args.incremental_json,
-                    save_images=args.save_images,
-                    save_raw_trace=args.save_raw_trace,
-                    ignore_failed=args.ignore_failed,
-                )
+            infer_image_job(
+                agent,
+                artifact_root,
+                model_name,
+                dataset,
+                api_nproc=args.num_proc,
+                html_limit=html_limit,
+                enable_incremental_json=args.incremental_json,
+                save_images=args.save_images,
+                save_raw_trace=args.save_raw_trace,
+                ignore_failed=args.ignore_failed,
+            )
 
         
         if args.mode != "infer":
