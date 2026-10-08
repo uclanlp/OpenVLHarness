@@ -16,6 +16,9 @@ classifiers = [
 ]
 dependencies = ["requests>=2.28", "PyYAML>=6", "numpy>=1.24", "Pillow>=9", "jsonschema>=4"]
 
+[project.scripts]
+openvlharness-eval = "openvlharness_eval.cli:main"
+
 [project.urls]
 Homepage = "https://openvlharness.github.io/"
 Datasets = "https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"
