@@ -2,9 +2,9 @@
 
 **Real-World Visual Agentic Tool-Use with Multimodal Memory**
 
-[Project page](https://tool-vision.github.io/openvlharness.github.io/) ·
-[Interactive demo](https://tool-vision.github.io/openvlharness.github.io/#playground) ·
-[Results](https://tool-vision.github.io/openvlharness.github.io/#results) ·
+[Project page](https://openvlharness.github.io/) ·
+[Interactive demo](https://openvlharness.github.io/#playground) ·
+[Results](https://openvlharness.github.io/#results) ·
 [Evaluation datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets) ·
 [Citation](#citation)
 
@@ -22,7 +22,7 @@ The paper evaluates six backbones on **23 benchmarks** spanning counting and
 grounding, multimodal search, general visual question answering, and spatial
 understanding. Average gains over the corresponding base models range from
 **9.2 to 12.6 percentage points**. Explore the
-[results and recorded trajectories](https://tool-vision.github.io/openvlharness.github.io/#method)
+[results and recorded trajectories](https://openvlharness.github.io/#method)
 on the project page.
 
 ## How it works
@@ -467,6 +467,15 @@ python -m pip install -e '.[test,server]'
 python -m pytest tests -q
 ```
 
+## License
+
+OpenVLHarness is released under the [MIT License](LICENSE). The benchmark
+loaders and evaluators under `mini_vlm_toolkit/` are derived from
+[VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0);
+see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for that notice and for
+the licenses of the models, services and datasets the default tools use, which
+are not covered by the MIT License.
+
 ## Citation
 
 If you use OpenVLHarness in your research, please cite:
@@ -476,6 +485,6 @@ If you use OpenVLHarness in your research, please cite:
   title  = {OpenVLHarness: Real World Visual Agentic Tool-Use with Multimodal Memory},
   author = {Zhou, Yu and Yang, Cheng-Fu and Sun, Rui and Wu, Di and Peng, Sibo and Zhang, Mingyang and Yang, Zhen and Zhang, Ruiyi and Peng, Nanyun and Gan, Zhe and Chang, Kai-Wei},
   year   = {2026},
-  url    = {https://tool-vision.github.io/openvlharness.github.io/}
+  url    = {https://openvlharness.github.io/}
 }
 ```
