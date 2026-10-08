@@ -29,21 +29,9 @@ source arguments as `prepare_fscdlvis_box`.
 | `prepare_fsc147`, `prepare_fscd147_box`, `prepare_fscdlvis_box`, `prepare_fscdlvis_count` | Counting and box-grounding TSV preparation |
 | `prepare_odinw`, `prepare_odinw_qwen25`, `prepare_odinw_qwen3` | ODinW dataset preparation and prompt variants |
 | `prepare_lvis_federated`, `prepare_lvis_positive_only` | LVIS grounding subsets |
-| `prepare_activevision`, `prepare_babyvision` | Additional perception datasets |
 | `build_hf_release`, `backup_eval_datasets` | Release/export and backup utilities; inspect destinations before running |
 | `patch_grounding_prompts` | Update local grounding TSV prompts; pass `--dry-run` to inspect first |
 
 For prompt maintenance, supply `--lmu-data` or set `LMUData`; there is no private
 directory fallback. Service launch examples are documented separately under
 [tool services](../../../src/openvlharness/services/tools/README.md).
-
-The retained ChartMimic evaluator demonstrations also accept explicit inputs:
-
-```bash
-python -m openvlharness_eval.dataset.utils.chartmimic.evaluator.grid_evaluator \
-  --generated-code "$GENERATED_CHART_PY" --golden-code "$REFERENCE_CHART_PY"
-```
-
-The `color_evaluator`, `legend_evaluator`, and `text_evaluator` modules use the
-same two arguments. These evaluators execute chart Python files; use the dataset
-code you intend to evaluate. Author and copyright attributions remain intact.

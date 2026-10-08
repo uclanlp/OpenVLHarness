@@ -159,15 +159,16 @@ security sandbox. See [execution details](src/openvlharness/services/tools/pytho
 
 ### Run a small evaluation
 
-Install the benchmark dependencies in a separate evaluation environment, keeping
-the model and tool services running:
+Install the evaluation layer (benchmark loaders, judges and the runner) with the
+`eval` extra, keeping the model and tool services running:
 
 ```bash
-python -m venv .venv-eval
-source .venv-eval/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e '.[qwen]'
+python -m pip install -e '.[eval,qwen]'
 ```
+
+This adds the `openvlharness-eval` command; `python run_benchmark.py` at the
+repository root is the same program. The evaluation code lives in
+[src/openvlharness_eval](src/openvlharness_eval) and needs no GPU packages.
 
 Use the same connection variables as above. Set `LMUData` and the work directory
 to a fast local disk when available. This example evaluates 12 reproducibly
@@ -246,8 +247,8 @@ For image/text benchmarks, the main artifacts are:
 | `htmls/<sample_id>.html` | Browsable tool evidence when `--save-html all` is supplied |
 | `<model>_incremental.jsonl` | Streaming results when `--incremental-json` is supplied |
 
-The video runner additionally writes `trajectories.jsonl`. Prediction filenames
-use the model ID's final component, such as `Qwen3-VL-8B-Instruct`.
+Prediction filenames use the model ID's final component, such as
+`Qwen3-VL-8B-Instruct`.
 
 The parent run directory contains `run_manifest.json`,
 `agent_config.redacted.yaml`, `judge_config.redacted.yaml`, and
@@ -466,6 +467,9 @@ To run the package tests:
 python -m pip install -e '.[test,server]'
 python -m pytest tests -q
 ```
+
+The evaluator tests under `tests/evaluation` are collected only when the `eval`
+extra is installed as well.
 
 ## License
 

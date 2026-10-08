@@ -14,33 +14,30 @@ This module implements the dataset loading, prompt construction, and evaluation 
 
 ```
 ImageBaseDataset  (image_base.py)      MODALITY = 'IMAGE'
-├── ImageMCQDataset      (image_mcq.py)      TYPE = 'MCQ'
-├── ImageVQADataset      (image_vqa.py)      TYPE = 'VQA'
-├── ImageYORNDataset     (image_yorn.py)     TYPE = 'Y/N'
-├── ImageShortQADataset  (image_shortqa.py)  TYPE = 'Short'
-├── ImageCaptionDataset  (image_caption.py)  TYPE = 'Caption'
-├── RefCOCODataset       (refcoco.py)        TYPE = 'GROUNDING'
+├── ImageMCQDataset      (image_mcq.py)      TYPE = 'MCQ'    RealWorldQA, V*, CustomMCQDataset
+│   ├── ERQABench, EmbSpatialBench, MMSIBench, MindCubeBench, SparBench, FREAKMCQDataset
+├── ImageVQADataset      (image_vqa.py)      TYPE = 'VQA'    CustomVQADataset
+│   ├── FSC147Dataset, CountQA, PixmoCount, FREAKVQADataset, SimpleVQA
+├── ImageYORNDataset     (image_yorn.py)     TYPE = 'Y/N'    HallusionBench
+├── ImageShortQADataset  (image_shortqa.py)  TYPE = 'Short'  FVQA_test, hle, ...
+│   ├── BrowseCompVLDataset, RealXBench, MMSearchPlus, MMSearchEnd2End
 ├── LVISBBoxDataset      (lvis.py)           TYPE = 'GROUNDING'
 ├── ODinWBBoxDataset     (odinw.py)          TYPE = 'GROUNDING'
-├── RefSpatialBench      (refspatialbench.py)TYPE = 'VQA'
-└── (many specialized subclasses ...)
-
-TextBaseDataset   (text_base.py)       MODALITY = 'TEXT'
-└── TextMCQDataset       (text_mcq.py)       TYPE = 'MCQ'
+└── FSCD147BBoxDataset, FSCDLVISBBoxDataset (fscd.py)  TYPE = 'GROUNDING'
 ```
 
 ### Dataset Registration
 
-All dataset classes are imported and registered in `__init__.py`. The two master lists are:
+All dataset classes are imported and registered in `__init__.py`:
 
-- `IMAGE_DATASET` — all image-based dataset classes
-- `TEXT_DATASET` — text-only dataset classes
+- `IMAGE_DATASET` — the loaders behind the paper's 23 benchmarks
+- `CUSTOM_DATASET` — `CustomMCQDataset` and `CustomVQADataset` for local TSVs
 
 The `build_dataset(dataset_name)` function iterates over these lists, matches the name against each class's `supported_datasets()`, and instantiates the first match. If no match is found, it falls back to loading a local TSV and auto-detecting whether it's MCQ (has columns `A`, `B`) or VQA.
 
 Each class exposes two key class-level attributes:
-- **`MODALITY`**: `'IMAGE'` or `'TEXT'` — determines the inference pipeline
-- **`TYPE`**: `'MCQ'`, `'VQA'`, `'Y/N'`, `'Short'`, `'Caption'`, `'GROUNDING'` — determines the prompt suffix and evaluation strategy
+- **`MODALITY`**: always `'IMAGE'` in this release
+- **`TYPE`**: `'MCQ'`, `'VQA'`, `'Y/N'`, `'Short'`, `'GROUNDING'` — determines the prompt suffix and evaluation strategy
 
 ---
 
@@ -61,12 +58,6 @@ The foundation for all image benchmarks.
 
 **Data format**: TSV with required columns `index`, `question`, and either `image` (base64) or `image_path`. The `image` field can reference another row's index (for deduplication when multiple questions share one image).
 
-### `TextBaseDataset` (`text_base.py`)
-
-Minimal base for text-only benchmarks. `build_prompt()` returns `[{type:'text', value:question}]` with no image.
-
----
-
 ## Task Type Evaluation
 
 Each task type has a distinct approach to prompt construction, answer parsing, and metric computation. The table below summarizes the key differences:
@@ -77,7 +68,6 @@ Each task type has a distinct approach to prompt construction, answer parsing, a
 | **VQA** | `"Answer the question using a single word or phrase."` | Normalize text | vqa_score / anls / relaxed_accuracy / accuracy | Optional answer extraction |
 | **Y/N** | (none, or `"Please answer yes or no."` for AMBER) | Regex extract Yes/No | Dataset-specific rating | Fallback for ambiguous cases |
 | **Short** | `"Please directly provide a short answer to the question."` | LLM correctness check | Accuracy (hit 0/1) | Always used |
-| **Caption** | (none) | Direct comparison | BLEU, ROUGE-L, CIDEr | Not used |
 | **Grounding** | (none) | Parse bbox [x1,y1,x2,y2] | Precision@IoU0.5 | Not used |
 
 ### MCQ — `ImageMCQDataset` (`image_mcq.py`)
@@ -184,42 +174,7 @@ Please select the correct answer from the options above.
 
 ---
 
-### Caption — `ImageCaptionDataset` (`image_caption.py`)
-
-**Prompt**: auto-generates `"Please describe this image in general..."` if no question column exists.
-
-**Evaluation**: uses `COCO_Caption_Scorer` (requires `pycocoevalcap`).
-
-**Metrics:**
-- **BLEU-1, BLEU-2, BLEU-3, BLEU-4**: n-gram precision
-- **ROUGE-L**: longest common subsequence F-measure
-- **CIDEr**: consensus-based image description evaluation
-
-No LLM judge is used. Returns a dict: `{'Bleu': [b1,b2,b3,b4], 'ROUGE_L': score, 'CIDEr': score}`.
-
-**Key files:** `image_caption.py`
-
----
-
-### Grounding — `RefCOCODataset` (`refcoco.py`)
-
-**Data loading**: parses bounding box coordinates from the `answer` column. Auto-detects whether coordinates are on the 0-1000 scale (Qwen-style), legacy 0-1 normalized, or pixel-absolute, and converts accordingly.
-
-**Answer parsing** (`_parse_prediction(pred_text)`): extracts `[x1, y1, x2, y2]` from the model output. Handles JSON arrays, tuples, and various text formats.
-
-**Evaluation**:
-1. Parse predicted bbox from model output
-2. Convert to absolute coordinates using image width/height
-3. Compute IoU between predicted and ground-truth bboxes
-4. `hit = 1` if `IoU >= 0.5`
-
-**Metrics**: Precision@1 (accuracy at IoU ≥ 0.5) and Average IoU, reported per split (RefCOCO_val, RefCOCO_testA, RefCOCO_testB, RefCOCO+_*, RefCOCOg_*) and overall.
-
-**Key files:** `refcoco.py`
-
----
-
-### Object Detection — `LVISBBoxDataset` (`lvis.py`), `ODinWBBoxDataset` (`odinw.py`)
+### Object Detection — `ODinWBBoxDataset` (`odinw.py`), `FSCD147BBoxDataset` / `FSCDLVISBBoxDataset` (`fscd.py`), `LVISBBoxDataset` (`lvis.py`)
 
 These datasets evaluate open-vocabulary object detection. The model receives an image and a category name, and must output a list of bounding boxes.
 
@@ -230,18 +185,6 @@ These datasets evaluate open-vocabulary object detection. The model receives an 
 **Metrics**: Precision@IoU50, Recall@IoU50, F1@IoU50, Mean IoU, Count Accuracy. LVIS breaks down by frequency band; ODinW breaks down by domain.
 
 **Key files:** `lvis.py`, `odinw.py`
-
----
-
-### Spatial Referring — `RefSpatialBench` (`refspatialbench.py`)
-
-**Evaluation**: point-in-mask evaluation. The model outputs point coordinates and the evaluation checks whether those points fall within the ground-truth segmentation mask.
-
-Uses `Point2DParser` to extract `(x, y)` coordinates from JSON or tuple formats.
-
-**Metrics**: success rate (percentage of predicted points inside the mask), reported per split (Location, Placement, Unseen) and overall.
-
-**Key files:** `refspatialbench.py`, `refspatial.py`
 
 ---
 
@@ -273,7 +216,6 @@ nproc: 4
 | VQA | Extract short answer from long responses | When `model` is specified in judge config |
 | Y/N | Disambiguate unclear Yes/No responses | When regex extraction returns "Unknown" |
 | Short QA | Judge correctness of free-form answers | Always (required for scoring) |
-| Caption | — | Not used |
 | Grounding | — | Not used |
 
 If `model` is set to `'exact_matching'` (or not specified), no LLM judge is used and the system relies purely on heuristic parsing.
@@ -313,28 +255,6 @@ If `model` is set to `'exact_matching'` (or not specified), no LLM judge is used
 
 ---
 
-## Dataset Collections
-
-### `ConcatDataset` (`__init__.py`)
-
-Aggregates multiple image datasets into a single evaluation unit. Used for multi-lingual benchmarks:
-
-```python
-DATASET_SETS = {
-    'MMMB': ['MMMB_ar', 'MMMB_cn', 'MMMB_en', 'MMMB_pt', 'MMMB_ru', 'MMMB_tr'],
-    'MTL_MMBench_DEV': ['MMBench_dev_ar', 'MMBench_dev_cn', ...],
-    'ScreenSpot': ['ScreenSpot_Mobile', 'ScreenSpot_Desktop', 'ScreenSpot_Web'],
-    ...
-}
-```
-
-Mechanics:
-- Adds `SUB_DATASET` column to track origin
-- Remaps indices via `original_index` to avoid collisions
-- `evaluate()` splits results back by sub-dataset, evaluates each independently, then aggregates
-
----
-
 ## Adding a New Dataset
 
 ### Step 1: Choose a Base Class
@@ -345,8 +265,6 @@ Mechanics:
 | Image + free-form answer | `ImageVQADataset` | `image_vqa.py` |
 | Image + yes/no | `ImageYORNDataset` | `image_yorn.py` |
 | Image + short answer | `ImageShortQADataset` | `image_shortqa.py` |
-| Image + captioning | `ImageCaptionDataset` | `image_caption.py` |
-| Image + bounding box | `RefCOCODataset` | `refcoco.py` |
 | Text-only MCQ | `TextMCQDataset` | `text_mcq.py` |
 | Something unique | `ImageBaseDataset` | `image_base.py` |
 
@@ -389,7 +307,7 @@ In `__init__.py`:
 ```python
 from .my_dataset import MyDataset
 
-# Add to the appropriate list:
+# Add to the registry list:
 IMAGE_DATASET = [
     ...,
     MyDataset,
