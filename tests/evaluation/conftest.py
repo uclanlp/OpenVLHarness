@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture
 def synchronous_evaluation(monkeypatch):
-    from mini_vlm_toolkit import inference_image
+    from openvlharness_eval import inference_image
 
     def run(func, tasks, save=None, keys=None, **kwargs):
         results = [func(**task) for task in tasks]

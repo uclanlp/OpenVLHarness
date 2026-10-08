@@ -7,18 +7,18 @@ import argparse
 from pathlib import Path
 import yaml
 from openvlharness.bootstrap import build_agent, load_agent_config
-from mini_vlm_toolkit.dataset import build_dataset
+from openvlharness_eval.dataset import build_dataset
 import datetime
-from mini_vlm_toolkit.smp import *
-from mini_vlm_toolkit import infer_video_job, infer_image_job
-from mini_vlm_toolkit.utils import load_judge_config
-from mini_vlm_toolkit.utils import file_db
-from mini_vlm_toolkit.utils.eval_injection import merge_eval_into_trajectories
+from openvlharness_eval.smp import *
+from openvlharness_eval import infer_video_job, infer_image_job
+from openvlharness_eval.utils import load_judge_config
+from openvlharness_eval.utils import file_db
+from openvlharness_eval.utils.eval_injection import merge_eval_into_trajectories
 
-# Matches FAIL_MSG in mini_vlm_toolkit.inference_image / .inference_video; the
+# Matches FAIL_MSG in openvlharness_eval.inference_image / .inference_video; the
 # sentinel prediction written when an example fails to produce an answer.
 FAIL_MSG = 'Failed to obtain answer via API.'
-from mini_vlm_toolkit.utils.run_identity import (
+from openvlharness_eval.utils.run_identity import (
     parse_yaml_mapping,
     require_config_version,
     build_run_id,
@@ -71,7 +71,7 @@ def _find_resumable_run_dir(
     the requested datasets (ready for evaluation).  Otherwise, find the newest
     run that still has unfinished datasets (ready for inference).
     """
-    from mini_vlm_toolkit.utils.run_identity import sanitize_for_path
+    from openvlharness_eval.utils.run_identity import sanitize_for_path
     agent_part = sanitize_for_path(agent_ver, field_name="agent_config_version")
     judge_part = sanitize_for_path(judge_ver, field_name="judge_config_version")
     prefix = f"agent_{agent_part}_judge_{judge_part}_"

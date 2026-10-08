@@ -1,7 +1,7 @@
 import importlib.util
 import pytest
 
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
+if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 import copy
@@ -12,11 +12,11 @@ from pathlib import Path
 
 import yaml
 
-from mini_vlm_toolkit.utils import run_identity
+from openvlharness_eval.utils import run_identity
 from openvlharness.services import models
 from openvlharness.bootstrap import load_agent_config
 
-from mini_vlm_toolkit.utils.run_identity import (  # noqa: E402
+from openvlharness_eval.utils.run_identity import (  # noqa: E402
     build_agent_match_hash,
     build_run_id,
     build_run_manifest,

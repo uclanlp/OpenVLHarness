@@ -9,7 +9,7 @@ Verifies that infer_image_job:
 import importlib.util
 import pytest
 
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
+if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
@@ -23,8 +23,8 @@ import tempfile
 
 import pandas as pd
 
-from mini_vlm_toolkit import inference_image
-from mini_vlm_toolkit.utils import file_db
+from openvlharness_eval import inference_image
+from openvlharness_eval.utils import file_db
 
 pytestmark = pytest.mark.usefixtures("synchronous_evaluation")
 

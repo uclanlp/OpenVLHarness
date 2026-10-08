@@ -12,7 +12,7 @@ import yaml
 
 from openvlharness import bootstrap
 from openvlharness.services import models
-from mini_vlm_toolkit import dataset as datasets
+from openvlharness_eval import dataset as datasets
 
 CLI = Path(__file__).resolve().parents[2] / "run_benchmark.py"
 
@@ -81,7 +81,7 @@ def test_eval_cli_needs_only_saved_outputs_and_optional_judge(tmp_path, monkeypa
 ])
 def test_eval_redacted_placeholder_key_allows_local_matching(tmp_path, monkeypatch, no_inference,
                                                            judge_model, needs_credentials):
-    from mini_vlm_toolkit.utils.run_identity import redact_sensitive_fields
+    from openvlharness_eval.utils.run_identity import redact_sensitive_fields
 
     root, manifest = saved_run(tmp_path)
     judge = {"judge_config_version": "matching", "model_name": judge_model, "key": "empty"}
@@ -131,7 +131,7 @@ def test_explicit_eval_run_requires_requested_prediction_files(tmp_path, no_infe
 
 
 def test_inference_manifest_checks_remain_strict(tmp_path, monkeypatch):
-    from mini_vlm_toolkit.utils.run_identity import validate_manifest_compatibility
+    from openvlharness_eval.utils.run_identity import validate_manifest_compatibility
     _, manifest = saved_run(tmp_path)
     expected = copy.deepcopy(manifest)
     expected["agent_config_hash"] = "changed-profile-or-prompt"

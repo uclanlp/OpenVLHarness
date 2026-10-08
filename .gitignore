@@ -1,6 +1,5 @@
 outputs/
 reference/
-mini_vlm_toolkit/tool_infra/tests/output/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -224,9 +223,6 @@ outputs/
 
 # Tool API keys
 # Retired tool runtime may still contain private local environment/key files.
-/mini_vlm_toolkit/tool_infra/
-mini_vlm_toolkit/tool_infra/src/tools/serpapi_image_search/serpapi_api_key
-mini_vlm_toolkit/tool_infra/.env.latest
 
 # RL integration runtime artifacts
 rl/data/*.parquet

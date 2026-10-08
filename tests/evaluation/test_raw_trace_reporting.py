@@ -9,7 +9,7 @@ import logging
 
 import pytest
 
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
+if importlib.util.find_spec("openvlharness_eval") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
@@ -18,8 +18,8 @@ for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
 import pandas as pd
 from PIL import Image
 
-from mini_vlm_toolkit import inference_image
-from mini_vlm_toolkit.utils import file_db, reporting_utils
+from openvlharness_eval import inference_image
+from openvlharness_eval.utils import file_db, reporting_utils
 
 
 def _record(task_id=7):

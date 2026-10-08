@@ -193,7 +193,7 @@ installation rather than reproducing those scores.
 ### Datasets and scoring
 
 Dataset names passed to `--data` select loaders in
-[mini_vlm_toolkit/dataset](mini_vlm_toolkit/dataset). Examples across the four
+[src/openvlharness_eval/dataset](src/openvlharness_eval/dataset). Examples across the four
 domains are:
 
 | Domain | Example dataset names |
@@ -208,7 +208,7 @@ Prepared counting, grounding, VQA, and spatial splits are available in
 and download into `LMUData` on first use. Other loaders obtain data from their
 original sources. ODinW also downloads evaluation annotations into `LMUData/GLIP`
 unless `GLIP_ROOT` is set. The
-[preparation scripts](mini_vlm_toolkit/dataset/scripts) document how the released
+[preparation scripts](src/openvlharness_eval/dataset/scripts) document how the released
 splits were built.
 
 For benchmarks requiring an LLM judge or answer extractor, start from
@@ -470,7 +470,7 @@ python -m pytest tests -q
 ## License
 
 OpenVLHarness is released under the [MIT License](LICENSE). The benchmark
-loaders and evaluators under `mini_vlm_toolkit/` are derived from
+loaders and evaluators under `src/openvlharness_eval/` are derived from
 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0);
 see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for that notice and for
 the licenses of the models, services and datasets the default tools use, which
