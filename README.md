@@ -203,6 +203,10 @@ curl --fail http://127.0.0.1:8101/health
 curl --fail http://127.0.0.1:8101/backend-status
 ```
 
+These checks only show that the router is up, how many tools it registered, and its
+concurrency limits. Unreachable GPU workers, missing Serper keys and missing bucket
+credentials surface on the first call to the affected tool.
+
 Then ask a question from Python:
 
 ```python
@@ -221,10 +225,17 @@ Replace the image path with your own image. Inputs can include multiple images;
 image values can be local paths, HTTP(S) URLs, or data URLs. The returned trajectory
 records the model's turns, tool calls, and evidence for inspection.
 
+If `result["prediction"]` is `Error: Unable to get response from the server.`, the
+agent produced no answer. When a model request failed, the cause is in
+`result["extra_records"]["trajectory"]["error"]`; without that key, the model ended
+without a final answer or reached `agent.max_iterations`.
+
 > [!WARNING]
-> The coding tool executes generated Python locally in the agent process. Run it in
-> an isolated environment appropriate for your data; its execution timeout is not a
-> security sandbox. See [execution details](openvlharness/services/tools/python_coding_agent/README.md).
+> The coding tool runs generated Python in a subprocess on the agent host, with your
+> user's permissions and with network and filesystem access. Its execution timeout
+> is not a sandbox; run the agent in an isolated environment appropriate for your
+> data. See [SECURITY.md](SECURITY.md) and the
+> [coding tool README](openvlharness/services/tools/python_coding_agent/README.md).
 
 <a id="evaluation"></a>
 ## 📊 Evaluation
@@ -238,12 +249,13 @@ Install the evaluation layer (benchmark loaders, judges and the runner) with the
 python -m pip install -e '.[eval,qwen]'
 ```
 
-This adds the `openvlharness-eval` command; `python run_benchmark.py` at the
-repository root is the same program. The evaluation code lives in
-[evaluation_kit](evaluation_kit) and needs no GPU packages.
+This installs the dependencies of the `openvlharness-eval` command;
+`python run_benchmark.py` at the repository root is the same program. The
+evaluation code lives in [evaluation_kit](evaluation_kit) and needs no GPU packages.
 
-Use the same connection variables as above. Set `LMUData` and the work directory
-to a fast local disk when available. This example evaluates 12 reproducibly
+Use the same connection variables as above. `LMUData` is required: benchmark data
+downloads there, and the evaluator raises an error if it is unset. Put it and the
+work directory on a fast local disk. This example evaluates 12 reproducibly
 sampled questions **per dataset** from the FSC147 and ODinW validation splits,
 using direct counting and box metrics without an LLM judge:
 
@@ -277,10 +289,14 @@ Dataset names passed to `--data` select loaders in
 | Spatial understanding | `MMSIBench_wo_circular`, `ERQA`, `EmbSpatialBench`, `SparBench_tiny`, `MindCubeBench_tiny_raw_qa` |
 | Extended search (appendix) | `MMBrowseComp`, `VDRBench`, `VisBrowseBench`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` |
 
-Prepared counting, grounding, VQA, and spatial splits are available in
-[OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
-and download into `LMUData` on first use. Other loaders obtain data from their
-original sources. ODinW also downloads evaluation annotations into `LMUData/GLIP`
+Every dataset above except `PixmoCount_val` and `CountQA` is hosted, with its images,
+in [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
+and downloads into `LMUData` on first use. `PixmoCount_val` is built from
+[allenai/pixmo-count](https://huggingface.co/datasets/allenai/pixmo-count), with
+images fetched from their original URLs; images that can no longer be fetched are
+left out. `CountQA` is built from
+[Jayant-Sravan/CountQA](https://huggingface.co/datasets/Jayant-Sravan/CountQA) on
+the Hugging Face Hub. ODinW also downloads evaluation annotations into `LMUData/GLIP`
 unless `GLIP_ROOT` is set. The
 [preparation scripts](evaluation_kit/dataset/scripts) document how the released
 splits were built.
@@ -313,7 +329,6 @@ For image/text benchmarks, the main artifacts are:
 | --- | --- |
 | `<model>.xlsx` | Predictions; set `PRED_FORMAT=tsv` or `PRED_FORMAT=json` to change the format |
 | Dataset-specific metric files | Scores and diagnostics written by the evaluator |
-| `input_snapshot.json` | Inputs selected for this dataset run |
 | `full_trajectories/<sample_id>.json` | Agent messages, tool results and final answer |
 | `full_trajectories/images/` | Copied trajectory images; `--save-images base64` embeds images instead |
 | `tool_detections/<sample_id>.json` | Detection sidecars for samples with grounding results |
@@ -347,6 +362,21 @@ JSON and images under `raw_traces/`, with explicit error records for export
 failures. It requires a matching tokenizer and a server that returns token IDs;
 see [raw trace export](docs/models.md#raw-trace-export-qwen-only). Ordinary
 trajectory JSON and HTML reports work with every preset.
+
+Where files go:
+
+- Run outputs go under `--work-dir` (default `./outputs`).
+- Benchmark TSVs and images go in `$LMUData`.
+- Image archives and ODinW annotations are downloaded into the Hugging Face cache
+  (`HF_HOME`, default `~/.cache/huggingface`) and then extracted into `$LMUData`,
+  so they are stored twice: about 3.6 GB of archives for the datasets listed above.
+  The CountQA and PixmoCount sources are cached there as well.
+- ODinW annotations go in `$LMUData/GLIP` unless `GLIP_ROOT` is set.
+- `openvlharness-eval` reads `./.env` if present, without overriding variables that
+  are already set. The router and the Python API do not read it.
+- For inference, the default `--config` and `--judge-config` paths
+  (`configs/agent/qwen3_8b_paper.yaml` and `configs/judge.yaml`) are relative, so
+  run from the repository root or pass both.
 
 <a id="configure-and-extend"></a>
 ## 🧩 Configure and extend
@@ -562,6 +592,7 @@ harness the same way any other application would.
 | [Tool services](openvlharness/services/tools/README.md) | GPU workers, router deployment, search credentials, backend guides |
 | [Runtime design](docs/runtime.md) | Agent loop, configuration, memory, capability interfaces |
 | [Release validation](docs/validation.md) | Regression coverage and live validation evidence |
+| [Security](SECURITY.md) | What runs where, what leaves your machine, reporting vulnerabilities |
 
 To run the package tests:
 
