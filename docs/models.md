@@ -10,7 +10,8 @@ a separate Qwen3-VL-8B-Instruct server for the auxiliary role.
 
 ## Paper presets
 
-One preset per backbone in the paper, with the paper's decoding settings:
+Presets for six of the paper's seven backbones, with the paper's decoding settings
+(the Qwen2.5-VL-7B-Instruct configuration is not included):
 
 | Preset | Config alias | Exact model ID sent to the server | API | Request settings |
 | --- | --- | --- | --- | --- |
@@ -52,9 +53,10 @@ because it accepts only `high` effort, while the coding generator requests
 11, 2026, and `gpt-5.1` and `gpt-5.4-nano` on April 1, 2027; see OpenAI's
 [deprecations page](https://developers.openai.com/api/docs/deprecations).
 
-The paper ran the six preset models; the other aliases are registered from the
-providers' published model IDs and checked offline (request construction and
-configuration loading), not benchmarked. To add a model outside these families,
+The paper ran the six preset models and Qwen2.5-VL-7B-Instruct, which is not
+registered; the other aliases are registered from the providers' published model
+IDs and checked offline (request construction and configuration loading), not
+benchmarked. To add a model outside these families,
 register its served ID, API protocol, prompt bundle and supported options in the
 registry.
 

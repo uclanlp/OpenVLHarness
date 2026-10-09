@@ -43,8 +43,8 @@ evidence readable and reusable across reasoning steps.
   addressable for the whole question, so later tools and code can build on them.
 - **Consistent gains.** Across 23 benchmarks in four domains, six backbones gain
   **9.2 to 12.6 points** on average over the same models without tools.
-- **Any registered model.** Presets for the six paper backbones, plus every
-  Qwen3-VL Instruct size and OpenAI's GPT-5 to GPT-6.1 models in the
+- **Any registered model.** Presets for six of the paper's seven backbones, plus
+  every Qwen3-VL Instruct size and OpenAI's GPT-5 to GPT-6.1 models in the
   [model registry](docs/models.md#other-registered-models).
 
 <a id="table-of-contents"></a>
@@ -138,7 +138,7 @@ run benchmarks (see [Evaluation](#evaluation)).
 
 ### 1. Pick a preset
 
-The release includes one agent preset per backbone in the paper:
+The release includes agent presets for six of the paper's seven backbones:
 
 | Main model | Configuration | API |
 | --- | --- | --- |
@@ -148,6 +148,9 @@ The release includes one agent preset per backbone in the paper:
 | GPT-6 Luna | [gpt6_luna_paper.yaml](configs/agent/gpt6_luna_paper.yaml) | Responses |
 | GPT-6 Sol | [gpt6_sol_paper.yaml](configs/agent/gpt6_sol_paper.yaml) | Responses |
 | Kimi K3 | [kimi_k3_paper.yaml](configs/agent/kimi_k3_paper.yaml) | Chat Completions |
+
+The paper's Qwen2.5-VL-7B-Instruct results, compared with training-based harnesses
+in its appendix, used a separate configuration that this release does not include.
 
 The registry also covers every Qwen3-VL Instruct size (2B to 235B-A22B, with FP8
 builds) and OpenAI's GPT-5 to GPT-6.1 models; to use one, copy its family's
