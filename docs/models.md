@@ -68,8 +68,7 @@ presets retain their configured budgets.
 When `agent.max_context_length` is set, it must be greater than the orchestrator's
 effective `max_tokens` plus a 512-token margin. Configurations with no remaining
 input budget fail during loading, before tokenizer loading or inference. Increase
-the context window or lower `max_tokens` to resolve the error; the harness does not
-silently reduce the output budget. Omitting `max_context_length` or setting it to
+the context window or lower `max_tokens` to resolve the error. Omitting `max_context_length` or setting it to
 `null` leaves context enforcement to the provider.
 
 ## Raw trace export (Qwen only)
@@ -92,7 +91,7 @@ the serving setup below. Raw export pins tokenizer revision
 `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` in the model profile and requires a
 vLLM-compatible endpoint that returns `prompt_token_ids` and
 `choices[0].token_ids`. Missing tokenizer dependencies or files cause a startup
-error instead of disabling token reconstruction.
+error.
 
 The terminating response's tokens reconstruct Qwen ChatML, including its rendered
 tool calls and tool responses. Image bytes come from that response's exact request,

@@ -40,9 +40,8 @@ curl --fail http://127.0.0.1:8085/v1/models
 Configure `services.tools.ocr.server_url` as the raw base URL; the paper YAML
 uses `OCR_SERVER_URL`. If you change the served identity, set `OCR_MODEL_ID`
 on the router host too. The wrapper's fixed request is prompt `OCR:`,
-temperature 0, max_tokens 2048, repetition_penalty 1.05 and timeout 600 seconds.
-Those generation controls are not ambient `OCR_MAX_NEW_TOKENS` or
-`OCR_REPETITION_PENALTY` configuration options.
+temperature 0, max_tokens 2048, repetition_penalty 1.05 and timeout 600 seconds;
+these values are fixed in the wrapper.
 
 The returned dictionary has `text` and `model_id`; it has no token boxes,
 confidence values or device field. The capability stores the text in

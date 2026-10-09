@@ -35,5 +35,4 @@ A thrown generator exception is a failed tool envelope. A returned generator
 error dictionary is retained as canonical `generation_error` and shown in
 model-facing evidence; code is not executed after a generation failure.
 A local execution exception is `execution_error` inside successful
-generation output, with visible execution-error evidence. No generic subagent,
-GPU package, ambient LLM connection or package-local API-key file is required.
+generation output, with visible execution-error evidence.

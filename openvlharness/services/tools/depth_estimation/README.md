@@ -38,14 +38,11 @@ Raw depth is base64 float32 plus its shape; intrinsics and world-to-camera
 extrinsics retain image order. Pose uses the first supplied image as reference
 when the router creates camera-motion evidence.
 
-Install Matplotlib here for inferno depth rendering. The raw colormap helper
-falls back to grayscale if its plotting import fails. Install Matplotlib in
-the router environment as well: camera bird's-eye rendering runs there, not in
-this DA3 process. Without router Matplotlib, numeric results remain available
-but the camera visualization is absent.
+Install Matplotlib here for inferno depth rendering; without it the colormap
+helper falls back to grayscale. The camera bird's-eye view is rendered by the
+router, which needs its own Matplotlib ([router setup](../README.md)).
 
 The tested environment reported an incompatible xFormers extension warning,
 while depth and pose inference completed successfully through the available
-implementation. That observation is not a dependency compatibility claim. Keep
-accelerator packages compatible with the selected Torch/Python versions. The
-deployment notes list the [tested versions and revisions](../README.md#tested-environment).
+implementation. Keep accelerator packages compatible with the selected
+Torch/Python versions. The deployment notes list the [tested versions and revisions](../README.md#tested-environment).

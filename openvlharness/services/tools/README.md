@@ -13,12 +13,10 @@ source /path/to/envs/router/bin/activate
 python -m pip install '.[server]'
 ```
 
-The server extra includes Matplotlib because the camera wrapper uses it on
-this host to render the bird's-eye view. The renderer tolerates a missing plotting
-package by retaining numeric evidence and omitting its image, but the paper
-installation includes it to preserve visual evidence.
-The DA3 raw environment also needs Matplotlib for the paper's inferno depth
-visualization. Neither installation requires a GPU on the router host.
+The server extra includes Matplotlib, which the camera wrapper uses on this host
+to render the bird's-eye view; without it, the wrapper returns the numeric and
+text results and omits the image. The DA3 environment also needs Matplotlib for
+the inferno depth visualization. The router host needs no GPU.
 
 ## Configure and launch the router
 

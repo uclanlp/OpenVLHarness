@@ -1,10 +1,9 @@
 # Dataset preparation helpers
 
-The public release includes these dataset preparation and maintenance commands.
-Run them from the repository checkout with the evaluator dependencies installed.
-Use `python -m evaluation_kit.dataset.scripts.<module> --help` to inspect each
-command's input formats and options. Input datasets must be obtained separately;
-the commands do not assume an author's filesystem layout.
+These commands prepare and maintain the evaluation datasets. Run them from the
+repository checkout with the evaluator dependencies installed;
+`python -m evaluation_kit.dataset.scripts.<module> --help` lists each command's
+inputs and options. Download the source datasets separately.
 
 Set `LMUData` to your local dataset/output directory, or pass the command's explicit
 output-directory argument. FSCD preparation requires source paths:
@@ -32,6 +31,5 @@ source arguments as `prepare_fscdlvis_box`.
 | `build_hf_release`, `backup_eval_datasets` | Release/export and backup utilities; inspect destinations before running |
 | `patch_grounding_prompts` | Update local grounding TSV prompts; pass `--dry-run` to inspect first |
 
-For prompt maintenance, supply `--lmu-data` or set `LMUData`; there is no private
-directory fallback. Service launch examples are documented separately under
+For prompt maintenance, supply `--lmu-data` or set `LMUData`. Service launch examples are documented separately under
 [tool services](../../../openvlharness/services/tools/README.md).

@@ -81,8 +81,8 @@ The paper configurations use 15 iterations. When the iterations run out, Qwen
 and Kimi K3 send an extra final-answer request; they also continue after an
 empty answer and extract the answer from `<answer>` tags. GPT profiles fall back
 to the assistant text when no tag is present and append the final message. Tool
-schemas are sent sorted by public tool name. Neither Chat Completions nor
-Responses accepts a multi-tool turn by silently executing only one call.
+schemas are sent sorted by public tool name. A turn with more than one tool call
+executes none of them; each call returns an error asking for one call per turn.
 
 Orchestrator and tool-router HTTP requests retry transient failures up to
 `retry` additional times: 8 in the paper presets, so up to nine attempts, with
@@ -94,12 +94,9 @@ timeouts. Coding uses the orchestrator backbone and native protocol, a fresh
 prompt, 4096 output tokens and a fixed 600-second request timeout. Its local
 executor has a 30-second limit; generated Python is not sandboxed.
 
-Retry classification uses the structured HTTP response status: 408, 429, 500,
-502, 503 and 504 are transient. Other HTTP statuses, including 400 and 401, are
-not retried, regardless of endpoint digits or words such as "internal
-connection" in the body. Without an HTTP status, requests timeout/connection
-exceptions are retried; arbitrary exception text is not used to infer
-retryability. Structured tool failure envelopes remain single-attempt results.
+Retries apply to HTTP 408, 429, 500, 502, 503 and 504 and, when there is no HTTP
+status, to request timeouts and connection errors. Other statuses, including 400
+and 401, fail at once. Structured tool failure envelopes are not retried.
 
 ## Deployment and extension boundaries
 
@@ -126,14 +123,13 @@ explicitly declare their protocol and supported options.
 OCR stores its transcription as `ocr_result["text"]`, including a valid empty
 string, and advertises it to code generation. DINO stores `segment_<query>`
 with `pred_boxes`/`pred_scores` and null masks and count. Its evidence describes
-bounding boxes and does not claim mask availability.
+bounding boxes only.
 
 The model-visible Text Search description states that the caller selects
 `search_type` (general web search by default, or images, news, scholar, maps,
 places, shopping or patents), that the retrieved evidence is summarized, and
 that retained, reranked results are returned with source titles, snippets or
-metadata and available links. It does not claim automatic intent classification
-or numbered citations.
+metadata and available links.
 
 Reports retain partial trajectories when a transport exception ends a question
 and record token usage: the numeric fields of every response's `usage` object
