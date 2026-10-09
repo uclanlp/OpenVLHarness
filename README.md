@@ -3,8 +3,10 @@
     <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
     <img src="assets/logo.svg" alt="OpenVLHarness logo" height="44" align="top">
   </picture>
-  OpenVLHarness: Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory
+  OpenVLHarness
 </h1>
+
+<h3 align="center">Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
@@ -28,9 +30,7 @@
   <a href="https://zhegan27.github.io/">Zhe Gan</a><sup>2</sup>,
   <a href="https://web.cs.ucla.edu/~kwchang/">Kai-Wei Chang</a><sup>1</sup>
   <br/>
-  <sup>1</sup>University of California, Los Angeles &nbsp;·&nbsp; <sup>2</sup>Apple
-  <br/>
-  <sup>*</sup>Equal contribution
+  <sup>1</sup>University of California, Los Angeles &nbsp;·&nbsp; <sup>2</sup>Apple &nbsp;·&nbsp; <sup>*</sup>Equal contribution
 </p>
 
 <p align="center">
