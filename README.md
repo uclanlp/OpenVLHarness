@@ -1,17 +1,10 @@
-<p align="center">
-  <a href="https://openvlharness.github.io/">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-      <img src="assets/logo.svg" alt="OpenVLHarness logo" width="96">
-    </picture>
-  </a>
-</p>
-
-<h1 align="center">OpenVLHarness</h1>
-
-<p align="center">
-<b>Real-World Visual Agentic Tool-Use with Multimodal Memory</b>
-</p>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="OpenVLHarness logo" height="44" align="top">
+  </picture>
+  OpenVLHarness: Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory
+</h1>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
@@ -30,6 +23,7 @@
   <a href="https://www.linkedin.com/in/mingyangzhang24/">Mingyang Zhang</a><sup>1</sup>,
   <a href="https://scholar.google.com/citations?user=lhOY0HkAAAAJ">Zhen Yang</a><sup>2</sup>,
   <a href="https://zhangry868.github.io/">Ruiyi Zhang</a><sup>2</sup>,
+  <br/>
   <a href="https://violetpeng.github.io/">Nanyun Peng</a><sup>1</sup>,
   <a href="https://zhegan27.github.io/">Zhe Gan</a><sup>2</sup>,
   <a href="https://web.cs.ucla.edu/~kwchang/">Kai-Wei Chang</a><sup>1</sup>
@@ -41,7 +35,10 @@
 
 <p align="center">
   <a href="https://openvlharness.github.io/">
-    <img src="assets/teaser.jpg" alt="OpenVLHarness: average gains across six model families, and GPT-6 performance versus cost" width="100%"/>
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/teaser-dark.png">
+      <img src="assets/teaser.png" alt="Average score over 23 benchmarks for six backbones with and without OpenVLHarness, and GPT-6 Luna performance versus cost across reasoning efforts" width="100%">
+    </picture>
   </a>
 </p>
 
@@ -564,7 +561,7 @@ configs/                paper agent presets and judge settings
 docs/                   model, runtime and validation notes
 tests/                  harness tests; tests/evaluation/ needs the eval extra
 validation/             fixed perception subset for checking a tool deployment
-assets/                 logo and teaser images
+assets/                 logo and README figures
 run_benchmark.py        same program as openvlharness-eval
 ```
 
