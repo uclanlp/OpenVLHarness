@@ -6,7 +6,7 @@
   OpenVLHarness
 </h1>
 
-<h3 align="center">Real World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
+<h3 align="center">Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
