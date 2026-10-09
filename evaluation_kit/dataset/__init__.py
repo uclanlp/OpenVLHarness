@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 """Benchmark registry for the OpenVLHarness evaluation layer.
 
 Registers the loaders for the paper's benchmarks together with the VLMEvalKit loaders

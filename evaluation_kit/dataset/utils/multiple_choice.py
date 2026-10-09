@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 import pandas as pd
 from ...utils import can_infer, track_progress_rich, can_infer_lego
 from ...smp import *

@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 # Copyright (c) OpenMMLab. All rights reserved.
 # Partly adopted from https://github.com/GT-Vision-Lab/VQA
 # Copyright (c) 2014, Aishwarya Agrawal

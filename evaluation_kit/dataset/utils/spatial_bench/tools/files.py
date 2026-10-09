@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 from .....smp.file import get_intermediate_file_path
 
 _NAME_STR_MAP = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}

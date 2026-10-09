@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 import re
 import os
 import pandas as pd

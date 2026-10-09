@@ -1,3 +1,5 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
+
 model_keys = ["model_response"]
 mapper = {"正确": "is_correct", "错误": "is_incorrect", "未尝试": "is_not_attempted"}
 
