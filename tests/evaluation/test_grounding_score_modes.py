@@ -1,18 +1,10 @@
 """Judge-config score modes must reach the persisted grounding metrics."""
 
-import importlib.util
 import json
 from pathlib import Path
 
-import pytest
-
-if importlib.util.find_spec("evaluation_kit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "validators"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
 import pandas as pd
+import pytest
 
 from evaluation_kit.dataset import eval_bridge, fscd, lvis, odinw
 from evaluation_kit.utils.judge_utils import load_judge_config

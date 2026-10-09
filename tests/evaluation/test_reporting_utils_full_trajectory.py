@@ -1,12 +1,3 @@
-import importlib.util
-import pytest
-
-if importlib.util.find_spec("evaluation_kit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
 import json
 import os
 import tempfile

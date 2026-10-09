@@ -5,9 +5,8 @@ import json
 from pathlib import Path
 import signal
 import sys
-import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from openvlharness.bootstrap import load_agent_config
 from openvlharness.capabilities.grounding import Capability as Grounding

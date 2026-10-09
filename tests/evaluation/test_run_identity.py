@@ -1,22 +1,16 @@
-import importlib.util
-import pytest
-
-if importlib.util.find_spec("evaluation_kit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
 import copy
 import json
 import re
 from importlib.resources import files
-from pathlib import Path
 
+import pytest
 import yaml
 
 from evaluation_kit.utils import run_identity
 from openvlharness.services import models
 from openvlharness.bootstrap import load_agent_config
 
-from evaluation_kit.utils.run_identity import (  # noqa: E402
+from evaluation_kit.utils.run_identity import (
     build_agent_match_hash,
     build_run_id,
     build_run_manifest,
