@@ -74,14 +74,15 @@ policy. Qwen uses the packaged `v8_instruct` prompt, Chat Completions and its ow
 tokenizer for the 168000-token context cap. If the tokenizer cannot load, a
 warning records that the provider enforces context size. GPT profiles use
 `openai_v1`, stateless Responses (`store=false`) and provider context
+enforcement. Kimi K3 uses `openai_v1`, Chat Completions and provider context
 enforcement.
 
 The paper configurations use 15 iterations. When the iterations run out, Qwen
-sends an extra final-answer request; it also continues after an empty answer and
-extracts the answer from `<answer>` tags. GPT profiles fall back to the assistant
-text when no tag is present and append the final message. Tool schemas are sent
-sorted by public tool name. Neither path accepts a multi-tool turn by silently
-executing only one call.
+and Kimi K3 send an extra final-answer request; they also continue after an
+empty answer and extract the answer from `<answer>` tags. GPT profiles fall back
+to the assistant text when no tag is present and append the final message. Tool
+schemas are sent sorted by public tool name. Neither Chat Completions nor
+Responses accepts a multi-tool turn by silently executing only one call.
 
 Orchestrator and tool-router HTTP requests retry transient failures up to
 `retry` additional times: 8 in the paper presets, so up to nine attempts, with
@@ -161,7 +162,11 @@ permissions.
 ## Configuration reference
 
 `load_agent_config` in `openvlharness/bootstrap.py` accepts the keys below and
-rejects any other key. `${NAME}` placeholders anywhere in the file are replaced
+rejects unknown keys in each section it validates. It checks
+`services.tools.<backend>` only for the selected backends, and
+`python_executor_local` only when coding is enabled; other entries are ignored.
+The router checks `services.server.limits` group names and values when it
+starts. `${NAME}` placeholders anywhere in the file are replaced
 from the environment when the file loads; a missing variable is an error.
 "Required" keys have no default. The paper presets share every value except
 where the table names a model.
@@ -211,9 +216,10 @@ where the table names a model.
 Each selected backend needs a `services.tools.<backend>` mapping. The model
 generation options (`max_tokens` through `return_token_ids`) apply to
 orchestrator requests. The coding generator and the auxiliary search and webpage
-calls use the fixed settings in [per-role settings](models.md#per-role-settings)
-and take only `alias`, `base`, `key`, `timeout` and `retry` from their model
-service.
+calls use the fixed settings in [per-role settings](models.md#per-role-settings).
+The coding generator takes only `alias`, `base`, `key` and `retry` from its model
+service; its timeout is fixed at 600 seconds. The auxiliary calls take only
+`alias`, `base`, `key`, `timeout` and `retry`.
 
 ### Environment variables
 
@@ -238,8 +244,9 @@ all of them, even those it does not use.
 | `IMAGE_UPLOAD_PROVIDER` | router | Object storage for reverse image search uploads: `gcs` (default) or `s3`. |
 | `GCS_BUCKET_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`, `GCS_PROJECT_ID` | router, GCS uploads | Bucket (required), service-account key file (required) and optional project ID. |
 | `AWS_S3_BUCKET_NAME`, `AWS_S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | router, S3 uploads | Bucket (required), region (default `us-east-1`) and credentials. Without the key variables, boto3 uses its default credential chain. |
+| `OCR_MODEL_ID` | router, OCR server | Served PaddleOCR-VL model name; default `PaddlePaddle/PaddleOCR-VL-1.5`. The router sends it as the request model, so it must match the OCR server. |
 | `HF_HOME` | agent, evaluation, model servers | Hugging Face cache root for the Qwen tokenizer, model checkpoints and dataset downloads. |
 
 Raw model servers read their own launcher variables, such as `SAM3_PORT`,
-`OCR_MODEL_ID` and `DEPTH_ESTIMATION_MODEL_ID`; see the
+`OCR_MODEL_PATH` and `DEPTH_ESTIMATION_MODEL_ID`; see the
 [tool service guide](../openvlharness/services/tools/README.md).
