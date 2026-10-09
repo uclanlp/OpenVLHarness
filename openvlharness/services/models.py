@@ -229,9 +229,12 @@ class ModelAdapter:
         Checks the local cache before allowing a download. Raw export pins the
         registered revision and raises RawTraceExportError if loading fails. Without
         export, a loading failure is logged and context enforcement stays with the
-        provider.
+        provider. If the chat template cannot be rendered, for example without
+        jinja2, counting is unavailable and a warning is logged; the tokenizer stays
+        loaded because raw export does not use the template.
         """
-        if self.raw_trace_enabled or (self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length):
+        counting = self.profile["context_policy"] == "qwen_tokenizer" and self.max_context_length
+        if self.raw_trace_enabled or counting:
             try:
                 from transformers import AutoTokenizer
                 options = ({"revision": self.profile["raw_trace_tokenizer_revision"]} if self.raw_trace_enabled else {})
@@ -239,11 +242,15 @@ class ModelAdapter:
                     self._tokenizer = AutoTokenizer.from_pretrained(self.model, local_files_only=True, **options)
                 except OSError:
                     self._tokenizer = AutoTokenizer.from_pretrained(self.model, **options)
-                self.counting_available = True
             except (ImportError, OSError, ValueError) as exc:
                 if self.raw_trace_enabled:
                     raise RawTraceExportError("tokenizer_unavailable", f"Raw trace export requires the matching tokenizer for {self.model}; install openvlharness[qwen] and cache the registered revision.") from exc
                 self.logger.warning("Tokenizer unavailable; provider enforces context limit: %s", exc)
+                return
+            self.counting_available = self._count_tokens([{"role": "user", "content": "x"}]) is not None
+            if counting and not self.counting_available:
+                self.logger.warning("Qwen chat template could not be rendered (is jinja2 installed?); "
+                                    "provider enforces context limit")
 
     def export_raw_trace(self, capture, task_id):
         """Reconstruct a Qwen trace from a captured response and its exact request.

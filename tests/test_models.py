@@ -460,6 +460,31 @@ class ModelContextTests(unittest.TestCase):
         self.assertEqual(model._ensure_context_fits(messages, ["tool"], "auto"), (["tool"], "auto"))
         self.assertEqual(len(messages[0]["content"]), 5000)
 
+    def test_unrenderable_chat_template_disables_counting_with_warning(self):
+        def load(tokenizer):
+            model = adapter()
+            model.max_context_length = 168000
+            module = SimpleNamespace(AutoTokenizer=SimpleNamespace(from_pretrained=Mock(return_value=tokenizer)))
+            with patch.dict("sys.modules", {"transformers": module}):
+                model.load_tokenizer()
+            return model
+        working = Mock()
+        working.apply_chat_template.return_value = [1, 2, 3]
+        with self.assertNoLogs("openvlharness.models", "WARNING"):
+            self.assertTrue(load(working).counting_available)
+        # transformers raises this from apply_chat_template when jinja2 is missing.
+        broken = Mock()
+        broken.apply_chat_template.side_effect = ImportError("apply_chat_template requires jinja2")
+        with self.assertLogs("openvlharness.models", "WARNING") as logs:
+            model = load(broken)
+        self.assertFalse(model.counting_available)
+        self.assertIs(model._tokenizer, broken)
+        self.assertIn("jinja2", logs.output[0])
+
+
+class SdkTimeout(httpx.Timeout):
+    """Stands in for openai.Timeout so tests can tell it apart from httpx.Timeout."""
+
 
 class AuxiliaryModelTests(unittest.TestCase):
     def setUp(self):
@@ -468,7 +493,7 @@ class AuxiliaryModelTests(unittest.TestCase):
         self.constructor = Mock()
         self.sdk = self.constructor.return_value
         self.module_patch = patch.dict("sys.modules", {"openai": SimpleNamespace(OpenAI=self.constructor,
-                                                                                  Timeout=httpx.Timeout)})
+                                                                                  Timeout=SdkTimeout)})
         self.module_patch.start()
         self.addCleanup(self.module_patch.stop)
 
@@ -497,6 +522,8 @@ class AuxiliaryModelTests(unittest.TestCase):
         self.engine()
         config = self.constructor.call_args.kwargs
         self.assertEqual(config["max_retries"], 2)
+        # openai 3.x does not install httpx, so the timeout must come from the SDK.
+        self.assertIs(type(config["timeout"]), SdkTimeout)
         self.assertEqual(config["timeout"].connect, 5)
         self.assertEqual((config["timeout"].read, config["timeout"].write, config["timeout"].pool), (600, 600, 600))
 
