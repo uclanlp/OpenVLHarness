@@ -80,7 +80,7 @@ configuration saved with the run and included in its resume identity. The normal
 paper preset remains `false`; there is no `extra_body` configuration to edit.
 
 ```bash
-openvlharness-eval --data FSC147_test \
+openvlharness-eval --data FSC147_val \
   --config configs/agent/qwen3_8b_paper.yaml \
   --judge-config configs/judge_no_judge.yaml \
   --num-examples 1 --num-proc 1 --save-raw-trace --save-html all

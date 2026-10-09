@@ -5,7 +5,7 @@ injects lightweight memory descriptors into the generation request. The router
 uses `services.tools.python_coding_agent.model_service`, which must identify
 the same model as the orchestrator, with `context: fresh`. It sends a separate
 coding prompt and a 4096-token generation budget. GPT uses Responses with
-medium reasoning; Qwen uses Chat Completions with temperature 0. The generator
+medium reasoning; Qwen and Kimi K3 use Chat Completions with temperature 0. The generator
 does not inherit the full orchestrator conversation or sampling settings.
 
 Actual NumPy arrays stay on the agent host. The local executor serializes copied

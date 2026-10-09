@@ -6,7 +6,7 @@
   OpenVLHarness
 </h1>
 
-<h3 align="center">Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
+<h3 align="center">Real World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
@@ -345,7 +345,9 @@ The parent run directory contains `run_manifest.json`,
 `agent_config.redacted.yaml`, `judge_config.redacted.yaml`, and
 `tool_env_snapshot.json`, recording the effective configuration, resolved model
 profiles and service metadata. Add `--resume` to continue a compatible partial
-run; changes to the effective configuration require a new run.
+run; changes to the effective configuration require a new run. Rows that failed
+because a service was unreachable are scored as incorrect; once the service is
+back, rerun with `--run-dir <run-dir> --ignore-failed` to redo only those rows.
 
 To evaluate saved predictions, select the run directly:
 
@@ -360,7 +362,7 @@ Inference resumes still validate the effective configuration and resolved model
 profiles. Without `--run-dir`, evaluation discovers the latest complete saved run
 under `--work-dir`; use `--run-dir` when several model/agent identities are present.
 
-For **Qwen-only token-level export**, add `--save-raw-trace`. This writes per-sample
+For **Qwen3-VL-8B-only token-level export**, add `--save-raw-trace`. This writes per-sample
 JSON and images under `raw_traces/`, with explicit error records for export
 failures. It requires a matching tokenizer and a server that returns token IDs;
 see [raw trace export](docs/models.md#raw-trace-export-qwen-only). Ordinary
@@ -594,6 +596,7 @@ harness the same way any other application would.
 | [Model services](docs/models.md) | Presets, registered models, Qwen serving, GPT and Kimi connections, per-role settings, raw trace export |
 | [Tool services](openvlharness/services/tools/README.md) | GPU workers, router deployment, search credentials, backend guides |
 | [Runtime design](docs/runtime.md) | Agent loop, configuration, memory, capability interfaces |
+| [Benchmarks and judges](evaluation_kit/dataset/README.md) | Benchmark loaders, metrics, judge configuration, `score_mode` |
 | [Release validation](docs/validation.md) | Regression coverage and live validation evidence |
 | [Security](SECURITY.md) | What runs where, what leaves your machine, reporting vulnerabilities |
 
