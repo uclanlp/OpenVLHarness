@@ -17,23 +17,6 @@
 </p>
 
 <p align="center">
-  <a href="https://yu-bryan-zhou.github.io/">Yu Zhou</a><sup>1*</sup>,
-  <a href="https://joeyy5588.github.io/">Cheng-Fu Yang</a><sup>1*</sup>,
-  <a href="https://threesr.github.io/">Rui Sun</a><sup>1*</sup>,
-  <a href="https://xiaowu0162.github.io/">Di Wu</a><sup>1*</sup>,
-  <a href="https://www.linkedin.com/in/sibo-peng/">Sibo Peng</a><sup>1</sup>,
-  <a href="https://www.linkedin.com/in/mingyangzhang24/">Mingyang Zhang</a><sup>1</sup>,
-  <a href="https://scholar.google.com/citations?user=lhOY0HkAAAAJ">Zhen Yang</a><sup>2</sup>,
-  <a href="https://zhangry868.github.io/">Ruiyi Zhang</a><sup>2</sup>,
-  <br/>
-  <a href="https://violetpeng.github.io/">Nanyun Peng</a><sup>1</sup>,
-  <a href="https://zhegan27.github.io/">Zhe Gan</a><sup>2</sup>,
-  <a href="https://web.cs.ucla.edu/~kwchang/">Kai-Wei Chang</a><sup>1</sup>
-  <br/>
-  <sup>1</sup>University of California, Los Angeles &nbsp;·&nbsp; <sup>2</sup>Apple &nbsp;·&nbsp; <sup>*</sup>Equal contribution
-</p>
-
-<p align="center">
   <a href="https://openvlharness.github.io/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/teaser-dark.png">
