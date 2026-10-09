@@ -13,16 +13,19 @@ import unittest
 from unittest.mock import patch
 
 import httpx
+import pytest
 import requests
-from fastapi.testclient import TestClient
-from starlette.responses import JSONResponse, PlainTextResponse
 
-from openvlharness.bootstrap import PAPER_BACKENDS, build_capabilities
-from openvlharness.contracts import ServiceResult, VirtualCall
-from openvlharness.memory.store import MemoryStore
-from openvlharness.services.client import ToolClient
-from openvlharness.services.server import create_app
-from openvlharness.services.tools.base import ToolArgumentError
+pytest.importorskip("fastapi", reason="router tests need the server extra")
+from fastapi.testclient import TestClient  # noqa: E402
+from starlette.responses import JSONResponse, PlainTextResponse  # noqa: E402
+
+from openvlharness.bootstrap import PAPER_BACKENDS, build_capabilities  # noqa: E402
+from openvlharness.contracts import ServiceResult, VirtualCall  # noqa: E402
+from openvlharness.memory.store import MemoryStore  # noqa: E402
+from openvlharness.services.client import ToolClient  # noqa: E402
+from openvlharness.services.server import create_app  # noqa: E402
+from openvlharness.services.tools.base import ToolArgumentError  # noqa: E402
 
 
 def config_for(*names):
