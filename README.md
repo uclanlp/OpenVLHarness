@@ -399,10 +399,10 @@ when enabling `image_search`.
 <details>
 <summary>Example: zoom and coding with a hosted GPT model, without GPU tool workers, Serper, or cloud storage</summary>
 
-Save this complete configuration as `configs/agent/local_tools.yaml`. It needs
-only `MODEL_BASE_URL`, `MODEL_API_KEY`, and `TOOL_SERVER_URL` from the quick start;
-point the model connection to your GPT Responses endpoint. Code generation still
-calls that model endpoint.
+This configuration ships as [examples/local_tools.yaml](examples/local_tools.yaml).
+It needs only `MODEL_BASE_URL`, `MODEL_API_KEY`, and `TOOL_SERVER_URL` from the
+quick start; point the model connection to your GPT Responses endpoint. Code
+generation still calls that model endpoint.
 
 ```yaml
 agent_name: MainAgent
@@ -446,8 +446,8 @@ services:
 ```
 
 Start it with
-`python -m openvlharness.services.server --config configs/agent/local_tools.yaml`,
-then use `build_agent("configs/agent/local_tools.yaml")`. Keep the configured
+`python -m openvlharness.services.server --config examples/local_tools.yaml`,
+then use `build_agent("examples/local_tools.yaml")`. Keep the configured
 router port aligned with `TOOL_SERVER_URL`.
 
 </details>
@@ -542,6 +542,7 @@ openvlharness/          the harness (installed as the openvlharness package)
   bootstrap.py          builds an agent from a YAML config
 evaluation_kit/         benchmark loaders, judges and the runner (openvlharness-eval)
 configs/                paper agent presets and judge settings
+examples/               example agent configurations
 docs/                   model, runtime and validation notes
 tests/                  harness tests; tests/evaluation/ needs the eval extra
 validation/             fixed perception subset for checking a tool deployment
