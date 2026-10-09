@@ -1,6 +1,6 @@
 """The counting, CountQA, image-MCQ and spatial-MCQ evaluators each score a 3-row
-prediction file (two right, one wrong) to known metrics; integer extraction is
-checked on a fixed table.
+prediction file (two right, one wrong) to known metrics; the strict count parse
+and integer extraction are checked on fixed tables.
 
 Evaluators are instantiated without loading their benchmark (no download); the
 prediction file carries the columns the real TSVs provide.
@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from evaluation_kit.dataset import DATASET_CLASSES
-from evaluation_kit.dataset.utils.fsc147 import extract_integer_from_prediction
+from evaluation_kit.dataset.utils.fsc147 import extract_integer_from_prediction, parse_count
 
 
 def evaluator(name, rows=None):
@@ -44,6 +44,29 @@ def test_counting_mae_rmse_accuracy(tmp_path, name):
 def test_countqa_accuracy_and_relative_accuracy(tmp_path):
     result = evaluator("CountQA").evaluate(prediction_file(tmp_path, "CountQA", COUNT), model=None)
     assert {k: round(v, 2) for k, v in dict(result).items()} == {"acc": 66.67, "RA@5": 66.67, "RA@10": 66.67}
+
+
+@pytest.mark.parametrize("name", ["FSC147_val", "PixmoCount_val", "CountQA"])
+def test_counting_never_calls_a_judge_and_scores_unparseable_as_wrong(tmp_path, monkeypatch, name):
+    obj = evaluator(name)
+    monkeypatch.setattr(type(obj), "_extract_with_judge",
+                        lambda *args, **kwargs: pytest.fail("counting must not call a language model"), raising=False)
+    rows = {"index": [0, 1, 2], "question": ["q"] * 3, "image_path": ["0.jpg", "1.jpg", "2.jpg"],
+            "answer": [0, 5, 7], "prediction": ["none", "5", "I first counted 7, then 6."]}
+    result = obj.evaluate(prediction_file(tmp_path, name, rows), model="gpt-4o",
+                          api_base="http://judge.invalid/v1/chat/completions")
+    # "none" is unparseable, so it is wrong even though the true count is 0; the last
+    # number (6) is the answer in the third row.
+    assert result["acc"] == pytest.approx(33.33)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("12", 12), ("I first counted 12, but the final count is 14.", 14), ("\\boxed{42} after counting 40", 42),
+    ("I count 1,092 beads", 1092), ("5.0", 5), ("2.5", None), ("seven", None), ("", None), ("nan", None),
+    (float("nan"), None), (3, 3), ("Error: Unable to get response from the server.", None),
+])
+def test_strict_count_parse(text, expected):
+    assert parse_count(text) == expected
 
 
 @pytest.mark.parametrize("name", ["RealWorldQA", "VStarBench"])

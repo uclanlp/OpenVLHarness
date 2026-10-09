@@ -66,9 +66,6 @@ class CountQA(ImageVQADataset):
         return super().load_data(dataset)
 
 
-    def _get_eval_method(self):
-        return 'accuracy'
-
     def build_prompt(self, line):
         if isinstance(line, int):
             line = self.data.iloc[line]
@@ -79,36 +76,27 @@ class CountQA(ImageVQADataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
-        from .utils.fsc147 import extract_integer_from_prediction
+        from .utils.fsc147 import extract_integer_from_prediction, parse_count
 
         data = load(eval_file)
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
 
-        model_name = judge_kwargs.get('model', None)
-        if model_name and model_name != 'exact_matching':
-            method = self._get_eval_method()
-            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
-            predictions = data['extracted_answer'].apply(
-                lambda x: extract_integer_from_prediction(x)
-                          if extract_integer_from_prediction(x) is not None else 0
-            )
-        else:
-            predictions = data['prediction'].apply(
-                lambda x: extract_integer_from_prediction(x)
-                          if extract_integer_from_prediction(x) is not None else 0
-            )
+        # Counts are read with the strict rule-based parse alone; no language model
+        # extracts answers, whatever judge is configured. Unparseable answers are
+        # wrong and enter MAE/RMSE as 0.
+        parsed = data['prediction'].apply(parse_count)
+        valid = parsed.notna()
+        predictions = parsed.fillna(0).astype(int)
 
         answers = data['answer'].apply(
             lambda x: extract_integer_from_prediction(x)
                       if extract_integer_from_prediction(x) is not None else 0
         ).astype(int)
-        predictions = predictions.astype(int)
-
         diff = (predictions - answers).abs()
-        acc_per_row = (predictions == answers).astype(int)
-        ra5_per_row = (diff <= 0.05 * answers).astype(int)
-        ra10_per_row = (diff <= 0.10 * answers).astype(int)
+        acc_per_row = (valid & (predictions == answers)).astype(int)
+        ra5_per_row = (valid & (diff <= 0.05 * answers)).astype(int)
+        ra10_per_row = (valid & (diff <= 0.10 * answers)).astype(int)
         acc = acc_per_row.mean() * 100
         ra5 = ra5_per_row.mean() * 100
         ra10 = ra10_per_row.mean() * 100

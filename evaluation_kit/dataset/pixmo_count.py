@@ -94,9 +94,6 @@ class PixmoCount(ImageVQADataset):
         return super().load_data(dataset)
 
 
-    def _get_eval_method(self):
-        return 'accuracy'
-
     def build_prompt(self, line):
         if isinstance(line, int):
             line = self.data.iloc[line]
@@ -108,32 +105,26 @@ class PixmoCount(ImageVQADataset):
 
     def evaluate(self, eval_file, **judge_kwargs):
         import numpy as np
-        from .utils.fsc147 import extract_integer_from_prediction
+        from .utils.fsc147 import parse_count
 
         data = load(eval_file)
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
 
-        model_name = judge_kwargs.get('model', None)
-        if model_name and model_name != 'exact_matching':
-            method = self._get_eval_method()
-            data, _ = self._extract_with_judge(eval_file, data, method, **judge_kwargs)
-            predictions = data['extracted_answer'].apply(
-                lambda x: extract_integer_from_prediction(x)
-                          if extract_integer_from_prediction(x) is not None else 0
-            )
-        else:
-            predictions = data['prediction'].apply(
-                lambda x: extract_integer_from_prediction(x)
-                          if extract_integer_from_prediction(x) is not None else 0
-            )
+        # Counts are read with the strict rule-based parse alone; no language model
+        # extracts answers, whatever judge is configured. Unparseable answers are
+        # wrong and enter MAE/RMSE as 0.
+        parsed = data['prediction'].apply(parse_count)
+        valid = parsed.notna()
+        predictions = parsed.fillna(0).astype(int)
 
         answers = data['answer'].astype(int)
 
         diff = (predictions - answers)
         mae = diff.abs().mean()
         rmse = np.sqrt((diff ** 2).mean())
-        acc = (predictions == answers).mean() * 100
+        exact = valid & (predictions == answers)
+        acc = exact.mean() * 100
 
         result = {'mae': round(float(mae), 2), 'rmse': round(float(rmse), 2), 'acc': round(float(acc), 2)}
 
@@ -144,14 +135,14 @@ class PixmoCount(ImageVQADataset):
         gt_safe = np.maximum(answers.to_numpy(), 1)
         graded = 1.0 - diff.abs().to_numpy() / gt_safe
         score_per_row = np.where(
-            (predictions == answers).to_numpy(), 1.0, np.clip(graded, 0.0, None)
+            exact.to_numpy(), 1.0, np.clip(graded, 0.0, None)
         )
         emit_counting_per_row(
             eval_file, data['index'], data['image_path'],
             extra_cols={
                 'gt': answers.astype(int).tolist(),
                 'pred': predictions.astype(int).tolist(),
-                'exact_match': (predictions == answers).astype(int).tolist(),
+                'exact_match': exact.astype(int).tolist(),
                 'abs_error': diff.abs().astype(int).tolist(),
                 'sq_error': (diff ** 2).astype(int).tolist(),
             },

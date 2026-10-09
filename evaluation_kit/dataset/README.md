@@ -14,9 +14,9 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | `--data` | Class | File | Rows | Metric | Judge or extractor (default prompt) |
 | --- | --- | --- | ---: | --- | --- |
 | *Counting and grounding* | | | | | |
-| `FSC147_val` | `FSC147Dataset` | `image_vqa.py` | 1,286 | exact-match accuracy | optional extractor |
-| `CountQA` | `CountQA` | `countqa.py` | 1,528 | exact-match accuracy | optional extractor |
-| `PixmoCount_val` | `PixmoCount` | `pixmo_count.py` | 534 | exact-match accuracy | optional extractor |
+| `FSC147_val` | `FSC147Dataset` | `image_vqa.py` | 1,286 | exact-match accuracy | strict count parse |
+| `CountQA` | `CountQA` | `countqa.py` | 1,528 | exact-match accuracy | strict count parse |
+| `PixmoCount_val` | `PixmoCount` | `pixmo_count.py` | 534 | exact-match accuracy | strict count parse |
 | `FSCD_147_bbox_val` | `FSCD147BBoxDataset` | `fscd.py` | 1,286 | box AP | none |
 | `FSCD_LVIS_bbox_val` | `FSCDLVISBBoxDataset` | `fscd.py` | 1,181 | box AP | none |
 | `ODinW13_bbox_val_qwen3` | `ODinWBBoxDataset` | `odinw.py` | 4,938 | box AP, mean of 13 domains | none |
@@ -149,10 +149,12 @@ are stated in the paper's appendix. The table's last column means:
 
 - **judge**: the model decides correctness. The eleven search benchmarks, SimpleVQA and
   FREAK_VQA need one; the last two use fixed prompts and ignore `judge_prompt`.
-- **optional extractor**: with a judge model configured, `build_vqa_extract_prompt`
-  (`utils/vqa_judge.py`) first reduces every counting response to a short answer, showing the
-  ground truth so that the answer matches its format. `extract_integer_from_prediction`
-  (`utils/fsc147.py`) then reads the integer, and exact match decides correctness.
+- **strict count parse**: `parse_count` (`utils/fsc147.py`) reads the last number in the
+  response, after keeping only the last `\boxed{...}` content and removing thousands
+  separators. Empty responses, agent failure messages, number words and non-integer numbers
+  are unparseable and scored as wrong (they enter MAE and RMSE as 0). No judge model is
+  called, whatever the judge config says. This is the protocol of the paper's OctoTools and
+  Visual Sketchpad counting cells.
 - **fallback extractor**: a rule-based parser reads the option letter (`can_infer`,
   `utils/multiple_choice.py`) or yes/no (`YOrN_Extraction`, `utils/yorn.py`); the judge model
   is queried only when it fails.

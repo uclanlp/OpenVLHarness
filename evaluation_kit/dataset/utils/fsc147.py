@@ -2,6 +2,42 @@ import math
 import re
 
 
+_FAILURE_MARKERS = (
+    'Failed to obtain answer',
+    'Unable to get response from the server',
+    'Failed with all possible conversation turns',
+)
+
+
+def parse_count(pred):
+    """Read a predicted count with the strict rule used to score counting benchmarks.
+
+    Takes the last number in the response, after keeping only the last
+    ``\\boxed{...}`` content and removing thousands separators; a whole-number
+    decimal such as ``5.0`` counts as 5. Returns None, scored as wrong, for empty
+    responses, agent failure messages, number words and non-integer numbers.
+    No language model is involved.
+    """
+    if pred is None:
+        return None
+    if isinstance(pred, float):
+        return int(pred) if math.isfinite(pred) and pred.is_integer() else None
+    if isinstance(pred, int):
+        return pred
+    text = str(pred).strip()
+    if not text or text.lower() in ('nan', 'none') or any(m in text for m in _FAILURE_MARKERS):
+        return None
+    boxed = re.findall(r'\\boxed\{([^{}]*)\}', text)
+    if boxed:
+        text = boxed[-1]
+    text = re.sub(r'(?<=\d),(?=\d{3}(?!\d))', '', text)
+    numbers = re.findall(r'\d+(?:\.\d+)?', text)
+    if not numbers:
+        return None
+    value = float(numbers[-1])
+    return int(value) if value.is_integer() else None
+
+
 def extract_integer_from_prediction(pred):
     """Extract the first integer from a model prediction string.
 
