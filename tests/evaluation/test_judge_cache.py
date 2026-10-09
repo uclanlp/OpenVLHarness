@@ -18,6 +18,7 @@ import pandas as pd
 
 from evaluation_kit.dataset import freak, image_shortqa, image_yorn, simplevqa
 from evaluation_kit.dataset.utils import judge_cache
+from evaluation_kit.dataset.utils.fsc147 import extract_integer_from_prediction
 from evaluation_kit.dataset.utils.judge_cache import fingerprint_path, guard_cache, require_judge
 from evaluation_kit.dataset.utils.spatial_bench import cal_scores
 from evaluation_kit.smp import dump, load
@@ -239,3 +240,12 @@ def test_require_judge_accepts_exact_matching_only_when_allowed():
     with pytest.raises(ValueError):
         require_judge("FREAK_VQA", {"model": "exact_matching"}, allow_exact_matching=False)
 
+
+@pytest.mark.parametrize("value", ["Infinity", "-inf", "1e999", float("inf"), float("nan")])
+def test_integer_parser_returns_none_for_non_finite_numbers(value):
+    assert extract_integer_from_prediction(value) is None
+
+
+@pytest.mark.parametrize("value,expected", [("12", 12), ("3.0", 3), ("There are 7 cats", 7), ("five", 5)])
+def test_integer_parser_keeps_parsing_finite_numbers(value, expected):
+    assert extract_integer_from_prediction(value) == expected

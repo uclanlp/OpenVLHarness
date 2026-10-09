@@ -1,3 +1,4 @@
+import math
 import re
 
 
@@ -17,7 +18,7 @@ def extract_integer_from_prediction(pred):
 
     # Handle numeric types directly
     if isinstance(pred, (int, float)):
-        if isinstance(pred, float) and (pred != pred):  # NaN check
+        if isinstance(pred, float) and not math.isfinite(pred):  # NaN or infinity
             return None
         return int(pred)
 
@@ -32,6 +33,8 @@ def extract_integer_from_prediction(pred):
         return int(float(pred))
     except ValueError:
         pass
+    except OverflowError:  # 'inf', 'Infinity', '1e999'
+        return None
 
     # Regex: find all integers in the string, return the first one
     matches = re.findall(r'\b(\d+)\b', pred)
