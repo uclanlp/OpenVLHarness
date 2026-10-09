@@ -54,9 +54,10 @@ services:
       server_url: ${SAM3_SERVER_URL}
     ocr:
       server_url: ${OCR_SERVER_URL}
-    depth_estimation: &id001
+    # Depth and camera trajectory share one DA3 server.
+    depth_estimation: &da3_server
       server_url: ${DEPTH_ESTIMATION_SERVER_URL}
-    camera_trajectory: *id001
+    camera_trajectory: *da3_server
     serper_text_search:
       model_service: auxiliary
     serper_image_search:
