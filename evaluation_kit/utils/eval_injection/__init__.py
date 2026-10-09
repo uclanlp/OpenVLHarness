@@ -183,7 +183,8 @@ def merge_eval_into_trajectories(
 
     entry = _lookup(dataset_obj)
     if entry is None:
-        logger.warning(
+        # Expected for datasets without per-row eval details (e.g. AP-scored grounding).
+        logger.info(
             "[eval_injection] no adapter registered for %s (class %s); "
             "skipping eval merge into full_trajectories",
             dataset_name,
