@@ -1,7 +1,7 @@
 import importlib.util
 import pytest
 
-if importlib.util.find_spec("openvlharness_eval") is None:
+if importlib.util.find_spec("evaluation_kit") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
@@ -14,8 +14,8 @@ import tempfile
 
 import pandas as pd
 
-from openvlharness_eval import runner
-from openvlharness_eval.utils import file_db
+from evaluation_kit import runner
+from evaluation_kit.utils import file_db
 
 pytestmark = pytest.mark.usefixtures("synchronous_evaluation")
 

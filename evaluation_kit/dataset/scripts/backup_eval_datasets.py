@@ -22,7 +22,7 @@ switched to the backup.
 
 Usage (`hf auth login` first; opening a PR only needs the org's contributor role,
 and an org admin merges it):
-    python -m openvlharness_eval.dataset.scripts.backup_eval_datasets \\
+    python -m evaluation_kit.dataset.scripts.backup_eval_datasets \\
         [--lmu-data $LMUData] [--out outputs/hf_backup] [--upload]
 """
 

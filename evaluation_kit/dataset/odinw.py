@@ -4,7 +4,7 @@ ODinW has bbox annotations only (no segmentation masks), so a single
 class suffices.
 
 Pre-generated TSV files are produced by:
-    python -m openvlharness_eval.dataset.scripts.prepare_odinw
+    python -m evaluation_kit.dataset.scripts.prepare_odinw
 
 TSV naming:
     ODinW13_bbox_train.tsv / ODinW13_bbox_val.tsv / ODinW13_bbox_test.tsv
@@ -221,7 +221,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
         # Qwen2.5-VL protocol: positives-only, per-image class filtering.
         # All four toggle combinations are registered so any can be loaded
         # without re-editing this file. See
-        # openvlharness_eval/dataset/scripts/prepare_odinw_qwen25.py.
+        # evaluation_kit/dataset/scripts/prepare_odinw_qwen25.py.
         'ODinW13_bbox_val_qwen25': '',
         'ODinW13_bbox_val_qwen25_raw': '',
         'ODinW13_bbox_val_qwen25_adapted': '',
@@ -233,7 +233,7 @@ class ODinWBBoxDataset(ImageBaseDataset):
         # Qwen3-VL protocol: all-categories-at-once, one row per image.
         # Model emits a JSON list of {bbox_2d, label} records; labels are
         # resolved to category_ids via the row's dataset_classes column.
-        # See openvlharness_eval/dataset/scripts/prepare_odinw_qwen3.py.
+        # See evaluation_kit/dataset/scripts/prepare_odinw_qwen3.py.
         'ODinW13_bbox_val_qwen3': '',
         'ODinW13_bbox_val_qwen3_mmdet': '',
         'ODinW13_bbox_test_qwen3': '',

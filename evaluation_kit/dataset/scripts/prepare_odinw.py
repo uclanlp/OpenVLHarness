@@ -9,7 +9,7 @@ against every category in its domain).
 
 Usage:
 
-    python -m openvlharness_eval.dataset.scripts.prepare_odinw \\
+    python -m evaluation_kit.dataset.scripts.prepare_odinw \\
         --glip-dir /path/to/GLIP \\
         [--output-dir $LMUData] \\
         [--splits val test]

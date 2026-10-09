@@ -1,46 +1,35 @@
 #!/usr/bin/env python3
-"""Prepare FSCD-LVIS *counting* TSV files for mini-vlm-toolkit evaluation.
+"""Prepare FSCD-LVIS bbox-grounding TSV files for mini-vlm-toolkit evaluation.
 
-Counterpart to ``prepare_fscdlvis_box.py``: same per-(image, class) row
-structure, but the model is asked for a single integer count instead of
-bounding boxes. Each row asks "How many {class} are there in the image?"
-and the ground-truth answer is the number of GT instances of that class
-in that image.
+Emits five TSVs under $LMUData:
 
-Outputs (under $LMUData):
-  Seen-class split (canonical FSCD-LVIS):
-    FSCD_LVIS_count_train.tsv  (4,000 rows)
-    FSCD_LVIS_count_val.tsv    (1,181 rows)
-    FSCD_LVIS_count_test.tsv   (1,014 rows)
+  Seen class split (canonical FSCD-LVIS):
+    FSCD_LVIS_bbox_train.tsv  (4,000 rows)
+    FSCD_LVIS_bbox_val.tsv    (1,181 rows)
+    FSCD_LVIS_bbox_test.tsv   (1,014 rows)
 
-  Unseen-class split (open-vocab generalization, no val):
-    FSCD_LVIS_unseen_count_train.tsv  (3,953 rows)
-    FSCD_LVIS_unseen_count_test.tsv   (2,242 rows)
+  Unseen class split (open-vocab generalization, no val):
+    FSCD_LVIS_unseen_bbox_train.tsv  (3,953 rows)
+    FSCD_LVIS_unseen_bbox_test.tsv   (2,242 rows)
+
+Each row represents a unique (image, class) grounding query — every image has
+exactly one target class assigned, with the LVIS taxonomy id stored in
+``category_id`` and the human-readable name in ``category_name``.
+
+Note on the test JSON: FSCD-LVIS's ``instances_test.json`` ships with 2,028
+``images`` entries that contain duplicates — only 1,014 image_ids are unique
+(matching ``count_test.json``). We dedupe on image_id when emitting rows.
 
 Usage:
 
-    python -m openvlharness_eval.dataset.scripts.prepare_fscdlvis_count \
+    python -m evaluation_kit.dataset.scripts.prepare_fscdlvis_box \
         --fscd-root "$FSCD_ROOT" \
         --lvis-taxonomy "$LVIS_TAXONOMY" \
         [--output-dir $LMUData]
 
-Eval is handled by ``FSC147Dataset`` (the standard counting evaluator);
-its DATASET_URL has been extended to include these five names, so
-``python run_benchmark.py --data FSCD_LVIS_count_val`` works end-to-end.
-
-Schema:
-  index           "<split>_<image_id>_<lvis_cat_id>"
-  image_path      bare filename, e.g. "000000315601.jpg"
-  question        "How many {category_name} are there in the image?
-                   Your final answer should be a single integer."
-                  ({category_name} is the raw LVIS name from the taxonomy.)
-  answer          integer GT count
-  category_id     LVIS taxonomy id
-  category_name   LVIS taxonomy name
-  image_width     pixels
-  image_height    pixels
-  num_instances   same as answer; kept for parity with the bbox TSV
-  split           "train" | "val" | "test" | "unseen_train" | "unseen_test"
+Images are not copied: ``lmu_data/images/LVIS/`` already contains every
+FSCD-LVIS image (verified at prep time; FSCD-LVIS uses the COCO image id
+naming convention, so files line up by name).
 """
 
 import argparse
@@ -53,6 +42,11 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
+from evaluation_kit.dataset.scripts.prepare_odinw import (
+    bbox_xywh_to_normalised_xyxy,
+    build_bbox_question,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -62,38 +56,31 @@ log = logging.getLogger(__name__)
 
 
 
-# (ann_file_in_annotations/, split_name, index_prefix)
+# (file in annotations/, split_name, index_prefix)
 SPLITS: List[Tuple[str, str, str]] = [
-    ('instances_train.json',        'train',         'train'),
-    ('instances_val.json',          'val',           'val'),
-    ('instances_test.json',         'test',          'test'),
-    ('unseen_instances_train.json', 'unseen_train',  'unseen_train'),
-    ('unseen_instances_test.json',  'unseen_test',   'unseen_test'),
+    ('instances_train.json',       'train',         'train'),
+    ('instances_val.json',         'val',           'val'),
+    ('instances_test.json',        'test',          'test'),
+    ('unseen_instances_train.json','unseen_train',  'unseen_train'),
+    ('unseen_instances_test.json', 'unseen_test',   'unseen_test'),
 ]
 
+# Map a split_name (above) → output TSV filename suffix.
 TSV_NAMES = {
-    'train':        'FSCD_LVIS_count_train.tsv',
-    'val':          'FSCD_LVIS_count_val.tsv',
-    'test':         'FSCD_LVIS_count_test.tsv',
-    'unseen_train': 'FSCD_LVIS_unseen_count_train.tsv',
-    'unseen_test':  'FSCD_LVIS_unseen_count_test.tsv',
+    'train':        'FSCD_LVIS_bbox_train.tsv',
+    'val':          'FSCD_LVIS_bbox_val.tsv',
+    'test':         'FSCD_LVIS_bbox_test.tsv',
+    'unseen_train': 'FSCD_LVIS_unseen_bbox_train.tsv',
+    'unseen_test':  'FSCD_LVIS_unseen_bbox_test.tsv',
 }
 
 EXPECTED_ROWS = {
     'train':        4000,
     'val':          1181,
-    'test':         1014,
+    'test':         1014,   # after dedupe on image_id (raw images list has 2,028 dupes)
     'unseen_train': 3953,
     'unseen_test':  2242,
 }
-
-
-def build_count_question(category_name: str) -> str:
-    """Build the counting prompt for one class."""
-    return (
-        f"How many {category_name} are there in the image? "
-        f"Your final answer should be a single integer."
-    )
 
 
 def process_split(
@@ -106,46 +93,62 @@ def process_split(
     with open(inst_path) as f:
         inst = json.load(f)
 
-    # Dedupe images list on id (FSCD-LVIS test ships dupes).
+    # Dedupe images list on id (some FSCD-LVIS files, notably test, repeat
+    # entries — we want one query per unique image_id).
     images_by_id: Dict[int, dict] = {}
     for im in inst['images']:
         images_by_id.setdefault(im['id'], im)
 
-    # Group annotations by image_id; capture (single) per-image category_id.
+    # Group annotations by image_id; collect category_id alongside.
     anns_by_img: Dict[int, list] = defaultdict(list)
     cat_by_img: Dict[int, int] = {}
     for ann in inst['annotations']:
         anns_by_img[ann['image_id']].append(ann)
+        # In FSCD-LVIS each image has exactly one queried class; capturing
+        # the first-seen category_id is safe (verified at prep time).
         cat_by_img.setdefault(ann['image_id'], ann['category_id'])
 
     rows: List[Dict] = []
-    no_annotations = 0
     missing_class_name = 0
+    no_annotations = 0
     for image_id in sorted(images_by_id.keys()):
         img = images_by_id[image_id]
         fn = img['file_name']
+        img_w = img['width']
+        img_h = img['height']
+
         anns = anns_by_img.get(image_id, [])
         if not anns:
+            # An image entry with no annotations isn't a meaningful query —
+            # we wouldn't know which class to ask about. Skip and log.
             no_annotations += 1
             continue
+
         cat_id = cat_by_img[image_id]
         class_name = lvis_id_to_name.get(int(cat_id))
         if not class_name:
             missing_class_name += 1
             continue
 
-        count = len(anns)
+        norm_bboxes = [
+            bbox_xywh_to_normalised_xyxy(a['bbox'], img_w, img_h) for a in anns
+        ]
+        ann_ids = [a['id'] for a in anns]
+        areas = [round(a.get('area', 0), 2) for a in anns]
+
         rows.append({
-            'index':         f'{index_prefix}_{image_id}_{cat_id}',
-            'image_path':    fn,
-            'question':      build_count_question(class_name),
-            'answer':        count,
-            'category_id':   int(cat_id),
-            'category_name': class_name,
-            'image_width':   img['width'],
-            'image_height':  img['height'],
-            'num_instances': count,
-            'split':         split_name,
+            'index':          f'{index_prefix}_{image_id}_{cat_id}',
+            'image_path':     fn,
+            'question':       build_bbox_question(class_name),
+            'answer':         json.dumps(norm_bboxes),
+            'category_id':    int(cat_id),
+            'category_name':  class_name,
+            'image_width':    img_w,
+            'image_height':   img_h,
+            'num_instances':  len(anns),
+            'annotation_ids': ','.join(str(a) for a in ann_ids),
+            'split':          split_name,
+            'areas':          json.dumps(areas),
         })
 
     if no_annotations or missing_class_name:
@@ -158,7 +161,7 @@ def process_split(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Prepare FSCD-LVIS counting TSV files.',
+        description='Prepare FSCD-LVIS bbox-grounding TSV files.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

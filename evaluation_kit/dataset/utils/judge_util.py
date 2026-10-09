@@ -85,7 +85,7 @@ def build_judge(**kwargs):
 DEBUG_MESSAGE = """
 To debug the OpenAI API, you can try the following scripts in python:
 ```python
-from openvlharness_eval.api import OpenAIWrapper
+from evaluation_kit.api import OpenAIWrapper
 model = OpenAIWrapper('gpt-4o', verbose=True)
 msgs = [dict(type='text', value='Hello!')]
 code, answer, resp = model.generate_inner(msgs)

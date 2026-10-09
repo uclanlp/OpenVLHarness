@@ -6,7 +6,7 @@ repository also contains or depends on the following third-party work.
 ## Code
 
 - **VLMEvalKit** (OpenCompass, Apache License 2.0). The benchmark loaders and
-  evaluators under `openvlharness_eval/` are derived from
+  evaluators under `evaluation_kit/` are derived from
   [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) and keep its
   structure, dataset names and evaluation utilities. The Apache License 2.0
   text is available at <https://www.apache.org/licenses/LICENSE-2.0>.

@@ -15,7 +15,7 @@ With ``--upload`` the staging directory is pushed to ``hf_release.HF_REPO_ID``, 
 README.md: the repo's card also covers splits added by other scripts, so edit it there.
 
 Usage:
-    python -m openvlharness_eval.dataset.scripts.build_hf_release \\
+    python -m evaluation_kit.dataset.scripts.build_hf_release \\
         --glip-root $GLIP_ROOT [--lmu-data $LMUData] \\
         [--out outputs/hf_release] [--upload [--private]]
 """
@@ -32,9 +32,9 @@ from collections import defaultdict
 import pandas as pd
 import yaml
 
-from openvlharness_eval.dataset.hf_release import HF_REPO_ID, HF_SPLITS as _ALL_HF_SPLITS
-from openvlharness_eval.dataset.odinw import ODINW_13_CONFIGS
-from openvlharness_eval.smp.misc import toliststr
+from evaluation_kit.dataset.hf_release import HF_REPO_ID, HF_SPLITS as _ALL_HF_SPLITS
+from evaluation_kit.dataset.odinw import ODINW_13_CONFIGS
+from evaluation_kit.smp.misc import toliststr
 
 # Only the splits this script builds; the rest of HF_SPLITS comes from backup_eval_datasets.py.
 HF_SPLITS = {s: f for s, f in _ALL_HF_SPLITS.items() if f in ('FSC147', 'LVIS', 'ODinW')}

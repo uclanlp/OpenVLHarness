@@ -2,7 +2,7 @@
 
 The public release includes these dataset preparation and maintenance commands.
 Run them from the repository checkout with the evaluator dependencies installed.
-Use `python -m openvlharness_eval.dataset.scripts.<module> --help` to inspect each
+Use `python -m evaluation_kit.dataset.scripts.<module> --help` to inspect each
 command's input formats and options. Input datasets must be obtained separately;
 the commands do not assume an author's filesystem layout.
 
@@ -10,11 +10,11 @@ Set `LMUData` to your local dataset/output directory, or pass the command's expl
 output-directory argument. FSCD preparation requires source paths:
 
 ```bash
-python -m openvlharness_eval.dataset.scripts.prepare_fscd147_box \
+python -m evaluation_kit.dataset.scripts.prepare_fscd147_box \
   --fscd-root "$FSCD147_ROOT" --desc-json "$FSC147_DESCRIPTIONS" \
   --output-dir "$LMUData"
 
-python -m openvlharness_eval.dataset.scripts.prepare_fscdlvis_box \
+python -m evaluation_kit.dataset.scripts.prepare_fscdlvis_box \
   --fscd-root "$FSCD_LVIS_ROOT" --lvis-taxonomy "$LVIS_TAXONOMY" \
   --output-dir "$LMUData"
 ```

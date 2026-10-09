@@ -18,7 +18,7 @@ For the positive-only variant (no negative rows), see
 
 Usage (run AFTER prepare_lvis_positive_only.py has moved the images):
 
-    python -m openvlharness_eval.dataset.scripts.prepare_lvis_federated \
+    python -m evaluation_kit.dataset.scripts.prepare_lvis_federated \
         --lvis-dir /path/to/lvis-api \
         [--output-dir $LMUData] \
         [--splits val train]
@@ -47,7 +47,7 @@ import sys
 
 import pandas as pd
 
-from openvlharness_eval.dataset.scripts.prepare_lvis_positive_only import (
+from evaluation_kit.dataset.scripts.prepare_lvis_positive_only import (
     bbox_xywh_to_normalised_xyxy,
     build_bbox_question,
     group_annotations_by_image_category,

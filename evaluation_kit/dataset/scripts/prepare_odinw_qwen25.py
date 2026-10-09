@@ -32,7 +32,7 @@ from the default (mmdet classes + Qwen2.5 prompt):
 
 Usage:
 
-    python -m openvlharness_eval.dataset.scripts.prepare_odinw_qwen25 \\
+    python -m evaluation_kit.dataset.scripts.prepare_odinw_qwen25 \\
         --glip-dir /path/to/GLIP \\
         [--output-dir $LMUData] \\
         [--splits val test] \\
@@ -58,7 +58,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from openvlharness_eval.dataset.scripts.prepare_odinw import (
+from evaluation_kit.dataset.scripts.prepare_odinw import (
     ODINW_13_CONFIGS,
     bbox_xywh_to_normalised_xyxy,
     build_bbox_question,

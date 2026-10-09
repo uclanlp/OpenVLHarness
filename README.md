@@ -68,7 +68,7 @@ openvlharness/          the harness (installed as the openvlharness package)
     tools/              tool backends (SAM 3, OCR, depth, search, Python executor, ...)
   prompts/              system prompts
   bootstrap.py          builds an agent from a YAML config
-openvlharness_eval/     benchmark loaders, judges and the runner (openvlharness-eval)
+evaluation_kit/         benchmark loaders, judges and the runner (openvlharness-eval)
 configs/                paper agent presets and judge settings
 docs/                   model, runtime and validation notes
 tests/                  harness tests; tests/evaluation/ needs the eval extra
@@ -76,7 +76,7 @@ validation/             fixed perception subset for checking a tool deployment
 run_benchmark.py        same program as openvlharness-eval
 ```
 
-The harness never imports `openvlharness_eval`; the evaluation layer uses the
+The harness never imports `evaluation_kit`; the evaluation layer uses the
 harness the same way any other application would.
 
 ## Quick start
@@ -190,7 +190,7 @@ python -m pip install -e '.[eval,qwen]'
 
 This adds the `openvlharness-eval` command; `python run_benchmark.py` at the
 repository root is the same program. The evaluation code lives in
-[openvlharness_eval](openvlharness_eval) and needs no GPU packages.
+[evaluation_kit](evaluation_kit) and needs no GPU packages.
 
 Use the same connection variables as above. Set `LMUData` and the work directory
 to a fast local disk when available. This example evaluates 12 reproducibly
@@ -216,7 +216,7 @@ installation rather than reproducing those scores.
 ### Datasets and scoring
 
 Dataset names passed to `--data` select loaders in
-[openvlharness_eval/dataset](openvlharness_eval/dataset). Examples across the four
+[evaluation_kit/dataset](evaluation_kit/dataset). Examples across the four
 domains are:
 
 | Domain | Example dataset names |
@@ -231,7 +231,7 @@ Prepared counting, grounding, VQA, and spatial splits are available in
 and download into `LMUData` on first use. Other loaders obtain data from their
 original sources. ODinW also downloads evaluation annotations into `LMUData/GLIP`
 unless `GLIP_ROOT` is set. The
-[preparation scripts](openvlharness_eval/dataset/scripts) document how the released
+[preparation scripts](evaluation_kit/dataset/scripts) document how the released
 splits were built.
 
 For benchmarks requiring an LLM judge or answer extractor, start from
@@ -496,7 +496,7 @@ extra is installed as well.
 ## License
 
 OpenVLHarness is released under the [MIT License](LICENSE). The benchmark
-loaders and evaluators under `openvlharness_eval/` are derived from
+loaders and evaluators under `evaluation_kit/` are derived from
 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0);
 see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for that notice and for
 the licenses of the models, services and datasets the default tools use, which

@@ -23,18 +23,18 @@ import argparse
 from pathlib import Path
 import yaml
 from openvlharness import bootstrap
-from openvlharness_eval import dataset as datasets
+from evaluation_kit import dataset as datasets
 import datetime
-from openvlharness_eval.smp import *
-from openvlharness_eval import infer_image_job
-from openvlharness_eval.utils import load_judge_config
-from openvlharness_eval.utils import file_db
-from openvlharness_eval.utils.eval_injection import merge_eval_into_trajectories
+from evaluation_kit.smp import *
+from evaluation_kit import infer_image_job
+from evaluation_kit.utils import load_judge_config
+from evaluation_kit.utils import file_db
+from evaluation_kit.utils.eval_injection import merge_eval_into_trajectories
 
-# Matches FAIL_MSG in openvlharness_eval.runner; the
+# Matches FAIL_MSG in evaluation_kit.runner; the
 # sentinel prediction written when an example fails to produce an answer.
 FAIL_MSG = 'Failed to obtain answer via API.'
-from openvlharness_eval.utils.run_identity import (
+from evaluation_kit.utils.run_identity import (
     parse_yaml_mapping,
     require_config_version,
     build_run_id,
@@ -87,7 +87,7 @@ def _find_resumable_run_dir(
     the requested datasets (ready for evaluation).  Otherwise, find the newest
     run that still has unfinished datasets (ready for inference).
     """
-    from openvlharness_eval.utils.run_identity import sanitize_for_path
+    from evaluation_kit.utils.run_identity import sanitize_for_path
     agent_part = sanitize_for_path(agent_ver, field_name="agent_config_version")
     judge_part = sanitize_for_path(judge_ver, field_name="judge_config_version")
     prefix = f"agent_{agent_part}_judge_{judge_part}_"

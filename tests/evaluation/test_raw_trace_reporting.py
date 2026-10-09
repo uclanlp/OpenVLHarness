@@ -9,7 +9,7 @@ import logging
 
 import pytest
 
-if importlib.util.find_spec("openvlharness_eval") is None:
+if importlib.util.find_spec("evaluation_kit") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
@@ -18,8 +18,8 @@ for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
 import pandas as pd
 from PIL import Image
 
-from openvlharness_eval import runner
-from openvlharness_eval.utils import file_db, reporting_utils
+from evaluation_kit import runner
+from evaluation_kit.utils import file_db, reporting_utils
 
 
 def _record(task_id=7):

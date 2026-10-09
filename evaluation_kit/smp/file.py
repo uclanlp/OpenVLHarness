@@ -449,7 +449,7 @@ def fetch_aux_files(eval_file):
         model_name = eval_id
 
     dataset_name = osp.splitext(file_name)[0][len(model_name) + 1:]
-    from openvlharness_eval.dataset import SUPPORTED_DATASETS
+    from evaluation_kit.dataset import SUPPORTED_DATASETS
     to_handle = []
     for d in SUPPORTED_DATASETS:
         if d.startswith(dataset_name) and d != dataset_name:

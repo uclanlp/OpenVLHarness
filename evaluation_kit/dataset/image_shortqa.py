@@ -1,4 +1,4 @@
-from openvlharness_eval import *
+from evaluation_kit import *
 from ..smp import *
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split

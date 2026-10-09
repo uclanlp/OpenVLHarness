@@ -64,12 +64,12 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from openvlharness_eval.dataset.scripts.prepare_odinw import (
+from evaluation_kit.dataset.scripts.prepare_odinw import (
     ODINW_13_CONFIGS,
     bbox_xywh_to_normalised_xyxy,
     load_all_configs,
 )
-from openvlharness_eval.dataset.scripts.prepare_odinw_qwen25 import (
+from evaluation_kit.dataset.scripts.prepare_odinw_qwen25 import (
     CAPTION_PROMPT_BY_DOMAIN,
     MMDET_CLASS_NAMES,
     _apply_caption_prompt,

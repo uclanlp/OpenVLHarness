@@ -12,7 +12,7 @@ import yaml
 
 from openvlharness import bootstrap
 from openvlharness.services import models
-from openvlharness_eval import dataset as datasets
+from evaluation_kit import dataset as datasets
 
 CLI = Path(__file__).resolve().parents[2] / "run_benchmark.py"
 
@@ -81,7 +81,7 @@ def test_eval_cli_needs_only_saved_outputs_and_optional_judge(tmp_path, monkeypa
 ])
 def test_eval_redacted_placeholder_key_allows_local_matching(tmp_path, monkeypatch, no_inference,
                                                            judge_model, needs_credentials):
-    from openvlharness_eval.utils.run_identity import redact_sensitive_fields
+    from evaluation_kit.utils.run_identity import redact_sensitive_fields
 
     root, manifest = saved_run(tmp_path)
     judge = {"judge_config_version": "matching", "model_name": judge_model, "key": "empty"}
@@ -113,7 +113,7 @@ def test_eval_redacted_placeholder_key_allows_local_matching(tmp_path, monkeypat
 
 
 def test_eval_discovery_uses_saved_metadata_and_latest_complete_predictions(tmp_path, monkeypatch, no_inference):
-    from openvlharness_eval import cli as module
+    from evaluation_kit import cli as module
     saved_run(tmp_path, "run_1")
     latest, _ = saved_run(tmp_path, "run_2")
     args = SimpleNamespace(run_dir=None, config=None, work_dir=str(tmp_path), data=["ToyEval"], sample_filter="all")
@@ -124,14 +124,14 @@ def test_eval_discovery_uses_saved_metadata_and_latest_complete_predictions(tmp_
 
 
 def test_explicit_eval_run_requires_requested_prediction_files(tmp_path, no_inference):
-    from openvlharness_eval import cli as module
+    from evaluation_kit import cli as module
     root, manifest = saved_run(tmp_path)
     with pytest.raises(ValueError, match="Expected one saved prediction"):
         module._saved_prediction_files(root, manifest, ["MissingDataset"], "all")
 
 
 def test_inference_manifest_checks_remain_strict(tmp_path, monkeypatch):
-    from openvlharness_eval.utils.run_identity import validate_manifest_compatibility
+    from evaluation_kit.utils.run_identity import validate_manifest_compatibility
     _, manifest = saved_run(tmp_path)
     expected = copy.deepcopy(manifest)
     expected["agent_config_hash"] = "changed-profile-or-prompt"

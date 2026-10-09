@@ -1,5 +1,5 @@
 # flake8: noqa
-from openvlharness_eval.smp import *
+from evaluation_kit.smp import *
 
 
 EVAL_TMPL = """

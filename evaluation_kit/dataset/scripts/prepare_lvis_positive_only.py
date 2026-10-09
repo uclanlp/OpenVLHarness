@@ -12,7 +12,7 @@ non-empty ``answer`` and ``num_instances >= 1``.  For the federated variant
 
 Usage (run in tmux — image moving can take a long time on slow disks):
 
-    python -m openvlharness_eval.dataset.scripts.prepare_lvis_positive_only \
+    python -m evaluation_kit.dataset.scripts.prepare_lvis_positive_only \
         --lvis-dir /path/to/lvis-api \
         [--output-dir $LMUData] \
         [--skip-test] \
@@ -84,7 +84,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from openvlharness_eval.dataset.scripts.prepare_odinw import build_bbox_question
+from evaluation_kit.dataset.scripts.prepare_odinw import build_bbox_question
 
 logging.basicConfig(
     level=logging.INFO,

@@ -9,8 +9,8 @@ acc@5% / acc@10%) derived from the per-row predicted vs. ground-truth instance
 counts.
 
 Pre-generated TSVs:
-    python -m openvlharness_eval.dataset.scripts.prepare_fscd147_box
-    python -m openvlharness_eval.dataset.scripts.prepare_fscdlvis_box
+    python -m evaluation_kit.dataset.scripts.prepare_fscd147_box
+    python -m evaluation_kit.dataset.scripts.prepare_fscdlvis_box
 
 TSV naming:
     FSCD_147_bbox_val.tsv, FSCD_147_bbox_test.tsv
@@ -245,7 +245,7 @@ class _FSCDBBoxBase(ImageBaseDataset):
     Evaluation:
       * Build a synthetic COCO GT dict from the TSV's ``answer`` column.
       * Build COCO-format predictions via
-        :func:`openvlharness_eval.dataset.eval_bridge.build_coco_predictions`.
+        :func:`evaluation_kit.dataset.eval_bridge.build_coco_predictions`.
       * Category-conditioned filter to the (image_id, category_id) pairs
         actually queried, then run ``pycocotools.COCOeval`` once.
       * Extract per-(image, cat) TP/FP/FN diagnostics via

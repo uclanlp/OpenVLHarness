@@ -215,7 +215,7 @@ class RouterContractTests(unittest.TestCase):
         script = textwrap.dedent('''
             import importlib.abc, json, sys
             blocked = {'torch', 'transformers', 'cv2', 'sam3', 'depth_anything_3',
-                       'paddle', 'openvlharness_eval'}
+                       'paddle', 'evaluation_kit'}
             class BlockHeavy(importlib.abc.MetaPathFinder):
                 def find_spec(self, fullname, path=None, target=None):
                     if fullname.split('.')[0] in blocked or 'subagent' in fullname:

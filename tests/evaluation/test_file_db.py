@@ -9,18 +9,18 @@ import types
 from pathlib import Path
 
 repo_root = Path(__file__).resolve().parents[2]
-pkg_root = repo_root / "openvlharness_eval"
+pkg_root = repo_root / "evaluation_kit"
 
-# Avoid importing openvlharness_eval/__init__.py (heavy dataset deps).
-mini_pkg = types.ModuleType("openvlharness_eval")
+# Avoid importing evaluation_kit/__init__.py (heavy dataset deps).
+mini_pkg = types.ModuleType("evaluation_kit")
 mini_pkg.__path__ = [str(pkg_root)]
-sys.modules.setdefault("openvlharness_eval", mini_pkg)
+sys.modules.setdefault("evaluation_kit", mini_pkg)
 
-utils_pkg = types.ModuleType("openvlharness_eval.utils")
+utils_pkg = types.ModuleType("evaluation_kit.utils")
 utils_pkg.__path__ = [str(pkg_root / "utils")]
-sys.modules.setdefault("openvlharness_eval.utils", utils_pkg)
+sys.modules.setdefault("evaluation_kit.utils", utils_pkg)
 
-from openvlharness_eval.utils import file_db  # noqa: E402
+from evaluation_kit.utils import file_db  # noqa: E402
 
 
 def test_shard_for_is_deterministic_and_2hex():

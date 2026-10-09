@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def selected_datasets(manifest, data_root):
     """Load the frozen indices and verify source image and question hashes."""
-    from openvlharness_eval.dataset import build_dataset
+    from evaluation_kit.dataset import build_dataset
 
     selected = []
     for name, spec in manifest["datasets"].items():
@@ -54,9 +54,9 @@ def main():
         parser.error("Use an empty --output-dir; validation never overwrites earlier results")
 
     from openvlharness.bootstrap import build_agent, load_agent_config
-    from openvlharness_eval import infer_image_job
-    from openvlharness_eval.smp import get_pred_file_path
-    from openvlharness_eval.utils.run_identity import build_run_manifest
+    from evaluation_kit import infer_image_job
+    from evaluation_kit.smp import get_pred_file_path
+    from evaluation_kit.utils.run_identity import build_run_manifest
 
     config = load_agent_config(args.config)
     agent = build_agent(config)

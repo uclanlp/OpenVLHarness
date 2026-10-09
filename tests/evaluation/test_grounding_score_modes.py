@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-if importlib.util.find_spec("openvlharness_eval") is None:
+if importlib.util.find_spec("evaluation_kit") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 for dependency in ("pandas", "validators"):
@@ -14,8 +14,8 @@ for dependency in ("pandas", "validators"):
 
 import pandas as pd
 
-from openvlharness_eval.dataset import eval_bridge, fscd, lvis, odinw
-from openvlharness_eval.utils.judge_utils import load_judge_config
+from evaluation_kit.dataset import eval_bridge, fscd, lvis, odinw
+from evaluation_kit.utils.judge_utils import load_judge_config
 
 
 @pytest.fixture

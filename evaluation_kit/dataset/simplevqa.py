@@ -6,11 +6,11 @@ import warnings
 import ast
 import math
 from openai import OpenAI
-from openvlharness_eval.dataset.image_base import ImageBaseDataset
-from openvlharness_eval.dataset.hf_release import HF_SPLITS, load_hf_split
-from openvlharness_eval.smp import misc, file
-from openvlharness_eval.smp.file import get_intermediate_file_path
-from openvlharness_eval.dataset.utils.simplevqa import *
+from evaluation_kit.dataset.image_base import ImageBaseDataset
+from evaluation_kit.dataset.hf_release import HF_SPLITS, load_hf_split
+from evaluation_kit.smp import misc, file
+from evaluation_kit.smp.file import get_intermediate_file_path
+from evaluation_kit.dataset.utils.simplevqa import *
 from tqdm import tqdm
 import pdb
 from pathlib import Path
@@ -267,13 +267,13 @@ class SimpleVQA_EN(SimpleVQA):
         same single-column ``[metric, value]`` shape SimpleVQAEval used.
         """
         import os as _os
-        from openvlharness_eval.dataset.utils.hle_judge import (
+        from evaluation_kit.dataset.utils.hle_judge import (
             HLE_JUDGE_PROMPT, parse_hle_judgement,
         )
-        from openvlharness_eval.dataset.utils.judge_rs import (
+        from evaluation_kit.dataset.utils.judge_rs import (
             JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
         )
-        from openvlharness_eval.dataset.utils.judge_vdr import (
+        from evaluation_kit.dataset.utils.judge_vdr import (
             JUDGE_VDR_PROMPT, parse_judge_vdr_judgement,
         )
 

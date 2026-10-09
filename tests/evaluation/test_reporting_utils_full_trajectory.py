@@ -1,7 +1,7 @@
 import importlib.util
 import pytest
 
-if importlib.util.find_spec("openvlharness_eval") is None:
+if importlib.util.find_spec("evaluation_kit") is None:
     pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
 
 for dependency in ("pandas", "validators", "openpyxl", "xlsxwriter"):
@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 
-from openvlharness_eval.utils.reporting_utils import (
+from evaluation_kit.utils.reporting_utils import (
     build_complete_messages_from_trajectory,
     write_full_trajectory_jsons,
 )

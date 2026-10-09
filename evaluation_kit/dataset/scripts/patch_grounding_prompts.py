@@ -4,7 +4,7 @@
 Updates LVIS_bbox_*.tsv, ODinW13_bbox_*.tsv, and ODinW35_bbox_*.tsv
 under ``$LMUData`` (or the path passed via ``--lmu-data``) to match
 the canonical prompt produced by
-``openvlharness_eval.dataset.scripts.prepare_odinw.build_bbox_question``.
+``evaluation_kit.dataset.scripts.prepare_odinw.build_bbox_question``.
 
 Idempotent: matches both the legacy "JSON array of arrays" wording and
 the prior `_full` variant that already had the "if empty" hint, and

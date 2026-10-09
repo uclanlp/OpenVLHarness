@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture
 def synchronous_evaluation(monkeypatch):
-    from openvlharness_eval import runner
+    from evaluation_kit import runner
 
     def run(func, tasks, save=None, keys=None, **kwargs):
         results = [func(**task) for task in tasks]

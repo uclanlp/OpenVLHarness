@@ -8,7 +8,7 @@ shape used by ODinW and LVIS bbox evaluation.
 
 Usage:
 
-    python -m openvlharness_eval.dataset.scripts.prepare_fscd147_box \
+    python -m evaluation_kit.dataset.scripts.prepare_fscd147_box \
         --fscd-root "$FSCD_ROOT" \
         --desc-json "$FSC147_DESCRIPTIONS" \
         [--output-dir $LMUData]
@@ -51,7 +51,7 @@ from typing import Dict, List
 
 import pandas as pd
 
-from openvlharness_eval.dataset.scripts.prepare_odinw import (
+from evaluation_kit.dataset.scripts.prepare_odinw import (
     bbox_xywh_to_normalised_xyxy,
     build_bbox_question,
 )

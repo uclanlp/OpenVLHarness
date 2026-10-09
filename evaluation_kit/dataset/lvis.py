@@ -10,8 +10,8 @@ Two dataset classes are provided:
                      to LVISEval is future work.)
 
 Both classes expect pre-generated TSV files produced by one of:
-    python -m openvlharness_eval.dataset.scripts.prepare_lvis_positive_only
-    python -m openvlharness_eval.dataset.scripts.prepare_lvis_federated   # bbox only
+    python -m evaluation_kit.dataset.scripts.prepare_lvis_positive_only
+    python -m evaluation_kit.dataset.scripts.prepare_lvis_federated   # bbox only
 
 TSV naming convention (positive-only — every row has >=1 GT instance):
     LVIS_bbox_{train,val}_positive_only.tsv   (bounding-box evaluation)
