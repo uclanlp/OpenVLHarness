@@ -25,6 +25,9 @@ from .fscd import FSCD147BBoxDataset, FSCDLVISBBoxDataset
 from .browsecomp_vl import BrowseCompVLDataset
 from .realxbench import RealXBench
 from .mmsearch_plus import MMSearchPlus
+from .mmbrowsecomp import MMBrowseCompDataset
+from .vdrbench import VDRBench
+from .visbrowse_bench import VisBrowseBenchDataset
 from .embspatialbench import EmbSpatialBench
 from .erqabench import ERQABench
 from .mmsibench import MMSIBench
@@ -39,7 +42,7 @@ IMAGE_DATASET = [
     MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization,
     FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, PixmoCount, CountQA,
     LVISBBoxDataset, LVISMaskDataset, ODinWBBoxDataset, FSCD147BBoxDataset, FSCDLVISBBoxDataset,
-    BrowseCompVLDataset, RealXBench, MMSearchPlus,
+    BrowseCompVLDataset, RealXBench, MMSearchPlus, MMBrowseCompDataset, VDRBench, VisBrowseBenchDataset,
     EmbSpatialBench, ERQABench, MMSIBench, MindCubeBench, SparBench,
 ]
 CUSTOM_DATASET = [CustomMCQDataset, CustomVQADataset]

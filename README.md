@@ -266,15 +266,16 @@ installation rather than reproducing those scores.
 ### Datasets and scoring
 
 Dataset names passed to `--data` select loaders in
-[evaluation_kit/dataset](evaluation_kit/dataset). Examples across the four
-domains are:
+[evaluation_kit/dataset](evaluation_kit/dataset). The paper's 23 benchmarks
+(Table 1) and the five additional search benchmarks of its appendix are:
 
-| Domain | Example dataset names |
+| Domain | Dataset names |
 | --- | --- |
 | Counting and grounding | `FSC147_val`, `CountQA`, `PixmoCount_val`, `FSCD_147_bbox_val`, `FSCD_LVIS_bbox_val`, `ODinW13_bbox_val_qwen3` |
-| Multimodal search and deep research | `MMSearch`, `MMSearchPlus`, `RealXBench`, `BrowseCompVL` |
-| General VQA and hallucination | `RealWorldQA`, `HallusionBench`, `VStarBench`, `FREAK_MCQ`, `FREAK_VQA` |
+| Multimodal search and deep research | `MMSearch`, `MMSearchPlus`, `RealXBench`, `FVQA_test`, `hle`, `BrowseCompVL` |
+| General VQA and hallucination | `RealWorldQA`, `SimpleVQA`, `HallusionBench`, `FREAK_VQA`, `FREAK_MCQ`, `VStarBench` |
 | Spatial understanding | `MMSIBench_wo_circular`, `ERQA`, `EmbSpatialBench`, `SparBench_tiny`, `MindCubeBench_tiny_raw_qa` |
+| Extended search (appendix) | `MMBrowseComp`, `VDRBench`, `VisBrowseBench`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` |
 
 Prepared counting, grounding, VQA, and spatial splits are available in
 [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
