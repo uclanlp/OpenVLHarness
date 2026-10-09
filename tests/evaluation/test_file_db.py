@@ -8,6 +8,11 @@ import time
 import types
 from pathlib import Path
 
+import pytest
+
+# A worker thread that raises (e.g. inside the claim race tests) fails the test.
+pytestmark = pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning")
+
 repo_root = Path(__file__).resolve().parents[2]
 pkg_root = repo_root / "evaluation_kit"
 
@@ -351,5 +356,4 @@ def test_claim_and_heartbeat_context_manager():
 
 
 if __name__ == "__main__":
-    import pytest
     sys.exit(pytest.main([__file__, "-v"]))

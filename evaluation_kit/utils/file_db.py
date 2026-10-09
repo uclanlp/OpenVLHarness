@@ -157,7 +157,10 @@ def claim(work_dir: str, idx: Any, stale_seconds: int = DEFAULT_STALE_SECONDS) -
             os.unlink(path)
         except FileNotFoundError:
             pass
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            return False  # a fresh claim landed after the unlink
         try:
             os.write(fd, reclaim_payload)
         finally:
