@@ -46,7 +46,7 @@ import pandas as pd
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
-from .utils.judge_cache import guard_cache
+from .utils.judge_cache import guard_cache, require_judge
 from ..smp import *
 from ..smp.file import LMUDataRoot, get_intermediate_file_path
 from ..utils import track_progress_rich
@@ -495,6 +495,7 @@ class VisBrowseBenchDataset(ImageBaseDataset):
         contains-based grader and saves a separate ``_vbb_vdr.json``
         side-output; the primary accuracy is not overridden.
         """
+        require_judge(self.dataset_name, judge_kwargs)
         logger = get_logger('Evaluation')
         data = load(eval_file)
         assert 'prediction' in data, 'prediction column missing from eval file'

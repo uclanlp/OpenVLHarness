@@ -28,7 +28,7 @@ from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from ..smp import *  # noqa: F401,F403
 from ..smp.file import get_intermediate_file_path
-from .utils.judge_cache import guard_cache
+from .utils.judge_cache import guard_cache, require_judge
 
 logger = logging.getLogger(__name__)
 
@@ -529,6 +529,7 @@ class MMSearchPlus(ImageBaseDataset):
         return msgs
 
     def evaluate(self, eval_file: str, **judge_kwargs: Any) -> Dict[str, Any]:
+        require_judge(self.dataset_name, judge_kwargs)
         data = load(eval_file)
         assert "prediction" in data and "answer" in data
 
@@ -619,7 +620,7 @@ class MMSearchPlus(ImageBaseDataset):
                 for idx in data["index"]
             ]
         except Exception as exc:
-            logger.warning(f"LLM judge evaluation failed: {exc}")
+            logger.error(f"LLM judge evaluation failed: {exc}")
 
         try:
             dump(data, eval_file)

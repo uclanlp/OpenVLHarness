@@ -88,3 +88,16 @@ def guard_cache(cache_path, data, judge_model, prompt=None, keyed=True, key_col=
                 os.remove(cache_path)
     dump(record, sidecar)
 
+
+def require_judge(dataset_name, judge_kwargs, allow_exact_matching=True):
+    """Raise if a benchmark scored by an LLM judge is evaluated without one.
+
+    ``allow_exact_matching=False`` also rejects the heuristic sentinels
+    ('exact_matching', 'extract_matching'), for evaluators with no non-LLM path.
+    """
+    model = judge_kwargs.get('model')
+    if not model or (not allow_exact_matching and model in ('exact_matching', 'extract_matching')):
+        raise ValueError(
+            f'{dataset_name} is scored by an LLM judge; pass --judge-config with model_name '
+            'and api_base (e.g. configs/judge.yaml)'
+        )

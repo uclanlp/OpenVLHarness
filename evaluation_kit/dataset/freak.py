@@ -14,6 +14,7 @@ from tqdm import tqdm
 from .image_mcq import ImageMCQDataset
 from .image_vqa import ImageVQADataset
 from .utils import build_judge
+from .utils.judge_cache import require_judge
 from ..smp import *
 from ..smp.file import get_intermediate_file_path
 
@@ -132,6 +133,7 @@ class FREAKVQADataset(ImageVQADataset):
         import re
         from .utils.verifier import QUESTION_QUALITY_PROMPT_EN_NO_COT
 
+        require_judge(self.dataset_name, judge_kwargs, allow_exact_matching=False)
         data = load(eval_file)
         if 'GT' in data.columns and 'answer' not in data.columns:
             data.rename(columns={'GT': 'answer'}, inplace=True)

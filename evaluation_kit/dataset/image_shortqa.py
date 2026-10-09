@@ -5,7 +5,7 @@ from ..smp import *
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
-from .utils.judge_cache import guard_cache
+from .utils.judge_cache import guard_cache, require_judge
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
 from .utils.shortqa import ShortQA_prompt
@@ -785,6 +785,7 @@ class ImageShortQADataset(ImageBaseDataset):
 
     # It returns a DataFrame
     def evaluate(self, eval_file, **judge_kwargs):
+        require_judge(self.dataset_name, judge_kwargs)
         data = load(eval_file)
         _ = self.dataset_name
         assert 'answer' in data and 'prediction' in data

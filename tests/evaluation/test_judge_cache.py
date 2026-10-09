@@ -1,4 +1,4 @@
-"""Judge caches must follow the judge and the predictions."""
+"""Judge caches must follow the judge and the predictions; judge-only benchmarks need a judge."""
 
 import importlib.util
 import json
@@ -16,9 +16,9 @@ for dependency in ("pandas", "validators"):
 
 import pandas as pd
 
-from evaluation_kit.dataset import image_shortqa, image_yorn
+from evaluation_kit.dataset import freak, image_shortqa, image_yorn, simplevqa
 from evaluation_kit.dataset.utils import judge_cache
-from evaluation_kit.dataset.utils.judge_cache import fingerprint_path, guard_cache
+from evaluation_kit.dataset.utils.judge_cache import fingerprint_path, guard_cache, require_judge
 from evaluation_kit.dataset.utils.spatial_bench import cal_scores
 from evaluation_kit.smp import dump, load
 
@@ -206,4 +206,36 @@ def test_hallusionbench_storage_follows_the_predictions(tmp_path):
 
     assert evaluate(["Yes", "No"]) == 100.0
     assert evaluate(["No", "Yes", "No", "Yes"]) == 0.0
+
+
+def _evaluator(cls, name):
+    dataset = cls.__new__(cls)
+    dataset.dataset_name = name
+    return dataset
+
+
+@pytest.mark.parametrize("model", [None, "exact_matching"])
+@pytest.mark.parametrize("cls,name", [
+    (freak.FREAKVQADataset, "FREAK_VQA"),
+    (simplevqa.SimpleVQA, "SimpleVQA"),
+    (simplevqa.SimpleVQA_EN, "SimpleVQA_EN"),
+])
+def test_llm_only_benchmarks_require_a_judge(tmp_path, cls, name, model):
+    with pytest.raises(ValueError, match=f"{name} is scored by an LLM judge; pass --judge-config"):
+        _evaluator(cls, name).evaluate(str(tmp_path / "missing.xlsx"), model=model, nproc=1)
+
+
+def test_hle_requires_a_judge(tmp_path):
+    with pytest.raises(ValueError, match="hle is scored by an LLM judge"):
+        _evaluator(image_shortqa.ImageShortQADataset, "hle").evaluate(
+            str(tmp_path / "missing.xlsx"), model=None, nproc=1)
+
+
+def test_require_judge_accepts_exact_matching_only_when_allowed():
+    require_judge("hle", {"model": "exact_matching"})
+    require_judge("hle", {"model": "judge-a"}, allow_exact_matching=False)
+    with pytest.raises(ValueError):
+        require_judge("hle", {})
+    with pytest.raises(ValueError):
+        require_judge("FREAK_VQA", {"model": "exact_matching"}, allow_exact_matching=False)
 

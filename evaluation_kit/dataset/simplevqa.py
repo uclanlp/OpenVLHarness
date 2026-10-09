@@ -4,6 +4,7 @@ import pandas as pd
 from openai import OpenAI
 from evaluation_kit.dataset.image_base import ImageBaseDataset
 from evaluation_kit.dataset.hf_release import HF_SPLITS, load_hf_split
+from evaluation_kit.dataset.utils.judge_cache import require_judge
 from evaluation_kit.smp import misc, file
 from evaluation_kit.smp.file import get_intermediate_file_path
 from evaluation_kit.dataset.utils.simplevqa import *
@@ -210,6 +211,7 @@ class SimpleVQA(ImageBaseDataset):
         Returns:
             DataFrame with evaluation scores by category
         """
+        require_judge(self.dataset_name, judge_kwargs, allow_exact_matching=False)
         score = self.get_scores(eval_file, **judge_kwargs)
         score_file = get_intermediate_file_path(eval_file, "_acc", "csv")
         file.dump(score, score_file)

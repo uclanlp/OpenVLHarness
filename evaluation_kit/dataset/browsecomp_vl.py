@@ -28,7 +28,7 @@ import pandas as pd
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
-from .utils.judge_cache import guard_cache
+from .utils.judge_cache import guard_cache, require_judge
 from ..smp import *
 from ..smp.file import get_intermediate_file_path, LMUDataRoot
 from ..utils import track_progress_rich
@@ -426,6 +426,7 @@ class BrowseCompVLDataset(ImageBaseDataset):
 
     def evaluate(self, eval_file, **judge_kwargs):
         """Evaluate predictions using the original BrowseComp-VL grading protocol."""
+        require_judge(self.dataset_name, judge_kwargs)
         logger = get_logger('Evaluation')
         data = load(eval_file)
         assert 'prediction' in data, 'prediction column missing from eval file'

@@ -14,6 +14,7 @@ import validators
 
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
+from .utils.judge_cache import require_judge
 from .utils.vqa_eval import process_line, hit_calculate
 from ..smp import (
     LMUDataRoot,
@@ -317,6 +318,7 @@ class MMBrowseCompDataset(ImageBaseDataset):
         """
         if judge_kwargs.get('use_exact_match', False):
             return self._evaluate_exact_match(eval_file, **judge_kwargs)
+        require_judge(self.dataset_name, judge_kwargs)
 
         judge_name = (
             os.environ.get('MMDR_JUDGE_PROMPT')
