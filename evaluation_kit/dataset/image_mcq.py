@@ -4,6 +4,7 @@ import warnings
 from .hf_release import hf_tsv_url
 from .image_base import ImageBaseDataset
 from .utils import build_judge, DEBUG_MESSAGE
+from .utils.judge_cache import guard_cache
 from ..smp import *
 import pandas as pd
 
@@ -287,6 +288,7 @@ class ImageMCQDataset(ImageBaseDataset):
             circular = True
 
         model = (judge_kwargs.get('model') or 'exact_matching')
+        judge_model = model
         name_str_map = {'chatgpt-0125': 'openai', 'gpt-4-0125': 'gpt4'}
         name_str = name_str_map[model] if model in name_str_map else model
         if "/" in name_str:
@@ -318,6 +320,8 @@ class ImageMCQDataset(ImageBaseDataset):
                 f'eval_file should be the same as or a subset of dataset {self.dataset_name}'
             )
 
+        # Circular results are keyed by question group, so any change drops the file.
+        guard_cache(result_file, data, judge_model, keyed=not circular)
         if circular:
             data = mcq_circular_eval(model, data, meta, nproc, result_file, self.dataset_name)
         else:
@@ -355,12 +359,14 @@ class ImageMCQDataset(ImageBaseDataset):
                 offset = 1e6
                 circ0 = data[data['index'] <= offset]
             result_file = get_intermediate_file_path(eval_file, f'_{name_str}_vanilla_result', 'pkl')
+            guard_cache(result_file, circ0, judge_model)
             data0 = mcq_vanilla_eval(model, circ0, meta, nproc, result_file, self.dataset_name)
             dump(data0, get_intermediate_file_path(eval_file, f'_{name_str}_vanilla_circ0_result'))
             data = load(get_intermediate_file_path(eval_file, f'_{name_str}_vanilla_circ0_result'))
             acc_map['vanilla_0'] = report_acc(data)
             # Vanilla ALL Acc
             data = load(eval_file)
+            guard_cache(result_file, data, judge_model)
             dataall = mcq_vanilla_eval(model, data, meta, nproc, result_file, self.dataset_name)
             dump(dataall, get_intermediate_file_path(eval_file, f'_{name_str}_vanilla_all_result'))
             data = load(get_intermediate_file_path(eval_file, f'_{name_str}_vanilla_all_result'))

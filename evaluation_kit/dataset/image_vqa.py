@@ -4,6 +4,7 @@ from functools import partial
 
 from .image_base import ImageBaseDataset
 from .utils import build_judge
+from .utils.judge_cache import guard_cache
 from ..smp import *
 from ..smp.file import get_intermediate_file_path
 
@@ -141,6 +142,7 @@ class ImageVQADataset(ImageBaseDataset):
 
         # Use pkl for track_progress_rich cache (dict results with list values)
         result_file = get_intermediate_file_path(eval_file, f'_{name_str}_result', 'pkl')
+        guard_cache(result_file, data, judge_kwargs.get('model'))
         data = vqa_vanilla_eval(model, data, nproc, result_file, dataset, method=method)
 
         # Dump as xlsx for visualization, then reload

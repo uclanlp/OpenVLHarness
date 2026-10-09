@@ -10,6 +10,7 @@ from collections import OrderedDict
 from .matching_func import can_match_na, can_match_option
 from .tools.files import get_judge_tag_from_score_fn, build_eval_paths
 from .llm_extract import parallel_llm_extract
+from ..judge_cache import guard_cache
 from ..judge_util import build_judge
 from ....smp.file import get_intermediate_file_path
 
@@ -500,6 +501,8 @@ def _build_score_fn(
 
     # 3. Wrap into df -> df scorer
     def score_fn(df: pd.DataFrame) -> pd.DataFrame:
+        if llm_cache['file']:
+            guard_cache(llm_cache['file'], df, model_name, key_col=llm_cache['key_col'])
         kwargs = dict(
             df=df,
             model=model,

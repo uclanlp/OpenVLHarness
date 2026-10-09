@@ -28,6 +28,7 @@ import pandas as pd
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
+from .utils.judge_cache import guard_cache
 from ..smp import *
 from ..smp.file import get_intermediate_file_path, LMUDataRoot
 from ..utils import track_progress_rich
@@ -463,6 +464,7 @@ class BrowseCompVLDataset(ImageBaseDataset):
                 f"supported: 'hle' (default), 'judge_rs', 'judge_vdr'"
             )
         judge_suffix = '' if judge_name == 'hle' else f'_{judge_name}'
+        judge_model = judge_kwargs.get('model')
         model = build_judge(**judge_kwargs)
         if model is None or not model.working():
             logger.error(
@@ -474,6 +476,7 @@ class BrowseCompVLDataset(ImageBaseDataset):
 
         # Run grading
         result_file = get_intermediate_file_path(eval_file, f'_bcvl_grade{judge_suffix}', 'pkl')
+        guard_cache(result_file, data, judge_model, prompt=judge_name)
         result_cache = {}
         if osp.exists(result_file):
             result_cache = load(result_file)
@@ -529,6 +532,7 @@ class BrowseCompVLDataset(ImageBaseDataset):
         if enable_vdr_aux:
             vdr_cache_file = get_intermediate_file_path(
                 eval_file, '_bcvl_vdr_grade', 'pkl')
+            guard_cache(vdr_cache_file, data, judge_model)
             vdr_cache = load(vdr_cache_file) if osp.exists(vdr_cache_file) else {}
             vdr_items = [
                 data.iloc[i] for i in range(len(data))

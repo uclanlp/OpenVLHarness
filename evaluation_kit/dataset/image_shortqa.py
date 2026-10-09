@@ -5,6 +5,7 @@ from ..smp import *
 from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from .utils import build_judge, DEBUG_MESSAGE
+from .utils.judge_cache import guard_cache
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
 from .utils.multiple_choice import report_acc, eval_vanilla, eval_circular_group
 from .utils.shortqa import ShortQA_prompt
@@ -848,6 +849,10 @@ class ImageShortQADataset(ImageBaseDataset):
             storage_stem, tmp_stem, acc_stem = '_judge', '_tmp', '_acc'
         storage = get_intermediate_file_path(eval_file, storage_stem)
         tmp_file = get_intermediate_file_path(eval_file, tmp_stem, 'pkl')
+        judge_model = judge_kwargs.get('model', 'gpt-4o-mini')
+        guard_cache(storage, data, judge_model, prompt=judge_name, keyed=False)
+        # With g_index the tmp file is keyed by question group, not by row.
+        guard_cache(tmp_file, data, judge_model, prompt=judge_name, keyed='g_index' not in data)
 
         if not osp.exists(storage):
             ans_map = {} if not osp.exists(tmp_file) else load(tmp_file)

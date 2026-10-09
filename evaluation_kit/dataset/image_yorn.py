@@ -4,6 +4,7 @@ from ..smp import *
 from ..utils import *
 from .image_base import ImageBaseDataset
 from .utils import build_judge, DEBUG_MESSAGE
+from .utils.judge_cache import guard_cache
 
 
 class ImageYORNDataset(ImageBaseDataset):
@@ -52,6 +53,9 @@ class ImageYORNDataset(ImageBaseDataset):
             model_name = model_name.split("/")[-1]
         result_file = get_intermediate_file_path(eval_file, f'_{model_name}_result', 'xlsx')
         nproc = judge_kwargs.pop('nproc', 4)
+        judge_model = judge_kwargs.get('model') or 'exact_matching'
+        guard_cache(storage, data, judge_model, keyed=False)
+        guard_cache(tmp_file, data, judge_model)
 
         if not osp.exists(storage):
             ans_map = {k: YOrN_Extraction(v) for k, v in zip(data['index'], data['prediction'])}

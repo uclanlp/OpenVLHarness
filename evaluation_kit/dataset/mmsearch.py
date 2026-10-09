@@ -32,6 +32,7 @@ from .image_base import ImageBaseDataset
 from .hf_release import HF_SPLITS, load_hf_split
 from ..smp import *  # noqa: F401,F403 - provides LMUDataRoot, load, dump, osp
 from ..smp.file import get_intermediate_file_path
+from .utils.judge_cache import guard_cache
 
 logger = logging.getLogger(__name__)
 
@@ -674,6 +675,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
         cache_stem = "_mmsearch_llm_judge_cache"
 
     judge_cache_file = get_intermediate_file_path(eval_file, cache_stem, "pkl")
+    guard_cache(judge_cache_file, data, judge_kwargs_local.get("model"), prompt=judge_name)
     cached: Dict[Any, Dict[str, Any]] = {}
     if osp.exists(judge_cache_file):
         cached = load(judge_cache_file)
