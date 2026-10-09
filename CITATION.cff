@@ -1,0 +1,90 @@
+cff-version: 1.2.0
+message: "If you use OpenVLHarness in your research, please cite the paper below."
+title: "OpenVLHarness"
+type: software
+version: "0.1.0"
+license: MIT
+url: "https://openvlharness.github.io/"
+repository-code: "https://github.com/uclanlp/OpenVLHarness"
+abstract: >-
+  A training-free harness that gives multimodal language models nine tool
+  capabilities and a per-question multimodal memory, together with the
+  evaluation code for the paper's 23 benchmarks.
+keywords:
+  - multimodal large language models
+  - tool use
+  - agents
+  - multimodal memory
+authors:
+  - family-names: Zhou
+    given-names: Yu
+    affiliation: "University of California, Los Angeles"
+  - family-names: Yang
+    given-names: Cheng-Fu
+    affiliation: "University of California, Los Angeles"
+  - family-names: Sun
+    given-names: Rui
+    affiliation: "University of California, Los Angeles"
+  - family-names: Wu
+    given-names: Di
+    affiliation: "University of California, Los Angeles"
+  - family-names: Peng
+    given-names: Sibo
+    affiliation: "University of California, Los Angeles"
+  - family-names: Zhang
+    given-names: Mingyang
+    affiliation: "University of California, Los Angeles"
+  - family-names: Yang
+    given-names: Zhen
+    affiliation: Apple
+  - family-names: Zhang
+    given-names: Ruiyi
+    affiliation: Apple
+  - family-names: Peng
+    given-names: Nanyun
+    affiliation: "University of California, Los Angeles"
+  - family-names: Gan
+    given-names: Zhe
+    affiliation: Apple
+  - family-names: Chang
+    given-names: Kai-Wei
+    affiliation: "University of California, Los Angeles"
+preferred-citation:
+  type: generic
+  title: "OpenVLHarness: Real World Visual Agentic Tool-Use with Multimodal Memory"
+  year: 2026
+  url: "https://openvlharness.github.io/"
+  authors:
+    - family-names: Zhou
+      given-names: Yu
+      affiliation: "University of California, Los Angeles"
+    - family-names: Yang
+      given-names: Cheng-Fu
+      affiliation: "University of California, Los Angeles"
+    - family-names: Sun
+      given-names: Rui
+      affiliation: "University of California, Los Angeles"
+    - family-names: Wu
+      given-names: Di
+      affiliation: "University of California, Los Angeles"
+    - family-names: Peng
+      given-names: Sibo
+      affiliation: "University of California, Los Angeles"
+    - family-names: Zhang
+      given-names: Mingyang
+      affiliation: "University of California, Los Angeles"
+    - family-names: Yang
+      given-names: Zhen
+      affiliation: Apple
+    - family-names: Zhang
+      given-names: Ruiyi
+      affiliation: Apple
+    - family-names: Peng
+      given-names: Nanyun
+      affiliation: "University of California, Los Angeles"
+    - family-names: Gan
+      given-names: Zhe
+      affiliation: Apple
+    - family-names: Chang
+      given-names: Kai-Wei
+      affiliation: "University of California, Los Angeles"
