@@ -26,7 +26,7 @@ def cpu_count():
     try:
         if period.exists() and quota.exists():
             return int(quota.read_text()) // int(period.read_text())
-    except:
+    except Exception:
         pass
 
     import os

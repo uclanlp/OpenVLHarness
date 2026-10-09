@@ -6,7 +6,7 @@ Adapted from MM-BrowseComp/src/eval.py.
 import re
 import time
 
-from openai import OpenAI, APIError
+from openai import APIError
 
 JUDGE_API_MAX_RETRIES = 5
 JUDGE_API_INITIAL_DELAY = 5

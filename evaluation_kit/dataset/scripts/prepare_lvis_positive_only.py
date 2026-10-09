@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Prepare LVIS v1 dataset for mini-vlm-toolkit evaluation (positive-only).
+"""Prepare LVIS v1 dataset for OpenVLHarness evaluation (positive-only).
 
 This script converts the LVIS v1 annotation files into the TSV format expected
-by mini-vlm-toolkit, and moves images into $LMUData/images/LVIS/.
+by OpenVLHarness, and moves images into $LMUData/images/LVIS/.
 
 It emits **positive-only** QA rows: one row per (image_id, category_id) pair
 that has at least one annotation in the LVIS JSON.  Every row therefore has a
@@ -80,7 +80,6 @@ import shutil
 import sys
 import time
 from collections import defaultdict
-from pathlib import Path
 
 import pandas as pd
 
@@ -341,7 +340,7 @@ def generate_tsv_rows(grouped_anns, images_by_id, categories_by_id, split_name):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Prepare LVIS v1 dataset for mini-vlm-toolkit evaluation.',
+        description='Prepare LVIS v1 dataset for OpenVLHarness evaluation.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

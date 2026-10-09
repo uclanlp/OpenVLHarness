@@ -380,7 +380,6 @@ def render_html_report(record, max_chars=2000):
     input_messages = trajectory.get("input_messages")
     chat_history = trajectory.get("chat_history")
     final_answer = trajectory.get("final_answer")
-    messages = trajectory.get("messages")
 
     header = (
         "<div class='header'>"

@@ -39,7 +39,7 @@ import os
 import os.path as osp
 import re
 from collections import defaultdict
-from typing import Dict, List, Optional, Tuple
+from typing import List
 
 import numpy as np
 import pandas as pd

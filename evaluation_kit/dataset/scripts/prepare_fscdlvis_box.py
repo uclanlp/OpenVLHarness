@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare FSCD-LVIS bbox-grounding TSV files for mini-vlm-toolkit evaluation.
+"""Prepare FSCD-LVIS bbox-grounding TSV files for OpenVLHarness evaluation.
 
 Emits five TSVs under $LMUData:
 

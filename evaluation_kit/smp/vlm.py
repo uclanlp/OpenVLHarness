@@ -2,14 +2,11 @@ import ast
 import os
 import io
 import pandas as pd
-import numpy as np
-import string
-from uuid import uuid4
 import os.path as osp
 import base64
 from PIL import Image
-import pillow_avif
-import sys
+# Imported for its side effect: registers the AVIF plugin with PIL.
+import pillow_avif  # noqa: F401
 
 Image.MAX_IMAGE_PIXELS = 1e9
 
@@ -172,10 +169,6 @@ def build_option_str(option_dict):
     return s
 
 
-def isimg(s):
-    return osp.exists(s) or s.startswith('http')
-
-
 def read_ok(img_path):
     if not osp.exists(img_path):
         return False
@@ -183,7 +176,7 @@ def read_ok(img_path):
         im = Image.open(img_path)
         assert im.size[0] > 0 and im.size[1] > 0
         return True
-    except:
+    except Exception:
         return False
 
 
@@ -193,8 +186,3 @@ def gpt_key_set():
         openai_key = os.environ.get('AZURE_OPENAI_API_KEY', None)
         return isinstance(openai_key, str)
     return isinstance(openai_key, str) and openai_key.startswith('sk-')
-
-
-def apiok(wrapper):
-    s = wrapper.generate('Hello!')
-    return wrapper.fail_msg not in s

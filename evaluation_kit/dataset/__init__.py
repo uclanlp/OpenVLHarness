@@ -1,9 +1,10 @@
 """Benchmark registry for the OpenVLHarness evaluation layer.
 
-Only the loaders behind the paper's 23 benchmarks are registered. Each class lists
-the dataset names it serves through ``supported_datasets()``; ``build_dataset`` maps
-a name to an instance and falls back to a custom TSV under ``$LMUData`` when the
-name is unknown.
+Registers the loaders for the paper's benchmarks together with the VLMEvalKit loaders
+they inherit from, so ``SUPPORTED_DATASETS`` also contains dataset names that are not in
+the paper; those names are untested. Each class lists the dataset names it serves
+through ``supported_datasets()``; ``build_dataset`` maps a name to an instance and falls
+back to a custom TSV under ``$LMUData`` when the name is unknown.
 """
 import os.path as osp
 import warnings
@@ -106,6 +107,4 @@ def infer_dataset_basename(dataset_name):
     return basename
 
 
-__all__ = [
-    'build_dataset', 'img_root_map', 'build_judge', 'extract_answer_from_item', 'prefetch_answer', 'DEBUG_MESSAGE'
-] + [cls.__name__ for cls in DATASET_CLASSES]
+__all__ = ['build_dataset', 'img_root_map', 'ImageBaseDataset'] + [cls.__name__ for cls in DATASET_CLASSES]

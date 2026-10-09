@@ -1,16 +1,9 @@
-import ast
-import os
-import re
 import string
-from collections import OrderedDict
 
-import numpy as np
 import pandas as pd
-from huggingface_hub import snapshot_download
-from tqdm import tqdm
 
 from .hf_release import hf_tsv_url
-from ..smp import LMUDataRoot, dump, get_cache_path, load, modelscope_flag_set, toliststr
+from ..smp import load, toliststr
 from .image_mcq import ImageMCQDataset
 
 

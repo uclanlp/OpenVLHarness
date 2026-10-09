@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare FSCD-147 bbox-grounding TSV files for mini-vlm-toolkit evaluation.
+"""Prepare FSCD-147 bbox-grounding TSV files for OpenVLHarness evaluation.
 
 This is the *detection* (FSCD-147) counterpart to ``prepare_fsc147.py`` (which
 prepares the *counting* FSC-147 / FSC-147-D TSVs).  Each row asks the model to

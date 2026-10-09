@@ -1,9 +1,8 @@
-"""Judge_VDR — contains-based LLM judge ported from the VDR paper.
+"""Judge_VDR — contains-based LLM judge from the Vision-DeepResearch paper.
 
-NAMING ALIAS: when Rui refers to "VDR judge" / "VDR paper judge" in
-conversation, that is THIS judge (``judge_vdr``). The active v1 prompt is
-the appendix prompt from the VDR (Visual Deep Research) paper, byte-exact
-including the ``[Deep Research Report]`` field name and the plain-text
+The prompt is the judge prompt from the appendix of the Vision-DeepResearch
+(VDR) paper (arXiv 2601.22060), copied verbatim, including the
+``[Deep Research Report]`` field name and the plain-text
 ``correct: yes/no\\nreasoning: [...]`` output format.
 
 Different from ``judge_rs`` (MMSearch-R1 paper judge):
@@ -12,9 +11,9 @@ Different from ``judge_rs`` (MMSearch-R1 paper judge):
   anywhere?" — looser, suitable for long deep-research style outputs)
 
 Used as a per-benchmark opt-in via env ``MMDR_JUDGE_PROMPT=judge_vdr`` or
-``judge_kwargs['judge_prompt'] = 'judge_vdr'``. HLE remains the default
-judge for everything; ``judge_rs`` and ``judge_vdr`` are alternates for
-comparison / ablation.
+``judge_kwargs['judge_prompt'] = 'judge_vdr'``. No evaluator uses it by
+default; each keeps its own default prompt (the HLE-style judge for most
+search benchmarks).
 """
 
 from __future__ import annotations

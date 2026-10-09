@@ -575,7 +575,7 @@ def mcq_circular_eval(model, data, meta, nproc, result_file, dataset_name=None):
     return data_main
 
 
-def extract_characters_regex(s, choices=['(A)', '(B)', '(C)', '(D)', '(E)']):
+def extract_characters_regex(s, choices=('(A)', '(B)', '(C)', '(D)', '(E)')):
     if type(s) is dict:
         s = ''
     s = s.strip()

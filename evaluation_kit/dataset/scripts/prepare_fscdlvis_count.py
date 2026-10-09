@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare FSCD-LVIS *counting* TSV files for mini-vlm-toolkit evaluation.
+"""Prepare FSCD-LVIS *counting* TSV files for OpenVLHarness evaluation.
 
 Counterpart to ``prepare_fscdlvis_box.py``: same per-(image, class) row
 structure, but the model is asked for a single integer count instead of

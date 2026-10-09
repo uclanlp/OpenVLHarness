@@ -1,5 +1,4 @@
 import os
-import sys
 import os.path as osp
 import torch
 from ...smp import *
@@ -68,7 +67,7 @@ class HFChatModel:
         self.logger = get_logger('HFChatModel')
         if 'vicuna' in model_path.lower() or 'llama' in model_path.lower():
             try:
-                from fastchat.model import get_conversation_template
+                from fastchat.model import get_conversation_template  # noqa: F401
             except Exception as err:
                 self.logger.critical('Please install fastchat first to use vicuna. ')
                 raise err

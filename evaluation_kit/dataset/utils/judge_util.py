@@ -1,10 +1,8 @@
 import os
 
-INTERNAL = os.environ.get('INTERNAL', 0)
-
 # Single source of truth for the judge's per-call output token cap.
 # - Yaml `judge_max_tokens` overrides this for ALL benchmarks at once.
-# - When the yaml does not set it, all eleven dataset evaluators fall
+# - When the yaml does not set it, every LLM-judged evaluator falls
 #   back to this value. Do NOT introduce per-evaluator defaults.
 # - 2048 is sized to comfortably contain the HLE-style judge's
 #   ``{extracted_final_answer, reasoning, correct, confidence}`` JSON
@@ -85,11 +83,11 @@ def build_judge(**kwargs):
 DEBUG_MESSAGE = """
 To debug the OpenAI API, you can try the following scripts in python:
 ```python
-from evaluation_kit.api import OpenAIWrapper
+from evaluation_kit.dataset.api import OpenAIWrapper
 model = OpenAIWrapper('gpt-4o', verbose=True)
 msgs = [dict(type='text', value='Hello!')]
 code, answer, resp = model.generate_inner(msgs)
 print(code, answer, resp)
 ```
-You cam see the specific error if the API call fails.
+You can see the specific error if the API call fails.
 """

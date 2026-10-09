@@ -11,6 +11,7 @@ import copy as cp
 import random as rd
 import requests
 import shutil
+import string
 import subprocess
 import warnings
 import pandas as pd
@@ -18,13 +19,8 @@ from collections import OrderedDict, defaultdict
 from multiprocessing import Pool, current_process
 from tqdm import tqdm
 import datetime
-import matplotlib.pyplot as plt
-from tabulate import tabulate
-from json import JSONDecoder
 from huggingface_hub import scan_cache_dir
 from huggingface_hub.utils._cache_manager import _scan_cached_repo
-from sty import fg, bg, ef, rs
-import portalocker
 
 
 def modelscope_flag_set():
@@ -49,22 +45,6 @@ def process_punctuation(inText):
     outText = periodStrip.sub('', outText, re.UNICODE)
     return outText
 
-def h2r(value):
-    if value[0] == '#':
-        value = value[1:]
-    assert len(value) == 6
-    return tuple(int(value[i:i + 2], 16) for i in range(0, 6, 2))
-
-def r2h(rgb):
-    return '#%02x%02x%02x' % rgb
-
-def colored(s, color):
-    if isinstance(color, str):
-        if hasattr(fg, color):
-            return getattr(fg, color) + s + fg.rs
-        color = h2r(color)
-    return fg(*color) + s + fg.rs
-
 def istype(s, type):
     if isinstance(s, type):
         return True
@@ -72,12 +52,6 @@ def istype(s, type):
         return isinstance(ast.literal_eval(s), type)
     except Exception as _:
         return False
-
-def bincount(lst):
-    bins = defaultdict(lambda: 0)
-    for item in lst:
-        bins[item] += 1
-    return bins
 
 def get_cache_path(repo_id, branch='main', repo_type='datasets'):
     try:
@@ -104,25 +78,10 @@ def get_cache_path(repo_id, branch='main', repo_type='datasets'):
         logging.warning(f'{type(e)}: {e}')
         return None
 
-def proxy_set(s):
-    import os
-    for key in ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY']:
-        os.environ[key] = s
-
 def get_rank_and_world_size():
     rank = int(os.environ.get('RANK', 0))
     world_size = int(os.environ.get('WORLD_SIZE', 1))
     return rank, world_size
-
-def get_cuda_visible_devices():
-    devices = os.environ.get('CUDA_VISIBLE_DEVICES', None)
-    if devices is None:
-        return None
-    devices = [int(x) for x in devices.split(',')]
-    return devices
-
-def splitlen(s, sym='/'):
-    return len(s.split(sym))
 
 def listinstr(lst, s):
     assert isinstance(lst, list)
@@ -152,52 +111,12 @@ def timestr(granularity='second'):
     elif granularity == 'day':
         return s[:-6]
 
-def _minimal_ext_cmd(cmd, cwd=None):
-    env = {}
-    for k in ['SYSTEMROOT', 'PATH', 'HOME']:
-        v = os.environ.get(k)
-        if v is not None:
-            env[k] = v
-    env['LANGUAGE'] = 'C'
-    env['LANG'] = 'C'
-    env['LC_ALL'] = 'C'
-    out = subprocess.Popen(cmd, stdout=subprocess.PIPE, env=env, cwd=cwd).communicate()[0]
-    return out
-
-
 def dict_merge(dct, merge_dct):
     for k, _ in merge_dct.items():
         if (k in dct and isinstance(dct[k], dict) and isinstance(merge_dct[k], dict)):  #noqa
             dict_merge(dct[k], merge_dct[k])
         else:
             dct[k] = merge_dct[k]
-
-
-def run_command(cmd):
-    if isinstance(cmd, str):
-        cmd = cmd.split()
-    return subprocess.check_output(cmd).decode()
-
-
-def pip_install_robust(package):
-    import sys
-    retry = 3
-    while retry > 0:
-        try:
-            package_base = package.split('=')[0]
-            module = __import__(package)
-            return True
-        except ImportError:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', package])
-            retry -= 1
-    return False
-
-
-def version_cmp(v1, v2, op='eq'):
-    from packaging import version
-    import operator
-    op_func = getattr(operator, op)
-    return op_func(version.parse(v1), version.parse(v2))
 
 
 def toliststr(s):
@@ -208,28 +127,3 @@ def toliststr(s):
     elif isinstance(s, list):
         return [str(x) for x in s]
     raise NotImplementedError
-
-
-def extract_json_objects(text, decoder=JSONDecoder()):
-    pos = 0
-    while True:
-        match = text.find('{', pos)
-        if match == -1: break
-        try:
-            result, index = decoder.raw_decode(text[match:])
-            yield result
-            pos = match + index
-        except ValueError:
-            pos = match + 1
-
-
-def get_gpu_memory():
-    import subprocess
-    try:
-        command = "nvidia-smi --query-gpu=memory.free --format=csv"
-        memory_free_info = subprocess.check_output(command.split()).decode('ascii').split('\n')[:-1][1:]
-        memory_free_values = [int(x.split()[0]) for i, x in enumerate(memory_free_info)]
-        return memory_free_values
-    except Exception as e:
-        print(f'{type(e)}: {str(e)}')
-        return []

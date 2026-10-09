@@ -71,7 +71,6 @@ from evaluation_kit.dataset.scripts.prepare_odinw import (
 )
 from evaluation_kit.dataset.scripts.prepare_odinw_qwen25 import (
     CAPTION_PROMPT_BY_DOMAIN,
-    MMDET_CLASS_NAMES,
     _apply_caption_prompt,
     _mmdet_class_name,
     _validate_against_coco,

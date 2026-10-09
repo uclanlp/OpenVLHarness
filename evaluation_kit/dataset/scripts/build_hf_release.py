@@ -101,7 +101,7 @@ def build_glip(glip_root, out):
 
 CARD = """---
 license: other
-pretty_name: mini-vlm-toolkit counting & grounding benchmarks
+pretty_name: OpenVLHarness evaluation benchmarks
 task_categories:
 - visual-question-answering
 - object-detection
@@ -109,10 +109,10 @@ configs:
 {configs}
 ---
 
-# mini-vlm-toolkit counting & grounding benchmarks
+# OpenVLHarness evaluation benchmarks
 
 Processed evaluation splits used by
-[mini-vlm-toolkit](https://github.com/tool-vision/mini-vlm-toolkit).
+[OpenVLHarness](https://github.com/uclanlp/OpenVLHarness).
 Each `<split>.tsv` holds the exact prompts (`question`) and annotations
 (`answer` plus metadata) we evaluate on; `image_path` is relative to
 `images/<folder>/` inside `images/<folder>.zip`. `GLIP.zip` holds the ODinW-13

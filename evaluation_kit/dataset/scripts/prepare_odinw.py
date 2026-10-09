@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare ODinW-13 full-detection TSVs for mini-vlm-toolkit evaluation.
+"""Prepare ODinW-13 full-detection TSVs for OpenVLHarness evaluation.
 
 For each requested split (val / test / train), emits one row per
 (image, category) pair within each ODinW-13 domain — positive if any

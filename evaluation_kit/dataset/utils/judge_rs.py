@@ -1,32 +1,17 @@
-"""Judge_RS — Rui's iterative LLM-judge prompt family.
+"""Judge_RS: the MMSearch-R1 LLM-judge prompt.
 
-NAMING ALIAS: when Rui refers to "MMSearch-R1 judge" / "MMSearch R1 judge"
-in conversation, that is THIS judge (``judge_rs``). The active v2 prompt is
-the appendix prompt from the MMSearch-R1 / multimodal-search-r1 paper
-(arXiv 2506.20670). The module name stays ``judge_rs`` for backward
-compatibility — only the natural-language nickname differs.
+The prompt is the judge prompt from the appendix of the MMSearch-R1 paper
+(arXiv 2506.20670): a 10-rule semantic-equivalence checklist that asks the
+judge for an XML-tagged verdict (``<judge>Yes/No</judge>``) followed by a
+``<reason>``. Rule 9 lets the judge ignore the image when the text alone
+decides the case, and rule 10 accepts a match against any candidate answer.
+``parse_judge_rs_judgement`` falls back to bare Yes/No replies when the tags
+are missing.
 
-v2 (``v2_20260428``) is ported from the multimodal-search-r1 paper
-(arXiv 2506.20670, paper appendix). Adds a reasoning step (XML-tagged
-``<judge>`` + ``<reason>``) and an image-aware rule (Rule 9 lets
-text-only judging gracefully ignore the image). Compared to v1, the
-reasoning step is the dominant fix — v1 emitted bare ``Yes``/``No``
-which caused systematic false negatives on semantic-equivalence
-cases (case-only diffs / trailing-period / synonyms / category-vs-
-instance / paraphrase) on older GPT-4o snapshots. See
-``personal/log.md`` 2026-04-27 entry for the full v1 error analysis.
-
-v1 (``v1_20260425``) is byte-exact ported from
-``MM-DeepResearch/eval/prompt.py`` (the ``JUDGE_SYSTEM_PROMPT`` /
-``JUDGE_USER_PROMPT`` 11-rule pair). Kept here as ``*_BK`` constants
-for reproducibility / rollback; not exported as the active prompt.
-
-Used by: ``browsecomp_vl`` when ``judge_kwargs['judge_prompt'] = 'judge_rs'``
-(or env ``MMDR_JUDGE_PROMPT=judge_rs``). Other datasets (mmsearch /
-simplevqa_en / livevqa_v2) not yet hooked up — pending after BCVL
-results validate v2.
-
-HLE remains the default judge for everything.
+The search evaluators select it with ``judge_kwargs['judge_prompt'] = 'judge_rs'``
+or the env var ``MMDR_JUDGE_PROMPT=judge_rs``. It is the default judge for
+FVQA, InfoSeek and EncyclopedicVQA; the other evaluators keep their own
+default prompts.
 """
 
 from __future__ import annotations
@@ -36,8 +21,8 @@ from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
-# v2 prompt — multimodal-search-r1 paper (XML output, reasoning step,
-# image-aware Rule 9). ACTIVE.
+# v2 prompt — MMSearch-R1 paper appendix (XML output, reasoning step,
+# image-aware Rule 9).
 # ---------------------------------------------------------------------------
 JUDGE_RS_SYSTEM_PROMPT = """You are an AI assistant tasked with evaluating the correctness of model responses based on an image, question, and ground truth answer. Your judgment should follow these principles:
 1. Consider the image, question, and ground truth answer holistically before evaluating the model's response.
@@ -76,43 +61,6 @@ JUDGE_RS_PROMPT = JUDGE_RS_SYSTEM_PROMPT + "\n\n" + JUDGE_RS_USER_PROMPT
 # llm_judge.json so completed runs remain traceable to the exact judge
 # protocol that produced the score.
 JUDGE_RS_VERSION = "judge_rs_v2_20260428"
-
-
-# ---------------------------------------------------------------------------
-# v1 prompt — kept as backup for reproducibility / rollback. NOT ACTIVE.
-# v1 was byte-exact port of MM-DeepResearch/eval/prompt.py (11 rules,
-# bare Yes/No output). Run BCVL with v1 by manually swapping
-# JUDGE_RS_*_PROMPT = JUDGE_RS_*_PROMPT_BK in this file.
-# ---------------------------------------------------------------------------
-JUDGE_RS_SYSTEM_PROMPT_BK = """You are an AI assistant tasked with evaluating the correctness of model responses based on the question, and ground truth answer.
-Your judgment should follow these principles:
-1. Consider the question, and ground truth answer holistically before evaluating the model's response.
-2. Your decision should be strictly Yes or No, based on whether the model's response is factually accurate and aligns with the ground truth answer.
-3. If the model response is a more specific form of the ground truth answer, it is correct.
-4. If the model response includes all key information but adds minor details, it is correct as long as the extra details are factually correct.
-5. If the model response contradicts, modifies, or omits critical parts of the answer, it is incorrect.
-6. For numerical values, ensure correctness even when presented in different units.
-7. For names, check for first and last name correctness. If the middle name is extra but correct, consider it correct.
-8. For yes/no questions, the response must exactly match \"Yes\" or \"No\" to be correct.
-9. If the model response contains refusal statements, and does not directly answer the question, it must be judged incorrect.
-10. If there are multiple candidate answers, you can also evaluate the model's response against all of them. If the response aligns with at least one candidate according to the rules above, it should be considered correct.
-11. If the model response is empty, it is incorrect.
-Your output must be in the following format: Yes or No"""
-
-
-JUDGE_RS_USER_PROMPT_BK = """Question, and Model Response Evaluation
-Question: {question}
-Ground Truth Answer: {ground_truth_answer}
-Candidate Answers: {candidate_answers}
-Model Response: {model_response}
-Evaluation Instructions
-Evaluate whether the Model Response is correct based on the Question, Ground Truth Answer and Candidate Answers.
-Follow the predefined judgment rules and provide a clear Yes/No answer without any illustrations.
-Output Format Yes or No"""
-
-
-JUDGE_RS_PROMPT_BK = JUDGE_RS_SYSTEM_PROMPT_BK + "\n\n" + JUDGE_RS_USER_PROMPT_BK
-JUDGE_RS_VERSION_BK = "judge_rs_v1_20260425"
 
 
 # ---------------------------------------------------------------------------
