@@ -1,3 +1,4 @@
+# resize_image_by_factor and encode_image_to_base64 are adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 """Image transport encoding shared by memory and model input formatting."""
 import base64
 import io
