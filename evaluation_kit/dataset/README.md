@@ -50,7 +50,8 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 - Every TSV except CountQA and PixmoCount downloads with its images on first use from
   [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets).
   CountQA is built from `Jayant-Sravan/CountQA`; PixmoCount is built from `allenai/pixmo-count`
-  by fetching each image from its source URL, dropping rows whose image is gone.
+  by fetching each image from its source URL, dropping rows whose image is gone, so its row
+  count can fall below the 534 listed as source URLs disappear.
 - HallusionBench: the TSV has 1,129 rows; the 178 without an image are skipped.
 - FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate a fixed 300-row sample
   (`random_state=42`) unless `FVQA_TEST_ALL`, `INFOSEEK_GDM_TEST_ALL` or
@@ -79,15 +80,18 @@ ImageBaseDataset (image_base.py)
     CustomVQADataset
 ```
 
-`SimpleVQA_EN`, the MMSearch sub-task loaders and `LVISMaskDataset` are also registered. An
-unknown name falls back to `$LMUData/<name>.tsv`, loaded as `CustomMCQDataset` if it has `A`
-and `B` option columns and otherwise as `CustomVQADataset`, which has no evaluator.
+`SimpleVQA_EN`, the MMSearch sub-task loaders and `LVISMaskDataset` (masks, scored by IoU
+matching rather than AP; not covered here) are also registered. An unknown name falls back to
+`$LMUData/<name>.tsv`, which needs a `question` column. It is loaded as `CustomMCQDataset` if
+it has `A` and `B` option columns and an `image` or `image_path` column (an A/B TSV without
+either is rejected), and otherwise as `CustomVQADataset`, which has no evaluator.
 
 ## Grounding metrics
 
-Grounding needs no judge. Every grounding loader reports COCO box AP over IoU 0.50:0.95
-(`AP`), plus AP50, AP75 and size breakdowns. Boxes are parsed from the response (JSON, or a
-fallback for lists of four numbers) and mapped from the 0-1000 grid to pixels.
+Grounding needs no judge. Every box-grounding loader reports box AP over IoU 0.50:0.95
+(`AP`), plus AP50, AP75 and size breakdowns, computed by `pycocotools` COCOeval for ODinW-13
+and FSCD and by `LVISEval` for LVIS. Boxes are parsed from the response (JSON, or a fallback
+for lists of four numbers) and mapped from the 0-1000 grid to pixels.
 
 - **ODinW-13** (`odinw.py`): each `_qwen3` row is one image whose prompt lists every category
   of its domain, and predicted labels are mapped to category ids. `pycocotools` COCOeval runs
@@ -98,9 +102,12 @@ fallback for lists of four numbers) and mapped from the 0-1000 grid to pixels.
   once with default parameters (`maxDets` 100). Errors of the predicted box counts (MAE,
   RMSE, NAE, exact match, within 5% and 10%) are reported alongside.
 - **LVIS** (appendix; `LVIS_bbox_val_federated`, `lvis.py`): the official `LVISEval` with
-  `max_dets=300` on the queried (image, category) pairs, including verified-absent categories.
-  Build the TSV with [`scripts/prepare_lvis_federated.py`](scripts/prepare_lvis_federated.py);
-  the annotations are read from `LVIS_GT_PATH`, `LVIS_DATA_ROOT` or `$LMUData/lvis-api/data/`.
+  `max_dets=300` on the queried (image, category) pairs, including verified-absent categories;
+  it also reports APr, APc and APf. Build the TSV by running
+  [`scripts/prepare_lvis_positive_only.py`](scripts/prepare_lvis_positive_only.py), which moves
+  the images into `$LMUData/images/LVIS`, and then
+  [`scripts/prepare_lvis_federated.py`](scripts/prepare_lvis_federated.py). The annotations are
+  read from `LVIS_GT_PATH`, `LVIS_DATA_ROOT` or `$LMUData/lvis-api/data/`.
 
 AP ranks boxes by confidence, which the judge-config key `score_mode` sets. `constant` gives
 every box 1.0. `original` matches each box (IoU >= 0.5) to the tool detections saved in
@@ -122,16 +129,20 @@ inspecting runs, not reported metrics.
 saved with the run. `load_judge_config` ([`../utils/judge_utils.py`](../utils/judge_utils.py))
 maps `model_name`, `api_base`, `key`, `nproc` and `retry` to `evaluate()` keyword arguments
 and passes any other key through; `build_judge` ([`utils/judge_util.py`](utils/judge_util.py))
-wraps the model in an OpenAI-compatible client. Evaluators read three extra keys:
+wraps the model in an OpenAI-compatible client. The extra keys that matter for the paper
+benchmarks are below; a few loaders read other flags (`use_verifier`, `enable_vdr_aux`,
+`use_exact_match`), all off by default.
 
 | Key | Values | Read by |
 | --- | --- | --- |
 | `judge_prompt` | `hle`, `judge_rs`, `judge_vdr`; RealXBench, MMBrowseComp and VisBrowseBench take `realxbench`, `mmbrowsecomp` and `vbb` instead of `hle` | the search loaders |
-| `judge_max_tokens` | output-token cap per judge call, default 2048 | `build_judge`, `resolve_judge_max_tokens` |
+| `judge_max_tokens` | output-token cap per judge call, default 2048; SimpleVQA's judge call sets no cap | `build_judge`, `resolve_judge_max_tokens` |
 | `score_mode` | `constant` or `original` | the grounding loaders |
 
-The prompts live in `utils/hle_judge.py`, `utils/judge_rs.py`, `utils/judge_vdr.py`,
-`utils/realxbench_judge.py`, `utils/mmbrowsecomp_judge.py` and `utils/visbrowse_bench_judge.py`.
+The `judge_prompt` prompts live in `utils/hle_judge.py`, `utils/judge_rs.py`,
+`utils/judge_vdr.py`, `utils/realxbench_judge.py`, `utils/mmbrowsecomp_judge.py` and
+`utils/visbrowse_bench_judge.py`; the fixed SimpleVQA and FREAK_VQA prompts live in
+`simplevqa.py` and `utils/verifier.py`.
 The benchmark table gives the code defaults; the judge model and prompt behind each paper table
 are stated in the paper's appendix. The table's last column means:
 
@@ -154,17 +165,20 @@ it only for benchmarks that need no judge.
 ## Adding a dataset
 
 1. Write a TSV with `index`, `question` and `answer` columns and either `image` (base64, or
-   the `index` of a row whose image to reuse) or `image_path` (absolute, or relative to
-   `$LMUData/images/<folder>` when resolved by `dump_image`). Multiple-choice TSVs add option
-   columns `A`, `B`, ...
+   the `index` of a row whose image to reuse) or `image_path` (absolute: the default
+   `build_prompt` passes it through unchanged, and only a `build_prompt` that calls
+   `dump_image` resolves relative paths against `$LMUData/images/<name>`). Multiple-choice
+   TSVs add option columns `A`, `B`, ...
 2. Subclass `ImageMCQDataset`, `ImageVQADataset` or `ImageYORNDataset` to reuse their prompt
-   and scoring, or `ImageBaseDataset` to write both.
+   and scoring, or `ImageBaseDataset`, whose default prompt is the images followed by the
+   question and whose `evaluate` does nothing.
 3. Set `DATASET_URL` and `DATASET_MD5`, keyed by the `--data` name (`supported_datasets()`
    returns the `DATASET_URL` keys). Use `hf_tsv_url(name)` for a split hosted in the evaluation
    repository; with an empty URL the loader reads `$LMUData/<name>.tsv`.
-4. Implement `build_prompt(line)`, which returns `[{'type': 'image', 'value': path}, ...,
-   {'type': 'text', 'value': prompt}]`, and `evaluate(eval_file, **judge_kwargs)`, which
-   scores the prediction file, writes score files next to it and returns the metrics.
-   `ImageBaseDataset.evaluate` does nothing, so direct subclasses must implement it.
+4. Override `build_prompt(line)` if needed; it returns `[{'type': 'image', 'value': path},
+   ..., {'type': 'text', 'value': prompt}]`. Implement `evaluate(eval_file, **judge_kwargs)`
+   when the base class's does not fit, which is always the case for a direct `ImageBaseDataset`
+   subclass; it scores the prediction file, writes score files next to it and returns the
+   metrics.
 5. Import the class in [`__init__.py`](__init__.py) and add it to `IMAGE_DATASET`; when two
    classes serve the same name, the earlier one wins.
