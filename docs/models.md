@@ -70,8 +70,9 @@ presets retain their configured budgets.
 When `agent.max_context_length` is set, it must be greater than the orchestrator's
 effective `max_tokens` plus a 512-token margin. Configurations with no remaining
 input budget fail during loading, before tokenizer loading or inference. Increase
-the context window or lower `max_tokens` to resolve the error. Omitting `max_context_length` or setting it to
-`null` leaves context enforcement to the provider.
+the context window or lower `max_tokens` to resolve the error. Omitting
+`max_context_length` or setting it to `null` leaves context enforcement to the
+provider.
 
 ## Raw trace export (Qwen only)
 

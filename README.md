@@ -310,9 +310,10 @@ splits were built.
 For benchmarks requiring an LLM judge or answer extractor, start from
 [configs/judge.yaml](configs/judge.yaml) and configure the judge model, endpoint,
 and key. `api_base` is the full chat-completions URL, for example
-`https://api.openai.com/v1/chat/completions`. The paper uses GPT-4o for search and deep-research judging and
-Qwen3-VL-8B-Instruct for other LLM-judged tasks and answer extraction. The shipped
-judge configuration points to Qwen; use the appropriate judge for each benchmark.
+`https://api.openai.com/v1/chat/completions`. The paper uses GPT-4o for search and
+deep-research judging and Qwen3-VL-8B-Instruct for other LLM-judged tasks and
+answer extraction. The shipped judge configuration points to Qwen; use the
+appropriate judge for each benchmark.
 
 <details>
 <summary>Grounding confidence scores</summary>

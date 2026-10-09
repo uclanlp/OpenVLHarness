@@ -31,5 +31,5 @@ source arguments as `prepare_fscdlvis_box`.
 | `build_hf_release`, `backup_eval_datasets` | Release/export and backup utilities; inspect destinations before running |
 | `patch_grounding_prompts` | Update local grounding TSV prompts; pass `--dry-run` to inspect first |
 
-For prompt maintenance, supply `--lmu-data` or set `LMUData`. Service launch examples are documented separately under
-[tool services](../../../openvlharness/services/tools/README.md).
+For prompt maintenance, supply `--lmu-data` or set `LMUData`. Service launch examples
+are documented separately under [tool services](../../../openvlharness/services/tools/README.md).

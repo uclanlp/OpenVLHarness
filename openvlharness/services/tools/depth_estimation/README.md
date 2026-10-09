@@ -45,4 +45,5 @@ router, which needs its own Matplotlib ([router setup](../README.md)).
 The tested environment reported an incompatible xFormers extension warning,
 while depth and pose inference completed successfully through the available
 implementation. Keep accelerator packages compatible with the selected
-Torch/Python versions. The deployment notes list the [tested versions and revisions](../README.md#tested-environment).
+Torch/Python versions. The deployment notes list the
+[tested versions and revisions](../README.md#tested-environment).

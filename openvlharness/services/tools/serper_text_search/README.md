@@ -8,8 +8,8 @@ of the main GPT or Qwen backbone.
 Configure the auxiliary connection in `services.models.auxiliary` and select
 it with each search wrapper's `model_service`. The paper YAML expands
 `AUXILIARY_MODEL_BASE_URL` and `AUXILIARY_MODEL_API_KEY`. An alternative model
-requires an explicit supported profile and connection. Search uses its own prompt and context, not the
-orchestrator conversation.
+requires an explicit supported profile and connection. Search uses its own
+prompt and context, not the orchestrator conversation.
 
 Fixed paper settings are summarization on, multimodal mode on, 10 retrieved
 results, at most 3 retained images/results, 4096 summary tokens, temperature 0,
