@@ -28,9 +28,8 @@ silently reduce the output budget. Omitting `max_context_length` or setting it t
 
 ## Raw trace export (Qwen only)
 
-Pass `--save-raw-trace` to `run_benchmark.py` for image/text datasets using
-the `qwen3-vl-8b-instruct` profile. GPT, Kimi, other profiles and the video runner
-are rejected before their inference begins. The flag enables
+Pass `--save-raw-trace` to `run_benchmark.py` with the `qwen3-vl-8b-instruct`
+profile. GPT, Kimi and other profiles are rejected before their inference begins. The flag enables
 `services.models.<orchestrator-service>.return_token_ids: true` in the effective
 configuration saved with the run and included in its resume identity. The normal
 paper preset remains `false`; there is no `extra_body` configuration to edit.

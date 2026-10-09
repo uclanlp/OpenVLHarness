@@ -469,8 +469,6 @@ def main(argv=None):
             dist.barrier()
 
         dataset = datasets.build_dataset(dataset_name, **dataset_kwargs)
-        if args.mode != "eval" and args.save_raw_trace and dataset is not None and dataset.MODALITY == 'VIDEO':
-            raise ValueError("Raw trace export supports Qwen image/text datasets only; the video runner does not support raw export.")
         if dataset is not None and args.num_examples is not None:
             if args.shuffle:
                 import random
