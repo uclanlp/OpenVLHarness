@@ -12,10 +12,13 @@ is the all-categories-at-once variant shipped with
     prompt; the model emits a JSON list of ``{bbox_2d, label}`` records
     covering multiple classes in one response.
 
-  * **Prompt template** (verbatim from the shipped ``dataset_utils.py``):
-
-        Locate every instance that belongs to the following categories:
-        '<class_a>, <class_b>, ...'. Report bbox coordinates in JSON format.
+  * **Prompt template.** The shipped ``dataset_utils.py`` prompt
+    ("Locate every instance that belongs to the following categories:
+    '<class_a>, <class_b>, ...'. Report bbox coordinates in JSON format.")
+    extended to pin the answer format: a list of ``{"bbox_2d", "label"}``
+    objects with 0-1000 coordinates, an example built from the row's first one
+    or two categories, and an empty list when no category is present. The
+    released ``ODinW13_bbox_{val,test}_qwen3`` splits use this prompt.
 
   * **No caption_prompt rewrites by default** — the shipped Qwen3-VL eval
     feeds raw MMDet ``class_name`` tuples. Use ``--class-names mmdet`` to
@@ -85,12 +88,18 @@ log = logging.getLogger(__name__)
 
 
 def build_qwen3_question(class_names_joined: str) -> str:
-    """Qwen3-VL ODinW evaluation prompt (verbatim from issue #1904 /
-    ``Qwen3-VL/evaluation/ODinW-13/dataset_utils.py``).
-    """
+    """ODinW prompt of the released ``_qwen3`` splits (see the module docstring)."""
+    names = [n.strip() for n in class_names_joined.split(',') if n.strip()]
+    example_items = [f'{{"bbox_2d": [x1, y1, x2, y2], "label": "{n}"}}' for n in names[:2]]
+    example = '[' + ', '.join(example_items) + ']'
     return (
         f"Locate every instance that belongs to the following categories: "
-        f"'{class_names_joined}'. Report bbox coordinates in JSON format."
+        f"'{class_names_joined}'. Report the bounding boxes in JSON format as a list of "
+        f"objects, one object per detected instance, where each object has a \"bbox_2d\" key "
+        f"with [x1, y1, x2, y2] and a \"label\" key with the category name exactly as written "
+        f"above. Coordinates must be normalised on a 0-1000 scale, with (0,0) as the top-left "
+        f"corner and (1000,1000) as the bottom-right corner of the image. For example: "
+        f"{example}. If none of the listed categories is present, output an empty list []."
     )
 
 
