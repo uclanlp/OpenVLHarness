@@ -328,10 +328,25 @@ class ModelContextTests(unittest.TestCase):
         self.assertEqual(model._count_tokens(messages, tools), 3)
         call = model._tokenizer.apply_chat_template.call_args
         self.assertEqual(call.args[0][0]["content"][0], {"type": "text", "text": "[image]"})
-        self.assertEqual(call.kwargs, {"tokenize": True, "add_generation_prompt": True, "tools": tools})
+        self.assertEqual(call.kwargs, {"tokenize": True, "add_generation_prompt": True, "return_dict": False,
+                                       "tools": tools})
         self.assertEqual(messages[0]["content"][0]["image_url"]["url"], IMAGE)
         model._tokenizer.apply_chat_template.side_effect = ValueError("unsupported template")
         self.assertIsNone(model._count_tokens(messages, tools))
+
+    def test_token_counter_counts_ids_when_template_defaults_to_encoding_dict(self):
+        # transformers 5 returns a two-key BatchEncoding unless return_dict=False.
+        class Tokenizer:
+            def apply_chat_template(self, messages, tokenize, add_generation_prompt, return_dict=True, **kwargs):
+                ids = list(range(1000))
+                return {"input_ids": ids, "attention_mask": [1] * len(ids)} if return_dict else ids
+        model = adapter(max_tokens=100)
+        model.max_context_length = 1000
+        model._tokenizer = Tokenizer()
+        messages = [{"role": "user", "content": "question"}, {"role": "assistant", "content": "x" * 200}]
+        self.assertEqual(model._count_tokens(messages), 1000)
+        self.assertEqual(model._ensure_context_fits(messages, ["tool"], "auto"), (None, "none"))
+        self.assertEqual(messages, [{"role": "user", "content": "question"}])
 
     def test_compaction_protects_initial_block_latest_exchange_and_latest_inventory(self):
         messages = [{"role": "system", "content": "system"}, {"role": "user", "content": "question"},

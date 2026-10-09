@@ -558,7 +558,8 @@ class ModelAdapter:
             if tokenizer is None:
                 return None
             sanitized = self._sanitize_msgs_for_template(msgs)
-            tmpl_kwargs = dict(tokenize=True, add_generation_prompt=True)
+            # transformers 5 returns a BatchEncoding unless return_dict=False.
+            tmpl_kwargs = dict(tokenize=True, add_generation_prompt=True, return_dict=False)
             if tools:
                 tmpl_kwargs["tools"] = tools
             tokens = tokenizer.apply_chat_template(sanitized, **tmpl_kwargs)
