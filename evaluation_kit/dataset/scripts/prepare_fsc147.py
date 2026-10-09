@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Prepare FSC-147 dataset TSV files for VLMEvalKit evaluation.
+"""Prepare FSC-147 dataset TSV files for OpenVLHarness evaluation.
 
 Usage:
-    python scripts/prepare_fsc147.py \
+    python -m evaluation_kit.dataset.scripts.prepare_fsc147 \
         --desc-json /path/to/FSC-147-D.json \
         --anno-json /path/to/annotation_FSC147_384.json \
         --image-dir /path/to/images_384_VarV2 \

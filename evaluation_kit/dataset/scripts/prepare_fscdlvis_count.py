@@ -24,9 +24,9 @@ Usage:
         --lvis-taxonomy "$LVIS_TAXONOMY" \
         [--output-dir $LMUData]
 
-Eval is handled by ``FSC147Dataset`` (the standard counting evaluator);
-its DATASET_URL has been extended to include these five names, so
-``python run_benchmark.py --data FSCD_LVIS_count_val`` works end-to-end.
+Eval is handled by ``FSC147Dataset`` (the standard counting evaluator), which
+registers these five names, so ``openvlharness-eval --data FSCD_LVIS_count_val``
+works.
 
 Schema:
   index           "<split>_<image_id>_<lvis_cat_id>"

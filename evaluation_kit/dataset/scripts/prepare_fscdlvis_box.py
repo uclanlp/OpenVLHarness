@@ -27,9 +27,8 @@ Usage:
         --lvis-taxonomy "$LVIS_TAXONOMY" \
         [--output-dir $LMUData]
 
-Images are not copied: ``lmu_data/images/LVIS/`` already contains every
-FSCD-LVIS image (verified at prep time; FSCD-LVIS uses the COCO image id
-naming convention, so files line up by name).
+Images are not copied; run ``prepare_lvis_positive_only`` first so
+``$LMUData/images/LVIS/`` exists (FSCD-LVIS uses COCO image file names).
 """
 
 import argparse

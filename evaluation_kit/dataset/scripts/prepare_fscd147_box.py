@@ -21,8 +21,8 @@ train is intentionally skipped — FSCD-147 has no ground-truth bboxes for train
 (only points + 3 exemplars per image), so there is no detection GT to evaluate
 against.
 
-Images are not copied: ``lmu_data/images/FSC147/`` already mirrors
-``images_384_VarV2/`` exactly (verified at prep time).
+Images are not copied; run ``prepare_fsc147`` first so ``$LMUData/images/FSC147/``
+exists.
 
 Schema (matches LVIS/ODinW bbox TSVs, plus an exemplar column):
   index           "<split>_<image_id>_1"  (category_id is the dummy 1)
