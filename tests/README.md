@@ -11,8 +11,8 @@ python -m pip install -e '.[test,server]'   # add eval for tests/evaluation
 python -m pytest tests -q
 ```
 
-`tests/evaluation/` is collected only when pandas is importable, which the `eval`
-extra provides. The tests run offline and need no GPU, model server or API key:
-`conftest.py` removes provider credentials from the environment and refuses
+`tests/evaluation/` is collected only when the `eval` extra is installed. The
+tests run offline and need no GPU, model server or API key: `conftest.py` removes
+provider credentials and proxy settings from the environment and refuses
 connections to non-loopback addresses. [fixtures/README.md](fixtures/README.md)
 describes the frozen reference outputs.

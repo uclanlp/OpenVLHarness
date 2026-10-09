@@ -1,8 +1,9 @@
-"""Each deterministic evaluator family scores a 3-row prediction file to known metrics.
+"""The counting, CountQA, image-MCQ and spatial-MCQ evaluators each score a 3-row
+prediction file (two right, one wrong) to known metrics; integer extraction is
+checked on a fixed table.
 
 Evaluators are instantiated without loading their benchmark (no download); the
-prediction file carries the columns the real TSVs provide. Two rows are right
-and one is wrong in every case.
+prediction file carries the columns the real TSVs provide.
 """
 import pandas as pd
 import pytest
@@ -63,4 +64,3 @@ def test_spatial_mcq_overall(tmp_path, name):
 ])
 def test_integer_extraction(text, expected):
     assert extract_integer_from_prediction(text) == expected
-

@@ -40,8 +40,9 @@ def w2c(yaw_deg=0.0, center=(0.0, 0.0, 0.0)):
 
 
 def test_camera_motion_is_expressed_in_the_first_camera_frame():
-    first, moved, turned = interpret_camera_trajectory(
-        np.stack([w2c(), w2c(center=(1.5, 0, 0)), w2c(yaw_deg=30)]))
+    first, moved, turned = interpret_camera_trajectory(np.stack([
+        w2c(yaw_deg=90, center=(2, 0, 0)), w2c(yaw_deg=90, center=(2, 0, -1.5)),
+        w2c(yaw_deg=120, center=(2, 0, 0))]))
     assert first["movement_summary"] == "reference camera"
     assert moved["camera_center_delta"] == pytest.approx([1.5, 0, 0], abs=1e-5)
     assert moved["movement_summary"].startswith("salient direction: right (+1.50)")
