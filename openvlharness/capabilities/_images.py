@@ -2,12 +2,18 @@
 
 Capabilities interpret backend result fields; memory stores image bytes and IDs.
 """
+
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
 from ..memory.run_state import ImagesState
-from ..memory.images import (_is_likely_base64, resolve_registry_image_data_url,
-    register_image_data_url, next_tool_generated_image_ref_id)
+from ..memory.images import (
+    _is_likely_base64,
+    resolve_registry_image_data_url,
+    register_image_data_url,
+    next_tool_generated_image_ref_id,
+)
+
 _DROP_VALUE = object()
 _IMAGE_RESULT_KEY_HINTS = (
     "all_masks_viz_base64",
@@ -32,12 +38,14 @@ def _is_image_id_key(key: Any) -> bool:
         return False
     return key_lower.endswith("_id") and "image" in key_lower
 
+
 def _is_image_ids_key(key: Any) -> bool:
     """Recognize a public plural image-reference argument by its field name."""
     key_lower = str(key).lower()
     if key_lower.startswith("_"):
         return False
     return key_lower.endswith("_ids") and "image" in key_lower
+
 
 def _resolve_image_ids_in_args(
     images: ImagesState,
@@ -121,7 +129,9 @@ def _resolve_image_ids_in_args(
             if not isinstance(raw_id, str) or not raw_id.strip():
                 continue
 
-            data_url, matched_ref, fallback_mode = resolve_registry_image_data_url(images, raw_id)
+            data_url, matched_ref, fallback_mode = resolve_registry_image_data_url(
+                images, raw_id
+            )
             if data_url:
                 value[base64_key] = data_url
                 value.pop(id_key, None)
@@ -150,8 +160,13 @@ def _resolve_image_ids_in_args(
         for idx, child in enumerate(value):
             if isinstance(child, (dict, list)):
                 _resolve_image_ids_in_args(
-                    images, child, path=f"{path}[{idx}]", rewrites=rewrites, errors=errors
+                    images,
+                    child,
+                    path=f"{path}[{idx}]",
+                    rewrites=rewrites,
+                    errors=errors,
                 )
+
 
 def _is_image_result_key(key: Any) -> bool:
     """Identify renderable image fields while excluding raw numeric data fields."""
@@ -164,11 +179,18 @@ def _is_image_result_key(key: Any) -> bool:
         return any(
             hint in k
             for hint in (
-                "image", "viz", "mask", "depth", "overlay",
-                "edited", "cropped", "subplot",
+                "image",
+                "viz",
+                "mask",
+                "depth",
+                "overlay",
+                "edited",
+                "cropped",
+                "subplot",
             )
         )
     return False
+
 
 def _guess_image_mime(key: Any) -> str:
     """Infer JPEG from a field name, defaulting other image fields to PNG."""
@@ -176,6 +198,7 @@ def _guess_image_mime(key: Any) -> str:
     if "jpg" in k or "jpeg" in k:
         return "image/jpeg"
     return "image/png"
+
 
 def _to_image_data_url(key: Any, value: Any) -> Optional[str]:
     """Normalize an image field to a data URL, or return None for unrecognized values."""
@@ -190,6 +213,7 @@ def _to_image_data_url(key: Any, value: Any) -> Optional[str]:
         return None
     mime = _guess_image_mime(key)
     return f"data:{mime};base64,{raw}"
+
 
 def _extract_images_and_scrub_result(
     value: Any,
@@ -231,13 +255,16 @@ def _extract_images_and_scrub_result(
     if isinstance(value, str):
         raw = value.strip()
         is_explicit_image = raw.startswith("data:image/")
-        should_try_image = is_explicit_image or image_context or _is_image_result_key(key_hint)
+        should_try_image = (
+            is_explicit_image or image_context or _is_image_result_key(key_hint)
+        )
         if should_try_image:
             url = _to_image_data_url(key_hint or "image", raw)
             if url:
                 image_parts.append({"type": "image_url", "image_url": {"url": url}})
                 return _DROP_VALUE
     return value
+
 
 def _extract_image_parts(result: Any) -> Tuple[List[Dict[str, Any]], Any]:
     """Return ordered image content parts and a result copy without embedded image bytes."""
@@ -248,6 +275,7 @@ def _extract_image_parts(result: Any) -> Tuple[List[Dict[str, Any]], Any]:
     if compact_result is _DROP_VALUE:
         compact_result = None
     return image_parts, compact_result
+
 
 def _register_tool_output_images(
     images: ImagesState, payload: Dict[str, Any], image_parts: List[Dict[str, Any]]
@@ -279,6 +307,7 @@ def _register_tool_output_images(
         if assigned_ref:
             refs.append(assigned_ref)
     return refs
+
 
 def prepare_images(payload, prepared, state):
     """Extract, register and summarize image artifacts from a successful tool result.
@@ -315,11 +344,13 @@ def prepare_images(payload, prepared, state):
         text_payload = json.dumps(compact_payload, ensure_ascii=False)
     except Exception:
         text_payload = str(compact_payload)
-    prepared.update({
-        "text_payload": text_payload,
-        "compact_payload": compact_payload,
-        "compact_result": compact_result,
-        "image_parts": image_parts,
-        "image_refs": image_refs,
-    })
+    prepared.update(
+        {
+            "text_payload": text_payload,
+            "compact_payload": compact_payload,
+            "compact_result": compact_result,
+            "image_parts": image_parts,
+            "image_refs": image_refs,
+        }
+    )
     return prepared

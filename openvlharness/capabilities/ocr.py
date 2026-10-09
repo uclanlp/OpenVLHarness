@@ -4,6 +4,10 @@ OCR_Tool presents the transcription to the model and registers it as a Python
 binding for calculations or text processing.
 """
 
+from typing import TypedDict
+
+from ._base import BaseCapability
+
 PROCESSOR_MODE = "custom"
 
 
@@ -54,36 +58,41 @@ def process_tool_output(payload, prepared, tool_metadata=None):
     }
 
 
-from ._base import BaseCapability
-
-PUBLIC_SCHEMA = {'type': 'function',
- 'function': {'name': 'OCR_Tool',
-              'description': 'Extract readable text from an image. Returns the transcribed text as '
-                             'a single string. Use this tool when the task is about words, '
-                             'numbers, or printed labels in the image. Do not use it for general '
-                             'object localization or segmentation.',
-              'parameters': {'type': 'object',
-                             'properties': {'image_id': {'type': 'string',
-                                                         'description': 'A runtime image ID from '
-                                                                        'Environment Update '
-                                                                        'messages, e.g. '
-                                                                        'input_image_1 or '
-                                                                        'tool_generated_image_1.'}},
-                             'required': []}}}
-
-from typing import TypedDict
+PUBLIC_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "OCR_Tool",
+        "description": "Extract readable text from an image. Returns the transcribed "
+        "text as a single string. Use this tool when the task is about words, numbers, "
+        "or printed labels in the image. Do not use it for general object localization "
+        "or segmentation.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "image_id": {
+                    "type": "string",
+                    "description": "A runtime image ID from Environment Update "
+                    "messages, e.g. input_image_1 or tool_generated_image_1.",
+                }
+            },
+            "required": [],
+        },
+    },
+}
 
 
 class Output(TypedDict):
     """Canonical transcription text and the backend's model identifier."""
+
     text: str
     model_id: str | None
 
 
 class Capability(BaseCapability):
     """Expose OCR text extraction and store transcriptions for Python calculations."""
-    name = 'OCR_Tool'
-    backends = {'ocr': 'OCR_Tool'}
+
+    name = "OCR_Tool"
+    backends = {"ocr": "OCR_Tool"}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
@@ -91,9 +100,16 @@ class Capability(BaseCapability):
         """Register a string transcription as an ocr binding and return its ID."""
         if not isinstance(result, dict) or not isinstance(result.get("text"), str):
             return []
-        return [memory.store_binding(prefix="ocr", query="", value={"text": result["text"]},
-            source_tool=self.name, source_args=call.arguments,
-            descriptions={"text": "transcribed text"})]
+        return [
+            memory.store_binding(
+                prefix="ocr",
+                query="",
+                value={"text": result["text"]},
+                source_tool=self.name,
+                source_args=call.arguments,
+                descriptions={"text": "transcribed text"},
+            )
+        ]
 
     def normalize_result(self, call, result, prepared, binding_refs) -> Output:
         """Extract transcription text and model provenance from the backend result."""

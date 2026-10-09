@@ -4,6 +4,10 @@ Zoom_In_Tool accepts a padded box on the 0–1000 coordinate scale and registers
 the crop as a new image reference for the model and subsequent tool calls.
 """
 
+from typing import TypedDict
+
+from ._base import BaseCapability
+
 PROCESSOR_MODE = "custom"
 
 
@@ -53,50 +57,55 @@ def process_tool_output(payload, prepared, tool_metadata=None):
     }
 
 
-from ._base import BaseCapability
-
-PUBLIC_SCHEMA = {'type': 'function',
- 'function': {'name': 'Zoom_In_Tool',
-              'description': 'Zoom into a region by cropping an image with a normalized bbox [x1, '
-                             'y1, x2, y2] plus padding, and return the cropped image. Use this '
-                             'tool for closer visual inspection after you already know the region. '
-                             'All coords values must be normalized on the 0-1000 scale (each value '
-                             'in [0, 1000]). When trying ti count or ground objects, please try '
-                             'different prompts using Visual_Grounding_Tool first Only use this '
-                             'tool to ground objects when the Visual_Grounding_Tool does not work.',
-              'parameters': {'type': 'object',
-                             'properties': {'image_id': {'type': 'string',
-                                                         'description': 'A runtime image ID from '
-                                                                        'Environment Update '
-                                                                        'messages, e.g. '
-                                                                        'input_image_1 or '
-                                                                        'tool_generated_image_1.'},
-                                            'coords': {'type': 'array',
-                                                       'description': 'Normalized bbox [x1, y1, '
-                                                                      'x2, y2] on a 0-1000 scale '
-                                                                      'where every value must be '
-                                                                      'in [0, 1000]. (x1, y1) is '
-                                                                      'top-left and (x2, y2) is '
-                                                                      'bottom-right.',
-                                                       'items': {'type': 'number'}},
-                                            'padding': {'type': 'number',
-                                                        'description': 'Extra normalized margin on '
-                                                                       'each side on the 0-1000 '
-                                                                       'scale (>= 50).'}},
-                             'required': ['coords']}}}
-
-from typing import TypedDict
+PUBLIC_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "Zoom_In_Tool",
+        "description": "Zoom into a region by cropping an image with a normalized bbox "
+        "[x1, y1, x2, y2] plus padding, and return the cropped image. Use this tool "
+        "for closer visual inspection after you already know the region. All coords "
+        "values must be normalized on the 0-1000 scale (each value in [0, 1000]). When "
+        "trying ti count or ground objects, please try different prompts using "
+        "Visual_Grounding_Tool first Only use this tool to ground objects when the "
+        "Visual_Grounding_Tool does not work.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "image_id": {
+                    "type": "string",
+                    "description": "A runtime image ID from Environment Update "
+                    "messages, e.g. input_image_1 or tool_generated_image_1.",
+                },
+                "coords": {
+                    "type": "array",
+                    "description": "Normalized bbox [x1, y1, x2, y2] on a 0-1000 scale "
+                    "where every value must be in [0, 1000]. (x1, y1) is top-left and "
+                    "(x2, y2) is bottom-right.",
+                    "items": {"type": "number"},
+                },
+                "padding": {
+                    "type": "number",
+                    "description": "Extra normalized margin on each side on the 0-1000 "
+                    "scale (>= 50).",
+                },
+            },
+            "required": ["coords"],
+        },
+    },
+}
 
 
 class Output(TypedDict):
     """Canonical crop result containing its registered image ID, or None."""
+
     image: str | None
 
 
 class Capability(BaseCapability):
     """Expose normalized-coordinate image cropping and register the resulting image."""
-    name = 'Zoom_In_Tool'
-    backends = {'zoom_in_image_by_bbox': 'Zoom_In_Tool'}
+
+    name = "Zoom_In_Tool"
+    backends = {"zoom_in_image_by_bbox": "Zoom_In_Tool"}
     schema = PUBLIC_SCHEMA
     process_output = staticmethod(process_tool_output)
 
