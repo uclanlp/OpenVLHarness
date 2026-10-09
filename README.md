@@ -631,10 +631,11 @@ search summarizer. We thank their authors for releasing them.
 
 OpenVLHarness is released under the [MIT License](LICENSE). The benchmark
 loaders and evaluators under `evaluation_kit/` are derived from
-[VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0);
-see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for that notice and for
-the licenses of the models, services and datasets the default tools use, which
-are not covered by the MIT License.
+[VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0), and
+the SAM 3 visualization helpers in `openvlharness/services/tools/sam3_segment/viz/`
+are under the SAM License. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
+for these notices and for the licenses of the models, services and datasets the
+default tools use, which are not covered by the MIT License.
 
 <a id="citation"></a>
 ## 📝 Citation
