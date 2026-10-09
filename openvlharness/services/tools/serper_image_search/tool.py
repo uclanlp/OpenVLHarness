@@ -7,7 +7,9 @@ The paper configuration supplies Qwen with query and candidate image pixels.
 
 import json
 import logging
+import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
@@ -24,6 +26,19 @@ from openvlharness.services.tools.serper_common import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Serper /lens sometimes answers HTTP 200 with an empty ``organic`` list for an
+# image it can match on the next call. SerperClient retries only transient HTTP
+# codes, so an empty 200 is retried here instead.
+LENS_EMPTY_MAX_ATTEMPTS = max(
+    1, int(os.getenv("SEARCH_LENS_EMPTY_MAX_ATTEMPTS", "4"))
+)
+LENS_EMPTY_BACKOFF_BASE_SEC = float(
+    os.getenv("SEARCH_LENS_EMPTY_BACKOFF_BASE_SEC", "0.5")
+)
+LENS_EMPTY_BACKOFF_MAX_SEC = float(
+    os.getenv("SEARCH_LENS_EMPTY_BACKOFF_MAX_SEC", "4.0")
+)
 
 
 # --- LLM summarize prompt (rerank + index-based top-K + prose summary) ---
@@ -624,8 +639,21 @@ class Image_Search_Tool(BaseTool):
         )
 
     @classmethod
-    def _format_no_matches(cls, image_ref: str) -> str:
-        """Render an empty Lens result with explanations and image-search recovery options."""
+    def _format_no_matches(cls, image_ref: str, attempts: int = 1) -> str:
+        """Render an empty Lens result with explanations and image-search recovery options.
+
+        ``attempts`` is how many times the identical Lens request was already
+        issued (see LENS_EMPTY_MAX_ATTEMPTS). The message must not claim that
+        retrying is pointless; an empty reply is often transient.
+        """
+        if attempts > 1:
+            retried = (
+                f" We already re-issued the identical request {attempts} times "
+                f"(Serper intermittently drops result sets), and every attempt came "
+                f"back empty, so a transient drop is now unlikely to be the cause."
+            )
+        else:
+            retried = ""
         return (
             "[Image Search — Visual Matches]\n"
             "NO VISUAL MATCHES\n\n"
@@ -633,8 +661,7 @@ class Image_Search_Tool(BaseTool):
             "This usually means the image content is generic / non-distinctive (a blank "
             "wall, a common object photographed without context), the image resolution is "
             "too low for Google Lens to anchor, or the subject is too obscure for the "
-            "Lens index. Serper itself responded successfully — this is NOT a transient "
-            "failure; retrying the exact same image will return the same empty result.\n\n"
+            f"Lens index.{retried}\n\n"
             "Suggested next actions for the agent (each bullet below is an INDEPENDENT\n"
             "alternative — pick whichever fits, no need to chain them):\n\n"
             f"{cls._image_recovery_options()}"
@@ -963,38 +990,67 @@ class Image_Search_Tool(BaseTool):
 
         # --- Call Serper Lens (with retry inside SerperClient; structured
         # error on final failure) ---
+        # The retry condition is ``not results`` (not ``not raw_items``) so it
+        # fires on exactly the states that render NO VISUAL MATCHES. Transport
+        # errors are left to SerperClient; this loop must not double-retry them.
         client = self._get_client()
-        try:
-            payload = client.lens(resolved_url)
-        except SerperRequestError as exc:
-            logger.warning(
-                "Image_Search_Tool: Serper Lens failed (transient=%s, status=%s, attempts=%d): %s",
-                exc.transient, exc.status_code, exc.attempts, exc,
-            )
-            return self._format_lens_error(image_ref_for_error, exc)
+        results: List[Dict[str, object]] = []
+        lens_attempts = 0
 
-        raw_items: List[Dict[str, object]] = payload.get("organic", [])
+        for attempt in range(1, LENS_EMPTY_MAX_ATTEMPTS + 1):
+            lens_attempts = attempt
+            try:
+                payload = client.lens(resolved_url)
+            except SerperRequestError as exc:
+                logger.warning(
+                    "Image_Search_Tool: Serper Lens failed (transient=%s, status=%s, attempts=%d): %s",
+                    exc.transient, exc.status_code, exc.attempts, exc,
+                )
+                return self._format_lens_error(image_ref_for_error, exc)
 
-        results = []
-        seen = set()
-        for item_data in raw_items:
-            if not isinstance(item_data, dict):
-                continue
-            match = self._extract_item(item_data)
-            if match is None:
-                continue
-            dedup_key = match["link"] or match["title"]
-            if dedup_key in seen:
-                continue
-            seen.add(dedup_key)
-            results.append(match)
-            if len(results) >= self._num_results:
+            raw_items: List[Dict[str, object]] = payload.get("organic", []) or []
+
+            results = []
+            seen = set()
+            for item_data in raw_items:
+                if not isinstance(item_data, dict):
+                    continue
+                match = self._extract_item(item_data)
+                if match is None:
+                    continue
+                dedup_key = match["link"] or match["title"]
+                if dedup_key in seen:
+                    continue
+                seen.add(dedup_key)
+                results.append(match)
+                if len(results) >= self._num_results:
+                    break
+
+            if results:
+                if attempt > 1:
+                    logger.info(
+                        "Image_Search_Tool: Serper Lens returned %d matches on attempt %d/%d "
+                        "after %d empty response(s) for the same URL.",
+                        len(results), attempt, LENS_EMPTY_MAX_ATTEMPTS, attempt - 1,
+                    )
                 break
+
+            if attempt < LENS_EMPTY_MAX_ATTEMPTS:
+                backoff = min(
+                    LENS_EMPTY_BACKOFF_BASE_SEC * (2 ** (attempt - 1)),
+                    LENS_EMPTY_BACKOFF_MAX_SEC,
+                )
+                logger.warning(
+                    "Image_Search_Tool: Serper Lens returned 0 matches (HTTP 200) on "
+                    "attempt %d/%d; retrying the same URL in %.1fs.",
+                    attempt, LENS_EMPTY_MAX_ATTEMPTS, backoff,
+                )
+                time.sleep(backoff)
 
         if not results:
             # Render an explicit no-matches result with recovery suggestions.
             # Includes cross-tool suggestions so the agent has a recovery path.
-            return self._format_no_matches(image_ref_for_error)
+            return self._format_no_matches(image_ref_for_error, attempts=lens_attempts)
 
         raw_text = self._format_raw_results(results)
 
