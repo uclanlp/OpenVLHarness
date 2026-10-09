@@ -93,19 +93,25 @@ def test_table_cache_is_deleted_when_the_predictions_change(tmp_path):
     assert not osp.exists(storage)
 
 
-def test_cache_without_fingerprint_is_kept_with_a_warning(cache, log_records):
+def test_judge_cache_without_fingerprint_is_kept_and_warned_every_run(cache, log_records):
     dump({1: "old verdict"}, cache)
-    guard_cache(cache, frame(["changed"]), "judge-a")
-    assert load(cache) == {1: "old verdict"}
-    warnings = [r for r in log_records.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert cache in warnings[0].getMessage() and "Delete it to re-judge" in warnings[0].getMessage()
-    assert osp.exists(fingerprint_path(cache))
+    for _ in range(2):
+        log_records.clear()
+        guard_cache(cache, frame(["changed"]), "judge-a")
+        assert load(cache) == {1: "old verdict"}
+        warnings = [r for r in log_records.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert cache in warnings[0].getMessage() and "Delete it to re-judge" in warnings[0].getMessage()
+        assert not osp.exists(fingerprint_path(cache))
 
-    log_records.clear()
-    guard_cache(cache, frame(["changed"]), "judge-a")
-    assert load(cache) == {1: "old verdict"}
-    assert not log_records.records
+
+@pytest.mark.parametrize("judge_model", [None, "exact_matching", "extract_matching"])
+def test_rule_based_cache_without_fingerprint_is_recomputed(cache, log_records, judge_model):
+    dump({1: "old result"}, cache)
+    guard_cache(cache, frame(["changed"]), judge_model)
+    assert not osp.exists(cache)
+    assert osp.exists(fingerprint_path(cache))
+    assert not [r for r in log_records.records if r.levelno == logging.WARNING]
 
 
 def test_spatial_llm_cache_follows_the_judge(tmp_path, monkeypatch):

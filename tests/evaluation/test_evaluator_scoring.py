@@ -86,3 +86,15 @@ def test_mmbrowsecomp_judge_accepts_chat_completions_url(tmp_path, monkeypatch, 
         prediction_file(tmp_path, "MMBrowseComp", rows), model="judge", key="k", api_base=api_base)
     assert base_urls == ["http://judge.test/v1"]
     assert result["Overall"].iloc[0] == 100.0
+
+
+def test_mcq_rescores_a_rule_based_cache_without_fingerprint(tmp_path):
+    from evaluation_kit.smp import dump
+
+    rows = {**MCQ, "prediction": ["A", "B", "C"]}
+    path = prediction_file(tmp_path, "RealWorldQA", rows)
+    # A cache written before fingerprints existed, from when row 1 had failed.
+    stale = {0: {"hit": 1, "log": ""}, 1: {"hit": 0, "log": "Failed in Prefetch"}, 2: {"hit": 1, "log": ""}}
+    dump(stale, str(tmp_path / "RealWorldQA" / "Model_exact_matching_result.pkl"))
+    result = evaluator("RealWorldQA", rows).evaluate(path, model="exact_matching")
+    assert result["Overall"].iloc[0] == pytest.approx(1.0)

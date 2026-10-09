@@ -16,6 +16,8 @@ from ...smp.file import dump, load
 from ...smp.log import get_logger
 
 FINGERPRINT_SUFFIX = '.fingerprint.json'
+# Judge settings whose cached results come from rule-based matching only.
+RULE_BASED_JUDGES = (None, '', 'exact_matching', 'extract_matching')
 
 
 def fingerprint_path(cache_path):
@@ -43,8 +45,10 @@ def guard_cache(cache_path, data, judge_model, prompt=None, keyed=True, key_col=
             with other keys (e.g. circular MCQ groups); any change deletes the file.
         key_col: column holding the cache keys.
 
-    A cache that has no sidecar cannot be checked; it is kept and a warning is
-    logged. The sidecar is always rewritten for the current run.
+    A cache that has no sidecar cannot be checked. A rule-based cache is deleted,
+    since recomputing it is cheap; an LLM judge cache is kept, a warning is
+    logged, and no sidecar is written, so the warning repeats until the cache is
+    deleted. Otherwise the sidecar is rewritten for the current run.
     """
     logger = get_logger('Evaluation')
     sidecar = fingerprint_path(cache_path)
@@ -56,10 +60,15 @@ def guard_cache(cache_path, data, judge_model, prompt=None, keyed=True, key_col=
     )
     if osp.exists(cache_path):
         if not osp.exists(sidecar):
-            logger.warning(
-                f'{cache_path} has no fingerprint, so its judge results are reused as they are. '
-                'Delete it to re-judge.'
-            )
+            if judge_model in RULE_BASED_JUDGES:
+                logger.info(f'{cache_path} has no fingerprint; deleting it to recompute its rule-based results')
+                os.remove(cache_path)
+            else:
+                logger.warning(
+                    f'{cache_path} has no fingerprint, so its judge results are reused without '
+                    'checking them against the current predictions. Delete it to re-judge.'
+                )
+                return
         else:
             old = load(sidecar)
             old_predictions = old.get('predictions', {})
