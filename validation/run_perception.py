@@ -34,7 +34,8 @@ def selected_datasets(manifest, data_root):
 def main():
     """Run direct-metric evaluation with a fresh output directory and saved identity."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("perception_samples.json"))
+    parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("perception_samples.json"),
+                        help="Frozen sample selection (default: perception_samples.json next to this script)")
     parser.add_argument("--data-root", type=Path, required=True, help="Prepared LMUData directory")
     parser.add_argument("--config", default="configs/agent/qwen3_8b_paper.yaml", help="Agent-system YAML for live runs")
     parser.add_argument("--output-dir", type=Path, help="New run directory; required for live runs")

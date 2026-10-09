@@ -176,8 +176,8 @@ def create_app(config, *, implementations=None):
 
 def main():
     """Load the CLI configuration and serve the router with Uvicorn."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True)
+    parser = argparse.ArgumentParser(prog="python -m openvlharness.services.server", description=__doc__)
+    parser.add_argument("--config", required=True, help="Agent-system YAML; use the same file as the agent")
     args = parser.parse_args()
     try:
         config = load_agent_config(args.config)
