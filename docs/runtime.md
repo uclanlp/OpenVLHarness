@@ -175,7 +175,7 @@ where the table names a model.
 | `agent.max_iterations` | positive integer | `15` | `15` | Maximum model/tool iterations per question; the last one asks for a final answer. |
 | `agent.max_context_length` | positive integer or null | null | `168000`; Kimi K3 `256000` | Context budget including the reserved output tokens; must exceed the orchestrator's `max_tokens` plus 512. Qwen profiles count tokens locally and compact history to fit. Other profiles, or null, leave enforcement to the provider. |
 | `agent.tool_choice` | string | `auto` | `auto` | Sent as the provider's `tool_choice` on regular requests. Not validated locally. |
-| `agent.paired_sampling_seed` | boolean | `false` | `false` | When true, Chat Completions requests for a sample with a task ID carry a seed derived from that ID and the iteration index. Responses requests carry no seed. |
+| `agent.paired_sampling_seed` | boolean | `false` | `false` | When true, Chat Completions requests for a sample with a task ID carry a seed derived from that ID, the iteration index and `HARNESS_SEARCH_SAMPLE_INDEX`. Responses requests carry no seed. |
 | `memory.modules` | list of `{name: ...}` mappings | required | `image`, `tool_context`, `url` | Enabled memory modules, unique and ordered `image`, `tool_context`, `url`. `image` is required. `tool_context` stores typed tool results (depth, camera, segmentation, OCR) as bindings for code execution; `url` stores webpage references for later tool calls. |
 | `memory.modules[url].webpage_env_update_limit` | positive integer or null | `20` | `20` | Number of most recent webpage references listed in each Environment Update; null lists all. Older references stay resolvable. No other module accepts options. |
 | `memory.emit_policy` | `always` or `on_change` | `always` | `always` | `always` emits the inventory after every successful tool turn; `on_change` emits only when images, the webpage count or the binding count changed. |
@@ -234,6 +234,8 @@ all of them, even those it does not use.
 | `LVIS_GT_PATH` | LVIS evaluation | Path to `lvis_v1_<split>.json`. Otherwise the loader tries `$LVIS_DATA_ROOT`, `$LMUData/lvis-api/data/` and `$LMUData`. |
 | `PRED_FORMAT` | evaluation | Prediction file format: `xlsx` (default), `tsv` or `json`. Recorded in the run manifest. |
 | `SCORE_MODE` | grounding evaluation | `constant` or `original` box confidence scoring, used when the judge configuration sets no `score_mode`. With neither, both modes run when detection sidecars exist (`original` is primary), otherwise `constant` alone. |
+| `MMDR_JUDGE_PROMPT` | search evaluation, `SimpleVQA_EN` | Overrides the judge configuration's `judge_prompt` (same values). It is not recorded with the run. |
+| `HARNESS_SEARCH_SAMPLE_INDEX` | agent | Integer added (times 1,000,003) to the paired sampling seed of `agent.paired_sampling_seed`; default 0. |
 | `FVQA_TEST_ALL`, `INFOSEEK_GDM_TEST_ALL`, `ENCYCLOPEDICVQA_TEST_ALL` | `FVQA_test`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` | `true` evaluates the full split. Unset or `false` evaluates a fixed 300-question subset sampled with seed 42. |
 | `SERPER_API_KEY` | router | Serper API key; takes precedence over the key file. |
 | `SERPER_API_KEY_FILE` | router | Path to a file containing the Serper API key. |
