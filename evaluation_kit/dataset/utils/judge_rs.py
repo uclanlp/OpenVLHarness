@@ -6,7 +6,8 @@ judge for an XML-tagged verdict (``<judge>Yes/No</judge>``) followed by a
 ``<reason>``. Rule 9 lets the judge ignore the image when the text alone
 decides the case, and rule 10 accepts a match against any candidate answer.
 ``parse_judge_rs_judgement`` falls back to bare Yes/No replies when the tags
-are missing.
+are missing. ``JUDGE_RS_VERSION`` (v2) is written into score files; an
+earlier bare Yes/No variant (v1) is no longer shipped.
 
 The search evaluators select it with ``judge_kwargs['judge_prompt'] = 'judge_rs'``
 or the env var ``MMDR_JUDGE_PROMPT=judge_rs``. It is the default judge for

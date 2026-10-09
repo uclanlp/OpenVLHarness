@@ -2,8 +2,10 @@
 
 The prompt is the judge prompt from the appendix of the Vision-DeepResearch
 (VDR) paper (arXiv 2601.22060), copied verbatim, including the
-``[Deep Research Report]`` field name and the plain-text
-``correct: yes/no\\nreasoning: [...]`` output format.
+``[Deep Research Report]`` field name and the one-line
+``correct: [yes/no] reasoning: [your explanation]`` output format;
+``parse_judge_vdr_judgement`` also accepts the two-line
+``correct: ...\\nreasoning: ...`` form.
 
 Different from ``judge_rs`` (MMSearch-R1 paper judge):
 - Judge_RS is rule-based (10-rule semantic-equivalence checklist, XML output)
@@ -12,8 +14,8 @@ Different from ``judge_rs`` (MMSearch-R1 paper judge):
 
 Used as a per-benchmark opt-in via env ``MMDR_JUDGE_PROMPT=judge_vdr`` or
 ``judge_kwargs['judge_prompt'] = 'judge_vdr'``. No evaluator uses it by
-default; each keeps its own default prompt (the HLE-style judge for most
-search benchmarks).
+default; each keeps its own default prompt (the HLE-style judge for
+MMSearch, MMSearch-Plus, BrowseComp-VL, VDR-Bench and SimpleVQA).
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import Any, Optional
 
 
 # ---------------------------------------------------------------------------
-# v1 prompt — VDR paper appendix, byte-exact. ACTIVE.
+# Prompt from the Vision-DeepResearch paper appendix.
 # ---------------------------------------------------------------------------
 JUDGE_VDR_PROMPT = """You are an impartial judge evaluating whether a deep research report contains the correct answer.
 [Question] {question}
