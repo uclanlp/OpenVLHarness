@@ -105,7 +105,7 @@ search, general VQA and hallucination, and spatial understanding):
 | --- | ---: | ---: | ---: |
 | Qwen3-VL-8B-Instruct | 35.99 | **47.14** | +11.15 |
 | Qwen3-VL-32B-Instruct | 40.10 | **52.51** | +12.41 |
-| Kimi K3 (max effort) | 57.95 | **67.15** | +9.20 |
+| Kimi K3 | 57.95 | **67.15** | +9.20 |
 | GPT-5 | 45.74 | **57.15** | +11.41 |
 | GPT-6 Luna (medium effort) | 43.18 | **55.76** | +12.58 |
 | GPT-6 Sol (medium effort) | 54.26 | **65.48** | +11.22 |
