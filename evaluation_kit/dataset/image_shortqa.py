@@ -198,7 +198,7 @@ def Judge_VDR_auxeval(model, item):
 
 
 _INFOSEEK_TEST_PARQUET_URL_DEFAULT = (
-    "https://github.com/tool-vision/multimodal-search-r1/"
+    "https://github.com/EvolvingLMMs-Lab/multimodal-search-r1/"
     "raw/main/mmsearch_r1/data/mmsearch_r1_infoseek_sub_2k.parquet"
 )
 
