@@ -1,3 +1,12 @@
+<p align="center">
+  <a href="https://openvlharness.github.io/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+      <img src="assets/logo.svg" alt="OpenVLHarness logo" width="96">
+    </picture>
+  </a>
+</p>
+
 <h1 align="center">OpenVLHarness</h1>
 
 <p align="center">
@@ -555,7 +564,7 @@ configs/                paper agent presets and judge settings
 docs/                   model, runtime and validation notes
 tests/                  harness tests; tests/evaluation/ needs the eval extra
 validation/             fixed perception subset for checking a tool deployment
-assets/                 README images
+assets/                 logo and teaser images
 run_benchmark.py        same program as openvlharness-eval
 ```
 
