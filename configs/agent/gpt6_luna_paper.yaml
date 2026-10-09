@@ -1,5 +1,6 @@
-# Native model/tool transports use 8 additional retries, matching the measured old runtime.
-# The old constructor field retry: 3 did not control these native transports.
+# Orchestrator and tool-router HTTP requests retry up to 8 times (9 attempts) on
+# timeouts, connection errors and HTTP 408, 429, 500, 502, 503 and 504.
+# The auxiliary model uses retry: 2.
 agent_name: MainAgent
 agent_config_version: paper_v1
 agent:

@@ -8,5 +8,4 @@ injects the configured auxiliary model; the paper default is greedy Qwen3-VL-
 Serper scraping processes each page independently. Keep successful pages when
 a sibling URL fails, retaining its error alongside original rendered text.
 Structured page metadata is preserved before formatting for the capability's
-canonical `pages` result. The retained Jina implementation is not an active
-fallback, and no local Jina key file is required for the paper path.
+canonical `pages` result.

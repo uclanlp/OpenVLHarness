@@ -1,6 +1,6 @@
-# Portable environment seed, not an export of a developer's full environment.
+# Minimal conda environment for the SAM3 raw server: Python, pip and git only.
 # After activation, run install.sh from this directory to install the raw server.
-# Stage 1 used Python 3.10.14; see ../README.md for observed versions and limits.
+# Tested with Python 3.10.14; see ../README.md for tested versions and limits.
 name: openvlharness-sam3
 channels:
   - conda-forge

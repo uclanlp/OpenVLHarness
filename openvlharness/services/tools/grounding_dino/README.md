@@ -1,8 +1,8 @@
 # GroundingDINO extension
 
 GroundingDINO is an optional alternative implementation of
-`Visual_Grounding_Tool`. It is not part of the SAM3 paper baseline and was not
-included in the stage-1 GPU validation.
+`Visual_Grounding_Tool`. The paper uses SAM3; GroundingDINO was not part of
+the GPU checks of the [tested environment](../README.md#tested-environment).
 
 In a separate model environment, install a compatible Torch/Torchvision pair,
 Transformers with `AutoModelForZeroShotObjectDetection`, FastAPI, Uvicorn,

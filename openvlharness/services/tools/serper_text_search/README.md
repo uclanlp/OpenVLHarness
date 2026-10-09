@@ -25,8 +25,7 @@ URLs. These controls are implementation constants, not task arguments or
 Set `SERPER_API_KEY` in the router process, or point `SERPER_API_KEY_FILE` at an
 explicit external secret file. The release does not ship provider keys or scan
 tool folders for key files. Restart the router when rotating a cached key.
-The current webpage path uses Serper scraping; the retained Jina helper is not
-an active fallback.
+Webpage visits use Serper scraping.
 
 Reverse image search uploads the query image to object storage and gives its
 signed URL to Serper Lens. Configure one provider in the router environment:

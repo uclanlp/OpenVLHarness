@@ -15,7 +15,7 @@ The installer pins the tested DA3 source commit and Torch 2.10.0/Torchvision
 0.25.0 CUDA 12.8 wheels. It installs upstream DA3 dependencies, NumPy below 2
 and the HTTP/plotting dependencies. Gaussian-splat rendering (`gsplat`) and the
 Gradio application extra are not needed by these depth/pose endpoints.
-The fresh-install recipe has not been rerun as part of the documentation audit.
+The install script has not yet been verified from a clean environment.
 
 The equivalent installed-package command and health check are:
 
@@ -44,8 +44,8 @@ the router environment as well: camera bird's-eye rendering runs there, not in
 this DA3 process. Without router Matplotlib, numeric results remain available
 but the camera visualization is absent.
 
-The stage-1 environment had an incompatible inherited xFormers extension
-warning, while depth and pose inference completed successfully through the
-available implementation. That observation is not a dependency compatibility
-claim. Keep accelerator packages compatible with the selected Torch/Python
-versions. [Observed versions and revisions](../README.md) record the baseline.
+The tested environment reported an incompatible xFormers extension warning,
+while depth and pose inference completed successfully through the available
+implementation. That observation is not a dependency compatibility claim. Keep
+accelerator packages compatible with the selected Torch/Python versions. The
+deployment notes list the [tested versions and revisions](../README.md#tested-environment).

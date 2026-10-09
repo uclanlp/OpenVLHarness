@@ -14,11 +14,12 @@ bash openvlharness/services/tools/ocr/install.sh
 CUDA_VISIBLE_DEVICES=0 bash openvlharness/services/tools/ocr/run_ocr_server.sh
 ```
 
-The installer selects the observed vLLM 0.18.1 and Transformers 4.57.3. The
-launcher uses the same stage-1 operational settings: 16384-token model length
-and batch-token cap, GPU memory fraction 0.45, eager mode, prefix caching off,
-and multimodal processor cache off. Extra vLLM options can be appended to the
-launcher command. The new installer has not been tested as a clean environment.
+The installer selects the tested vLLM 0.18.1 and Transformers 4.57.3. The
+launcher uses the tested operational settings: 16384-token model length and
+batch-token cap, GPU memory fraction 0.45, eager mode, prefix caching off, and
+multimodal processor cache off. Extra vLLM options can be appended to the
+launcher command. The installer has not yet been verified from a clean
+environment.
 
 | Launcher variable | Meaning |
 | --- | --- |
@@ -45,5 +46,5 @@ Those generation controls are not ambient `OCR_MAX_NEW_TOKENS` or
 
 The returned dictionary has `text` and `model_id`; it has no token boxes,
 confidence values or device field. The capability stores the text in
-`ocr_result` for local computation. See [router launch and observed checkpoint
+`ocr_result` for local computation. See [router launch and tested checkpoint
 revision](../README.md).

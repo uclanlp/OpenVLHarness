@@ -72,19 +72,18 @@ one router process, so multiple router processes do not share that limit.
 
 The model request timeout, router client timeout/retries and raw wrapper
 request timeout are separate. Paper presets use a 600-second router client
-and eight additional native transport retries. Raw timeout values above are
-private wrapper defaults, not public tool arguments.
+timeout and eight additional retries. Raw timeout values above are private
+wrapper defaults, not public tool arguments.
 
-## Observed stage-1 environment
+## Tested environment
 
-These versions were observed in the successful old-code raw-service checks on
-2026-10-03 UTC. They describe an existing environment, not a clean-install lock.
+The raw services were checked with these versions and checkpoints on small
+fixture requests (SAM3 masks, OCR text, depth arrays and camera matrices).
 All three environments used Python 3.10.14, Torch 2.10.0, Torchvision 0.25.0,
 FastAPI 0.128.0, Uvicorn 0.40.0 and Pillow 12.0.0. OCR used vLLM 0.18.1 and
 Transformers 4.57.3. DA3 used NumPy 1.26.4; SAM3 and OCR used NumPy 2.2.6.
-Matplotlib was 3.9.2. The environments inherited some packages from an existing
-vLLM installation; the installer recipes here use separate environments and
-have been syntax-checked, not verified as fresh-install reproductions.
+Matplotlib was 3.9.2. These environments also contained packages from an
+existing vLLM installation, so they are not a clean-install lock.
 
 | Component | Tested source/checkpoint revision |
 | --- | --- |
@@ -94,16 +93,8 @@ have been syntax-checked, not verified as fresh-install reproductions.
 | `depth-anything/DA3NESTED-GIANT-LARGE` checkpoint | `8615eefb62f2db4f8d6ebaa59160086981672829` |
 | `PaddlePaddle/PaddleOCR-VL-1.5` checkpoint | `2a4195faa5e7914c12f2fc601d72c81caf8d2da5` |
 
-Stage 1 ran the original service modules with these checkpoints and obtained
-real SAM3 masks, OCR text, depth arrays, and ordered camera matrices. The
-relocated SAM3 and DA3 module entrypoints were then started in those same raw
-environments without dependency upgrades, and the same three fixture requests
-passed. SAM3 boxes/scores/RLE and depth values were identical; camera matrices
-kept their shapes with a maximum extrinsics difference of approximately
-2.4e-5 after restart. This validates those small raw fixtures, not a full model
-benchmark or a clean installation. OCR retained its existing external vLLM
-process while the router wrapper was relocated. DINO was not part of the GPU
-checks; its launcher received a shell/argument check only.
+The SAM3, DA3 and OCR install scripts have not yet been verified from a clean
+environment. GroundingDINO was not part of the GPU checks.
 
 Place `HF_HOME`, `TMPDIR`, `MPLCONFIGDIR`, `TORCH_HOME` and model-server caches
 on a fast local disk when available. Set `HF_HUB_OFFLINE=1` only after all
@@ -113,5 +104,7 @@ raw server loads its model, and extra workers duplicate that allocation.
 ## Source license
 
 The tool servers are part of OpenVLHarness and covered by its
-[MIT License](../../../LICENSE). Model weights and upstream raw-model packages
-retain their own licenses and access requirements.
+[MIT License](../../../LICENSE), except `sam3_segment/viz/`, which is adapted
+from SAM 3 and distributed under the SAM License (see
+[third-party notices](../../../THIRD_PARTY_LICENSES.md)). Model weights and
+upstream raw-model packages retain their own licenses and access requirements.
