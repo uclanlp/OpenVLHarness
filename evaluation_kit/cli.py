@@ -325,25 +325,25 @@ def main(argv=None):
         description="Run an agent-system config on benchmarks and score the predictions. "
                     "Environment variables are also read from ./.env if present.",
     )
-    parser.add_argument('--data', type=str, nargs='+', required=True, help='Names of Datasets')
+    parser.add_argument('--data', type=str, nargs='+', required=True, help='Dataset names, e.g. FSC147_val; see the README Datasets and scoring table')
     parser.add_argument('--config', type=str, default=None, help='Agent-system config for inference (default: configs/agent/qwen3_8b_paper.yaml); optional metadata filter for eval discovery')
     parser.add_argument('--judge-config', type=str, default=None, help='Judge config override; inference defaults to configs/judge.yaml, eval uses the saved judge configuration')
     parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='all: infer and evaluate; infer: generate predictions; eval: evaluate saved outputs without loading an inference agent')
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory (default: ./outputs)')
-    parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
+    parser.add_argument('--num-proc', type=int, default=4, help='Number of examples run concurrently (threads; default: 4)')
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
     parser.add_argument('--save-images', type=str, default='files', choices=['files', 'base64'],
                         help='How to store images in full_trajectories JSONs: "files" copies '
                              'them to a sibling images/ folder (default), "base64" inlines them as data URIs.')
     parser.add_argument('--save-raw-trace', action='store_true',
-                        help='Also save raw traces reconstructed from tokens under '
-                             '<work_dir>/<dataset>/raw_traces/ for training. '
+                        help='Also save raw traces reconstructed from tokens in raw_traces/ under '
+                             'each dataset\'s run directory, for training. '
                              'Supported for image/text datasets with qwen3-vl-8b-instruct only; automatically enables '
                              'return_token_ids in the effective run config. Requires the matching '
                              'Qwen tokenizer and a server that returns token IDs. Export failures '
                              'are recorded per sample; GPT/Kimi are rejected before inference.')
     parser.add_argument('--incremental-json', action='store_true', help='Enable incremental JSONL output (append results as they complete)')
-    parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (ignores cache for those examples)')
+    parser.add_argument('--num-examples', type=int, default=None, help='Only run on the first N examples (or N sampled with --shuffle)')
     parser.add_argument('--shuffle', action='store_true', help='Randomly sample --num-examples instances instead of taking the first N')
     parser.add_argument(
         '--sample-filter', type=str, default='all',
@@ -356,7 +356,7 @@ def main(argv=None):
     parser.add_argument('--ignore-failed', action='store_true',
                         help='With --run-dir on a run that already has a prediction file: keep every '
                              'non-failed row and re-run only rows whose prediction is the harness failure '
-                             'sentinel (see runner.infer_image_job).')
+                             'sentinel.')
     parser.add_argument(
         '--run-dir', type=str, default=None,
         help='Existing run directory. Evaluation uses its saved model identity and predictions '
