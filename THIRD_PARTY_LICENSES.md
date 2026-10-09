@@ -18,6 +18,26 @@ repository also contains or depends on the following third-party work.
   [SAM 3](https://github.com/facebookresearch/sam3) and is distributed under
   the SAM License, not the MIT License. License text:
   [LICENSES/SAM-LICENSE.txt](LICENSES/SAM-LICENSE.txt).
+- **MM-BrowseComp** (the MM-BrowseComp authors, MIT License).
+  `evaluation_kit/dataset/utils/mmbrowsecomp_judge.py` (judge prompt, API retry
+  loop and response parser) is adapted from `src/eval.py` in
+  [MM-BrowseComp](https://github.com/MMBrowseComp/MM-BrowseComp). The upstream
+  repository declares the MIT License in its README but ships no license file;
+  the MIT text naming the MM-BrowseComp authors as copyright holders is in
+  [LICENSES/MM-BrowseComp-MIT.txt](LICENSES/MM-BrowseComp-MIT.txt).
+- **Vision-DeepResearch** (Copyright (c) 2026 Wenxuan Huang, MIT License). The
+  judge prompt in `evaluation_kit/dataset/utils/judge_vdr.py` and the auxiliary
+  judge prompts in `evaluation_kit/dataset/browsecomp_vl.py` and
+  `evaluation_kit/dataset/visbrowse_bench.py` are adapted from
+  `rllm/rllm/rewards/deepresearch_reward.py` in
+  [Vision-DeepResearch](https://github.com/Osilly/Vision-DeepResearch). License
+  text:
+  [LICENSES/Vision-DeepResearch-MIT.txt](LICENSES/Vision-DeepResearch-MIT.txt).
+- **Humanity's Last Exam** (Copyright (c) 2025 centerforaisafety, MIT License).
+  The judge prompt in `evaluation_kit/dataset/utils/hle_judge.py` is adapted
+  from `hle_eval/run_judge_results.py` in
+  [HLE](https://github.com/centerforaisafety/hle). License text:
+  [LICENSES/HLE-MIT.txt](LICENSES/HLE-MIT.txt).
 
 ## Models and services used by the default tool backends
 
