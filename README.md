@@ -294,7 +294,8 @@ in [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/O
 and downloads into `LMUData` on first use. `PixmoCount_val` is built from
 [allenai/pixmo-count](https://huggingface.co/datasets/allenai/pixmo-count), with
 images fetched from their original URLs; images that can no longer be fetched are
-left out. `CountQA` is built from
+left out, so a fresh build can contain fewer than the 534 images the paper evaluated.
+`CountQA` is built from
 [Jayant-Sravan/CountQA](https://huggingface.co/datasets/Jayant-Sravan/CountQA) on
 the Hugging Face Hub. ODinW also downloads evaluation annotations into `LMUData/GLIP`
 unless `GLIP_ROOT` is set. The

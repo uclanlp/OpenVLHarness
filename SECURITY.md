@@ -33,3 +33,6 @@ open public issues for security problems.
   The uploaded objects are not deleted; add a lifecycle rule to the bucket.
 - Search tools download result images from their source sites, and the agent
   downloads HTTP(S) images given in the question or in tool arguments.
+- With `openvlharness-eval`, the judge endpoint in `--judge-config` receives each
+  question, its reference answer and the model's response. The paper uses GPT-4o
+  for search and deep-research judging.
