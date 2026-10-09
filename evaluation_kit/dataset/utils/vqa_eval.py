@@ -2,6 +2,7 @@
 # Partly adopted from https://github.com/GT-Vision-Lab/VQA
 # Copyright (c) 2014, Aishwarya Agrawal
 
+import ast
 from ...smp import *
 from typing import Optional
 
@@ -248,7 +249,7 @@ def process_answer(answer):
 def process_line(line, method='vqa_score'):
     ret = {}
     if istype(line['answer'], list):
-        answers = eval(line['answer'])
+        answers = ast.literal_eval(line['answer'])
     else:
         answers = [line['answer']]
     if method == 'vqa_score':
@@ -288,7 +289,7 @@ def process_line(line, method='vqa_score'):
 def process_line_WildDoc(line, method='vqa_score'):
     ret = {'index':line["index"]}
     if istype(line['answer'], list):
-        answers = eval(line['answer'])
+        answers = ast.literal_eval(line['answer'])
     else:
         answers = [line['answer']]
     if method == 'vqa_score':

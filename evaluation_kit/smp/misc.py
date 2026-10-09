@@ -1,6 +1,7 @@
 # flake8: noqa: F401, F403
 import abc
 import argparse
+import ast
 import csv
 import multiprocessing as mp
 import os
@@ -68,7 +69,7 @@ def istype(s, type):
     if isinstance(s, type):
         return True
     try:
-        return isinstance(eval(s), type)
+        return isinstance(ast.literal_eval(s), type)
     except Exception as _:
         return False
 
@@ -201,7 +202,7 @@ def version_cmp(v1, v2, op='eq'):
 
 def toliststr(s):
     if isinstance(s, str) and (s[0] == '[') and (s[-1] == ']'):
-        return [str(x) for x in eval(s)]
+        return [str(x) for x in ast.literal_eval(s)]
     elif isinstance(s, str):
         return [s]
     elif isinstance(s, list):

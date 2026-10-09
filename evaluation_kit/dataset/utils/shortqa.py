@@ -1,4 +1,5 @@
 # flake8: noqa
+import ast
 from evaluation_kit.smp import *
 
 
@@ -244,7 +245,7 @@ def ShortQA_prompt(line):
     answer = line['answer']
     answer_type = line.get('answer_type', 'listofstr')
     if answer[0] == '[' and answer[-1] == ']' and answer_type not in ('exactMatch', 'multipleChoice'):
-        answer = eval(answer)
+        answer = ast.literal_eval(answer)
     else:
         answer = [answer]
 

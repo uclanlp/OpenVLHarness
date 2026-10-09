@@ -1,3 +1,4 @@
+import ast
 import os
 import io
 import pandas as pd
@@ -63,13 +64,13 @@ def mmqa_display(question, target_size=-1):
     if 'image' in question:
         images = question.pop('image')
         if images[0] == '[' and images[-1] == ']':
-            images = eval(images)
+            images = ast.literal_eval(images)
         else:
             images = [images]
     else:
         images = question.pop('image_path')
         if images[0] == '[' and images[-1] == ']':
-            images = eval(images)
+            images = ast.literal_eval(images)
         else:
             images = [images]
         images = [encode_image_file_to_base64(x) for x in images]
