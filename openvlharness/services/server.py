@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import importlib
+import sys
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -128,9 +129,11 @@ def create_app(config, *, implementations=None):
         tool, backend, service = registry[request.tool_name]
         args = dict(request.args)
         try:
-            # Only resolved task data crosses this boundary; endpoints come from deployment config.
+            # Only resolved task data crosses this boundary; endpoints come from deployment config,
+            # and images arrive as base64 so callers cannot make tools open router-host files.
             forbidden = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
-                         "box_threshold", "text_threshold", "num_results", "gl", "hl"} & set(args)
+                         "box_threshold", "text_threshold", "num_results", "gl", "hl",
+                         "image_path", "image_paths"} & set(args)
             if forbidden:
                 raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
             if backend in RAW_BACKENDS:
@@ -176,7 +179,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     args = parser.parse_args()
-    config = load_agent_config(args.config)
+    try:
+        config = load_agent_config(args.config)
+    except (ValueError, OSError) as exc:
+        sys.exit(f"error: {exc}")
     settings = config["services"]["server"]
     import uvicorn
     uvicorn.run(create_app(config), host=settings.get("host", "127.0.0.1"), port=settings.get("port", 8101))

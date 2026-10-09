@@ -22,17 +22,24 @@ PAPER_BACKENDS = dict(zip(PAPER_CAPABILITIES, (
 RAW_BACKENDS = {"sam3_segment", "ocr", "depth_estimation", "camera_trajectory", "grounding_dino"}
 
 
-def _expand(value):
-    """Recursively copy configuration values, resolving required ${NAME} variables."""
+def _expand(value, missing, path=""):
+    """Recursively copy configuration values, resolving required ${NAME} variables.
+
+    Unset names are left unexpanded and recorded in missing, mapped to the key
+    paths that reference them.
+    """
     if isinstance(value, dict):
-        return {key: _expand(item) for key, item in value.items()}
+        return {key: _expand(item, missing, f"{path}.{key}" if path else str(key)) for key, item in value.items()}
     if isinstance(value, list):
-        return [_expand(item) for item in value]
+        return [_expand(item, missing, f"{path}[{index}]") for index, item in enumerate(value)]
     if isinstance(value, str):
         def env(match):
             name = match.group(1)
             if name not in os.environ:
-                raise ValueError(f"Missing environment variable {name} required by agent configuration")
+                paths = missing.setdefault(name, [])
+                if path not in paths:
+                    paths.append(path)
+                return match.group(0)
             return os.environ[name]
         return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", env, value)
     return value
@@ -57,10 +64,18 @@ def load_agent_config(config, *, save_raw_trace=False):
     Validation constructs adapters but does not send inference requests or load
     backend implementations. Raw trace support is checked before agent creation.
     """
-    if isinstance(config, (str, Path)):
+    source = f" {config}" if isinstance(config, (str, Path)) else ""
+    if source:
         with open(config) as stream:
             config = yaml.safe_load(stream)
-    config = _expand(copy.deepcopy(config))
+    missing = {}
+    config = _expand(copy.deepcopy(config), missing)
+    if missing:
+        listed = ", ".join(f"{name} ({', '.join(paths)})" for name, paths in missing.items())
+        plural = len(missing) > 1
+        raise ValueError(f"Missing environment variable{'s' if plural else ''} required by agent configuration"
+                         f"{source}: {listed}. Set {'them' if plural else 'it'} as in the README quick start, "
+                         "or remove unused capabilities and services.")
     if not isinstance(config, dict) or config.get("agent_name") != "MainAgent":
         raise ValueError("Use the OpenVLHarness agent-system format with agent_name: MainAgent")
     allowed = {"agent_name", "agent_config_version", "agent", "memory", "capabilities", "services"}
