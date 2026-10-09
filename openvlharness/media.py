@@ -1,5 +1,6 @@
 """Image transport encoding shared by memory and model input formatting."""
 import base64
+import io
 import mimetypes
 import os
 
@@ -26,9 +27,6 @@ def local_image_to_data_url(image_path: str) -> str:
     with open(image_path, "rb") as image_file:
         encoded = base64.b64encode(image_file.read()).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
-
-import io
-from PIL import Image
 
 def resize_image_by_factor(img, factor=1):
     """Return a resized Pillow image with width and height multiplied by factor."""

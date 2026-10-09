@@ -4,7 +4,6 @@ Python_Coding_Agent_Tool uses a fresh conversation with the configured model
 and returns extracted code. Execution belongs to the calling capability.
 """
 
-import os
 
 from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.python_coding_agent.catalog import build_rich_data_catalog

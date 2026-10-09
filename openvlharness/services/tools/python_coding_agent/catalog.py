@@ -33,7 +33,7 @@ def build_rich_data_catalog(binding_descriptors):
                 f"{source_tool}({arg_str})" if arg_str else source_tool
             )
         source_suffix = f" -- from {source_parts[0]}" if source_parts else ""
-        lines.append(f"")
+        lines.append("")
         lines.append(f"# {key}{source_suffix}")
 
         # Field lines

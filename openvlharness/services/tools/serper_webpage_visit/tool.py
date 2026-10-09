@@ -2,22 +2,19 @@
 
 Webpage_Visit_Tool fetches content through Serper, checks common anti-bot
 responses, and uses the auxiliary model to extract per-page evidence and
-summaries. The execute path does not call the separate Jina fetch helper.
+summaries.
 """
 
 import json
 import logging
-import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-import requests
-
 from openvlharness.services.models import AuxiliaryModel
 from openvlharness.services.tools.base import BaseTool, ToolArgumentError
-from openvlharness.services.tools.serper_common import SerperClient, get_serper_api_key, strip_think_tags
+from openvlharness.services.tools.serper_common import SerperClient, strip_think_tags
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +55,6 @@ Example:
 
 TOOL_NAME = "Webpage_Visit_Tool"
 
-JINA_READER_URL = "https://r.jina.ai"
-JINA_KEY_FILENAME = "jina_api_key"
 MAX_URLS = 5
 MAX_CONTENT_CHARS = 120000
 
@@ -190,10 +185,9 @@ class Webpage_Visit_Tool(BaseTool):
         self.llm_engine = llm_engine
 
         self._client: Optional[SerperClient] = None
-        self._jina_api_key: Optional[str] = None
 
     # ------------------------------------------------------------------
-    # Client & key management
+    # Client
     # ------------------------------------------------------------------
 
     def _get_client(self) -> SerperClient:
@@ -201,18 +195,6 @@ class Webpage_Visit_Tool(BaseTool):
         if self._client is None:
             self._client = SerperClient()
         return self._client
-
-    def _load_jina_key(self) -> Optional[str]:
-        """Read an optional JINA_API_KEY from the environment."""
-        return os.getenv("JINA_API_KEY", "").strip() or None
-
-    def sanity_check(self) -> List[str]:
-        """Return credential-loading issue strings, or an empty list when a key is available."""
-        try:
-            get_serper_api_key()
-        except Exception as exc:
-            return [f"No Serper API key found. {exc}"]
-        return []
 
     # ------------------------------------------------------------------
     # Page fetching
@@ -313,17 +295,6 @@ class Webpage_Visit_Tool(BaseTool):
             "description": metadata.get("description", "") or metadata.get("og:description", ""),
         }
 
-    def _fetch_page_jina(self, url: str) -> Dict[str, Any]:
-        """Fetch page content via Jina Reader API (fallback)."""
-        jina_key = self._load_jina_key()
-        if not jina_key:
-            raise RuntimeError("Jina API key not available for fallback")
-        headers = {"Authorization": f"Bearer {jina_key}"}
-        response = requests.post(JINA_READER_URL, headers=headers, data={"url": url}, timeout=60)
-        if response.status_code != 200:
-            raise RuntimeError(f"Jina Reader API returned HTTP {response.status_code}")
-        return {"content": response.text or "", "description": ""}
-
     def _fetch_page(self, url: str) -> Dict[str, Any]:
         """Fetch via Serper Scrape with transient-error retry.
 
@@ -368,14 +339,6 @@ class Webpage_Visit_Tool(BaseTool):
                     min(SERPER_BACKOFF_BASE_SEC * (2 ** attempt),
                         SERPER_BACKOFF_MAX_SEC)
                 )
-
-        # # Jina fallback temporarily disabled — uncomment to re-enable.
-        # # ``_fetch_page_jina`` / ``_load_jina_key`` / JINA_* constants
-        # # are retained intact so this is a one-block opt-in.
-        # try:
-        #     return self._fetch_page_jina(url)
-        # except Exception as exc:
-        #     last_error = f"Serper: {last_error}; Jina: {exc}"
 
         # Build agent-readable error message.
         msg_parts = [f"Failed to fetch {url}"]

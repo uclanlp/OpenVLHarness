@@ -17,13 +17,6 @@ _IMAGE_URL_EXT_PATTERN = re.compile(
 _IMG_KIND_SENTINEL = " <img>"
 
 
-def _normalize_tool_name(name: Any) -> str:
-    """Normalize a tool name for case-insensitive comparison."""
-    if not isinstance(name, str):
-        return ""
-    return name.strip().lower()
-
-
 def _safe_domain(url: str) -> str:
     """Extract a host and optional port without www, or return an empty string."""
     if not isinstance(url, str) or not url:

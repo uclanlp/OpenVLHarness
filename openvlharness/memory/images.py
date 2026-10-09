@@ -1,12 +1,10 @@
 """Image registration, alias resolution and lazy downloading for question memory."""
-import copy as cp
-import json
 import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..media import local_image_to_data_url
-from .run_state import ImagesState, MemoryRunState
+from .run_state import ImagesState
 
 _INPUT_IMAGE_REF_PATTERN = re.compile(r"^input_image_(\d+)$")
 _TOOL_GENERATED_IMAGE_REF_PATTERN = re.compile(r"^tool_generated_image_(\d+)$")

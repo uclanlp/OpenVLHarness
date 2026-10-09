@@ -131,25 +131,6 @@ class Camera_Trajectory_Tool(BaseTool):
             },
         )
 
-    def sanity_check(self):
-        """Probe the configured health endpoint and return issue strings, or an empty list."""
-        server_url = os.getenv(
-            "DEPTH_ESTIMATION_SERVER_URL", DEFAULT_SERVER_URL
-        ).rstrip("/")
-        health_url = f"{server_url}/health"
-        try:
-            response = requests.get(health_url, timeout=5)
-        except Exception as exc:
-            return [
-                f"Camera trajectory server unreachable at {health_url}: {exc}"
-            ]
-        if response.status_code != 200:
-            return [
-                f"Camera trajectory server unhealthy at {health_url}: "
-                f"{response.status_code}"
-            ]
-        return []
-
     def _build_files_from_paths(
         self, image_paths: List[str]
     ) -> List[Tuple[str, Tuple[str, bytes, str]]]:

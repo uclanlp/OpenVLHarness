@@ -70,7 +70,6 @@ def summarize_movement(delta: Sequence[float]) -> str:
     frag_y = _movement_axis_fragment("y", y)
     frag_z = _movement_axis_fragment("z", z)
     axes = (("x", x, frag_x), ("y", y, frag_y), ("z", z, frag_z))
-    _, _, dom_frag = max(axes, key=lambda item: abs(item[1]))
     salient_fragments = [f for _, v, f in axes if abs(v) >= SALIENT_MOVEMENT]
     if salient_fragments:
         salient_text = "salient direction: " + ", ".join(salient_fragments)
@@ -95,7 +94,6 @@ def summarize_rotation(yaw_deg: float, pitch_deg: float) -> str:
     """Describe yaw/pitch and highlight rotations of at least ten degrees."""
     yaw_frag = _yaw_fragment(yaw_deg)
     pitch_frag = _pitch_fragment(pitch_deg)
-    dom_frag = yaw_frag if abs(yaw_deg) >= abs(pitch_deg) else pitch_frag
     salient_fragments = []
     if abs(yaw_deg) >= SALIENT_ROTATION:
         salient_fragments.append(yaw_frag)
@@ -107,12 +105,6 @@ def summarize_rotation(yaw_deg: float, pitch_deg: float) -> str:
         salient_text = "salient direction: none (all rotations < 10°)"
 
     return f"{salient_text}; detailed: {yaw_frag}, {pitch_frag}"
-
-
-def round_list(v: Sequence[float], ndigits: int = 3) -> List[float]:
-    """Convert numeric values to a list rounded to ndigits decimal places."""
-    arr = np.asarray(v, dtype=float)
-    return np.round(arr, ndigits).tolist()
 
 
 def interpret_camera_trajectory(

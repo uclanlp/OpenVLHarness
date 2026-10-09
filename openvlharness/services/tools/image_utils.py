@@ -1,7 +1,6 @@
-"""Image decoding, coordinate conversion and drawing utilities for tool backends."""
+"""Image decoding, encoding and coordinate conversion utilities for tool backends."""
 import base64
 import io
-import math
 import os
 
 from PIL import Image
@@ -163,53 +162,3 @@ def coerce_xyxy(coords, width, height, coords_type):
     if right <= left or bottom <= top:
         raise ValueError("coords result in empty crop")
     return left, top, right, bottom
-
-
-def normalized_xywh_to_pixels(bbox, width, height):
-    # bbox is expected on the 0-1000 scale (Qwen-style); divide by 1000
-    # before mapping to pixel coordinates.
-    """Convert a 0–1000 xywh box to a clamped pixel crop; reject empty crops."""
-    if bbox is None or len(bbox) != 4:
-        raise ValueError("bbox must be a list of four values")
-    x, y, w, h = [float(value) for value in bbox]
-    x = clamp(x, 0.0, 1000.0)
-    y = clamp(y, 0.0, 1000.0)
-    w = clamp(w, 0.0, 1000.0)
-    h = clamp(h, 0.0, 1000.0)
-    x2 = clamp(x + w, 0.0, 1000.0)
-    y2 = clamp(y + h, 0.0, 1000.0)
-    left = int(round(x / 1000.0 * width))
-    top = int(round(y / 1000.0 * height))
-    right = int(round(x2 / 1000.0 * width))
-    bottom = int(round(y2 / 1000.0 * height))
-    if right <= left or bottom <= top:
-        raise ValueError("bbox results in empty crop")
-    return left, top, right, bottom
-
-
-def crop_image_normalized(image, x, y, width, height):
-    """Return a Pillow crop for a 0–1000 normalized x, y, width and height."""
-    image_w, image_h = image.size
-    left, top, right, bottom = normalized_xywh_to_pixels(
-        [x, y, width, height], image_w, image_h
-    )
-    return image.crop((left, top, right, bottom))
-
-
-def draw_dashed_line(draw, start, end, color, width=2, dash_length=8, gap_length=6):
-    """Draw a dashed line in place using pixel widths, dash lengths and gaps."""
-    x1, y1 = start
-    x2, y2 = end
-    total_length = math.hypot(x2 - x1, y2 - y1)
-    if total_length == 0:
-        return
-    step = dash_length + gap_length
-    dx = (x2 - x1) / total_length
-    dy = (y2 - y1) / total_length
-    distance = 0.0
-    while distance < total_length:
-        dash_end = min(distance + dash_length, total_length)
-        start_point = (x1 + dx * distance, y1 + dy * distance)
-        end_point = (x1 + dx * dash_end, y1 + dy * dash_end)
-        draw.line([start_point, end_point], fill=color, width=width)
-        distance += step

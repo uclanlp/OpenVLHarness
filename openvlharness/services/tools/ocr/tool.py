@@ -3,8 +3,6 @@
 The OCR_Tool backend accepts local or inline images, corrects EXIF orientation,
 and returns plain transcription text with the served model ID.
 """
-import base64
-import io
 import os
 
 import requests
@@ -65,18 +63,6 @@ class OCR_Tool(BaseTool):
                 "notes": "Talks directly to a vLLM-served PaddleOCR-VL endpoint.",
             },
         )
-
-    def sanity_check(self):
-        """Probe the configured health endpoint and return issue strings, or an empty list."""
-        server_url = os.getenv("OCR_SERVER_URL", DEFAULT_SERVER_URL).rstrip("/")
-        health_url = f"{server_url}/health"
-        try:
-            response = requests.get(health_url, timeout=5)
-        except Exception as exc:
-            return [f"OCR server unreachable at {health_url}: {exc}"]
-        if response.status_code != 200:
-            return [f"OCR server unhealthy at {health_url}: {response.status_code}"]
-        return []
 
     def execute(
         self,

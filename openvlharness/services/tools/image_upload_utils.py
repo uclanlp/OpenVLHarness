@@ -7,7 +7,6 @@ A process-local cache reuses URLs for 50 minutes; signed URLs last one hour.
 import hashlib
 import os
 import time
-import mimetypes
 from typing import Dict, Optional, Tuple
 
 # ---------------------------------------------------------------------------
@@ -59,12 +58,6 @@ def _set_cached_url(content_hash: str, url: str) -> None:
 def _blob_name(content_hash: str, extension: str = ".jpg") -> str:
     """Deterministic blob name based on content hash."""
     return f"tool-uploads/{content_hash}{extension}"
-
-
-def _guess_content_type(path: str) -> str:
-    """Infer MIME type from a path, falling back to application/octet-stream."""
-    ct, _ = mimetypes.guess_type(path)
-    return ct or "application/octet-stream"
 
 
 # ---- GCS ------------------------------------------------------------------
@@ -191,18 +184,3 @@ def upload_image_bytes(
     _set_cached_url(ch, url)
     return url
 
-
-def upload_image_file(
-    image_path: str,
-    provider: Optional[str] = None,
-) -> str:
-    """Read a local image, infer its MIME type and upload it to the selected provider.
-
-    Returns a signed URL. File errors and upload_image_bytes failures propagate.
-    """
-    if not os.path.isfile(image_path):
-        raise FileNotFoundError(f"Image not found: {image_path}")
-    content_type = _guess_content_type(image_path)
-    ext = os.path.splitext(image_path)[1] or ".jpg"
-    with open(image_path, "rb") as f:
-        return upload_image_bytes(f.read(), content_type, ext, provider)

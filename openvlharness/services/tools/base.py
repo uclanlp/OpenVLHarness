@@ -4,7 +4,7 @@ class ToolArgumentError(ValueError):
 
 
 class BaseTool:
-    """Base interface for backend metadata, readiness checks and execution."""
+    """Base interface for backend metadata and execution."""
     require_llm_engine = False
 
     def __init__(
@@ -41,25 +41,6 @@ class BaseTool:
         self.tool_aliases = list(tool_aliases or [])
         self.demo_commands = demo_commands or []
         self.user_metadata = user_metadata or {}
-
-    def get_metadata(self):
-        """Return tool identity, input/output descriptions and configuration metadata."""
-        return {
-            "tool_name": self.tool_name,
-            "tool_description": self.tool_description,
-            "tool_version": self.tool_version,
-            "input_types": self.input_types,
-            "input_schema": self.input_schema,
-            "tool_aliases": list(self.tool_aliases),
-            "output_type": self.output_type,
-            "demo_commands": self.demo_commands,
-            "user_metadata": self.user_metadata,
-            "require_llm_engine": self.require_llm_engine,
-        }
-
-    def sanity_check(self):
-        """Return readiness issue strings; the base implementation reports no issues."""
-        return []
 
     def execute(self, *args, **kwargs):
         """Execute backend-specific arguments; subclasses must implement this method."""

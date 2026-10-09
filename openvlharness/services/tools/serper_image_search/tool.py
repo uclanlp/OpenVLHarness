@@ -7,12 +7,10 @@ The paper configuration supplies Qwen with query and candidate image pixels.
 
 import json
 import logging
-import os
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
-from openvlharness.services.models import AuxiliaryModel
 from openvlharness.services.tools.base import BaseTool
 from openvlharness.services.tools.image_utils import (
     decode_base64_image_data,
@@ -22,7 +20,6 @@ from openvlharness.services.tools.serper_common import (
     SerperClient,
     SerperRequestError,
     fetch_images_parallel,
-    get_serper_api_key,
     strip_think_tags,
 )
 
@@ -154,31 +151,6 @@ IMAGE_SEARCH_MULTIMODAL_USER_PROMPT_FOOTER = (
     "(most relevant first). Then write the 3-5 sentence ``summary`` per the schema. "
     "Output the strict JSON object specified in the system message — no prose around it."
 )
-
-
-# Backup of the prior single-prompt version, kept for rollback.
-IMAGE_SEARCH_SUMMARIZE_PROMPT_BK = """You are a visual analysis assistant. Organize the following reverse image search (Google Lens) results into a clear, well-structured summary. Your goal is to help the user understand what the image depicts and what information is available about it.
-
-## Visual Search Results
-{raw_results}
-
-## Instructions
-1. Identify the most likely subject of the image based on the visual matches.
-2. Group related matches (e.g., multiple results pointing to the same entity).
-3. Summarize key findings: what the image shows, relevant context, and notable sources.
-4. Include citation markers [1], [2], ... referencing specific results.
-5. End with a Citations section listing source titles, source/page URLs, AND the direct image URLs.
-6. **Preserve the trailing ` <img>` marker** that appears after each image URL in the raw results EXACTLY as-is. This marker is a framework signal used by downstream tools (e.g., Image_Search_Tool, ImageStateMemory) to register the image — dropping the marker breaks image-URL routing. Always emit it verbatim after the image URL.
-7. Do NOT hallucinate — only describe what the search results indicate.
-
-## Output Format
-<summary of what the image likely depicts, with inline citations [1], [2], ...>
-
-Citations:
-[1] <title> | Image: <image_url> <img> | Source: <source_page_url>
-[2] <title> | Image: <image_url> <img> | Source: <source_page_url>
-...
-"""
 
 
 # ----------------------------------------------------------------------
@@ -553,14 +525,6 @@ class Image_Search_Tool(BaseTool):
         if self._client is None:
             self._client = SerperClient()
         return self._client
-
-    def sanity_check(self):
-        """Return credential-loading issue strings, or an empty list when a key is available."""
-        try:
-            get_serper_api_key()
-        except Exception as exc:
-            return [str(exc)]
-        return []
 
     # ------------------------------------------------------------------
     # Structured error / empty-result rendering

@@ -18,7 +18,7 @@ import pycocotools.mask as mask_util
 import torch
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-from .boxes import Boxes, BoxMode
+from .boxes import Boxes
 from .colors import random_color
 from .masks import BitMasks, PolygonMasks
 
@@ -324,13 +324,6 @@ class Visualizer:
             return self.overlay_rotated_instances(
                 boxes=boxes, labels=labels, assigned_colors=assigned_colors
             )
-
-        # Display in largest to smallest order to reduce occlusion.
-        areas = None
-        if boxes is not None:
-            areas = np.prod(boxes[:, 2:] - boxes[:, :2], axis=1)
-        elif masks is not None:
-            areas = np.asarray([x.area() for x in masks])
 
         marks = []
         marks_position = []

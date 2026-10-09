@@ -7,11 +7,9 @@ for image results and preserves selected source entries and links.
 
 import json
 import logging
-import os
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from openvlharness.services.models import AuxiliaryModel
 from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.serper_common import (
     ALL_SEARCH_TYPES,
@@ -19,7 +17,6 @@ from openvlharness.services.tools.serper_common import (
     SerperRequestError,
     fetch_images_parallel,
     format_search_results,
-    get_serper_api_key,
     strip_think_tags,
 )
 
@@ -221,42 +218,6 @@ TEXT_SEARCH_IMAGES_MULTIMODAL_FOOTER = (
     "per the schema. Output the strict JSON object specified in the system message — "
     "no prose around it."
 )
-
-# Backup of the prior single-prompt version, kept for rollback.
-TEXT_SEARCH_SUMMARIZE_PROMPT_BK = """You are a research assistant. Summarize the following search results into a coherent, informative response to the user's query. Your summary must be grounded in the search results — do NOT add information that is not present in the results.
-
-## User Query
-{query}
-
-## Search Results (Type: {search_type})
-{raw_results}
-
-## Instructions
-1. Write a concise but comprehensive summary that directly addresses the user's query.
-2. Use inline citation markers like [1], [2], etc. to reference specific search results.
-3. After the summary, include a "Citations:" section listing each referenced source.
-4. If the search results do not contain enough information, say so honestly.
-5. Do NOT hallucinate or invent information not present in the search results.
-6. Never alter factual details (dates, names, numbers) from the search results — preserve them exactly as they appear, even if they seem to contradict the query.
-7. Include ALL distinct facts from the search results. Do not filter out information based on perceived relevance to the query.
-
-### Type-Specific Rules
-- **search / scholar / patents / news**: Citations should list page title + page URL.
-- **images**: You MUST preserve the direct image URLs (not just source page URLs) in the Citations section, because downstream tools (e.g., Image_Search_Tool) may need these image URLs as input for reverse image search. Use the format EXACTLY (preserving the trailing ` <img>` marker after each image URL — it is a framework signal): [N] <title> | Image: <image_url> <img> | Source: <source_page_url>
-- **maps**: Include place name, address, rating, and phone number in the summary. No URL citation needed.
-- **places**: Include name, address, rating in the summary. No URL citation needed.
-- **shopping**: Include product name, price, and source URL in citations.
-
-## Output Format
-<summary text with inline citations [1], [2], ...>
-
-Citations:
-[1] <title> - <url>
-[2] <title> - <url>
-...
-
-(For images type, use EXACTLY (with the trailing ` <img>` framework marker preserved): [1] <title> | Image: <image_url> <img> | Source: <page_url>)
-"""
 
 
 # ----------------------------------------------------------------------
@@ -646,14 +607,6 @@ class Text_Search_Tool(BaseTool):
         if self._client is None:
             self._client = SerperClient()
         return self._client
-
-    def sanity_check(self):
-        """Return credential-loading issue strings, or an empty list when a key is available."""
-        try:
-            get_serper_api_key()
-        except Exception as exc:
-            return [str(exc)]
-        return []
 
     # ------------------------------------------------------------------
     # LLM summarization

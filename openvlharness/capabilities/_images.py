@@ -2,7 +2,6 @@
 
 Capabilities interpret backend result fields; memory stores image bytes and IDs.
 """
-import copy as cp
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple

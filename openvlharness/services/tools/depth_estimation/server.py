@@ -6,7 +6,6 @@ The default DA3NESTED-GIANT-LARGE model returns depth in meters.
 import base64
 import io
 import os
-import tempfile
 from typing import List
 
 import numpy as np
