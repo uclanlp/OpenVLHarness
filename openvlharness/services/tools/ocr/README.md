@@ -10,8 +10,8 @@ From the source checkout, create a separate environment:
 ```bash
 python -m venv /path/to/envs/ocr
 source /path/to/envs/ocr/bin/activate
-bash src/openvlharness/services/tools/ocr/install.sh
-CUDA_VISIBLE_DEVICES=0 bash src/openvlharness/services/tools/ocr/run_ocr_server.sh
+bash openvlharness/services/tools/ocr/install.sh
+CUDA_VISIBLE_DEVICES=0 bash openvlharness/services/tools/ocr/run_ocr_server.sh
 ```
 
 The installer selects the observed vLLM 0.18.1 and Transformers 4.57.3. The

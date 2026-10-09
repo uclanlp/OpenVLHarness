@@ -36,7 +36,7 @@ eval = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 include = ["openvlharness*"]
 
 [tool.setuptools.package-data]

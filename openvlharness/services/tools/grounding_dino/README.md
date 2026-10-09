@@ -11,7 +11,7 @@ source checkout after activating that environment:
 
 ```bash
 python -m pip install . torch torchvision transformers fastapi uvicorn python-multipart
-CUDA_VISIBLE_DEVICES=0 bash src/openvlharness/services/tools/grounding_dino/run_grounding_dino_server.sh
+CUDA_VISIBLE_DEVICES=0 bash openvlharness/services/tools/grounding_dino/run_grounding_dino_server.sh
 ```
 
 This extension recipe is not a tested version lock. The module entrypoint is:

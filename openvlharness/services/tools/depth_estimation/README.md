@@ -7,8 +7,8 @@ that same process for the paper setup.
 ```bash
 python -m venv /path/to/envs/da3
 source /path/to/envs/da3/bin/activate
-bash src/openvlharness/services/tools/depth_estimation/install.sh
-CUDA_VISIBLE_DEVICES=0 bash src/openvlharness/services/tools/depth_estimation/run_depth_estimation_server.sh
+bash openvlharness/services/tools/depth_estimation/install.sh
+CUDA_VISIBLE_DEVICES=0 bash openvlharness/services/tools/depth_estimation/run_depth_estimation_server.sh
 ```
 
 The installer pins the tested DA3 source commit and Torch 2.10.0/Torchvision

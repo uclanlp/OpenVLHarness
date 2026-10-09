@@ -22,7 +22,7 @@ visualization. Neither installation requires a GPU on the router host.
 
 ## Configure and launch the router
 
-Set up the [main and auxiliary model endpoints](../../../../docs/models.md)
+Set up the [main and auxiliary model endpoints](../../../docs/models.md)
 before running model-backed tools.
 
 Use `configs/agent/qwen3_paper.yaml` or `configs/agent/gpt6_luna_paper.yaml`.

@@ -6,15 +6,15 @@ repository also contains or depends on the following third-party work.
 ## Code
 
 - **VLMEvalKit** (OpenCompass, Apache License 2.0). The benchmark loaders and
-  evaluators under `src/openvlharness_eval/` are derived from
+  evaluators under `openvlharness_eval/` are derived from
   [VLMEvalKit](https://github.com/open-compass/VLMEvalKit) and keep its
   structure, dataset names and evaluation utilities. The Apache License 2.0
   text is available at <https://www.apache.org/licenses/LICENSE-2.0>.
   Modifications are noted in the affected files' docstrings and in the git
   history of this repository.
-- **Tool server** (`src/openvlharness/services/`). Released under the MIT
+- **Tool server** (`openvlharness/services/`). Released under the MIT
   License; see
-  [src/openvlharness/services/LICENSE.tool-infra](src/openvlharness/services/LICENSE.tool-infra).
+  [openvlharness/services/LICENSE.tool-infra](openvlharness/services/LICENSE.tool-infra).
 
 ## Models and services used by the default tool backends
 

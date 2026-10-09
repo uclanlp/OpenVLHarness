@@ -8,7 +8,7 @@ import time
 import types
 from pathlib import Path
 
-repo_root = Path(__file__).resolve().parents[3]
+repo_root = Path(__file__).resolve().parents[2]
 pkg_root = repo_root / "openvlharness_eval"
 
 # Avoid importing openvlharness_eval/__init__.py (heavy dataset deps).

@@ -25,7 +25,7 @@ python validation/run_perception.py --data-root "$LMUData" --check-only
 ```
 
 Configure the model and tool services using [model setup](../docs/models.md) and
-[tool setup](../src/openvlharness/services/tools/README.md). Run the fixed set with
+[tool setup](../openvlharness/services/tools/README.md). Run the fixed set with
 one worker and direct metrics, using a fresh output directory for each backbone:
 
 ```bash

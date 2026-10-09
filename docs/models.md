@@ -10,7 +10,7 @@ server; their request settings are separate.
 | [Qwen](../configs/agent/qwen3_paper.yaml) | `qwen3-vl-8b-instruct` | `Qwen/Qwen3-VL-8B-Instruct` | Chat Completions |
 | [GPT Luna](../configs/agent/gpt6_luna_paper.yaml) | `gpt-6-luna` | `gpt-6-luna` | Responses |
 
-Aliases resolve through the explicit [model registry](../src/openvlharness/services/model_registry.yaml).
+Aliases resolve through the explicit [model registry](../openvlharness/services/model_registry.yaml).
 The vLLM served name must match the exact model ID, including capitalization;
 the shorter config alias is not the served name.
 

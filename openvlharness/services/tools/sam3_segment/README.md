@@ -6,7 +6,7 @@ source checkout:
 ```bash
 python -m venv /path/to/envs/sam3
 source /path/to/envs/sam3/bin/activate
-bash src/openvlharness/services/tools/sam3_segment/install.sh
+bash openvlharness/services/tools/sam3_segment/install.sh
 ```
 
 Alternatively, `environment-sam3.yml` creates a minimal conda environment;
@@ -24,7 +24,7 @@ revision recorded in the deployment notes, with offline resolution enabled.
 Verify the cached revision before claiming an identical checkpoint on a new host.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 bash src/openvlharness/services/tools/sam3_segment/run_sam3_server.sh
+CUDA_VISIBLE_DEVICES=0 bash openvlharness/services/tools/sam3_segment/run_sam3_server.sh
 ```
 
 The equivalent installed-package entrypoint is:

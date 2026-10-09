@@ -34,4 +34,4 @@ source arguments as `prepare_fscdlvis_box`.
 
 For prompt maintenance, supply `--lmu-data` or set `LMUData`; there is no private
 directory fallback. Service launch examples are documented separately under
-[tool services](../../../src/openvlharness/services/tools/README.md).
+[tool services](../../../openvlharness/services/tools/README.md).
