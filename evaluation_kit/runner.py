@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 """Inference runner: feeds benchmark rows to an agent and writes predictions, trajectories and reports."""
 
 import copy
@@ -31,6 +32,16 @@ def _is_failed_prediction(pred):
     return any(m in text for m in FAIL_MSGS)
 
 
+def _failure_cause(result, limit=300):
+    """Return the error the agent recorded for a failed sample, shortened to ``limit`` characters."""
+    extra = result.get("extra_records") if isinstance(result, dict) else None
+    trajectory = extra.get("trajectory") if isinstance(extra, dict) else None
+    if not (isinstance(trajectory, dict) and trajectory.get("error")):
+        return "no error recorded"
+    cause = str(trajectory["error"])
+    return cause if len(cause) <= limit else cause[:limit] + "..."
+
+
 # ============================================================================
 # API-based Inference Functions
 # ============================================================================
@@ -53,6 +64,8 @@ def _build_full_trajectory_payload(record, save_images, images_subdir):
     gt = record.get("ground_truth")
     if gt is not None:
         payload["ground_truth"] = copy.deepcopy(gt)
+    if isinstance(trajectory, dict) and trajectory.get("error"):
+        payload["error"] = copy.deepcopy(trajectory["error"])
     reasoning = (record.get("extra_records") or {}).get("reasoning")
     if reasoning:
         payload["reasoning"] = reasoning
@@ -98,9 +111,9 @@ def _make_committed_gen(
       - ``raw_traces/<idx>.json`` or ``raw_traces/errors/<idx>.json``
         (if raw export was requested)
     """
-    # Disk escape hatch (ported from bryan/qwen25): full_trajectories/ (mostly saved images) is
-    # ~99.7% of run output. FULL_TRAJECTORIES_LIMIT caps it: 0 = save none, N = first N per
-    # dataset, unset/-1 = unlimited (default). Metrics are unaffected (they come from the xlsx/csv).
+    # Disk escape hatch: full_trajectories/ (mostly saved images) is ~99.7% of run output.
+    # FULL_TRAJECTORIES_LIMIT caps it: 0 = save none, N = first N per dataset, unset/-1 =
+    # unlimited (default). Metrics are unaffected (they come from the xlsx/csv).
     _ftl = os.environ.get("FULL_TRAJECTORIES_LIMIT", "").strip()
     if _ftl:
         try:
@@ -170,6 +183,10 @@ def _make_committed_gen(
                     write_raw_trace_jsons(
                         [rec0], osp.join(work_dir, "raw_traces"), limit=-1,
                     )
+
+            prediction = result.get("prediction") if isinstance(result, dict) else result
+            if _is_failed_prediction(prediction):
+                get_logger("RUN").warning("Sample %s failed: %s", idx, _failure_cause(result))
 
             # 5) canonical record + done flag — last, so a crash before this
             # leaves no done flag and the boot scan re-dispatches.
@@ -285,7 +302,7 @@ def infer_data_api(
 
 
 def infer_data(
-    model, model_name, work_dir, dataset, out_file=None, *,
+    model, model_name, work_dir, dataset, *,
     verbose=False, api_nproc=4, enable_incremental_json=False,
     html_limit=0, save_images="files", save_raw_trace=False,
     ignore_failed=False,
@@ -296,9 +313,6 @@ def infer_data(
     Resume is driven by ``_done/`` flags + per-example sidecars under
     ``work_dir`` rather than the legacy ``_supp.pkl`` / ``_PREV.pkl``
     cumulative pickles.
-
-    The legacy ``out_file`` argument is kept for callsite compatibility but
-    is no longer the source of truth.
     """
     rank, world_size = get_rank_and_world_size()
     indices = list(dataset.data['index'])
@@ -328,25 +342,6 @@ def _strip_trajectory(extra_records):
         cleaned.pop("trajectory", None)
         return cleaned
     return extra_records
-
-
-def _build_prompts(model, dataset, dataset_name, data):
-    """
-    Build prompts for a dataset.
-    
-    Returns:
-        List of prompt structures
-    """
-    structs = []
-    for i in range(len(data)):
-        item = data.iloc[i]
-        if hasattr(model, 'use_custom_prompt') and model.use_custom_prompt(dataset_name):
-            assert hasattr(model, 'build_prompt')
-            struct = model.build_prompt(item, dataset=dataset_name)
-        else:
-            struct = dataset.build_prompt(item)
-        structs.append(struct)
-    return structs
 
 
 def _split_thinking(s):

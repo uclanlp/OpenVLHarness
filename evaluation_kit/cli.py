@@ -7,7 +7,7 @@ the predictions with the dataset evaluators.
 import sys
 
 try:
-    import pandas  # noqa: F401
+    import pandas
 except ImportError as exc:  # pragma: no cover - exercised only in minimal installs
     sys.exit(
         "openvlharness-eval needs the evaluation dependencies. "
@@ -17,6 +17,7 @@ except ImportError as exc:  # pragma: no cover - exercised only in minimal insta
 from dotenv import load_dotenv
 load_dotenv(".env")
 
+import difflib
 import json
 import os
 import argparse
@@ -24,16 +25,12 @@ from pathlib import Path
 import yaml
 from openvlharness import bootstrap
 from evaluation_kit import dataset as datasets
-import datetime
 from evaluation_kit.smp import *
 from evaluation_kit import infer_image_job
+from evaluation_kit.runner import _failure_cause, _is_failed_prediction
 from evaluation_kit.utils import load_judge_config
 from evaluation_kit.utils import file_db
 from evaluation_kit.utils.eval_injection import merge_eval_into_trajectories
-
-# Matches FAIL_MSG in evaluation_kit.runner; the
-# sentinel prediction written when an example fails to produce an answer.
-FAIL_MSG = 'Failed to obtain answer via API.'
 from evaluation_kit.utils.run_identity import (
     parse_yaml_mapping,
     require_config_version,
@@ -42,11 +39,6 @@ from evaluation_kit.utils.run_identity import (
     validate_manifest_compatibility,
     redact_sensitive_fields,
 )
-
-RANK = int(os.environ.get('RANK', 0))
-WORLD_SIZE = int(os.environ.get('WORLD_SIZE', 1))
-LOCAL_WORLD_SIZE = int(os.environ.get("LOCAL_WORLD_SIZE",1))
-LOCAL_RANK = int(os.environ.get("LOCAL_RANK",1))
 
 
 def _write_json(path, payload):
@@ -275,19 +267,69 @@ def _prepare_run_root(pred_root, manifest, logger):
     _write_yaml(agent_cfg_path, manifest["config_snapshot_redacted"]["agent"])
     _write_yaml(judge_cfg_path, manifest["config_snapshot_redacted"]["judge"])
 
-    # Snapshot tool_infra env for reproducibility (search tool settings, API config, etc.)
+    # Record the router's reported environment (search tool settings, API config, etc.) for reproducibility.
     _snapshot_tool_env(pred_root, logger, agent_config=manifest.get("config_snapshot_redacted", {}).get("agent"))
 
     logger.info(f"Initialized new run root: {pred_root}")
 
+
+def _check_datasets(names):
+    """Exit unless LMUData is set and each name is registered or has a custom $LMUData/<name>.tsv."""
+    lmu_root = os.environ.get("LMUData")
+    if not lmu_root:
+        sys.exit("LMUData is not set. Set it to the directory datasets are downloaded to, "
+                 "e.g. export LMUData=/path/to/local/datasets")
+    known = sorted(set(datasets.SUPPORTED_DATASETS))
+    for name in names:
+        if name in known or os.path.exists(os.path.join(lmu_root, f"{name}.tsv")):
+            continue
+        matches = difflib.get_close_matches(name, known, n=3)
+        suggestion = f" Did you mean: {', '.join(matches)}?" if matches else ""
+        sys.exit(f"Unknown dataset {name}.{suggestion} See the README 'Datasets and scoring' table.")
+
+
+def _format_results(results):
+    """Render the value returned by a dataset evaluator for the log."""
+    if isinstance(results, pandas.DataFrame):
+        return results.to_string()
+    if isinstance(results, dict):
+        return json.dumps(results, indent=2, default=str)
+    return str(results)
+
+
+def _report_failed_rows(result_file, pred_root, logger):
+    """Warn when the prediction file contains failed rows, citing the first recorded error."""
+    if not os.path.exists(result_file):
+        result_file = result_file.rsplit('.', 1)[0] + '.pkl'
+        if not os.path.exists(result_file):
+            return
+    data = load(result_file)
+    if isinstance(data, list):
+        data = pandas.DataFrame(data)
+    failed = [idx for idx, pred in zip(data["index"], data["prediction"]) if _is_failed_prediction(pred)]
+    if not failed:
+        return
+    try:
+        cause = _failure_cause(file_db.load_record(os.path.dirname(result_file), failed[0]))
+    except (OSError, ValueError):
+        cause = "no error recorded"
+    logger.warning(
+        "%d/%d samples failed (first error: %s). They are scored as incorrect; fix the service "
+        "and rerun with --run-dir %s --ignore-failed.", len(failed), len(data), cause, pred_root,
+    )
+
+
 def main(argv=None):
     """Run inference and/or evaluation for the selected datasets (the `openvlharness-eval` command)."""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Run an agent-system config on benchmarks and score the predictions. "
+                    "Environment variables are also read from ./.env if present.",
+    )
     parser.add_argument('--data', type=str, nargs='+', required=True, help='Names of Datasets')
     parser.add_argument('--config', type=str, default=None, help='Agent-system config for inference (default: configs/agent/qwen3_8b_paper.yaml); optional metadata filter for eval discovery')
     parser.add_argument('--judge-config', type=str, default=None, help='Judge config override; inference defaults to configs/judge.yaml, eval uses the saved judge configuration')
     parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='all: infer and evaluate; infer: generate predictions; eval: evaluate saved outputs without loading an inference agent')
-    parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
+    parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory (default: ./outputs)')
     parser.add_argument('--num-proc', type=int, default=4, help='Number of processes for API inference')
     parser.add_argument('--save-html', type=str, default='0', help='Generate HTML reports: 0, N, or all')
     parser.add_argument('--save-images', type=str, default='files', choices=['files', 'base64'],
@@ -334,24 +376,26 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
+    if int(os.environ.get('WORLD_SIZE', '1')) > 1:
+        sys.exit('openvlharness-eval runs in a single process; unset WORLD_SIZE and use --num-proc for concurrency.')
+
     # --mode eval always needs an existing run with pred files
     if args.mode == "eval":
         args.resume = True
 
     logger = get_logger("RUN")
 
-    if args.mode == "eval" and WORLD_SIZE > 1:
-        raise ValueError("Evaluation-only mode runs in one process; launch without distributed inference settings")
-
-
     if args.mode == "eval":
         pred_root, run_manifest, model_name, agent_class, saved_predictions = _prepare_evaluation_run(args, logger)
         run_id = run_manifest["run_id"]
         agent_config_version = run_manifest["agent_config_version"]
-        judge_config = (parse_yaml_mapping(args.judge_config, label="Judge config") if args.judge_config
-                        else run_manifest["config_snapshot_redacted"]["judge"])
-        judge_config_version = require_config_version(judge_config, field_name="judge_config_version", label="Judge config")
-        judge_kwargs = load_judge_config(judge_config)
+        try:
+            judge_config = (parse_yaml_mapping(args.judge_config, label="Judge config") if args.judge_config
+                            else run_manifest["config_snapshot_redacted"]["judge"])
+            judge_config_version = require_config_version(judge_config, field_name="judge_config_version", label="Judge config")
+            judge_kwargs = load_judge_config(judge_config)
+        except (ValueError, OSError) as exc:
+            sys.exit(f"error: {exc}")
         # Local matching policies do not construct an API judge.
         if (judge_kwargs.get("model") not in (None, "exact_matching", "extract_matching")
                 and judge_kwargs.get("key") == "<REDACTED>"):
@@ -359,22 +403,32 @@ def main(argv=None):
         logger.info("Evaluating saved %s/%s outputs without an inference agent", agent_class, model_name)
         logger.info("LLM Judge Configurations: %s", redact_sensitive_fields(judge_kwargs))
     else:
+        # Both defaults are relative to the working directory.
+        for option, value, default in (("--config", args.config, "configs/agent/qwen3_8b_paper.yaml"),
+                                       ("--judge-config", args.judge_config, "configs/judge.yaml")):
+            if value is None and not os.path.exists(default):
+                sys.exit(f"No {option} given and {default} was not found under {os.getcwd()}. "
+                         "Run from the repository root or pass --config and --judge-config.")
+        _check_datasets(args.data)
         args.config = args.config or "configs/agent/qwen3_8b_paper.yaml"
         args.judge_config = args.judge_config or "configs/judge.yaml"
-        agent_config = bootstrap.load_agent_config(args.config, save_raw_trace=args.save_raw_trace)
-        judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
-        agent_config_version = require_config_version(
-            agent_config,
-            field_name="agent_config_version",
-            label="Agent config",
-        )
-        judge_config_version = require_config_version(
-            judge_config,
-            field_name="judge_config_version",
-            label="Judge config",
-        )
+        try:
+            agent_config = bootstrap.load_agent_config(args.config, save_raw_trace=args.save_raw_trace)
+            judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
+            agent_config_version = require_config_version(
+                agent_config,
+                field_name="agent_config_version",
+                label="Agent config",
+            )
+            judge_config_version = require_config_version(
+                judge_config,
+                field_name="judge_config_version",
+                label="Judge config",
+            )
+            judge_kwargs = load_judge_config(args.judge_config)
+        except (ValueError, OSError) as exc:
+            sys.exit(f"error: {exc}")
         agent = bootstrap.build_agent(agent_config)
-        judge_kwargs = load_judge_config(args.judge_config)
         model_name = agent.model.split('/')[-1]
         agent_class = agent.__class__.__name__
 
@@ -445,10 +499,7 @@ def main(argv=None):
                 config_path=args.config,
                 judge_config_path=args.judge_config,
             )
-            if RANK == 0:
-                _prepare_run_root(pred_root, run_manifest, logger)
-            if WORLD_SIZE > 1:
-                dist.barrier()
+            _prepare_run_root(pred_root, run_manifest, logger)
 
     logger.info(
         f"Run identity: run_id={run_id} "
@@ -461,13 +512,9 @@ def main(argv=None):
     else:
         html_limit = int(html_arg)
 
+    evaluated = {}
     for _, dataset_name in enumerate(args.data):
         dataset_kwargs = dict()
-        if WORLD_SIZE > 1:
-            if RANK == 0:
-                dataset = datasets.build_dataset(dataset_name, **dataset_kwargs)
-            dist.barrier()
-
         dataset = datasets.build_dataset(dataset_name, **dataset_kwargs)
         if dataset is not None and args.num_examples is not None:
             if args.shuffle:
@@ -523,8 +570,8 @@ def main(argv=None):
                 save_raw_trace=args.save_raw_trace,
                 ignore_failed=args.ignore_failed,
             )
+            _report_failed_rows(result_file, pred_root, logger)
 
-        
         if args.mode != "infer":
             # Some writers (e.g., xlsx) may fail and dump() falls back to .pkl.
             # Ensure evaluation reads the actual existing result file.
@@ -545,6 +592,9 @@ def main(argv=None):
             logger.info(f"Start evaluation on dataset {dataset_name} with model {model_name}")
             # Perform the Evaluation
             eval_results = dataset.evaluate(result_file, **judge_kwargs)
+            evaluated[dataset_name] = _format_results(eval_results)
+            logger.info("%s results (%s):\n%s", dataset_name, os.path.dirname(result_file),
+                        evaluated[dataset_name])
 
             # Inject per-instance eval results into full_trajectories JSONs so
             # each <task_id>.json carries its own correct / score / raw block
@@ -577,7 +627,7 @@ def main(argv=None):
                             import pandas as pd
                             pred_data = pd.DataFrame(pred_data)
                         preds = pred_data.get("prediction", [])
-                        has_failures = any(FAIL_MSG in str(p) for p in preds)
+                        has_failures = any(_is_failed_prediction(p) for p in preds)
                         expected_n = len(dataset.data)
                     except Exception as exc:
                         # If we can't introspect the result file, err on the
@@ -608,6 +658,10 @@ def main(argv=None):
                     logger.warning(
                         f"[file-db cleanup] failed for dataset {dataset_name}: {exc}"
                     )
+
+    if evaluated:
+        logger.info("Results for run %s:\n%s", pred_root,
+                    "\n".join(f"{name}:\n{text}" for name, text in evaluated.items()))
 
 
 if __name__ == "__main__":
