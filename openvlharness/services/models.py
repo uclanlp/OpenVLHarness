@@ -698,24 +698,6 @@ class ModelAdapter:
                 ]
         return sanitized
 
-    def _to_responses_tools(self) -> List[Dict[str, Any]]:
-        """Flatten Chat-API tool schema to Responses-API shape."""
-        out: List[Dict[str, Any]] = []
-        for tool in self.json_schema or []:
-            if not isinstance(tool, dict):
-                continue
-            fn = tool.get("function")
-            if isinstance(fn, dict):
-                out.append({
-                    "type": "function",
-                    "name": fn.get("name"),
-                    "description": fn.get("description"),
-                    "parameters": cp.deepcopy(fn.get("parameters") or {"type": "object"}),
-                })
-            else:
-                out.append(cp.deepcopy(tool))
-        return out
-
     @staticmethod
     def _content_to_responses_parts(content: Any, role: str) -> List[Dict[str, Any]]:
         """Translate Chat-API content (`{type:"text"|"image_url",...}`) to
