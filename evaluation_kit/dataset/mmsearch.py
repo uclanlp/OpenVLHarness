@@ -478,7 +478,7 @@ class MMSearchEnd2End(ImageBaseDataset):
         """
         Evaluate predictions using token-level F1 against reference answers.
 
-        The input `eval_file` is expected to be the standard mini-vlm-toolkit
+        The input `eval_file` is expected to be the standard OpenVLHarness
         prediction file produced by `infer_image_job`, containing at least:
         - index
         - prediction
@@ -688,7 +688,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
         indices.append(idx)
 
     if indices:
-        new_results = track_progress_rich(
+        track_progress_rich(
             judge_one_fn,
             tups,
             nproc=nproc,
@@ -769,34 +769,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
 # other LLM-judge benchmarks in this project (mmsearch_plus, vdrbench,
 # hle, simplevqa_en, bcvl) so cross-benchmark numbers are directly
 # comparable, and matches WebWatcher's pipeline convention.
-#
-# The previous homebrew "evaluator for QA systems... lenient/strict
-# CORRECT/INCORRECT" prompt is preserved verbatim as
-# ``_LEGACY_MMSEARCH_JUDGE_PROMPT`` for reference but no longer
-# referenced by the active code path.
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
-
-
-_LEGACY_MMSEARCH_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
-
-Given a question, the ground-truth answer, and a model's prediction, judge whether the prediction is **semantically correct** (i.e. it conveys the same answer as the ground truth, even if the wording differs).
-
-Be lenient about:
-- Synonyms (e.g. "England" vs "United Kingdom")
-- Number formats (e.g. "1" vs "One")
-- Date formats (e.g. "September 29 to October 4, 2024" vs "2024-09-29 to 2024-10-04")
-- Verbose answers that contain the correct answer plus extra explanation
-- Capitalization and punctuation
-
-Be strict about:
-- Wrong facts (e.g. wrong color, wrong name, wrong number)
-- Refusal or "I don't know" responses
-
-Question: {question}
-Ground Truth: {gt_answer}
-Prediction: {prediction}
-
-Respond with EXACTLY one word: either "CORRECT" or "INCORRECT". No explanation."""
 
 
 def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:

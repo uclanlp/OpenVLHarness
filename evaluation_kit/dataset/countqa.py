@@ -79,7 +79,6 @@ class CountQA(ImageVQADataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
-        import numpy as np
         from .utils.fsc147 import extract_integer_from_prediction
 
         data = load(eval_file)

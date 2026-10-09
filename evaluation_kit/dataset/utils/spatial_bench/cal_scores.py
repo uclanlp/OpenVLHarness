@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 import ast
 import math
 import numpy as np
@@ -5,13 +6,11 @@ import pandas as pd
 import warnings
 
 from collections import OrderedDict
-from typing import Dict, Any, List
 
 from .matching_func import can_match_na, can_match_option
 from .tools.files import get_judge_tag_from_score_fn, build_eval_paths
 from .llm_extract import parallel_llm_extract
 from ..judge_util import build_judge
-from ....smp.vlm import gpt_key_set
 from ....smp.file import get_intermediate_file_path
 
 

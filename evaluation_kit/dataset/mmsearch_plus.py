@@ -184,33 +184,7 @@ def _extract_answer(prediction: str) -> str:
 # yes/no JSON). Same prompt used by hle / mmsearch / simplevqa / bcvl /
 # vdrbench so cross-benchmark numbers are directly comparable, and
 # WebWatcher-aligned for paper comparisons. See utils/hle_judge.py.
-#
-# The previous homebrew "lenient/strict CORRECT/INCORRECT" prompt is
-# retained as ``_LEGACY_JUDGE_PROMPT`` for reference but no longer
-# referenced by the active code path.
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
-
-
-_LEGACY_JUDGE_PROMPT = """You are an evaluator for question-answering systems.
-
-Given a question, the ground-truth answer(s), and a model's prediction, judge whether the prediction is **semantically correct** (i.e. it conveys the same answer as any of the ground truths, even if the wording differs).
-
-Be lenient about:
-- Synonyms and paraphrases
-- Number formats (e.g. "1" vs "One")
-- Date formats
-- Verbose answers that contain the correct answer plus extra explanation
-- Capitalization and punctuation
-
-Be strict about:
-- Wrong facts (e.g. wrong name, wrong title, wrong number)
-- Refusal or "I don't know" responses
-
-Question: {question}
-Ground Truth Answer(s): {gt_answer}
-Prediction: {prediction}
-
-Respond with EXACTLY one word: either "CORRECT" or "INCORRECT". No explanation."""
 
 
 def _parse_alts(alt) -> list:

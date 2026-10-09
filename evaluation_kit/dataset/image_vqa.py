@@ -1,16 +1,11 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 import os
-import re
-import tempfile
 from functools import partial
 
-import pandas as pd
-from tqdm import tqdm
-
 from .image_base import ImageBaseDataset
-from .utils import build_judge, DEBUG_MESSAGE
+from .utils import build_judge
 from ..smp import *
-from ..smp.file import get_intermediate_file_path, get_file_extension
-from ..utils import track_progress_rich
+from ..smp.file import get_intermediate_file_path
 
 
 class ImageVQADataset(ImageBaseDataset):
@@ -57,10 +52,7 @@ class ImageVQADataset(ImageBaseDataset):
         return msgs
 
     def evaluate(self, eval_file, **judge_kwargs):
-        if judge_kwargs.get('use_verifier', False):
-            return self.evaluate_verifier(eval_file, **judge_kwargs)
-        else:
-            return self.evaluate_heuristic(eval_file, **judge_kwargs)
+        return self.evaluate_heuristic(eval_file, **judge_kwargs)
 
     def _get_eval_method(self):
         """Return the dataset-specific VQA evaluation method name."""
@@ -159,63 +151,6 @@ class ImageVQADataset(ImageBaseDataset):
         # Build res list in the same format as process_line output
         res = [dict(match=data.iloc[i]['eval_match']) for i in range(len(data))]
         return data, res
-
-    def evaluate_verifier(self, eval_file, **judge_kwargs):
-        data = load(eval_file)
-        assert 'answer' in data and 'prediction' in data
-        data['prediction'] = [str(x) for x in data['prediction']]
-        data['answer'] = [str(x) for x in data['answer']]
-        lt = len(data)
-        lines = [data.iloc[i] for i in range(lt)]
-        from .utils.verifier import Verifier
-        verifier = Verifier(use_vllm=judge_kwargs.get('use_vllm', False))
-        res = []
-        scores = []
-        for line in tqdm(lines):
-            score = verifier.evaluate(line['question'], line['prediction'], line['answer'])
-            scores.append(score)
-            res.append({
-                'gt': [line['answer']],
-                'pred': line['prediction'],
-                'match': [1.0 if score else 0.0]
-            })
-
-        data['verifier_score'] = scores
-        data['verifier_match'] = [1.0 if score else 0.0 for score in scores]
-
-        detailed_result_file = get_intermediate_file_path(eval_file, '_detailed_results')
-        dump(data, detailed_result_file)
-
-        def hit_calculate(result):
-            return [np.mean(x['match']) for x in result]
-
-        hit = hit_calculate(res)
-        ret = dict()
-        if 'split' in data:
-            splits = set(data['split'])
-            for sp in splits:
-                sub = [r for l, r in zip(lines, res) if l['split'] == sp]
-                # [np.mean(x['match']) >= full_score_weight for x in sub]
-                hit = hit_calculate(sub)
-                ret[sp] = np.mean(hit) * 100
-            sub = [r for l, r in zip(lines, res)]
-            hit = hit_calculate(sub)
-            ret['Overall'] = np.mean(hit) * 100
-        else:
-            ret['Overall'] = np.mean(hit) * 100
-            if 'category' in data:
-                cates = list(set(data['category']))
-                cates.sort()
-                for c in cates:
-                    sub = [r for l, r in zip(lines, res) if l['category'] == c]
-                    hit = hit_calculate(sub)
-                    ret[c] = np.mean(hit) * 100
-        ret = d2df(ret)
-        ret.round(2)
-
-        result_file = get_intermediate_file_path(eval_file, '_acc')
-        dump(ret, result_file)
-        return ret
 
 
 class CustomVQADataset(ImageBaseDataset):

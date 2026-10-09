@@ -1,6 +1,6 @@
 from ...smp import *
 from ...utils import track_progress_rich
-from .vqa_eval import process_line, hit_calculate
+from .vqa_eval import process_line
 
 
 def build_vqa_extract_prompt(question, prediction, answer):

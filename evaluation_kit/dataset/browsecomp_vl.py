@@ -157,8 +157,7 @@ def _ensure_browsecompvl_data(lmu_root: str):
 # ---------------------------------------------------------------------------
 from .utils.hle_judge import HLE_JUDGE_PROMPT as JUDGE_PROMPT, parse_hle_judgement
 from .utils.judge_rs import (
-    JUDGE_RS_PROMPT, JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT,
-    JUDGE_RS_VERSION, parse_judge_rs_judgement,
+    JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
 )
 
 

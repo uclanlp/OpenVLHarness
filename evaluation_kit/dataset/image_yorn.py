@@ -1,3 +1,4 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 from .hf_release import hf_tsv_url
 from ..smp import *
 from ..utils import *

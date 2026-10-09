@@ -1,10 +1,6 @@
-import os
 import json
-from typing import Dict, List, Tuple, Any, Union
+from typing import Dict, List, Any, Union
 import pandas as pd
-import warnings
-import ast
-import math
 from openai import OpenAI
 from evaluation_kit.dataset.image_base import ImageBaseDataset
 from evaluation_kit.dataset.hf_release import HF_SPLITS, load_hf_split
@@ -12,9 +8,7 @@ from evaluation_kit.smp import misc, file
 from evaluation_kit.smp.file import get_intermediate_file_path
 from evaluation_kit.dataset.utils.simplevqa import *
 from tqdm import tqdm
-import pdb
 from pathlib import Path
-import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 NUM_WORKERS = 16

@@ -1,3 +1,5 @@
+import ast
+
 from evaluation_kit import *
 from ..smp import *
 from .image_base import ImageBaseDataset
@@ -81,7 +83,7 @@ def _gt_with_alternatives(item):
     answer = item.get('answer', '')
     if isinstance(answer, str) and answer.strip().startswith('[') and answer.strip().endswith(']'):
         try:
-            answer = eval(answer)
+            answer = ast.literal_eval(answer)
         except Exception:
             answer = [answer]
     if not isinstance(answer, list):
@@ -318,7 +320,7 @@ def _ensure_evqa_subset(lmu_root: str, dataset_name: str,
     images_NNN.tar). On first call, may take 10-30 min to scan tars;
     subsequent loads find TSV + images cached.
     """
-    import os, csv, json, tarfile, random
+    import os, csv, json, tarfile
     tsv_path = osp.join(lmu_root, f'{dataset_name}.tsv')
     if osp.exists(tsv_path):
         return tsv_path
@@ -377,7 +379,7 @@ def _ensure_evqa_subset(lmu_root: str, dataset_name: str,
     for _, rec in inat_rows.iterrows():
         first_id = str(rec['dataset_image_ids']).split(',')[0].split('|')[0].strip()
         try: iid = int(first_id)
-        except: continue
+        except Exception: continue
         if iid not in inat_id_to_path: continue
         fp_in_tar = inat_id_to_path[iid]   # "val/<dir>/<uuid>.jpg"
         data_id = f'{id_prefix}_{rec.name}'
@@ -653,9 +655,7 @@ class ImageShortQADataset(ImageBaseDataset):
         'LiveMMBench_Reasoning': '',
         'LiveMMBench_Reasoning_circular': '',
         'hle':'https://opencompass.openxlab.space/utils/VLMEval/hle.tsv',
-        # SFT distillation training source — TSV produced by
-        # `sft/data/download_train_datasets.py --action to_tsv --dataset infoseek --split {train|val|test}`.
-        # Empty URL = no auto-download; local TSV is authoritative.
+        # No download URL: the TSV must already be in LMUData.
         'Infoseek_GDM_train': '',
         'Infoseek_GDM_val': '',
         # FVQA_test, Infoseek_GDM_test, EncyclopedicVQA_test and hle are loaded from the
@@ -689,8 +689,8 @@ class ImageShortQADataset(ImageBaseDataset):
         # variant (no extra disk).
         'FVQA_train_mini':           '',
         'EncyclopedicVQA_val_mini':  '',
-        # Phase 0 hand-curated Wikidata seed for multimodal multi-hop validation.
-        # TSV produced by /tmp/build_gen_seed_v0.py from /tmp/sparql_*.json + keepers.json.
+        # Hand-curated Wikidata seed set for multimodal multi-hop validation.
+        # No download URL: the TSV must already be in LMUData.
         'Gen_Seed_V0': '',
     }
 
@@ -759,7 +759,7 @@ class ImageShortQADataset(ImageBaseDataset):
                 if 'category' not in df.columns:
                     raise ValueError(
                         "FVQA_train TSV missing 'category' column; "
-                        "regenerate via sft/data/download_train_datasets.py --action to_tsv --dataset fvqa"
+                        "delete FVQA_train.tsv from LMUData to rebuild it from lmms-lab/FVQA"
                     )
                 before = len(df)
                 df = df[df['category'].astype(str).str.lower() == cat].reset_index(drop=True)
@@ -885,7 +885,7 @@ class ImageShortQADataset(ImageBaseDataset):
                     # judge_kwargs['judge_prompt'] overrides per call.
                     #
                     # All other ImageShortQA datasets (LiveMMBench_*,
-                    # PathVQA, Infoseek_GDM_*) keep the legacy
+                    # Infoseek_GDM_train, Gen_Seed_V0) keep the
                     # Comprehensive_auxeval path (ShortQA prompt with EN/CN
                     # ICE examples; MCQ vs ShortQA dispatch). To extend the
                     # 3-way switch to those, add them to
@@ -915,23 +915,3 @@ class ImageShortQADataset(ImageBaseDataset):
         score_file = get_intermediate_file_path(eval_file, acc_stem, 'csv')
         dump(acc, score_file)
         return acc
-
-
-class PathVQA_VAL(ImageShortQADataset):
-    DATASET_URL = {
-        'PathVQA_VAL': 'https://huggingface.co/datasets/Pfei111/PathVQA/resolve/main/PathVQA_VAL.tsv',
-    }
-
-    DATASET_MD5 = {
-        'PathVQA_VAL': None,
-    }
-
-
-class PathVQA_TEST(ImageShortQADataset):
-    DATASET_URL = {
-        'PathVQA_TEST': 'https://huggingface.co/datasets/Pfei111/PathVQA/resolve/main/PathVQA_TEST.tsv',
-    }
-
-    DATASET_MD5 = {
-        'PathVQA_TEST': None,
-    }

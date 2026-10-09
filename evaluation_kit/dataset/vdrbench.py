@@ -165,37 +165,7 @@ def _extract_answer(prediction: str) -> str:
 # yes/no JSON, see ``utils/hle_judge.py``). Same prompt as hle / mmsearch
 # / mmsearch_plus / simplevqa / bcvl so cross-benchmark numbers are
 # directly comparable.
-#
-# The previous VDR-paper-style "deep research report contains the correct
-# answer" prompt is preserved verbatim as ``_LEGACY_JUDGE_PROMPT`` for
-# reference but no longer referenced by the active code path.
 from .utils.hle_judge import HLE_JUDGE_PROMPT, parse_hle_judgement
-
-
-_LEGACY_JUDGE_PROMPT = """You are an impartial judge evaluating whether a deep research report contains the correct answer.
-
-[Question]
-{question}
-
-[Correct Answer]
-{gt_answer}
-
-[Deep Research Report]
-{prediction}
-
-Task: Determine if the deep research report contains the correct answer anywhere in its content.
-
-Instructions:
-1. Read through the entire research report carefully
-2. Look for the correct answer anywhere in the report (it may be embedded in paragraphs, tables, or sections)
-3. Check if the information in the report is consistent with the correct answer
-4. The answer does NOT need to be in a specific format or labeled as "final answer"
-5. Provide your reasoning
-6. Answer with "yes" if the report contains the correct answer, "no" if it doesn't or contradicts it
-
-Output format:
-correct: [yes/no]
-reasoning: [your explanation]"""
 
 
 def _judge_one(judge, row) -> Dict[str, Any]:

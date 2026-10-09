@@ -39,7 +39,6 @@ import os.path as osp
 import re
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import pandas as pd
