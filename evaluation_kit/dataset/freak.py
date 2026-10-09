@@ -129,6 +129,9 @@ class FREAKVQADataset(ImageVQADataset):
         msgs.append(dict(type='text', value=line['prompt']))
         return msgs
 
+    # Scored only by an LLM judge (no exact-matching path); checked before inference.
+    REQUIRES_LLM_JUDGE = 'strict'
+
     def evaluate(self, eval_file, **judge_kwargs):
         import re
         from .utils.verifier import QUESTION_QUALITY_PROMPT_EN_NO_COT

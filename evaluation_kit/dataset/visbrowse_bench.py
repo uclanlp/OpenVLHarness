@@ -486,6 +486,9 @@ class VisBrowseBenchDataset(ImageBaseDataset):
 
     # -- Evaluation: binary judge grading (yes/no contains-based) --------
 
+    # Needs an LLM judge (or exact_matching); checked before inference.
+    REQUIRES_LLM_JUDGE = True
+
     def evaluate(self, eval_file, **judge_kwargs):
         """Evaluate predictions with the original VisBrowse-Bench judge.
 

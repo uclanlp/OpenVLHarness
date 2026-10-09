@@ -424,6 +424,9 @@ class BrowseCompVLDataset(ImageBaseDataset):
 
     # -- Evaluation: binary judge grading (yes/no) --------------------------
 
+    # Needs an LLM judge (or exact_matching); checked before inference.
+    REQUIRES_LLM_JUDGE = True
+
     def evaluate(self, eval_file, **judge_kwargs):
         """Evaluate predictions using the original BrowseComp-VL grading protocol."""
         require_judge(self.dataset_name, judge_kwargs)

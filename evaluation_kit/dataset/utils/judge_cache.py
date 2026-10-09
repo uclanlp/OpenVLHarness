@@ -110,3 +110,10 @@ def require_judge(dataset_name, judge_kwargs, allow_exact_matching=True):
             f'{dataset_name} is scored by an LLM judge; pass --judge-config with model_name '
             'and api_base (e.g. configs/judge.yaml)'
         )
+
+
+def require_judge_for(dataset_cls, dataset_name, judge_kwargs):
+    """Apply require_judge using the class's REQUIRES_LLM_JUDGE flag (True or 'strict')."""
+    requirement = getattr(dataset_cls, 'REQUIRES_LLM_JUDGE', False)
+    if requirement:
+        require_judge(dataset_name, judge_kwargs, allow_exact_matching=requirement != 'strict')

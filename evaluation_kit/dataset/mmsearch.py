@@ -475,6 +475,9 @@ class MMSearchEnd2End(ImageBaseDataset):
         msgs.append({"type": "text", "value": question})
         return msgs
 
+    # Needs an LLM judge (or exact_matching); checked before inference.
+    REQUIRES_LLM_JUDGE = True
+
     def evaluate(self, eval_file: str, **judge_kwargs: Any) -> Dict[str, Any]:
         """
         Evaluate predictions using token-level F1 against reference answers.

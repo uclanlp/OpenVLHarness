@@ -201,6 +201,9 @@ class SimpleVQA(ImageBaseDataset):
         scores = SimpleVQAEval(results)
         return pd.DataFrame(list(scores.items()))
 
+    # Scored only by an LLM judge (no exact-matching path); checked before inference.
+    REQUIRES_LLM_JUDGE = 'strict'
+
     def evaluate(self, eval_file: str, **judge_kwargs: Any) -> pd.DataFrame:
         """
         Evaluate model predictions on the ChartQAPro dataset.

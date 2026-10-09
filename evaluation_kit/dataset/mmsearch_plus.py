@@ -528,6 +528,9 @@ class MMSearchPlus(ImageBaseDataset):
         msgs.append({"type": "text", "value": question})
         return msgs
 
+    # Needs an LLM judge (or exact_matching); checked before inference.
+    REQUIRES_LLM_JUDGE = True
+
     def evaluate(self, eval_file: str, **judge_kwargs: Any) -> Dict[str, Any]:
         require_judge(self.dataset_name, judge_kwargs)
         data = load(eval_file)

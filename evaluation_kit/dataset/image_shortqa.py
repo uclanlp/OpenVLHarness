@@ -785,6 +785,9 @@ class ImageShortQADataset(ImageBaseDataset):
         return df
 
     # It returns a DataFrame
+    # Needs an LLM judge (or exact_matching); checked before inference.
+    REQUIRES_LLM_JUDGE = True
+
     def evaluate(self, eval_file, **judge_kwargs):
         require_judge(self.dataset_name, judge_kwargs)
         data = load(eval_file)

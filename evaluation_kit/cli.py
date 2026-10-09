@@ -288,6 +288,17 @@ def _check_datasets(names):
         sys.exit(f"Unknown dataset {name}.{suggestion} See the README 'Datasets and scoring' table.")
 
 
+def _check_judge(names, judge_kwargs):
+    """Exit before inference when a benchmark needs an LLM judge and the judge config has none."""
+    from evaluation_kit.dataset.utils.judge_cache import require_judge_for
+    for name in names:
+        cls = next((c for c in datasets.IMAGE_DATASET if name in c.supported_datasets()), None)
+        try:
+            require_judge_for(cls, name, judge_kwargs)
+        except ValueError as exc:
+            sys.exit(f"error: {exc}, or run --mode infer to skip evaluation.")
+
+
 def _format_results(results):
     """Render the value returned by a dataset evaluator for the log."""
     if isinstance(results, pandas.DataFrame):
@@ -315,7 +326,8 @@ def _report_failed_rows(result_file, pred_root, logger):
         cause = "no error recorded"
     logger.warning(
         "%d/%d samples failed (first error: %s). They are scored as incorrect; fix the service "
-        "and rerun with --run-dir %s --ignore-failed.", len(failed), len(data), cause, pred_root,
+        "and rerun with the same config and endpoints using --run-dir %s --ignore-failed.",
+        len(failed), len(data), cause, pred_root,
     )
 
 
@@ -428,6 +440,8 @@ def main(argv=None):
             judge_kwargs = load_judge_config(args.judge_config)
         except (ValueError, OSError) as exc:
             sys.exit(f"error: {exc}")
+        if args.mode == "all":
+            _check_judge(args.data, judge_kwargs)
         agent = bootstrap.build_agent(agent_config)
         model_name = agent.model.split('/')[-1]
         agent_class = agent.__class__.__name__
@@ -457,7 +471,10 @@ def main(argv=None):
             if not os.path.exists(run_manifest_path):
                 raise ValueError(f"--run-dir missing run_manifest.json: {pred_root}")
             existing_manifest = _load_json(run_manifest_path)
-            validate_manifest_compatibility(existing_manifest, run_manifest)
+            try:
+                validate_manifest_compatibility(existing_manifest, run_manifest)
+            except ValueError as exc:
+                sys.exit(f"error: {exc}")
             logger.info(f"Using specified run directory: {pred_root}")
         elif args.resume:
             # Build a temporary manifest for compatibility checking (run_id filled after finding dir)
@@ -499,7 +516,10 @@ def main(argv=None):
                 config_path=args.config,
                 judge_config_path=args.judge_config,
             )
-            _prepare_run_root(pred_root, run_manifest, logger)
+            try:
+                _prepare_run_root(pred_root, run_manifest, logger)
+            except ValueError as exc:
+                sys.exit(f"error: {exc}")
 
     logger.info(
         f"Run identity: run_id={run_id} "
