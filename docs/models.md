@@ -4,8 +4,9 @@ Each configuration names its main model (the orchestrator) by an alias from the
 [model registry](../openvlharness/services/model_registry.yaml). The alias fixes the
 exact model ID sent to the server, the API protocol, the system prompt and the
 accepted request options. Every preset uses **Qwen3-VL-8B-Instruct for multimodal
-search summarization and webpage extraction**, whatever the main model; a Qwen main
-model and the auxiliary model can share one server.
+search summarization and webpage extraction**, whatever the main model. With the 8B
+preset, the main and auxiliary roles can share one server; any other main model needs
+a separate Qwen3-VL-8B-Instruct server for the auxiliary role.
 
 ## Paper presets
 
@@ -183,12 +184,13 @@ local context counting.
 Serve another Qwen3-VL Instruct model with the same command, replacing the
 snapshot, `--served-model-name` and the alias in the configuration with the
 model's entry from the registry (for example `Qwen/Qwen3-VL-32B-Instruct` and
-`qwen3-vl-32b-instruct`). Only the 8B serving setup above was validated; size
-`--tensor-parallel-size` so the weights and the 168000-token KV cache fit. The
-bf16 weights take about 2 bytes per parameter (roughly 4 GB for 2B, 9 GB for 4B,
-17 GB for 8B, 62 GB for 30B-A3B, 67 GB for 32B and 470 GB for 235B-A22B); the FP8
-builds take about half. On smaller GPUs, lower `--max-model-len` and the preset's
-`agent.max_context_length` together.
+`qwen3-vl-32b-instruct`). Keep a Qwen3-VL-8B-Instruct server running for the
+auxiliary role and point `AUXILIARY_MODEL_BASE_URL` at it. Only the 8B serving
+setup above was validated; size `--tensor-parallel-size` so the weights and the
+168000-token KV cache fit. The bf16 weights take about 2 bytes per parameter
+(roughly 4 GB for 2B, 9 GB for 4B, 17 GB for 8B, 62 GB for 30B-A3B, 67 GB for 32B
+and 470 GB for 235B-A22B); the FP8 builds take about half. On smaller GPUs, lower
+`--max-model-len` and the preset's `agent.max_context_length` together.
 
 ## Connect the presets
 

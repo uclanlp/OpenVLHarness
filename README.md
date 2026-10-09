@@ -158,8 +158,9 @@ preset and change one line ([other registered models](docs/models.md#other-regis
 To run all nine capabilities, prepare these services before starting the agent:
 
 - **Models:** serve Qwen locally or connect to a GPT or Kimi endpoint, following
-  the [model setup guide](docs/models.md). Every preset also needs a Qwen endpoint
-  for search tools; the Qwen main and auxiliary roles can share one server. The
+  the [model setup guide](docs/models.md). Every preset also needs a
+  Qwen3-VL-8B-Instruct endpoint for search tools; the 8B preset can share it with
+  the main model, while the 32B preset needs a second server for it. The
   guide includes the tested model revision, serving versions, and GPU configuration.
 - **Perception:** launch SAM 3, PaddleOCR-VL, and Depth Anything 3 using the
   [tool service guide](openvlharness/services/tools/README.md). These run as
