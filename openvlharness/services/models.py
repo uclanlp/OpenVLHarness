@@ -1,5 +1,6 @@
 """Registered model profiles, native API encoders and context policy."""
 import copy as cp
+import difflib
 import json
 import logging
 import re
@@ -37,7 +38,17 @@ def load_profile(alias):
     """
     profiles = yaml.safe_load(files("openvlharness.services").joinpath("model_registry.yaml").read_text())["profiles"]
     if alias not in profiles:
-        raise ValueError(f"Unknown model alias {alias!r}. Register its exact served ID, prompt and API profile in model_registry.yaml.")
+        message = f"Unknown model alias {alias!r}"
+        served = [name for name, profile in profiles.items() if profile.get("model_id") == alias]
+        close = difflib.get_close_matches(alias, profiles, n=3) if isinstance(alias, str) else []
+        if served:
+            message += f": this is a served model ID; use alias {served[0]!r}."
+        elif close:
+            message += f". Did you mean: {', '.join(map(repr, close))}?"
+        else:
+            message += "."
+        raise ValueError(f"{message} See docs/models.md#other-registered-models. Register a new model with its "
+                         "exact served ID, prompt and API profile in model_registry.yaml.")
     return cp.deepcopy(profiles[alias])
 
 

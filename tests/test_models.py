@@ -68,6 +68,25 @@ class ModelProfileTests(unittest.TestCase):
         first["allowed_options"].append("unexpected")
         self.assertNotIn("unexpected", load_profile("qwen3-vl-8b-instruct")["allowed_options"])
 
+    def test_unknown_alias_error_suggests_registered_alias(self):
+        pointer = ("See docs/models.md#other-registered-models. Register a new model with its exact served ID, "
+                   "prompt and API profile in model_registry.yaml.")
+
+        def message(alias):
+            with self.assertRaises(ValueError) as error:
+                load_profile(alias)
+            return str(error.exception)
+
+        self.assertEqual(message("Qwen/Qwen3-VL-8B-Instruct"),
+                         "Unknown model alias 'Qwen/Qwen3-VL-8B-Instruct': this is a served model ID; "
+                         f"use alias 'qwen3-vl-8b-instruct'. {pointer}")
+        typo = message("gpt6-luna")
+        self.assertTrue(typo.startswith("Unknown model alias 'gpt6-luna'. Did you mean: 'gpt-6-luna', "), typo)
+        self.assertTrue(typo.endswith(f"? {pointer}"), typo)
+        for alias in ("zzz", None):
+            with self.subTest(alias=alias):
+                self.assertEqual(message(alias), f"Unknown model alias {alias!r}. {pointer}")
+
 
 class ModelWireTests(unittest.TestCase):
     def test_output_budget_reaches_provider_with_default_and_overrides(self):
