@@ -12,9 +12,6 @@ repository also contains or depends on the following third-party work.
   text is available at <https://www.apache.org/licenses/LICENSE-2.0>.
   Modifications are noted in the affected files' docstrings and in the git
   history of this repository.
-- **Tool server** (`openvlharness/services/`). Released under the MIT
-  License; see
-  [openvlharness/services/LICENSE.tool-infra](openvlharness/services/LICENSE.tool-infra).
 
 ## Models and services used by the default tool backends
 

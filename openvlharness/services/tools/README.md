@@ -111,6 +111,6 @@ raw server loads its model, and extra workers duplicate that allocation.
 
 ## Source license
 
-The original tool infrastructure MIT notice is preserved verbatim in
-[LICENSE.tool-infra](../LICENSE.tool-infra). Model weights and upstream raw-model
-packages retain their own licenses and access requirements.
+The tool servers are part of OpenVLHarness and covered by its
+[MIT License](../../../LICENSE). Model weights and upstream raw-model packages
+retain their own licenses and access requirements.
