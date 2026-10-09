@@ -73,14 +73,14 @@ silently reduce the output budget. Omitting `max_context_length` or setting it t
 
 ## Raw trace export (Qwen only)
 
-Pass `--save-raw-trace` to `run_benchmark.py` with the `qwen3-vl-8b-instruct`
+Pass `--save-raw-trace` to `openvlharness-eval` with the `qwen3-vl-8b-instruct`
 profile. GPT, Kimi and other profiles are rejected before their inference begins. The flag enables
 `services.models.<orchestrator-service>.return_token_ids: true` in the effective
 configuration saved with the run and included in its resume identity. The normal
 paper preset remains `false`; there is no `extra_body` configuration to edit.
 
 ```bash
-python run_benchmark.py --data FSC147_test \
+openvlharness-eval --data FSC147_test \
   --config configs/agent/qwen3_8b_paper.yaml \
   --judge-config configs/judge_no_judge.yaml \
   --num-examples 1 --num-proc 1 --save-raw-trace --save-html all
@@ -110,13 +110,12 @@ effective token-ID setting; it cannot add raw exports to an ordinary partial run
 
 ## Verified Qwen serving setup
 
-The before/after validation used an existing environment with vLLM **0.18.1**,
-PyTorch **2.10.0**, Transformers **4.57.3**, OpenAI Python **2.6.0**, and
-huggingface-hub **0.35.3**. It served model revision
+Tested setup: vLLM **0.18.1**, PyTorch **2.10.0**, Transformers **4.57.3**,
+OpenAI Python **2.6.0** and huggingface-hub **0.35.3**, serving model revision
 `0c351dd01ed87e9c1b53cbc748cba10e6187ff3b` on **two NVIDIA RTX A6000 48 GB GPUs**.
-These are the tested versions and hardware; a fresh installation and smaller GPU
-configurations have not been validated. Keep the serving environment separate
-from the harness and heavy perception services.
+A fresh installation and smaller GPU configurations have not been validated.
+Keep the serving environment separate from the harness and heavy perception
+services.
 
 Activate that serving environment, select a new dedicated cache on a fast local
 disk, and download the pinned snapshot before enabling offline mode. The harness
@@ -248,13 +247,14 @@ these model variables alone do not start the tool services.
 | Kimi K3 orchestrator | 65536 | temperature 0.6, top_p 0.95, Chat Completions | 1800 s / 8 |
 | Qwen text/image search summarizer | 4096 | temperature 0, top_p 1, thinking disabled; multimodal messages for image-aware summaries | 600 s / 2 |
 | Qwen webpage extractor | 16384 | temperature 0, top_p 1, thinking disabled | 600 s / 2 |
-| Coding generator | 4096 | same model and native protocol as orchestrator; fresh prompt; temperature 0 on Chat Completions (Qwen, Kimi) or medium reasoning on Responses (GPT) | 120 s / 8 |
+| Coding generator | 4096 | same model and native protocol as orchestrator; fresh prompt; temperature 0 on Chat Completions (Qwen, Kimi) or medium reasoning on Responses (GPT) | 600 s / 8 |
 
 Auxiliary calls use the OpenAI SDK with a separate five-second connection
-timeout. The coding generator's budget and timeout do not inherit the
-orchestrator's larger values. Generated code executes locally with a separate
-30-second default limit; the generator receives binding descriptors, while the
-executor receives actual in-memory values. See [runtime contracts](runtime.md).
+timeout. The coding generator does not inherit the orchestrator's output budget;
+its request timeout is fixed at 600 s, and its retries come from the orchestrator
+service. Generated code executes locally with a separate 30-second default
+limit; the generator receives binding descriptors, while the executor receives
+actual in-memory values. See [runtime contracts](runtime.md).
 
 To experiment with another summarizer, change the auxiliary model service to an
 explicitly registered compatible profile. New model families require a registry
