@@ -1,7 +1,9 @@
 """Execute generated Python locally using validated, copied context bindings.
 
 Execution runs in a killable subprocess with bounded output and variable
-previews. Normal Python builtins are available; this is not a security sandbox.
+previews, in a temporary working directory and without credential-like
+environment variables. Normal Python builtins are available; this is not a
+security sandbox.
 """
 
 import copy
@@ -31,6 +33,7 @@ MAX_VARIABLES = 64
 MAX_VARIABLE_PREVIEW = 2048
 MAX_VARIABLE_TOTAL = 16384
 TRUNCATION_MARKER = "... (truncated)"
+_SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|^AWS_|^GOOGLE_APPLICATION", re.IGNORECASE)
 
 
 class CodeExecutionTimeoutError(Exception):
@@ -233,8 +236,11 @@ def execute_python_code(code, prepared_context, timeout_seconds=10):
         CodeExecutionTimeoutError: The child exceeds the deadline.
         RuntimeError: Execution fails or the child exits without a result.
 
-    Bindings are serialized locally, retaining NumPy dtype and shape. Generated
-    code has normal process permissions; process isolation is not a sandbox.
+    Bindings are serialized locally, retaining NumPy dtype and shape. The child
+    runs in a temporary working directory, and environment variables whose names
+    look like credentials are removed. Generated code otherwise has normal process
+    permissions, including network and filesystem access; process isolation is
+    not a sandbox.
     """
     if not code:
         raise ValueError("code is required")
@@ -264,10 +270,11 @@ def execute_python_code(code, prepared_context, timeout_seconds=10):
         with tempfile.TemporaryFile() as request:
             pickle.dump((exec_code, prepared_context.bindings), request, protocol=pickle.HIGHEST_PROTOCOL)
             request.seek(0)
-            environment = dict(os.environ, OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
+            environment = {k: v for k, v in os.environ.items() if not _SECRET_ENV.search(k)}
+            environment.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1")
             process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), str(result_path)],
                 stdin=request, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                start_new_session=True, env=environment)
+                start_new_session=True, env=environment, cwd=temp)
             reader = threading.Thread(target=drain, args=(process.stdout,), daemon=True)
             reader.start()
             try:

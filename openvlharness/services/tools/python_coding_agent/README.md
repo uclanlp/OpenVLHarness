@@ -21,8 +21,15 @@ Configure `services.tools.python_executor_local` with `transport: local` and
 `timeout_seconds: 30` for the paper path. A positive finite deadline covers child
 startup, execution and preview rendering. On expiry the worker is forcibly killed;
 on POSIX the entire process group is killed, including children that inherit it.
-This stops blocking calls and loops that catch Python exceptions. Execution is not a security sandbox;
-run the agent with permissions appropriate for generated Python.
+This stops blocking calls and loops that catch Python exceptions.
+
+Execution is not a sandbox. Generated code runs in a subprocess as your user,
+with network and filesystem access, in a temporary working directory. Its
+environment omits credential-like variables: names containing KEY, TOKEN,
+SECRET, PASSWORD or CREDENTIAL in any case, and names starting with `AWS_` or
+`GOOGLE_APPLICATION`. Child processes that the code detaches into a new session
+or process group can outlive the timeout. Run the agent with permissions
+appropriate for generated Python.
 
 A thrown generator exception is a failed tool envelope. A returned generator
 error dictionary is retained as canonical `generation_error` and shown in
