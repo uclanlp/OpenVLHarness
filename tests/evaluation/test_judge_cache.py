@@ -1,20 +1,12 @@
 """Judge caches must follow the judge and the predictions; judge-only benchmarks need a judge."""
 
-import importlib.util
 import json
 import logging
 import os.path as osp
 import re
 
-import pytest
-
-if importlib.util.find_spec("evaluation_kit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "validators"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
 import pandas as pd
+import pytest
 
 from evaluation_kit.dataset import freak, image_shortqa, image_yorn, simplevqa
 from evaluation_kit.dataset.utils import judge_cache

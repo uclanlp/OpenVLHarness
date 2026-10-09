@@ -1,4 +1,4 @@
-"""Scoped deterministic scheduling for retained evaluator regression tests."""
+"""Deterministic scheduling for evaluation tests."""
 import pytest
 
 
