@@ -293,9 +293,10 @@ Dataset names passed to `--data` select loaders in
 | Spatial understanding | `MMSIBench_wo_circular`, `ERQA`, `EmbSpatialBench`, `SparBench_tiny`, `MindCubeBench_tiny_raw_qa` |
 | Extended search (appendix) | `MMBrowseComp`, `VDRBench`, `VisBrowseBench`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` |
 
-Every dataset above except `PixmoCount_val` and `CountQA` is hosted, with its images,
-in [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
-and downloads into `LMUData` on first use. `PixmoCount_val` is built from
+Every dataset above except `PixmoCount_val` and `CountQA` downloads, with its images,
+from [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
+into `LMUData` on first use; the loaders build those two from their original
+sources. `PixmoCount_val` is built from
 [allenai/pixmo-count](https://huggingface.co/datasets/allenai/pixmo-count), with
 images fetched from their original URLs; images that can no longer be fetched are
 left out, so a fresh build can contain fewer than the 534 images the paper evaluated.
