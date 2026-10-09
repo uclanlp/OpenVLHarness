@@ -75,8 +75,7 @@ class AuxiliaryModel:
         self.api_key = self.adapter.key
         # The auxiliary SDK client defaults to two retries for transient failures.
         # Protocol encoding and payload options come from the registered adapter.
-        from openai import OpenAI
-        from httpx import Timeout
+        from openai import OpenAI, Timeout
         base = self.base_url.rstrip("/")
         for suffix in ("/chat/completions", "/responses"):
             if base.endswith(suffix):

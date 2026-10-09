@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+import httpx
 import requests
 
 from openvlharness.contracts import CapabilityResult
@@ -432,7 +433,8 @@ class AuxiliaryModelTests(unittest.TestCase):
         # OpenAI or allowing an accidental request to a real endpoint.
         self.constructor = Mock()
         self.sdk = self.constructor.return_value
-        self.module_patch = patch.dict("sys.modules", {"openai": SimpleNamespace(OpenAI=self.constructor)})
+        self.module_patch = patch.dict("sys.modules", {"openai": SimpleNamespace(OpenAI=self.constructor,
+                                                                                  Timeout=httpx.Timeout)})
         self.module_patch.start()
         self.addCleanup(self.module_patch.stop)
 
