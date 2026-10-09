@@ -418,6 +418,11 @@ class MMBrowseCompDataset(ImageBaseDataset):
 
         client_params = {'api_key': api_key}
         if judge_base:
+            # api_base is the full chat-completions URL (as build_judge expects);
+            # the OpenAI client appends /chat/completions itself.
+            judge_base = judge_base.rstrip('/')
+            if judge_base.endswith('/chat/completions'):
+                judge_base = judge_base[:-len('/chat/completions')]
             client_params['base_url'] = judge_base
         client = OpenAI(**client_params)
 

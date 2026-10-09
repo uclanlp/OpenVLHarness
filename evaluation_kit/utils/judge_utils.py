@@ -12,7 +12,7 @@ def load_judge_config(config_path: str | dict) -> dict:
     nproc: 4
     retry: 3
     key: "empty"
-    api_base: "http://localhost:8000"
+    api_base: "http://localhost:8000/v1/chat/completions"
     ```
     
     Args:

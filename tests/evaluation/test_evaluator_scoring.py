@@ -64,3 +64,25 @@ def test_spatial_mcq_overall(tmp_path, name):
 ])
 def test_integer_extraction(text, expected):
     assert extract_integer_from_prediction(text) == expected
+
+
+@pytest.mark.parametrize("api_base", ["http://judge.test/v1/chat/completions", "http://judge.test/v1"])
+def test_mmbrowsecomp_judge_accepts_chat_completions_url(tmp_path, monkeypatch, api_base):
+    import openai
+    from types import SimpleNamespace
+
+    base_urls = []
+
+    class FakeOpenAI:
+        def __init__(self, api_key=None, base_url=None):
+            base_urls.append(base_url)
+            reply = SimpleNamespace(content="OVERALL_CORRECTNESS: YES\nCHECKLIST_SCORE: 1/1")
+            create = lambda **kw: SimpleNamespace(choices=[SimpleNamespace(message=reply)])  # noqa: E731
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
+
+    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
+    rows = {"index": [0], "question": ["Question: q"], "answer": ["a"], "prediction": ["a"]}
+    result = evaluator("MMBrowseComp").evaluate(
+        prediction_file(tmp_path, "MMBrowseComp", rows), model="judge", key="k", api_base=api_base)
+    assert base_urls == ["http://judge.test/v1"]
+    assert result["Overall"].iloc[0] == 100.0
