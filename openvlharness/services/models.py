@@ -183,7 +183,8 @@ class ModelAdapter:
         for key in ("max_tokens", "top_k"):
             if key in self.options and (type(self.options[key]) is not int or self.options[key] <= 0):
                 raise ValueError(f"{key} must be a positive integer")
-        if self.options.get("reasoning_effort", "medium") not in {"none", "low", "medium", "high", "xhigh"}:
+        # Union of provider effort levels; each model accepts a subset and rejects the rest.
+        if self.options.get("reasoning_effort", "medium") not in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported reasoning_effort")
         if type(self.options.get("return_token_ids", False)) is not bool:
             raise ValueError("return_token_ids must be boolean")

@@ -23,6 +23,8 @@ should review before use or redistribution.
 - **Depth Anything 3** for depth estimation and camera trajectory.
 - **PaddleOCR-VL** (PaddlePaddle) for OCR.
 - **Qwen3-VL-8B-Instruct** (Alibaba) as the default main and auxiliary model.
+- **Other registered main models** (the Qwen3-VL family, OpenAI GPT models and
+  Kimi K3), each under its provider's license or terms of service.
 - **Serper** search, Lens and scrape APIs for the search tools, under the
   Serper terms of service.
 

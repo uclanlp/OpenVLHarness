@@ -100,19 +100,27 @@ using Qwen for local context counting or raw trace export.
 
 ### 2. Prepare models and tools
 
-The release includes two tested agent presets:
+The release includes one agent preset per backbone in the paper:
 
 | Main model | Configuration | API |
 | --- | --- | --- |
-| Qwen3-VL-8B-Instruct | [qwen3_paper.yaml](configs/agent/qwen3_paper.yaml) | Chat Completions |
-| GPT-6-Luna | [gpt6_luna_paper.yaml](configs/agent/gpt6_luna_paper.yaml) | Responses |
+| Qwen3-VL-8B-Instruct | [qwen3_8b_paper.yaml](configs/agent/qwen3_8b_paper.yaml) | Chat Completions |
+| Qwen3-VL-32B-Instruct | [qwen3_32b_paper.yaml](configs/agent/qwen3_32b_paper.yaml) | Chat Completions |
+| GPT-5 | [gpt5_paper.yaml](configs/agent/gpt5_paper.yaml) | Responses |
+| GPT-6 Luna | [gpt6_luna_paper.yaml](configs/agent/gpt6_luna_paper.yaml) | Responses |
+| GPT-6 Sol | [gpt6_sol_paper.yaml](configs/agent/gpt6_sol_paper.yaml) | Responses |
+| Kimi K3 | [kimi_k3_paper.yaml](configs/agent/kimi_k3_paper.yaml) | Chat Completions |
+
+The registry also covers every Qwen3-VL Instruct size (2B to 235B-A22B, with FP8
+builds) and the OpenAI GPT-5 to GPT-6.1 models; to use one, copy its family's
+preset and change one line ([other registered models](docs/models.md#other-registered-models)).
 
 To run all nine capabilities, prepare these services before starting the agent:
 
-- **Models:** serve Qwen locally or connect to a GPT endpoint, following the
-  [model setup guide](docs/models.md). Both presets also need a Qwen endpoint for
-  search tools; the Qwen main and auxiliary roles can share one server. The guide
-  includes the tested model revision, serving versions, and GPU configuration.
+- **Models:** serve Qwen locally or connect to a GPT or Kimi endpoint, following
+  the [model setup guide](docs/models.md). Every preset also needs a Qwen endpoint
+  for search tools; the Qwen main and auxiliary roles can share one server. The
+  guide includes the tested model revision, serving versions, and GPU configuration.
 - **Perception:** launch SAM 3, PaddleOCR-VL, and Depth Anything 3 using the
   [tool service guide](openvlharness/services/tools/README.md). These run as
   separate GPU services behind the router.
@@ -135,17 +143,17 @@ export OCR_SERVER_URL=http://127.0.0.1:8085
 export DEPTH_ESTIMATION_SERVER_URL=http://127.0.0.1:8087
 ```
 
-The `empty` keys above are for unauthenticated local endpoints. For GPT, select
-`configs/agent/gpt6_luna_paper.yaml` in the commands and Python example below,
-set `MODEL_BASE_URL` and `MODEL_API_KEY` for your Responses endpoint, and keep the
-auxiliary connection pointing to Qwen. See the [GPT connection example](docs/models.md#connect-the-presets).
+The `empty` keys above are for unauthenticated local endpoints. For GPT or Kimi,
+select its preset in the commands and Python example below, set `MODEL_BASE_URL`
+and `MODEL_API_KEY` for that provider, and keep the auxiliary connection pointing
+to Qwen. See the [connection examples](docs/models.md#connect-the-presets).
 
 ### 3. Run a question
 
 Start the router with the same configuration that the agent will use:
 
 ```bash
-python -m openvlharness.services.server --config configs/agent/qwen3_paper.yaml
+python -m openvlharness.services.server --config configs/agent/qwen3_8b_paper.yaml
 ```
 
 In another terminal with the environment configured, check the router:
@@ -160,7 +168,7 @@ Then ask a question from Python:
 ```python
 from openvlharness.bootstrap import build_agent
 
-agent = build_agent("configs/agent/qwen3_paper.yaml")
+agent = build_agent("configs/agent/qwen3_8b_paper.yaml")
 result = agent.generate([
     {"type": "image", "value": "/path/to/image.jpg"},
     {"type": "text", "value": "How many bottles are visible?"},
@@ -200,7 +208,7 @@ using direct counting and box metrics without an LLM judge:
 ```bash
 export LMUData=/path/to/local/datasets
 python run_benchmark.py \
-  --config configs/agent/qwen3_paper.yaml \
+  --config configs/agent/qwen3_8b_paper.yaml \
   --judge-config configs/judge_no_judge.yaml \
   --data FSC147_val ODinW13_bbox_val_qwen3 \
   --num-examples 12 --shuffle --seed 42 \
@@ -295,7 +303,7 @@ For **Qwen-only token-level export**, add `--save-raw-trace`. This writes per-sa
 JSON and images under `raw_traces/`, with explicit error records for export
 failures. It requires a matching tokenizer and a server that returns token IDs;
 see [raw trace export](docs/models.md#raw-trace-export-qwen-only). Ordinary
-trajectory JSON and HTML reports work with both presets.
+trajectory JSON and HTML reports work with every preset.
 
 ## Configure and extend
 
@@ -469,10 +477,12 @@ See [runtime design](docs/runtime.md) for capability, memory, and service contra
 
 ### Use another model
 
-To add a model, register its served ID, API protocol, prompt, and supported options
-in [model_registry.yaml](openvlharness/services/model_registry.yaml). Auxiliary
-models can also use a registered compatible profile; multimodal Qwen remains the
-official search default.
+Registered models are listed in the [model guide](docs/models.md#other-registered-models):
+copy the preset of the same family and change the orchestrator's `alias`. To add a
+model outside those families, register its served ID, API protocol, prompt, and
+supported options in [model_registry.yaml](openvlharness/services/model_registry.yaml).
+Auxiliary models can also use a registered compatible profile; multimodal Qwen
+remains the official search default.
 
 ### Further documentation
 

@@ -1,0 +1,85 @@
+# Native model/tool transports use 8 additional retries, matching the measured old runtime.
+# The old constructor field retry: 3 did not control these native transports.
+agent_name: MainAgent
+agent_config_version: paper_v1
+agent:
+  model_service: orchestrator
+  max_iterations: 15
+  max_context_length: 168000
+  tool_choice: auto
+  paired_sampling_seed: false
+memory:
+  emit_policy: always
+  modules:
+  - name: image
+  - name: tool_context
+  - name: url
+    webpage_env_update_limit: 20
+capabilities:
+  registries:
+  - paper
+  tools:
+    grounding:
+      backend: sam3_segment
+    text_search:
+      backend: serper_text_search
+    image_search:
+      backend: serper_image_search
+    web_visit:
+      backend: serper_webpage_visit
+    ocr:
+      backend: ocr
+    depth:
+      backend: depth_estimation
+    camera_pose:
+      backend: camera_trajectory
+    zoom:
+      backend: zoom_in_image_by_bbox
+    coding:
+      generator: python_coding_agent
+      executor: python_executor_local
+services:
+  client:
+    base_url: ${TOOL_SERVER_URL}
+    timeout_seconds: 600
+    retry: 8
+  server:
+    host: 127.0.0.1
+    port: 8101
+    registration: configured_only
+  tools:
+    sam3_segment:
+      server_url: ${SAM3_SERVER_URL}
+    ocr:
+      server_url: ${OCR_SERVER_URL}
+    depth_estimation: &id001
+      server_url: ${DEPTH_ESTIMATION_SERVER_URL}
+    camera_trajectory: *id001
+    serper_text_search:
+      model_service: auxiliary
+    serper_image_search:
+      model_service: auxiliary
+    serper_webpage_visit:
+      model_service: auxiliary
+    zoom_in_image_by_bbox: {}
+    python_coding_agent:
+      model_service: orchestrator
+      context: fresh
+    python_executor_local:
+      transport: local
+      timeout_seconds: 30
+  models:
+    orchestrator:
+      alias: gpt-6-sol
+      base: ${MODEL_BASE_URL}
+      key: ${MODEL_API_KEY}
+      max_tokens: 16000
+      reasoning_effort: medium
+      timeout: 600
+      retry: 8
+    auxiliary:
+      alias: qwen3-vl-8b-instruct
+      base: ${AUXILIARY_MODEL_BASE_URL}
+      key: ${AUXILIARY_MODEL_API_KEY}
+      timeout: 600
+      retry: 2

@@ -30,7 +30,7 @@ one worker and direct metrics, using a fresh output directory for each backbone:
 
 ```bash
 python validation/run_perception.py --data-root "$LMUData" \
-  --config configs/agent/qwen3_paper.yaml --output-dir "$QWEN_VALIDATION_DIR"
+  --config configs/agent/qwen3_8b_paper.yaml --output-dir "$QWEN_VALIDATION_DIR"
 python validation/run_perception.py --data-root "$LMUData" \
   --config configs/agent/gpt6_luna_paper.yaml --output-dir "$GPT_VALIDATION_DIR"
 ```

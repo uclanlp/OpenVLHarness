@@ -36,7 +36,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("perception_samples.json"))
     parser.add_argument("--data-root", type=Path, required=True, help="Prepared LMUData directory")
-    parser.add_argument("--config", default="configs/agent/qwen3_paper.yaml", help="Agent-system YAML for live runs")
+    parser.add_argument("--config", default="configs/agent/qwen3_8b_paper.yaml", help="Agent-system YAML for live runs")
     parser.add_argument("--output-dir", type=Path, help="New run directory; required for live runs")
     parser.add_argument("--check-only", action="store_true", help="Verify inputs without initializing model or tool clients")
     args = parser.parse_args()

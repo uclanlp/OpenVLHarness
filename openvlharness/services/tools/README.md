@@ -25,12 +25,13 @@ visualization. Neither installation requires a GPU on the router host.
 Set up the [main and auxiliary model endpoints](../../../docs/models.md)
 before running model-backed tools.
 
-Use `configs/agent/qwen3_paper.yaml` or `configs/agent/gpt6_luna_paper.yaml`.
-Both are complete agent-system configurations. Set every `${...}` value named
-by the selected file, including `TOOL_SERVER_URL`, `MODEL_BASE_URL`,
-`MODEL_API_KEY`, `AUXILIARY_MODEL_BASE_URL`, `AUXILIARY_MODEL_API_KEY`,
-`SAM3_SERVER_URL`, `OCR_SERVER_URL`, and `DEPTH_ESTIMATION_SERVER_URL`.
-Empty API-key values are acceptable only for endpoints that need no key.
+Use one of the presets in `configs/agent/`, such as `qwen3_8b_paper.yaml` or
+`gpt6_luna_paper.yaml`. Each is a complete agent-system configuration. Set every
+`${...}` value named by the selected file, including `TOOL_SERVER_URL`,
+`MODEL_BASE_URL`, `MODEL_API_KEY`, `AUXILIARY_MODEL_BASE_URL`,
+`AUXILIARY_MODEL_API_KEY`, `SAM3_SERVER_URL`, `OCR_SERVER_URL`, and
+`DEPTH_ESTIMATION_SERVER_URL`. Empty API-key values are acceptable only for
+endpoints that need no key.
 
 Model connection values belong in `services.models`. Raw service base URLs
 belong in `services.tools`; omit `/v1/depth`, `/v1/pose`, `/v1/segment`, and
@@ -39,7 +40,7 @@ the router host. The agent sends image bytes after resolving runtime handles.
 A path local to the agent is not assumed to exist on a remote router.
 
 ```bash
-python -m openvlharness.services.server --config configs/agent/qwen3_paper.yaml
+python -m openvlharness.services.server --config configs/agent/qwen3_8b_paper.yaml
 ```
 
 In another terminal:

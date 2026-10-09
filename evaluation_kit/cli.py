@@ -284,7 +284,7 @@ def main(argv=None):
     """Run inference and/or evaluation for the selected datasets (the `openvlharness-eval` command)."""
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', type=str, nargs='+', required=True, help='Names of Datasets')
-    parser.add_argument('--config', type=str, default=None, help='Agent-system config for inference (default: configs/agent/qwen3_paper.yaml); optional metadata filter for eval discovery')
+    parser.add_argument('--config', type=str, default=None, help='Agent-system config for inference (default: configs/agent/qwen3_8b_paper.yaml); optional metadata filter for eval discovery')
     parser.add_argument('--judge-config', type=str, default=None, help='Judge config override; inference defaults to configs/judge.yaml, eval uses the saved judge configuration')
     parser.add_argument('--mode', type=str, default='all', choices=['all', 'infer', 'eval'], help='all: infer and evaluate; infer: generate predictions; eval: evaluate saved outputs without loading an inference agent')
     parser.add_argument('--work-dir', type=str, default='./outputs', help='select the output directory')
@@ -359,7 +359,7 @@ def main(argv=None):
         logger.info("Evaluating saved %s/%s outputs without an inference agent", agent_class, model_name)
         logger.info("LLM Judge Configurations: %s", redact_sensitive_fields(judge_kwargs))
     else:
-        args.config = args.config or "configs/agent/qwen3_paper.yaml"
+        args.config = args.config or "configs/agent/qwen3_8b_paper.yaml"
         args.judge_config = args.judge_config or "configs/judge.yaml"
         agent_config = bootstrap.load_agent_config(args.config, save_raw_trace=args.save_raw_trace)
         judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
