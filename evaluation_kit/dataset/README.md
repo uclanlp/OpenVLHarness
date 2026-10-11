@@ -130,7 +130,9 @@ saved with the run. `load_judge_config` ([`../utils/judge_utils.py`](../utils/ju
 maps `model_name`, `api_base`, `key`, `nproc` and `retry` to `evaluate()` keyword arguments
 and passes any other key through; `build_judge` ([`utils/judge_util.py`](utils/judge_util.py))
 wraps the model in an OpenAI-compatible client. `api_base` is the full chat-completions URL,
-for example `https://api.openai.com/v1/chat/completions`. The extra keys that matter for the
+for example `https://api.openai.com/v1/chat/completions`. With `key` omitted or set to
+`empty`, a judge on `api.openai.com` reads `OPENAI_API_KEY`; other endpoints receive the
+value as written. The extra keys that matter for the
 paper benchmarks are below; a few loaders read other flags (`use_verifier`, `enable_vdr_aux`,
 `use_exact_match`), all off by default.
 

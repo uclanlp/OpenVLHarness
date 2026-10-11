@@ -785,11 +785,11 @@ class ImageShortQADataset(ImageBaseDataset):
         return df
 
     # It returns a DataFrame
-    # Needs an LLM judge (or exact_matching); checked before inference.
-    REQUIRES_LLM_JUDGE = True
+    # Needs an LLM judge (there is no exact-matching scorer); checked before inference.
+    REQUIRES_LLM_JUDGE = 'strict'
 
     def evaluate(self, eval_file, **judge_kwargs):
-        require_judge(self.dataset_name, judge_kwargs)
+        require_judge(self.dataset_name, judge_kwargs, allow_exact_matching=False)
         data = load(eval_file)
         _ = self.dataset_name
         assert 'answer' in data and 'prediction' in data
@@ -862,15 +862,14 @@ class ImageShortQADataset(ImageBaseDataset):
         if not osp.exists(storage):
             ans_map = {} if not osp.exists(tmp_file) else load(tmp_file)
 
-            model = judge_kwargs.pop('model', 'gpt-4o-mini')
-            if model == 'exact_matching':
-                model = None
-            else:
-                model = build_judge(model=model, **judge_kwargs)
-                if not model.working():
-                    warnings.warn('OPENAI API is not working properly, will use exact matching for evaluation')
-                    warnings.warn(DEBUG_MESSAGE)
-                    model = None
+            model_name = judge_kwargs.pop('model', 'gpt-4o-mini')
+            model = build_judge(model=model_name, **judge_kwargs)
+            if not model.working():
+                raise RuntimeError(
+                    f'The LLM judge {model_name} at {judge_kwargs.get("api_base") or "the default endpoint"} '
+                    f'did not answer a test request; {self.dataset_name} needs a working judge. '
+                    'Check the judge key and api_base.'
+                )
 
             if model is not None:
                 if 'g_index' not in data:

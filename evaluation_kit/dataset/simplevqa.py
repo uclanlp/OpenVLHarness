@@ -3,6 +3,7 @@ import json
 from typing import Dict, List, Any, Union
 import pandas as pd
 from openai import OpenAI
+from evaluation_kit.dataset.api.gpt import openai_judge_key
 from evaluation_kit.dataset.image_base import ImageBaseDataset
 from evaluation_kit.dataset.hf_release import HF_SPLITS, load_hf_split
 from evaluation_kit.dataset.utils.judge_cache import require_judge
@@ -155,7 +156,7 @@ class SimpleVQA(ImageBaseDataset):
         nproc = judge_kwargs.get('nproc', 16)
 
         client = OpenAI(
-            api_key=api_key,
+            api_key=openai_judge_key(api_key, api_base),
             base_url=api_base
         )
 
@@ -311,7 +312,7 @@ class SimpleVQA_EN(SimpleVQA):
         # per-evaluator defaults.
         max_tokens = resolve_judge_max_tokens(judge_kwargs)
 
-        client = OpenAI(api_key=api_key, base_url=api_base)
+        client = OpenAI(api_key=openai_judge_key(api_key, api_base), base_url=api_base)
 
         def process_one(idx):
             question = data['question'][idx]

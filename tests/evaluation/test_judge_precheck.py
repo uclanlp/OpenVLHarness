@@ -18,7 +18,7 @@ def test_judge_only_benchmark_without_judge_exits_before_inference(name):
         cli._check_judge([name], NO_JUDGE)
 
 
-@pytest.mark.parametrize("name", ["FREAK_VQA", "SimpleVQA", "SimpleVQA_EN"])
+@pytest.mark.parametrize("name", ["FREAK_VQA", "SimpleVQA", "SimpleVQA_EN", "hle", "FVQA_test"])
 def test_strict_benchmarks_also_reject_exact_matching(name):
     with pytest.raises(SystemExit, match="scored by an LLM judge"):
         cli._check_judge([name], EXACT)
@@ -59,3 +59,21 @@ def test_mmbrowsecomp_exact_match_mode_needs_no_judge():
     cli._check_judge(["MMBrowseComp"], {"model": None, "use_exact_match": True})
     with pytest.raises(SystemExit, match="scored by an LLM judge"):
         cli._check_judge(["MMBrowseComp"], NO_JUDGE)
+
+
+def test_unresponsive_judge_is_an_error_not_a_key_error(monkeypatch, tmp_path):
+    import pandas as pd
+    from evaluation_kit.dataset import image_shortqa
+
+    class Silent:
+        def working(self):
+            return False
+
+    monkeypatch.setattr(image_shortqa, "build_judge", lambda **kwargs: Silent())
+    cls = next(c for c in datasets.IMAGE_DATASET if "hle" in c.supported_datasets())
+    obj = cls.__new__(cls)
+    obj.dataset_name = "hle"
+    path = tmp_path / "Model.xlsx"
+    pd.DataFrame({"index": [0], "question": ["q"], "answer": ["a"], "prediction": ["a"]}).to_excel(path, index=False)
+    with pytest.raises(RuntimeError, match="did not answer a test request"):
+        obj.evaluate(str(path), **JUDGE)

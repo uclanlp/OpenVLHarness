@@ -1,11 +1,29 @@
 # Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
 from ...smp import *
 import os
+from urllib.parse import urlparse
 from .base import BaseAPI
 
 APIBASES = {
     'OFFICIAL': 'https://api.openai.com/v1/chat/completions',
 }
+
+
+def openai_judge_key(key, api_base):
+    """Return the key for an OpenAI-compatible judge client.
+
+    A missing key reads OPENAI_API_KEY, as before. The placeholder 'empty' (what
+    load_judge_config fills in when a judge config has no key) also reads it, but only
+    for api.openai.com, so a placeholder never sends the OpenAI key to another endpoint.
+    """
+    env_key = os.environ.get('OPENAI_API_KEY', '')
+    if key is None:
+        return env_key
+    if str(key).strip().lower() in ('', 'empty', 'none'):
+        base = api_base or os.environ.get('OPENAI_API_BASE') or 'OFFICIAL'
+        if base == 'OFFICIAL' or urlparse(base).hostname == 'api.openai.com':
+            return env_key or key
+    return key
 
 
 def GPT_context_window(model):
@@ -102,9 +120,7 @@ class OpenAIWrapper(BaseAPI):
                     'Please set the environment variable AZURE_OPENAI_API_KEY to your openai key. '
                 )
             else:
-                env_key = os.environ.get('OPENAI_API_KEY', '')
-                if key is None:
-                    key = env_key
+                key = openai_judge_key(key, api_base)
 
         self.key = key
         assert img_size > 0 or img_size == -1
