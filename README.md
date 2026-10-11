@@ -232,7 +232,9 @@ records the model's turns, tool calls, and evidence for inspection.
 If `result["prediction"]` is `Error: Unable to get response from the server.`, the
 agent produced no answer. When a model request failed, the cause is in
 `result["extra_records"]["trajectory"]["error"]`; without that key, the model ended
-without a final answer or reached `agent.max_iterations`.
+without a final answer. `Error: Reached the iteration limit without a final answer.`
+means the question used all `agent.max_iterations` iterations; the trajectory's `error`
+records the limit.
 
 > [!WARNING]
 > The coding tool runs generated Python in a subprocess on the agent host, with your

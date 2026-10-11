@@ -64,6 +64,7 @@ def test_counting_never_calls_a_judge_and_scores_unparseable_as_wrong(tmp_path, 
     ("12", 12), ("I first counted 12, but the final count is 14.", 14), ("\\boxed{42} after counting 40", 42),
     ("I count 1,092 beads", 1092), ("5.0", 5), ("2.5", None), ("seven", None), ("", None), ("nan", None),
     (float("nan"), None), (3, 3), ("Error: Unable to get response from the server.", None),
+    ("Error: Reached the iteration limit without a final answer.", None),
     ("-5", None), ("The count is -5.", None), ("\\boxed{-3}", None), (-5, None), (-5.0, None),
     ("between 3-5 apples", 5), ("x-ray shows 4", 4),
 ])
@@ -76,6 +77,12 @@ def test_negative_count_is_wrong(tmp_path, name):
     rows = {"index": [0], "question": ["q"], "image_path": ["0.jpg"], "answer": [5], "prediction": ["-5"]}
     result = evaluator(name).evaluate(prediction_file(tmp_path, name, rows), model=None)
     assert result["acc"] == 0
+
+
+def test_iteration_limit_rows_are_failed_rows():
+    from evaluation_kit.runner import _is_failed_prediction
+    from openvlharness.agent.agent import MainAgent
+    assert _is_failed_prediction(MainAgent.limit_msg) and _is_failed_prediction(MainAgent.fail_msg)
 
 
 @pytest.mark.parametrize("name", ["RealWorldQA", "VStarBench"])

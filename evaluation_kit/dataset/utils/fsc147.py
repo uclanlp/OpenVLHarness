@@ -6,6 +6,7 @@ _FAILURE_MARKERS = (
     'Failed to obtain answer',
     'Unable to get response from the server',
     'Failed with all possible conversation turns',
+    'Reached the iteration limit',
 )
 
 

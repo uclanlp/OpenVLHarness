@@ -22,9 +22,10 @@ from .smp.file import NumpyEncoder
 
 # Constants
 FAIL_MSG = 'Failed to obtain answer via API.'
-# The agent layer records an exhausted request as BaseAgent.fail_msg; --ignore-failed must treat
-# both spellings as a failed row.
-FAIL_MSGS = (FAIL_MSG, 'Error: Unable to get response from the server.')
+# The agent records an exhausted request as MainAgent.fail_msg and a question that used every
+# iteration as MainAgent.limit_msg; --ignore-failed must treat all of them as failed rows.
+FAIL_MSGS = (FAIL_MSG, 'Error: Unable to get response from the server.',
+             'Error: Reached the iteration limit without a final answer.')
 
 
 def _is_failed_prediction(pred):

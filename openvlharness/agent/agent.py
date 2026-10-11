@@ -29,6 +29,9 @@ class MainAgent:
     context handling and final-answer extraction.
     """
     fail_msg = "Error: Unable to get response from the server."
+    # Returned when max_iterations ends a question without an answer. Digit-free so that numeric
+    # answer parsers (counting, MRA) cannot read it as a prediction.
+    limit_msg = "Error: Reached the iteration limit without a final answer."
 
     def __init__(self, model_adapter, capabilities, memory_factory, system_prompt, user_prefix,
                  max_iterations=15, tool_choice="auto", paired_sampling_seed=False):
@@ -105,6 +108,8 @@ class MainAgent:
             except RawTraceExportError as exc:
                 trajectory["raw_trace_error"] = {"code": exc.code, "message": str(exc)}
                 self.adapter.logger.error("Raw trace export failed for task %s: %s", task_id, exc)
+        if final == self.limit_msg and not error:
+            trajectory["error"] = f"Reached max_iterations ({self.max_iterations}) without a final answer."
         extra = {"trajectory": trajectory, "tool_detections": detections}
         if usage:
             extra["usage"] = {"total": usage}
@@ -198,7 +203,7 @@ class MainAgent:
                     final_turn = self._turn(index + 1, text, calls)
                     final_turn["final_answer"] = adapter.final_answer(text)
                     turns.append(final_turn)
-                    return final_turn["final_answer"] or self.fail_msg
+                    return final_turn["final_answer"] or self.limit_msg
                 continue
             answer = adapter.final_answer(text)
             turn["final_answer"] = answer
@@ -208,7 +213,7 @@ class MainAgent:
             if answer or not policy.get("continue_empty_answer"):
                 return answer or self.fail_msg
             history.append(adapter.encode_message({"role": "assistant", "content": text}))
-        return self.fail_msg
+        return self.limit_msg
 
     @staticmethod
     def _turn(index, text, calls):
