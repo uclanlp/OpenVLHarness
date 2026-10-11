@@ -22,7 +22,7 @@ templates:
     continue_empty_answer: false
     append_final_message: true
     context_error_fallback: false
-    allowed_options: [max_tokens, reasoning_effort]
+    allowed_options: [max_tokens, reasoning_effort, service_tier]
 
 profiles:
   # Qwen3-VL Instruct models served with vLLM (hermes tool parser). Raw trace export

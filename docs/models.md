@@ -229,7 +229,10 @@ also accepted when it matches the profile's protocol. The GPT presets send
 `store=false`, medium reasoning, and an output budget of 16000 through Responses.
 Access to the exact model ID must be available on the chosen endpoint;
 `reasoning_effort` accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh` and
-`max`, and each model rejects the levels it does not support.
+`max`, and each model rejects the levels it does not support. The OpenAI models also
+accept `service_tier` (`auto`, `default`, `flex` or `priority`); `flex` halves the
+token price in exchange for slower, lower-priority processing, so raise `timeout`
+when you use it.
 
 Kimi K3 always reasons, and its reasoning tokens count against `max_tokens`; the
 paper runs used 65536 because smaller budgets lost answers to reasoning. The paper

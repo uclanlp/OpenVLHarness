@@ -122,6 +122,8 @@ class AuxiliaryModel:
         top_p = generation_kwargs.pop("top_p", 1.0)
         if self.adapter.protocol == "responses":
             options = {"max_tokens": budget, "reasoning_effort": "medium"}
+            if self.adapter.options.get("service_tier"):
+                options["service_tier"] = self.adapter.options["service_tier"]
             messages = [self.adapter.encode_message(m) for m in messages]
         else:
             options = {"temperature": temperature,
@@ -196,6 +198,8 @@ class ModelAdapter:
         # Union of provider effort levels; each model accepts a subset and rejects the rest.
         if self.options.get("reasoning_effort", "medium") not in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
             raise ValueError("Unsupported reasoning_effort")
+        if self.options.get("service_tier", "auto") not in {"auto", "default", "flex", "priority"}:
+            raise ValueError("Unsupported service_tier")
         if type(self.options.get("return_token_ids", False)) is not bool:
             raise ValueError("return_token_ids must be boolean")
         self.raw_trace_enabled = self.options.get("return_token_ids", False)
@@ -303,6 +307,8 @@ class ModelAdapter:
                 payload["max_output_tokens"] = options["max_tokens"]
             if options.get("reasoning_effort"):
                 payload["reasoning"] = {"effort": options["reasoning_effort"]}
+            if options.get("service_tier"):
+                payload["service_tier"] = options["service_tier"]
             if tools:
                 payload["tools"] = [{"type": "function", **cp.deepcopy(t["function"])} for t in tools]
                 for tool in payload["tools"]:

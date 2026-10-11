@@ -66,6 +66,15 @@ class RegistryTests(unittest.TestCase):
                     adapter = ModelAdapter({"alias": alias, "base": "https://fixture.invalid", "reasoning_effort": "high"})
                     self.assertEqual(adapter.payload([])["reasoning"], {"effort": "high"})
 
+    def test_openai_service_tier_is_sent_and_validated(self):
+        adapter = ModelAdapter({"alias": "gpt-6-astra", "base": "https://fixture.invalid", "service_tier": "flex"})
+        self.assertEqual(adapter.payload([])["service_tier"], "flex")
+        self.assertNotIn("service_tier", ModelAdapter({"alias": "gpt-6-astra", "base": "https://fixture.invalid"}).payload([]))
+        with self.assertRaisesRegex(ValueError, "service_tier"):
+            ModelAdapter({"alias": "gpt-6-astra", "base": "https://fixture.invalid", "service_tier": "cheap"})
+        with self.assertRaisesRegex(ValueError, "Unsupported options"):
+            ModelAdapter({"alias": "kimi-k3", "base": "https://fixture.invalid", "service_tier": "flex"})
+
     def test_kimi_sends_reasoning_effort_top_level_and_rejects_vllm_options(self):
         adapter = ModelAdapter({"alias": "kimi-k3", "base": "https://fixture.invalid/v1",
                                 "max_tokens": 65536, "temperature": 0.6, "top_p": 0.95, "reasoning_effort": "max"})
