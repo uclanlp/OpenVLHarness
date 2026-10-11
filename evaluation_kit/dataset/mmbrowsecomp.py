@@ -306,8 +306,9 @@ class MMBrowseCompDataset(ImageBaseDataset):
     def supported_datasets(cls):
         return ['MMBrowseComp']
 
-    # Needs an LLM judge (or exact_matching); checked before inference.
+    # Needs an LLM judge (or exact_matching) unless use_exact_match is set; checked before inference.
     REQUIRES_LLM_JUDGE = True
+    JUDGE_OPT_OUT = 'use_exact_match'
 
     def evaluate(self, eval_file, **judge_kwargs):
         """MMBrowseComp uses LLM-as-a-judge by default. Set use_exact_match=True for quick exact-match only.

@@ -113,7 +113,12 @@ def require_judge(dataset_name, judge_kwargs, allow_exact_matching=True):
 
 
 def require_judge_for(dataset_cls, dataset_name, judge_kwargs):
-    """Apply require_judge using the class's REQUIRES_LLM_JUDGE flag (True or 'strict')."""
+    """Apply require_judge using the class's REQUIRES_LLM_JUDGE flag (True or 'strict').
+
+    A class can name a judge-config flag in JUDGE_OPT_OUT that makes its evaluator score
+    without a judge (MMBrowseComp's use_exact_match); when that flag is set, nothing is required.
+    """
     requirement = getattr(dataset_cls, 'REQUIRES_LLM_JUDGE', False)
-    if requirement:
+    opt_out = getattr(dataset_cls, 'JUDGE_OPT_OUT', None)
+    if requirement and not (opt_out and judge_kwargs.get(opt_out)):
         require_judge(dataset_name, judge_kwargs, allow_exact_matching=requirement != 'strict')

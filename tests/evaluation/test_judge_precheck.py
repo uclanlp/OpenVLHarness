@@ -53,3 +53,9 @@ def test_cli_exits_before_building_the_agent(monkeypatch, tmp_path):
     with pytest.raises(SystemExit, match="MMSearch is scored by an LLM judge"):
         cli.main(["--data", "FSC147_val", "MMSearch", "--config", "configs/agent/qwen3_8b_paper.yaml",
                   "--judge-config", "configs/judge_no_judge.yaml", "--work-dir", str(tmp_path / "runs")])
+
+
+def test_mmbrowsecomp_exact_match_mode_needs_no_judge():
+    cli._check_judge(["MMBrowseComp"], {"model": None, "use_exact_match": True})
+    with pytest.raises(SystemExit, match="scored by an LLM judge"):
+        cli._check_judge(["MMBrowseComp"], NO_JUDGE)
