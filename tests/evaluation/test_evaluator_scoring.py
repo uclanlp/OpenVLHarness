@@ -64,9 +64,18 @@ def test_counting_never_calls_a_judge_and_scores_unparseable_as_wrong(tmp_path, 
     ("12", 12), ("I first counted 12, but the final count is 14.", 14), ("\\boxed{42} after counting 40", 42),
     ("I count 1,092 beads", 1092), ("5.0", 5), ("2.5", None), ("seven", None), ("", None), ("nan", None),
     (float("nan"), None), (3, 3), ("Error: Unable to get response from the server.", None),
+    ("-5", None), ("The count is -5.", None), ("\\boxed{-3}", None), (-5, None), (-5.0, None),
+    ("between 3-5 apples", 5), ("x-ray shows 4", 4),
 ])
 def test_strict_count_parse(text, expected):
     assert parse_count(text) == expected
+
+
+@pytest.mark.parametrize("name", ["FSC147_val", "PixmoCount_val", "CountQA"])
+def test_negative_count_is_wrong(tmp_path, name):
+    rows = {"index": [0], "question": ["q"], "image_path": ["0.jpg"], "answer": [5], "prediction": ["-5"]}
+    result = evaluator(name).evaluate(prediction_file(tmp_path, name, rows), model=None)
+    assert result["acc"] == 0
 
 
 @pytest.mark.parametrize("name", ["RealWorldQA", "VStarBench"])

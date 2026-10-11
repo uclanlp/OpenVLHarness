@@ -14,16 +14,18 @@ def parse_count(pred):
 
     Takes the last number in the response, after keeping only the last
     ``\\boxed{...}`` content and removing thousands separators; a whole-number
-    decimal such as ``5.0`` counts as 5. Returns None, scored as wrong, for empty
-    responses, agent failure messages, number words and non-integer numbers.
+    decimal such as ``5.0`` counts as 5. A minus sign counts as a sign only when it
+    does not follow a word character, so ``3-5`` still reads as 5. Returns None,
+    scored as wrong, for empty responses, agent failure messages, number words,
+    non-integer numbers and negative numbers.
     No language model is involved.
     """
     if pred is None:
         return None
     if isinstance(pred, float):
-        return int(pred) if math.isfinite(pred) and pred.is_integer() else None
+        return int(pred) if math.isfinite(pred) and pred.is_integer() and pred >= 0 else None
     if isinstance(pred, int):
-        return pred
+        return pred if pred >= 0 else None
     text = str(pred).strip()
     if not text or text.lower() in ('nan', 'none') or any(m in text for m in _FAILURE_MARKERS):
         return None
@@ -31,11 +33,11 @@ def parse_count(pred):
     if boxed:
         text = boxed[-1]
     text = re.sub(r'(?<=\d),(?=\d{3}(?!\d))', '', text)
-    numbers = re.findall(r'\d+(?:\.\d+)?', text)
+    numbers = re.findall(r'(?:(?<![\w-])-)?\d+(?:\.\d+)?', text)
     if not numbers:
         return None
     value = float(numbers[-1])
-    return int(value) if value.is_integer() else None
+    return int(value) if value.is_integer() and value >= 0 else None
 
 
 def extract_integer_from_prediction(pred):

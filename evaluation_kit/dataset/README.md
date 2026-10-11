@@ -151,8 +151,9 @@ are stated in the paper's appendix. The table's last column means:
   FREAK_VQA need one; the last two use fixed prompts and ignore `judge_prompt`.
 - **strict count parse**: `parse_count` (`utils/fsc147.py`) reads the last number in the
   response, after keeping only the last `\boxed{...}` content and removing thousands
-  separators. Empty responses, agent failure messages, number words and non-integer numbers
-  are unparseable and scored as wrong (they enter MAE and RMSE as 0). No judge model is
+  separators. A minus sign counts only when it does not follow a word character, so `3-5`
+  reads as 5. Empty responses, agent failure messages, number words, non-integer numbers and
+  negative numbers are unparseable and scored as wrong (they enter MAE and RMSE as 0). No judge model is
   called, whatever the judge config says. This is the protocol of the paper's OctoTools and
   Visual Sketchpad counting cells.
 - **fallback extractor**: a rule-based parser reads the option letter (`can_infer`,
