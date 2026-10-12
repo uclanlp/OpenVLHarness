@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..bootstrap import load_agent_config, build_capabilities, RAW_BACKENDS
 from ..contracts import ServiceResult
+from . import degradation
 from .models import ModelAdapter, AuxiliaryModel
 from .tools.base import ToolArgumentError
 from .envelope import _normalize_result_payload, _build_error_payload, _build_success_payload

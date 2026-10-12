@@ -13,6 +13,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urlparse
 
+from openvlharness.services import degradation
 from openvlharness.services.tools.base import BaseTool
 from openvlharness.services.tools.image_utils import (
     decode_base64_image_data,
@@ -885,20 +886,29 @@ class Image_Search_Tool(BaseTool):
                 top_p=1.0,
             )
         except Exception as exc:
-            logger.warning("LLM summarize call failed (%s), returning raw results", exc)
+            # SUMMARIZE_DEGRADED is a stable log token for watchdogs; keep it literal.
+            logger.warning(
+                "SUMMARIZE_DEGRADED tool=%s reason=%s -- LLM summarize call failed, "
+                "returning raw results (%s)", TOOL_NAME, type(exc).__name__, exc,
+            )
+            degradation.record("summarize", tool=TOOL_NAME, reason=type(exc).__name__)
             return raw_text, []
 
         stripped = strip_think_tags(result or "")
         if not stripped.strip():
-            logger.warning("LLM summarize returned empty content, returning raw results")
+            logger.warning(
+                "SUMMARIZE_DEGRADED tool=%s reason=empty_output -- returning raw results", TOOL_NAME,
+            )
+            degradation.record("summarize", tool=TOOL_NAME, reason="empty_output")
             return raw_text, []
 
         parsed = _parse_summarize_json(stripped)
         if parsed is None:
             logger.warning(
-                "LLM summarize output is not parseable JSON, returning raw results. "
-                "Head: %r", stripped[:200],
+                "SUMMARIZE_DEGRADED tool=%s reason=unparseable_json -- returning raw results. "
+                "Head: %r", TOOL_NAME, stripped[:200],
             )
+            degradation.record("summarize", tool=TOOL_NAME, reason="unparseable_json")
             return raw_text, []
 
         # Schema deviation guard (matches serper_text_search). Two
@@ -909,10 +919,11 @@ class Image_Search_Tool(BaseTool):
         kept_value = parsed.get("kept_indices")
         if not isinstance(kept_value, list):
             logger.warning(
-                "LLM summarize JSON: 'kept_indices' missing or not a list "
+                "SUMMARIZE_DEGRADED tool=%s reason=kept_indices_invalid -- LLM summarize JSON: 'kept_indices' missing or not a list "
                 "(top-level keys: %s); returning raw results to avoid silent data loss",
-                list(parsed.keys()),
+                TOOL_NAME, list(parsed.keys()),
             )
+            degradation.record("summarize", tool=TOOL_NAME, reason="kept_indices_invalid")
             return raw_text, []
 
         rendered = _render_summarized_results(
