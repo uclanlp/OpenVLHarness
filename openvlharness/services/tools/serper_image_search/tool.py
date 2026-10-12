@@ -649,7 +649,7 @@ class Image_Search_Tool(BaseTool):
         """
         if attempts > 1:
             retried = (
-                f" We already re-issued the identical request {attempts} times "
+                f" The identical request was issued {attempts} times "
                 f"(Serper intermittently drops result sets), and every attempt came "
                 f"back empty, so a transient drop is now unlikely to be the cause."
             )

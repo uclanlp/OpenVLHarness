@@ -102,7 +102,7 @@ def test_single_attempt_message_omits_the_retry_sentence():
     tool, _ = _build([EMPTY], max_attempts=1)
     out = _text(tool.execute(image_base64="data:image/jpeg;base64,AAAA"))
     assert "NO VISUAL MATCHES" in out
-    assert "we already re-issued" not in out.lower()
+    assert "was issued" not in out.lower()
 
 
 def test_http_error_is_not_retried_by_the_empty_loop():
