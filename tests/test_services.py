@@ -359,6 +359,7 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
                 health, status = await asyncio.wait_for(asyncio.gather(client.get("/health"), client.get("/backend-status")), timeout=1)
                 self.assertEqual(health.status_code, 200)
                 self.assertEqual(status.json()["depth"], {"limit": 1, "in_flight": 1})
+                self.assertEqual(set(status.json()["degradations"]), {"counts", "last"})
                 self.assertFalse(camera_entered.is_set())
             finally:
                 release.set()

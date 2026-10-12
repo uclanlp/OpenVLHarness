@@ -28,6 +28,8 @@ class DegradationCounterTests(unittest.TestCase):
         self.assertEqual(snap["counts"]["summarize"], 2)
         self.assertEqual(snap["counts"]["summarize:TimeoutError"], 1)
         self.assertEqual(snap["last"]["summarize"]["reason"], "empty_output")
+        degradation.record("summarize", tool="Text_Search_Tool")
+        self.assertEqual(degradation.snapshot()["counts"], {"summarize": 3, "summarize:TimeoutError": 1, "summarize:empty_output": 1})
 
     def _summarize(self, module, engine):
         tool = module.Text_Search_Tool(llm_engine=engine) if module is text_tool else module.Image_Search_Tool(llm_engine=engine)

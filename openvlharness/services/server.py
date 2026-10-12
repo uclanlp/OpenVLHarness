@@ -122,8 +122,13 @@ def create_app(config, *, implementations=None):
 
     @app.get("/backend-status")
     async def status():
-        """Report configured concurrency limits and in-flight counts by backend group."""
-        return {name: {"limit": limit, "in_flight": active[name]} for name, limit in limits.items()}
+        """Report concurrency limits and in-flight counts by backend group, plus fallback counters.
+
+        ``degradations`` counts tool calls that returned a usable result only
+        after an internal fallback, such as an unsummarized search.
+        """
+        groups = {name: {"limit": limit, "in_flight": active[name]} for name, limit in limits.items()}
+        return {**groups, "degradations": degradation.snapshot()}
 
     def execute(request):
         """Execute one resolved request and return a JSON envelope with its HTTP status."""

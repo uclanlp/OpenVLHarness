@@ -34,11 +34,11 @@ logger = logging.getLogger(__name__)
 LENS_EMPTY_MAX_ATTEMPTS = max(
     1, int(os.getenv("SEARCH_LENS_EMPTY_MAX_ATTEMPTS", "4"))
 )
-LENS_EMPTY_BACKOFF_BASE_SEC = float(
-    os.getenv("SEARCH_LENS_EMPTY_BACKOFF_BASE_SEC", "0.5")
+LENS_EMPTY_BACKOFF_BASE_SEC = max(
+    0.0, float(os.getenv("SEARCH_LENS_EMPTY_BACKOFF_BASE_SEC", "0.5"))
 )
-LENS_EMPTY_BACKOFF_MAX_SEC = float(
-    os.getenv("SEARCH_LENS_EMPTY_BACKOFF_MAX_SEC", "4.0")
+LENS_EMPTY_BACKOFF_MAX_SEC = max(
+    0.0, float(os.getenv("SEARCH_LENS_EMPTY_BACKOFF_MAX_SEC", "4.0"))
 )
 
 

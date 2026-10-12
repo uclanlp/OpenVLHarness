@@ -18,11 +18,14 @@ class ProviderBodyTests(unittest.TestCase):
     def setUp(self):
         sc._ACCOUNT_LEVEL_WARNED = False
 
-    def _call(self, exc):
+    def _call_each(self, do_request):
         with patch("time.sleep"):
             with self.assertRaises(sc.SerperRequestError) as ctx:
-                sc._call_serper_with_retry(endpoint_label="search", do_request=lambda: (_ for _ in ()).throw(exc))
+                sc._call_serper_with_retry(endpoint_label="search", do_request=do_request)
         return ctx.exception
+
+    def _call(self, exc):
+        return self._call_each(lambda: (_ for _ in ()).throw(exc))
 
     def test_account_level_body_is_carried_but_kept_out_of_the_message(self):
         err = self._call(_http_error(400, '{"message":"Not enough credits","statusCode":400}'))
@@ -33,9 +36,17 @@ class ProviderBodyTests(unittest.TestCase):
         self.assertEqual(err.attempts, 1)
 
     def test_ordinary_client_error_is_not_account_level(self):
-        err = self._call(_http_error(400, '{"message":"query must not be empty"}'))
-        self.assertIn("query must not be empty", err.provider_body)
-        self.assertFalse(err.is_account_level)
+        for body in ('{"message":"query must not be empty"}', '{"message":"query length exceeded"}'):
+            with self.subTest(body=body):
+                err = self._call(_http_error(400, body))
+                self.assertIn(body[13:20], err.provider_body)
+                self.assertFalse(err.is_account_level)
+
+    def test_body_is_cleared_when_a_later_attempt_fails_without_one(self):
+        attempts = iter([_http_error(503, "upstream unavailable"), requests.Timeout("slow"), requests.Timeout("slow")])
+        err = self._call_each(lambda: (_ for _ in ()).throw(next(attempts)))
+        self.assertTrue(err.transient)
+        self.assertEqual(err.provider_body, "")
 
     def test_account_level_failure_is_logged_once_per_process(self):
         with self.assertLogs(sc.logger, level="ERROR") as logs:

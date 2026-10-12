@@ -10,6 +10,7 @@ Provides:
 import logging
 import os
 import re
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -133,14 +134,19 @@ class SerperRequestError(RuntimeError):
         or switch search_type; under an account-level failure every rewrite
         fails too. Callers can use this to stop a run instead.
         """
-        body = (self.provider_body or "").lower()
-        return any(k in body for k in _ACCOUNT_LEVEL_MARKERS)
+        return _is_account_level_body(self.provider_body)
 
 
 _ACCOUNT_LEVEL_MARKERS = (
-    "not enough credits", "insufficient credit", "quota", "exceeded",
+    "not enough credits", "insufficient credit", "quota",
     "payment", "unauthorized", "invalid api key", "forbidden",
 )
+
+
+def _is_account_level_body(body: str) -> bool:
+    """Return True when a provider response body blames the account rather than the request."""
+    lowered = (body or "").lower()
+    return any(marker in lowered for marker in _ACCOUNT_LEVEL_MARKERS)
 
 
 def _http_error_body(exc: requests.HTTPError, limit: int = 300) -> str:
@@ -156,17 +162,18 @@ def _http_error_body(exc: requests.HTTPError, limit: int = 300) -> str:
 # Logged once per process: an account-level failure repeats on every call and
 # a per-call error line would bury the message it is meant to surface.
 _ACCOUNT_LEVEL_WARNED = False
+_ACCOUNT_LEVEL_LOCK = threading.Lock()
 
 
 def _warn_once_if_account_level(endpoint_label: str, code: Optional[int], body: str) -> None:
     """Log one error line when the provider body indicates an account-level failure."""
     global _ACCOUNT_LEVEL_WARNED
-    if _ACCOUNT_LEVEL_WARNED or not body:
+    if not _is_account_level_body(body):
         return
-    probe = SerperRequestError("", status_code=code, endpoint=endpoint_label, provider_body=body)
-    if not probe.is_account_level:
-        return
-    _ACCOUNT_LEVEL_WARNED = True
+    with _ACCOUNT_LEVEL_LOCK:
+        if _ACCOUNT_LEVEL_WARNED:
+            return
+        _ACCOUNT_LEVEL_WARNED = True
     logger.error(
         "SERPER ACCOUNT-LEVEL FAILURE: HTTP %s from %s -> %s | every search will keep "
         "failing until the account is fixed; rewording queries, switching search_type or "
@@ -220,6 +227,7 @@ def _call_serper_with_retry(
     last_error: str = ""
     last_body: str = ""
     for attempt in range(1, max_retries + 1):
+        last_body = ""
         try:
             return do_request()
         except requests.HTTPError as exc:

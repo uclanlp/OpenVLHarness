@@ -29,10 +29,10 @@ def record(kind: str, *, tool: str = "", reason: str = "") -> None:
         tool: The tool that degraded, for attribution.
         reason: Short machine-readable reason such as ``"APITimeoutError"``.
     """
-    key = f"{kind}:{reason}" if reason else kind
     with _LOCK:
         _COUNTS[kind] += 1
-        _COUNTS[key] += 1
+        if reason:
+            _COUNTS[f"{kind}:{reason}"] += 1
         _LAST[kind] = {"tool": tool, "reason": reason, "at": time.time()}
 
 
