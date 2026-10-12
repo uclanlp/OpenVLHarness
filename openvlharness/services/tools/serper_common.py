@@ -102,6 +102,9 @@ class SerperRequestError(RuntimeError):
         attempts: How many attempts were made before giving up. Useful
             so the agent doesn't unnecessarily retry a fully-saturated
             endpoint immediately.
+        provider_body: The provider's response body (truncated), for logs
+            and operators. It is deliberately not part of ``message``:
+            ``str(exc)`` is rendered into the agent-visible tool output.
     """
 
     def __init__(
@@ -112,13 +115,64 @@ class SerperRequestError(RuntimeError):
         transient: bool = False,
         endpoint: str = "",
         attempts: int = 1,
+        provider_body: str = "",
     ) -> None:
-        """Store the failure message, status, retry classification, endpoint and attempt count."""
+        """Store the failure message, status, retry classification, endpoint, attempt count and body."""
         super().__init__(message)
         self.status_code = status_code
         self.transient = transient
         self.endpoint = endpoint
         self.attempts = attempts
+        self.provider_body = provider_body
+
+    @property
+    def is_account_level(self) -> bool:
+        """True when the provider body blames the account (credits, key, payment), not this query.
+
+        The agent-facing guidance for a 4xx tells the model to reword the query
+        or switch search_type; under an account-level failure every rewrite
+        fails too. Callers can use this to stop a run instead.
+        """
+        body = (self.provider_body or "").lower()
+        return any(k in body for k in _ACCOUNT_LEVEL_MARKERS)
+
+
+_ACCOUNT_LEVEL_MARKERS = (
+    "not enough credits", "insufficient credit", "quota", "exceeded",
+    "payment", "unauthorized", "invalid api key", "forbidden",
+)
+
+
+def _http_error_body(exc: requests.HTTPError, limit: int = 300) -> str:
+    """Return the provider's response body, truncated to ``limit`` characters. Never raises."""
+    try:
+        if exc.response is None:
+            return ""
+        return (exc.response.text or "")[:limit].replace("\n", " ").strip()
+    except Exception:
+        return ""
+
+
+# Logged once per process: an account-level failure repeats on every call and
+# a per-call error line would bury the message it is meant to surface.
+_ACCOUNT_LEVEL_WARNED = False
+
+
+def _warn_once_if_account_level(endpoint_label: str, code: Optional[int], body: str) -> None:
+    """Log one error line when the provider body indicates an account-level failure."""
+    global _ACCOUNT_LEVEL_WARNED
+    if _ACCOUNT_LEVEL_WARNED or not body:
+        return
+    probe = SerperRequestError("", status_code=code, endpoint=endpoint_label, provider_body=body)
+    if not probe.is_account_level:
+        return
+    _ACCOUNT_LEVEL_WARNED = True
+    logger.error(
+        "SERPER ACCOUNT-LEVEL FAILURE: HTTP %s from %s -> %s | every search will keep "
+        "failing until the account is fixed; rewording queries, switching search_type or "
+        "restarting the router cannot help. Scores produced from here on are closed-book.",
+        code, endpoint_label, body,
+    )
 
 
 def _classify_http_error(exc: requests.HTTPError) -> Tuple[Optional[int], bool]:
@@ -164,6 +218,7 @@ def _call_serper_with_retry(
     last_code: Optional[int] = None
     last_is_transient = False
     last_error: str = ""
+    last_body: str = ""
     for attempt in range(1, max_retries + 1):
         try:
             return do_request()
@@ -171,6 +226,9 @@ def _call_serper_with_retry(
             code, transient = _classify_http_error(exc)
             last_code, last_is_transient = code, transient
             last_error = f"HTTP {code} from {endpoint_label}" if code else f"HTTP error: {exc}"
+            # The body goes to the log and to provider_body, never into
+            # last_error, which is rendered into agent-visible text.
+            last_body = _http_error_body(exc)
         except requests.Timeout as exc:
             last_code = None
             last_is_transient = True
@@ -190,9 +248,11 @@ def _call_serper_with_retry(
             ) from exc
 
         logger.warning(
-            "Serper %s call failed (attempt %d/%d, transient=%s): %s",
+            "Serper %s call failed (attempt %d/%d, transient=%s): %s%s",
             endpoint_label, attempt, max_retries, last_is_transient, last_error,
+            f" | provider body: {last_body}" if last_body else "",
         )
+        _warn_once_if_account_level(endpoint_label, last_code, last_body)
         if not last_is_transient or attempt >= max_retries:
             break
         # Exponential backoff with cap.
@@ -205,6 +265,7 @@ def _call_serper_with_retry(
         transient=last_is_transient,
         endpoint=endpoint_label,
         attempts=attempt,
+        provider_body=last_body,
     )
 
 
