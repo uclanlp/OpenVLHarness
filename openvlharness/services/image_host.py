@@ -26,8 +26,8 @@ def create_app(directory: str) -> FastAPI:
 
     @app.get("/health")
     async def health():
-        """Report readiness and the served directory."""
-        return {"status": "ok", "directory": directory}
+        """Report readiness."""
+        return {"status": "ok"}
 
     root = os.path.realpath(directory)
 
@@ -56,7 +56,7 @@ def main():
     parser.add_argument("--port", type=int, default=8111)
     args = parser.parse_args()
     directory = args.dir or local_upload_dir()
-    os.makedirs(directory, exist_ok=True)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
     import uvicorn
     uvicorn.run(create_app(directory), host=args.host, port=args.port)
 
