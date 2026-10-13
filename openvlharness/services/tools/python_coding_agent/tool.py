@@ -56,8 +56,12 @@ class Python_Coding_Agent_Tool(BaseTool):
     """Generate Python code from an objective and a catalog of available bindings."""
     require_llm_engine = False
 
-    def __init__(self, model_adapter):
-        """Attach the orchestrator-matched model adapter and initialize tool metadata."""
+    def __init__(self, model_adapter, inherit_options=False):
+        """Attach the orchestrator-matched model adapter and initialize tool metadata.
+
+        inherit_options sends code-generation requests with the adapter's configured
+        options instead of the fixed 4,096-token, medium-effort request.
+        """
         super().__init__(
             tool_name=TOOL_NAME,
             tool_description=(
@@ -106,6 +110,7 @@ class Python_Coding_Agent_Tool(BaseTool):
             ],
         )
         self.model_adapter = model_adapter
+        self.inherit_options = inherit_options
 
     def _build_prompt(self, objective, binding_descriptors=None):
         """Build the user message for the coding LLM."""
@@ -142,7 +147,8 @@ class Python_Coding_Agent_Tool(BaseTool):
         ]
 
         try:
-            content = self.model_adapter.generate_text(messages, max_tokens=4096)
+            content = self.model_adapter.generate_text(messages, max_tokens=4096,
+                                                       inherit_options=self.inherit_options)
         except Exception as exc:
             return {"error": f"LLM request failed: {exc}"}
 

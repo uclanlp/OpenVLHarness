@@ -111,8 +111,12 @@ def create_app(config, *, implementations=None):
                 tool = cls(llm_engine=AuxiliaryModel(settings["models"][model_name]))
             elif cap.backend == "python_coding_agent":
                 model_name = service.get("model_service", config["agent"]["model_service"])
-                # Code-generation requests use a dedicated 600-second HTTP timeout.
-                tool = cls(model_adapter=ModelAdapter({**settings["models"][model_name], "timeout": 600}))
+                if service.get("generation", "fixed") == "inherit":
+                    # Same options and timeout as the configured model, including effort and tier.
+                    tool = cls(model_adapter=ModelAdapter(settings["models"][model_name]), inherit_options=True)
+                else:
+                    # Code-generation requests use a dedicated 600-second HTTP timeout.
+                    tool = cls(model_adapter=ModelAdapter({**settings["models"][model_name], "timeout": 600}))
             else:
                 tool = cls()
         registry[cap.concrete_name] = (tool, cap.backend, service)

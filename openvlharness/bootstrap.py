@@ -145,7 +145,7 @@ def load_agent_config(config, *, save_raw_trace=False):
         if not isinstance(service, dict):
             raise ValueError(f"Missing services.tools.{backend} configuration")
         allowed_settings = {"server_url"} if backend in RAW_BACKENDS else (
-            {"model_service", "context"} if backend == "python_coding_agent" else
+            {"model_service", "context", "generation"} if backend == "python_coding_agent" else
             {"model_service"} if backend.startswith("serper_") else set())
         if set(service) - allowed_settings:
             raise ValueError(f"Unsupported settings for {backend}; algorithmic controls are service constants")
@@ -163,6 +163,8 @@ def load_agent_config(config, *, save_raw_trace=False):
                 raise ValueError(f"Missing model service {model_service!r} for {backend}")
         if backend == "python_coding_agent" and service.get("context", "fresh") != "fresh":
             raise ValueError("Coding generation requires context: fresh")
+        if backend == "python_coding_agent" and service.get("generation", "fixed") not in {"fixed", "inherit"}:
+            raise ValueError("Coding generation must be fixed (4,096 tokens, medium effort) or inherit (model options)")
     if agent.get("model_service") not in services["models"]:
         raise ValueError("agent.model_service must name an entry in services.models")
     if save_raw_trace:
