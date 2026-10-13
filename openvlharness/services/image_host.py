@@ -29,13 +29,19 @@ def create_app(directory: str) -> FastAPI:
         """Report readiness and the served directory."""
         return {"status": "ok", "directory": directory}
 
+    root = os.path.realpath(directory)
+
     @app.get("/{name}")
     async def image(name: str):
-        """Return one stored image; names outside the content-hash pattern are not found."""
+        """Return one stored image; anything but a regular file in the directory is not found."""
         if not _NAME.match(name):
             raise HTTPException(status_code=404)
-        path = os.path.join(directory, name)
-        if not os.path.isfile(path):
+        path = os.path.join(root, name)
+        # Symbolic links are refused so that a link planted in the directory
+        # cannot publish a file from elsewhere on the machine.
+        if os.path.islink(path) or not os.path.isfile(path):
+            raise HTTPException(status_code=404)
+        if os.path.dirname(os.path.realpath(path)) != root:
             raise HTTPException(status_code=404)
         return FileResponse(path)
 

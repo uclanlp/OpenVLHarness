@@ -46,6 +46,39 @@ class LocalProviderTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 up._upload_local(JPEG, "image/jpeg", ".jpg", "0" * 64)
 
+    def test_concurrent_uploads_of_the_same_image_do_not_collide(self):
+        import threading
+        errors = []
+
+        def worker():
+            try:
+                up._upload_local(JPEG, "image/jpeg", ".jpg", hashlib.sha256(JPEG).hexdigest())
+            except Exception as exc:  # pragma: no cover - the assertion below reports it
+                errors.append(exc)
+        threads = [threading.Thread(target=worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(os.listdir(self.tmp.name)), [hashlib.sha256(JPEG).hexdigest() + ".jpg"])
+
+    def test_image_host_refuses_symbolic_links(self):
+        outside = os.path.join(self.tmp.name, "..", os.path.basename(self.tmp.name) + "-secret")
+        with open(outside, "wb") as f:
+            f.write(b"secret")
+        try:
+            link = os.path.join(self.tmp.name, "1" * 64 + ".jpg")
+            os.symlink(outside, link)
+            app = image_host.create_app(self.tmp.name)
+
+            async def run():
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://host.invalid") as client:
+                    self.assertEqual((await client.get("/" + "1" * 64 + ".jpg")).status_code, 404)
+            asyncio.run(run())
+        finally:
+            os.unlink(outside)
+
     def test_image_host_serves_stored_images_only(self):
         url = up.upload_image_bytes(JPEG, "image/jpeg", ".jpg")
         name = url.rsplit("/", 1)[1]

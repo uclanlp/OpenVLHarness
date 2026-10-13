@@ -153,15 +153,23 @@ def _upload_local(image_bytes: bytes, content_type: str, extension: str, content
         raise RuntimeError(
             "IMAGE_UPLOAD_PUBLIC_BASE_URL is not set; it must be the public address of the image host."
         )
+    import tempfile
     directory = local_upload_dir()
-    os.makedirs(directory, exist_ok=True)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
     name = f"{content_hash}{extension}"
     path = os.path.join(directory, name)
     if not os.path.exists(path):
-        tmp_path = f"{path}.{os.getpid()}.tmp"
-        with open(tmp_path, "wb") as f:
-            f.write(image_bytes)
-        os.replace(tmp_path, path)
+        # A unique temporary file per call, so concurrent uploads of the same
+        # image cannot remove each other's temporary file before the rename.
+        fd, tmp_path = tempfile.mkstemp(prefix=f"{name}.", suffix=".tmp", dir=directory)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(image_bytes)
+            os.chmod(tmp_path, 0o644)
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
     return f"{base_url}/{name}"
 
 
