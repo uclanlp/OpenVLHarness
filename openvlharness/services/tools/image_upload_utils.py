@@ -138,6 +138,39 @@ def _upload_s3(image_bytes: bytes, content_type: str, extension: str, content_ha
     return url
 
 
+# ---- Local directory served by openvlharness.services.image_host -----------
+
+def _upload_local(image_bytes: bytes, content_type: str, extension: str, content_hash: str) -> str:
+    """Write the image under IMAGE_UPLOAD_LOCAL_DIR and return its public URL.
+
+    The directory is served by ``python -m openvlharness.services.image_host``;
+    IMAGE_UPLOAD_PUBLIC_BASE_URL is the address at which that server is reachable
+    from the internet (for example a tunnel URL). No cloud credentials are needed.
+    Raises RuntimeError when the public base URL is not set.
+    """
+    base_url = os.getenv("IMAGE_UPLOAD_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError(
+            "IMAGE_UPLOAD_PUBLIC_BASE_URL is not set; it must be the public address of the image host."
+        )
+    directory = local_upload_dir()
+    os.makedirs(directory, exist_ok=True)
+    name = f"{content_hash}{extension}"
+    path = os.path.join(directory, name)
+    if not os.path.exists(path):
+        tmp_path = f"{path}.{os.getpid()}.tmp"
+        with open(tmp_path, "wb") as f:
+            f.write(image_bytes)
+        os.replace(tmp_path, path)
+    return f"{base_url}/{name}"
+
+
+def local_upload_dir() -> str:
+    """Return the directory shared by the local provider and the image host."""
+    import tempfile
+    return os.getenv("IMAGE_UPLOAD_LOCAL_DIR") or os.path.join(tempfile.gettempdir(), "openvlharness-uploads")
+
+
 # ---- Public API -----------------------------------------------------------
 
 def upload_image_bytes(
@@ -146,17 +179,18 @@ def upload_image_bytes(
     extension: str = ".jpg",
     provider: Optional[str] = None,
 ) -> str:
-    """Upload image bytes when needed and return a signed URL.
+    """Upload image bytes when needed and return a URL that Serper can fetch.
 
     Args:
         image_bytes: Encoded image bytes used for content-hash deduplication.
         content_type: MIME type stored on the remote object.
         extension: Filename extension appended to the content hash.
-        provider: gcs or s3; defaults to IMAGE_UPLOAD_PROVIDER, then gcs.
+        provider: gcs, s3 or local; defaults to IMAGE_UPLOAD_PROVIDER, then gcs.
 
     Returns:
-        A URL usable without additional request authentication until expiry.
-        Cached URLs may have less than one hour remaining.
+        A URL usable without additional request authentication. Signed cloud
+        URLs expire after one hour (cached ones may have less remaining); local
+        URLs stay valid while the image host is running.
 
     Raises:
         ValueError: The provider is unsupported.
@@ -178,8 +212,10 @@ def upload_image_bytes(
         url = _upload_gcs(image_bytes, content_type, extension, ch)
     elif provider == "s3":
         url = _upload_s3(image_bytes, content_type, extension, ch)
+    elif provider == "local":
+        url = _upload_local(image_bytes, content_type, extension, ch)
     else:
-        raise ValueError(f"Unknown IMAGE_UPLOAD_PROVIDER: {provider!r}. Use 'gcs' or 's3'.")
+        raise ValueError(f"Unknown IMAGE_UPLOAD_PROVIDER: {provider!r}. Use 'gcs', 's3' or 'local'.")
 
     _set_cached_url(ch, url)
     return url
