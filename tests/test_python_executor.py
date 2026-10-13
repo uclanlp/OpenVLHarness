@@ -1,5 +1,6 @@
 """Real subprocess checks for termination, output bounds and copied array bindings."""
 import concurrent.futures
+import os
 import subprocess
 import time
 import unittest
@@ -67,3 +68,18 @@ class PythonExecutorTests(unittest.TestCase):
         for timeout in (0, -1, None, True, float("nan"), float("inf")):
             with self.subTest(timeout=timeout), self.assertRaisesRegex(ValueError, "positive and finite"):
                 execute_python_code("print(1)", prepare_execution_context({}), timeout)
+
+    def test_generated_code_sees_no_credentials_and_runs_in_a_temporary_directory(self):
+        code = ("import os\n"
+                "print(os.environ.get('OPENVLHARNESS_TEST_API_KEY'), os.environ.get('AWS_PROFILE'),\n"
+                "      os.environ.get('OPENVLHARNESS_TEST_SETTING'), os.environ.get('OMP_NUM_THREADS'))\n"
+                "print(os.getcwd())")
+        environment = {"OPENVLHARNESS_TEST_API_KEY": "fixture-secret", "AWS_PROFILE": "fixture-profile",
+                       "OPENVLHARNESS_TEST_SETTING": "visible"}
+        with patch.dict(os.environ, environment):
+            result = execute_python_code(code, prepare_execution_context({}), 3)
+        values, cwd = result["printed_output"].splitlines()
+        self.assertEqual(values, "None None visible 1")
+        self.assertNotEqual(os.path.realpath(cwd), os.path.realpath(os.getcwd()))
+        self.assertIn("openvlharness-python-", cwd)
+        self.assertFalse(os.path.exists(cwd))

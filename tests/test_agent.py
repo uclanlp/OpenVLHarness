@@ -307,7 +307,9 @@ class AgentLoopTests(unittest.TestCase):
                     self.assertEqual(fixed.requests[-1]["tool_choice"], "none")
                     self.assertEqual(len(result["extra_records"]["trajectory"]["chat_history"]), 2)
                 else:
-                    self.assertEqual(result["prediction"], MainAgent.fail_msg)
+                    self.assertEqual(result["prediction"], MainAgent.limit_msg)
+                    self.assertEqual(result["extra_records"]["trajectory"]["error"],
+                                     "Reached max_iterations (1) without a final answer.")
                     self.assertEqual(len(fixed.requests), 1)
 
     def test_extra_final_call_cannot_execute_more_tools(self):
@@ -315,7 +317,8 @@ class AgentLoopTests(unittest.TestCase):
             model_response("chat_completions", calls=[("first", "Probe_Tool", '{"query":"a"}')]),
             model_response("chat_completions", calls=[("forbidden-extra", "Probe_Tool", '{"query":"b"}')])], max_iterations=1)
         result = agent.generate("Question")
-        self.assertEqual(result["prediction"], MainAgent.fail_msg)
+        self.assertEqual(result["prediction"], MainAgent.limit_msg)
+        self.assertIn("max_iterations", result["extra_records"]["trajectory"]["error"])
         self.assertEqual(len(fixed.requests), 2)
         self.assertEqual([call.call_id for call, _ in probe.invocations], ["first"])
 

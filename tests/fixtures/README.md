@@ -1,18 +1,21 @@
-# Memory regression fixture
+# Test fixtures
 
-`memory_old_release.json` contains deterministic outputs produced by the original
-memory code at commit `b98e5a540c4867eab20e07166c274e7ca8b8b9fe`. The provenance
-object records SHA256s of the original image, URL, binding, and memory-orchestrator
-modules. It is a behavior fixture, not a new implementation's expected-output
-snapshot.
+These files are frozen reference outputs captured from the implementation used
+for the paper runs. Tests compare the current code against them and never
+regenerate them. All inputs are synthetic: tiny generated PNGs and arrays,
+invented URLs and nonfunctional API keys. Downloads, service replies and model
+requests were replaced with fixed responses during capture. The `provenance`
+entry of each `*old_release.json` file records the source commit and file hashes
+in the research codebase, which is not part of this repository.
 
-Inputs are three locally generated 2-by-2 colored PNGs, invented URLs, a small
-float32 depth matrix, and synthetic query/argument strings. Download calls were
-replaced with fixed byte or failure responses when collecting lazy-resolution
-outputs. No network, credential, original runtime installation, or dataset file
-is required to run the checked-in tests.
-
-The `capability_boundary_reference_only` section records the old missing-image
-argument and plural-image rewrite contract. The generic memory store resolves
-individual references; capability boundary tests must check those argument
-rewrites and ordering separately.
+- `memory_old_release.json`: memory store behaviour for image and URL
+  references, lazy downloads, typed value bindings and environment messages.
+- `capabilities/`: capability results for fixed service replies, and the nine
+  model-facing tool schemas in `public_schemas.json`. `test_capabilities.py`
+  allows three differences: the current Text Search description, the Depth
+  Estimation `size` descriptor, which now reads `[height, width]`, and OCR
+  results, which are now stored as a text binding. The Grounding DINO adapter
+  has no reference output.
+- `model_protocol/`: request bodies, argument normalization and tool-output
+  encoding for the Chat Completions and Responses protocols, and the auxiliary
+  model's request arguments.

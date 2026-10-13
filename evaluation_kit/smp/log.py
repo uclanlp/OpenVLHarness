@@ -1,0 +1,45 @@
+# Adapted from VLMEvalKit (https://github.com/open-compass/VLMEvalKit), Apache License 2.0; modified by the OpenVLHarness authors.
+import logging
+import sys
+logging.basicConfig(
+    format='[%(asctime)s] %(levelname)s - %(filename)s: %(funcName)s - %(lineno)d: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S')
+
+logger_initialized = {}
+
+
+def get_logger(name, log_file=None, log_level=logging.INFO, file_mode='w'):
+    logger = logging.getLogger(name)
+    if name in logger_initialized:
+        return logger
+
+    for logger_name in logger_initialized:
+        if name.startswith(logger_name):
+            return logger
+
+    stream_handler = logging.StreamHandler()
+    handlers = [stream_handler]
+
+    dist = sys.modules.get('torch.distributed')  # only consult torch if the caller already loaded it
+    rank = dist.get_rank() if dist is not None and dist.is_available() and dist.is_initialized() else 0
+
+    if rank == 0 and log_file is not None:
+        file_handler = logging.FileHandler(log_file, file_mode)
+        handlers.append(file_handler)
+
+    formatter = logging.Formatter(
+        '[%(asctime)s] %(levelname)s - %(name)s - %(filename)s: %(funcName)s - %(lineno)d: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S')
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        handler.setLevel(log_level)
+        logger.propagate = False
+        logger.addHandler(handler)
+
+    if rank == 0:
+        logger.setLevel(log_level)
+    else:
+        logger.setLevel(logging.ERROR)
+
+    logger_initialized[name] = True
+    return logger

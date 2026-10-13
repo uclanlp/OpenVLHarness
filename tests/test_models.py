@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+import httpx
 import requests
 
 from openvlharness.contracts import CapabilityResult
@@ -66,6 +67,25 @@ class ModelProfileTests(unittest.TestCase):
         first = load_profile("qwen3-vl-8b-instruct")
         first["allowed_options"].append("unexpected")
         self.assertNotIn("unexpected", load_profile("qwen3-vl-8b-instruct")["allowed_options"])
+
+    def test_unknown_alias_error_suggests_registered_alias(self):
+        pointer = ("See docs/models.md#other-registered-models. Register a new model with its exact served ID, "
+                   "prompt and API profile in model_registry.yaml.")
+
+        def message(alias):
+            with self.assertRaises(ValueError) as error:
+                load_profile(alias)
+            return str(error.exception)
+
+        self.assertEqual(message("Qwen/Qwen3-VL-8B-Instruct"),
+                         "Unknown model alias 'Qwen/Qwen3-VL-8B-Instruct': this is a served model ID; "
+                         f"use alias 'qwen3-vl-8b-instruct'. {pointer}")
+        typo = message("gpt6-luna")
+        self.assertTrue(typo.startswith("Unknown model alias 'gpt6-luna'. Did you mean: 'gpt-6-luna', "), typo)
+        self.assertTrue(typo.endswith(f"? {pointer}"), typo)
+        for alias in ("zzz", None):
+            with self.subTest(alias=alias):
+                self.assertEqual(message(alias), f"Unknown model alias {alias!r}. {pointer}")
 
 
 class ModelWireTests(unittest.TestCase):
@@ -327,10 +347,25 @@ class ModelContextTests(unittest.TestCase):
         self.assertEqual(model._count_tokens(messages, tools), 3)
         call = model._tokenizer.apply_chat_template.call_args
         self.assertEqual(call.args[0][0]["content"][0], {"type": "text", "text": "[image]"})
-        self.assertEqual(call.kwargs, {"tokenize": True, "add_generation_prompt": True, "tools": tools})
+        self.assertEqual(call.kwargs, {"tokenize": True, "add_generation_prompt": True, "return_dict": False,
+                                       "tools": tools})
         self.assertEqual(messages[0]["content"][0]["image_url"]["url"], IMAGE)
         model._tokenizer.apply_chat_template.side_effect = ValueError("unsupported template")
         self.assertIsNone(model._count_tokens(messages, tools))
+
+    def test_token_counter_counts_ids_when_template_defaults_to_encoding_dict(self):
+        # transformers 5 returns a two-key BatchEncoding unless return_dict=False.
+        class Tokenizer:
+            def apply_chat_template(self, messages, tokenize, add_generation_prompt, return_dict=True, **kwargs):
+                ids = list(range(1000))
+                return {"input_ids": ids, "attention_mask": [1] * len(ids)} if return_dict else ids
+        model = adapter(max_tokens=100)
+        model.max_context_length = 1000
+        model._tokenizer = Tokenizer()
+        messages = [{"role": "user", "content": "question"}, {"role": "assistant", "content": "x" * 200}]
+        self.assertEqual(model._count_tokens(messages), 1000)
+        self.assertEqual(model._ensure_context_fits(messages, ["tool"], "auto"), (None, "none"))
+        self.assertEqual(messages, [{"role": "user", "content": "question"}])
 
     def test_compaction_protects_initial_block_latest_exchange_and_latest_inventory(self):
         messages = [{"role": "system", "content": "system"}, {"role": "user", "content": "question"},
@@ -425,6 +460,31 @@ class ModelContextTests(unittest.TestCase):
         self.assertEqual(model._ensure_context_fits(messages, ["tool"], "auto"), (["tool"], "auto"))
         self.assertEqual(len(messages[0]["content"]), 5000)
 
+    def test_unrenderable_chat_template_disables_counting_with_warning(self):
+        def load(tokenizer):
+            model = adapter()
+            model.max_context_length = 168000
+            module = SimpleNamespace(AutoTokenizer=SimpleNamespace(from_pretrained=Mock(return_value=tokenizer)))
+            with patch.dict("sys.modules", {"transformers": module}):
+                model.load_tokenizer()
+            return model
+        working = Mock()
+        working.apply_chat_template.return_value = [1, 2, 3]
+        with self.assertNoLogs("openvlharness.models", "WARNING"):
+            self.assertTrue(load(working).counting_available)
+        # transformers raises this from apply_chat_template when jinja2 is missing.
+        broken = Mock()
+        broken.apply_chat_template.side_effect = ImportError("apply_chat_template requires jinja2")
+        with self.assertLogs("openvlharness.models", "WARNING") as logs:
+            model = load(broken)
+        self.assertFalse(model.counting_available)
+        self.assertIs(model._tokenizer, broken)
+        self.assertIn("jinja2", logs.output[0])
+
+
+class SdkTimeout(httpx.Timeout):
+    """Stands in for openai.Timeout so tests can tell it apart from httpx.Timeout."""
+
 
 class AuxiliaryModelTests(unittest.TestCase):
     def setUp(self):
@@ -432,7 +492,8 @@ class AuxiliaryModelTests(unittest.TestCase):
         # OpenAI or allowing an accidental request to a real endpoint.
         self.constructor = Mock()
         self.sdk = self.constructor.return_value
-        self.module_patch = patch.dict("sys.modules", {"openai": SimpleNamespace(OpenAI=self.constructor)})
+        self.module_patch = patch.dict("sys.modules", {"openai": SimpleNamespace(OpenAI=self.constructor,
+                                                                                  Timeout=SdkTimeout)})
         self.module_patch.start()
         self.addCleanup(self.module_patch.stop)
 
@@ -461,6 +522,8 @@ class AuxiliaryModelTests(unittest.TestCase):
         self.engine()
         config = self.constructor.call_args.kwargs
         self.assertEqual(config["max_retries"], 2)
+        # openai 3.x does not install httpx, so the timeout must come from the SDK.
+        self.assertIs(type(config["timeout"]), SdkTimeout)
         self.assertEqual(config["timeout"].connect, 5)
         self.assertEqual((config["timeout"].read, config["timeout"].write, config["timeout"].pool), (600, 600, 600))
 

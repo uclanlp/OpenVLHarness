@@ -1,36 +1,56 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "openvlharness"
 version = "0.1.0"
-description = "A visual tool agent with persistent per-question memory"
+description = "Training-free harness that gives multimodal models perception, search and coding tools with multimodal memory"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_LICENSES.md", "LICENSES/*"]
+authors = [{name = "The OpenVLHarness Authors"}]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["requests>=2.28", "PyYAML>=6", "numpy>=1.24", "Pillow>=9", "jsonschema>=4"]
+dependencies = ["requests>=2.31", "PyYAML>=6.0.1", "numpy>=1.26", "Pillow>=10", "jsonschema>=4"]
+
+[project.scripts]
+openvlharness-eval = "evaluation_kit.cli:main"
 
 [project.urls]
 Homepage = "https://openvlharness.github.io/"
 Datasets = "https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"
+Source = "https://github.com/uclanlp/OpenVLHarness"
+Issues = "https://github.com/uclanlp/OpenVLHarness/issues"
 
 [project.optional-dependencies]
-server = ["fastapi>=0.100", "pydantic>=2", "uvicorn>=0.23", "openai>=1.66", "python-dotenv>=1", "boto3>=1.28", "beautifulsoup4>=4", "matplotlib>=3.7"]
-qwen = ["transformers>=4.57"]
+server = ["fastapi>=0.100", "pydantic>=2", "uvicorn>=0.23", "openai>=1.66,<4", "boto3>=1.28", "matplotlib>=3.8"]
+qwen = ["transformers>=4.57,<6", "jinja2>=3.1"]
 test = ["pytest>=8", "httpx>=0.24"]
+eval = [
+    "pandas>=2.1,<3", "pillow-avif-plugin>=1.4", "tqdm>=4.66",
+    "python-dotenv>=1", "xlsxwriter>=3.1", "openpyxl>=3.1",
+    "datasets>=4,<5", "huggingface_hub>=0.25,<2", "filelock>=3", "pycocotools>=2.0.7", "lvis>=0.5",
+    "matplotlib>=3.8", "tabulate>=0.9", "sty>=1.0", "portalocker>=2", "validators>=0.22", "packaging",
+    "nltk>=3.8", "rouge>=1.0", "num2words>=0.5.10", "tiktoken>=0.7", "openai>=1.66,<4",
+]
 
 [tool.setuptools.packages.find]
-where = ["src"]
-include = ["openvlharness*"]
+where = ["."]
+include = ["openvlharness*", "evaluation_kit*"]
 
 [tool.setuptools.package-data]
-openvlharness = ["prompts/*.txt", "services/model_registry.yaml", "services/LICENSE*", "services/tools/**/*.md", "services/tools/**/*.sh", "services/tools/**/*.yml"]
+evaluation_kit = ["dataset/**/*.md"]
+openvlharness = ["prompts/*.txt", "services/model_registry.yaml", "services/tools/**/*.md", "services/tools/**/*.sh", "services/tools/**/*.yml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

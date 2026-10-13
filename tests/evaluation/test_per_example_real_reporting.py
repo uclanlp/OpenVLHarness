@@ -2,16 +2,6 @@
 the per-example sidecar wrapper through full_trajectories, htmls, and
 tool_detections writes."""
 
-import importlib.util
-import pytest
-
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
-
 import contextlib
 import json
 import os
@@ -19,9 +9,9 @@ from pathlib import Path
 import tempfile
 
 import pandas as pd
+import pytest
 
-from mini_vlm_toolkit import inference_image
-from mini_vlm_toolkit.utils import file_db
+from evaluation_kit import runner
 
 pytestmark = pytest.mark.usefixtures("synchronous_evaluation")
 
@@ -86,7 +76,7 @@ class _Model:
 def test_real_reporting_writes_full_trajectories():
     with _patch_env({"PRED_FORMAT": "xlsx"}), tempfile.TemporaryDirectory() as tmp:
         work_dir = Path(tmp)
-        inference_image.infer_image_job(
+        runner.infer_image_job(
             _Model(), str(work_dir), "M", _Dataset(),
             html_limit=2,  # only first-2 by completion order
             save_raw_trace=False,
@@ -128,7 +118,7 @@ def test_real_reporting_writes_full_trajectories():
         assert not (ds / "raw_traces").exists()
 
         # Final xlsx and per-example record.json all present.
-        xlsx = inference_image.load(str(ds / "M.xlsx"))
+        xlsx = runner.load(str(ds / "M.xlsx"))
         preds = dict(zip(xlsx["index"], xlsx["prediction"]))
         assert preds == {10: "ans-10", 20: "ans-20", 30: "ans-30", 40: "ans-40"}
 
@@ -149,7 +139,7 @@ def test_real_reporting_input_snapshot_lookup():
 
     with _patch_env({"PRED_FORMAT": "xlsx"}), tempfile.TemporaryDirectory() as tmp:
         work_dir = Path(tmp)
-        inference_image.infer_image_job(
+        runner.infer_image_job(
             _ModelWithSnapshot(), str(work_dir), "M", _Dataset(),
         )
         snap_path = work_dir / "ToySet" / "input_snapshot.json"

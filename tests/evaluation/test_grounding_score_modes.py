@@ -1,21 +1,13 @@
 """Judge-config score modes must reach the persisted grounding metrics."""
 
-import importlib.util
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "torch", "validators"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
-import pandas as pd
-
-from mini_vlm_toolkit.dataset import eval_bridge, fscd, lvis, odinw
-from mini_vlm_toolkit.utils.judge_utils import load_judge_config
+from evaluation_kit.dataset import eval_bridge, fscd, lvis, odinw
+from evaluation_kit.utils.judge_utils import load_judge_config
 
 
 @pytest.fixture

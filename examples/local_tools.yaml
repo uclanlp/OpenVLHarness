@@ -1,0 +1,40 @@
+# Zoom and coding with a hosted GPT model: no GPU tool workers, Serper or cloud
+# storage. Needs MODEL_BASE_URL, MODEL_API_KEY and TOOL_SERVER_URL; see the README.
+agent_name: MainAgent
+agent_config_version: local_tools_v1
+agent:
+  model_service: orchestrator
+  max_iterations: 15
+memory:
+  modules: [{name: image}, {name: tool_context}, {name: url}]
+  emit_policy: always
+capabilities:
+  registries: [paper]
+  tools:
+    zoom:
+      backend: zoom_in_image_by_bbox
+    coding:
+      generator: python_coding_agent
+      executor: python_executor_local
+services:
+  client:
+    base_url: ${TOOL_SERVER_URL}
+  server:
+    host: 127.0.0.1
+    port: 8101
+    registration: configured_only
+  tools:
+    zoom_in_image_by_bbox: {}
+    python_coding_agent:
+      model_service: orchestrator
+      context: fresh
+    python_executor_local:
+      transport: local
+      timeout_seconds: 30
+  models:
+    orchestrator:
+      alias: gpt-6-luna
+      base: ${MODEL_BASE_URL}
+      key: ${MODEL_API_KEY}
+      max_tokens: 16000
+      reasoning_effort: medium

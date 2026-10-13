@@ -1,22 +1,16 @@
-import importlib.util
-import pytest
-
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
 import copy
 import json
 import re
 from importlib.resources import files
-from pathlib import Path
 
+import pytest
 import yaml
 
-from mini_vlm_toolkit.utils import run_identity
+from evaluation_kit.utils import run_identity
 from openvlharness.services import models
 from openvlharness.bootstrap import load_agent_config
 
-from mini_vlm_toolkit.utils.run_identity import (  # noqa: E402
+from evaluation_kit.utils.run_identity import (
     build_agent_match_hash,
     build_run_id,
     build_run_manifest,
@@ -51,7 +45,7 @@ def _manifest(config):
     return build_run_manifest(
         run_id="agent_v1__judge_v1", agent_config_version="v1", judge_config_version="v1",
         agent_config=config, judge_config=_judge_cfg(),
-        config_path="configs/agent/qwen3_paper.yaml", judge_config_path="configs/judge.yaml",
+        config_path="configs/agent/qwen3_8b_paper.yaml", judge_config_path="configs/judge.yaml",
     )
 
 
@@ -190,7 +184,7 @@ def test_manifest_compat_allows_judge_non_model_changes():
         judge_config_version="v1",
         agent_config=agent_config,
         judge_config=judge_v1,
-        config_path="configs/agent/qwen3_paper.yaml",
+        config_path="configs/agent/qwen3_8b_paper.yaml",
         judge_config_path="configs/judge.yaml",
     )
     expected = build_run_manifest(
@@ -199,7 +193,7 @@ def test_manifest_compat_allows_judge_non_model_changes():
         judge_config_version="v1",
         agent_config=agent_config,
         judge_config=judge_v2,
-        config_path="configs/agent/qwen3_paper.yaml",
+        config_path="configs/agent/qwen3_8b_paper.yaml",
         judge_config_path="configs/judge.yaml",
     )
 
@@ -214,7 +208,7 @@ def test_manifest_compat_rejects_judge_model_change():
         judge_config_version="v1",
         agent_config=agent_config,
         judge_config=_judge_cfg(model_name="Qwen/Qwen3-VL-8B-Instruct"),
-        config_path="configs/agent/qwen3_paper.yaml",
+        config_path="configs/agent/qwen3_8b_paper.yaml",
         judge_config_path="configs/judge.yaml",
     )
     expected = build_run_manifest(
@@ -223,7 +217,7 @@ def test_manifest_compat_rejects_judge_model_change():
         judge_config_version="v1",
         agent_config=agent_config,
         judge_config=_judge_cfg(model_name="Qwen/Qwen2.5-VL-7B-Instruct"),
-        config_path="configs/agent/qwen3_paper.yaml",
+        config_path="configs/agent/qwen3_8b_paper.yaml",
         judge_config_path="configs/judge.yaml",
     )
 

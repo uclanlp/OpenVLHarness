@@ -1,0 +1,8 @@
+include THIRD_PARTY_LICENSES.md CITATION.cff run_benchmark.py
+graft LICENSES
+graft configs
+graft docs
+graft examples
+graft tests
+graft validation
+global-exclude __pycache__ *.py[cod]

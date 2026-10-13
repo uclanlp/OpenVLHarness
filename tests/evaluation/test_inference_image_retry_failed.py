@@ -1,21 +1,12 @@
-import importlib.util
-import pytest
-
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
 import contextlib
 import os
 from pathlib import Path
 import tempfile
 
 import pandas as pd
+import pytest
 
-from mini_vlm_toolkit import inference_image
-from mini_vlm_toolkit.utils import file_db
+from evaluation_kit import runner
 
 pytestmark = pytest.mark.usefixtures("synchronous_evaluation")
 
@@ -61,19 +52,19 @@ class _Model:
 def _write_final_result_file(work_dir):
     dataset_dir = work_dir / "DummySet"
     dataset_dir.mkdir()
-    result_file = inference_image.get_pred_file_path(
+    result_file = runner.get_pred_file_path(
         str(dataset_dir),
         "Model",
         "DummySet",
         use_env_format=True,
     )
-    inference_image.dump(
+    runner.dump(
         pd.DataFrame(
             {
                 "index": [1, 2],
                 "prediction": [
                     "ok",
-                    inference_image.FAIL_MSG,
+                    runner.FAIL_MSG,
                 ],
             }
         ),
@@ -87,7 +78,7 @@ def test_final_result_file_is_skipped_by_default():
         work_dir = Path(tmpdir)
         dataset_dir, _result_file = _write_final_result_file(work_dir)
 
-        inference_image.infer_image_job(
+        runner.infer_image_job(
             _Model(),
             str(work_dir),
             "Model",
@@ -103,7 +94,7 @@ def test_ignore_failed_retries_failed_rows_from_final_result_file():
         work_dir = Path(tmpdir)
         _dataset_dir, result_file = _write_final_result_file(work_dir)
 
-        inference_image.infer_image_job(
+        runner.infer_image_job(
             _Model(),
             str(work_dir),
             "Model",
@@ -111,7 +102,7 @@ def test_ignore_failed_retries_failed_rows_from_final_result_file():
             ignore_failed=True,
         )
 
-        refreshed = inference_image.load(str(result_file))
+        refreshed = runner.load(str(result_file))
         predictions = {
             idx: pred
             for idx, pred in zip(refreshed["index"], refreshed["prediction"])

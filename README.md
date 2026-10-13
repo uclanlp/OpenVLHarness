@@ -1,31 +1,69 @@
-# OpenVLHarness
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo.svg" alt="OpenVLHarness logo" height="44" align="top">
+  </picture>
+  OpenVLHarness
+</h1>
 
-**Real-World Visual Agentic Tool-Use with Multimodal Memory**
+<h3 align="center">Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
-[Project page](https://openvlharness.github.io/) ·
-[Interactive demo](https://openvlharness.github.io/#playground) ·
-[Results](https://openvlharness.github.io/#results) ·
-[Evaluation datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets) ·
-[Citation](#citation)
+<p align="center">
+  <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
+  <a href="https://openvlharness.github.io/#playground"><img src="https://img.shields.io/badge/Demo-Interactive-8a2f6f.svg" alt="Interactive demo"></a>
+  <a href="https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Datasets-Evaluation-f1b33c.svg" alt="Evaluation datasets on Hugging Face"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776ab.svg" alt="Python 3.10+">
+</p>
 
-Yu Zhou\*, Cheng-Fu Yang\*, Rui Sun\*, Di Wu\*, Sibo Peng, Mingyang Zhang,
-Zhen Yang, Ruiyi Zhang, Nanyun Peng, Zhe Gan, Kai-Wei Chang
+<p align="center">
+  <a href="https://openvlharness.github.io/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/teaser-dark.png">
+      <img src="assets/teaser.png" alt="Average score over 23 benchmarks for six backbones with and without OpenVLHarness, and GPT-6 Luna performance versus cost across reasoning efforts" width="100%">
+    </picture>
+  </a>
+</p>
 
-University of California, Los Angeles · Apple · \*Equal contribution
+<p align="center"><em>
+OpenVLHarness is a training-free harness that lets multimodal models combine
+perception, web search and Python computation, and keeps every piece of tool
+evidence readable and reusable across reasoning steps.
+</em></p>
 
-OpenVLHarness is a **training-free harness for visual language models** that
-combines perception, web search, and Python computation to answer questions about
-images. It makes tool evidence readable by the model and reusable across reasoning
-steps, without updating the backbone's weights.
+<a id="highlights"></a>
+## ✨ Highlights
 
-The paper evaluates six backbones on **23 benchmarks** spanning counting and
-grounding, multimodal search, general visual question answering, and spatial
-understanding. Average gains over the corresponding base models range from
-**9.2 to 12.6 percentage points**. Explore the
-[results and recorded trajectories](https://openvlharness.github.io/#method)
-on the project page.
+- **Training-free.** Works with the backbone's existing weights through native
+  tool calling; nothing is fine-tuned.
+- **Nine capabilities.** Visual grounding, OCR, depth, camera trajectory, zoom,
+  text search, image search, webpage visits and a Python coding agent, each behind a
+  task-level interface that returns evidence the model can read.
+- **Multimodal memory.** Images, boxes, masks, depth maps and web references stay
+  addressable for the whole question, so later tools and code can build on them.
+- **Consistent gains.** Across 23 benchmarks in four domains, six backbones gain
+  **9.2 to 12.6 points** on average over the same models without tools.
+- **Any registered model.** Presets for six of the paper's seven backbones, plus
+  every Qwen3-VL Instruct size and OpenAI's GPT-5 to GPT-6.1 models in the
+  [model registry](docs/models.md#other-registered-models).
 
-## How it works
+<a id="table-of-contents"></a>
+## 🗂️ Table of Contents
+
+- [How it works](#how-it-works)
+- [Results](#results)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Evaluation](#evaluation)
+- [Configure and extend](#configure-and-extend)
+- [Repository layout](#repository-layout)
+- [Documentation and tests](#documentation-and-tests)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
+- [Citation](#citation)
+
+<a id="how-it-works"></a>
+## 🔍 How it works
 
 The model chooses tools, inspects their evidence, and continues until it can answer.
 Three components let it combine evidence across steps:
@@ -53,19 +91,37 @@ the answer on a webpage.
 | Webpage Visit | Extract evidence relevant to a goal from webpages | Serper scrape + Qwen |
 | Python Coding Agent | Generate and execute computations over stored tool results | Orchestrator backbone + local Python |
 
-Both paper presets use **Qwen3-VL-8B-Instruct for multimodal search summarization
-and webpage extraction**, independently of the main model. The coding agent uses
-the same backbone as the main model.
+Every preset uses **Qwen3-VL-8B-Instruct for multimodal search summarization and
+webpage extraction**, independently of the main model. The coding agent uses the
+same backbone as the main model.
 
-## Quick start
+<a id="results"></a>
+## 📈 Results
 
-### 1. Install the harness
+Average score over the paper's 23 benchmarks (counting and grounding, multimodal
+search, general VQA and hallucination, and spatial understanding):
+
+| Backbone | Base | + OpenVLHarness | Gain |
+| --- | ---: | ---: | ---: |
+| Qwen3-VL-8B-Instruct | 35.99 | **47.14** | +11.15 |
+| Qwen3-VL-32B-Instruct | 40.10 | **52.51** | +12.41 |
+| Kimi K3 | 57.95 | **67.15** | +9.20 |
+| GPT-5 | 45.74 | **57.15** | +11.41 |
+| GPT-6 Luna (medium effort) | 43.18 | **55.76** | +12.58 |
+| GPT-6 Sol (medium effort) | 54.26 | **65.48** | +11.22 |
+
+Qwen3-VL results are the mean of three runs. Per-benchmark results, comparisons
+with other harnesses, and recorded trajectories are on the
+[project page](https://openvlharness.github.io/#results).
+
+<a id="installation"></a>
+## 🛠️ Installation
 
 Use Python **3.10 or newer**. From a source checkout:
 
 ```bash
-git clone --branch opensource https://github.com/tool-vision/mini-vlm-toolkit.git
-cd mini-vlm-toolkit
+git clone https://github.com/uclanlp/OpenVLHarness.git
+cd OpenVLHarness
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[qwen,server]'
@@ -74,30 +130,48 @@ python -m pip install -e '.[qwen,server]'
 This installs the agent, Qwen tokenizer support, and the tool router. The model
 servers have separate environments and dependencies. For a client connecting to
 an existing router, `pip install -e .` is sufficient; add the `qwen` extra when
-using Qwen for local context counting or raw trace export.
+using Qwen for local context counting or raw trace export. Add the `eval` extra to
+run benchmarks (see [Evaluation](#evaluation)).
 
-### 2. Prepare models and tools
+<a id="quick-start"></a>
+## 🚀 Quick start
 
-The release includes two tested agent presets:
+### 1. Pick a preset
+
+The release includes agent presets for six of the paper's seven backbones:
 
 | Main model | Configuration | API |
 | --- | --- | --- |
-| Qwen3-VL-8B-Instruct | [qwen3_paper.yaml](configs/agent/qwen3_paper.yaml) | Chat Completions |
-| GPT-6-Luna | [gpt6_luna_paper.yaml](configs/agent/gpt6_luna_paper.yaml) | Responses |
+| Qwen3-VL-8B-Instruct | [qwen3_8b_paper.yaml](configs/agent/qwen3_8b_paper.yaml) | Chat Completions |
+| Qwen3-VL-32B-Instruct | [qwen3_32b_paper.yaml](configs/agent/qwen3_32b_paper.yaml) | Chat Completions |
+| GPT-5 | [gpt5_paper.yaml](configs/agent/gpt5_paper.yaml) | Responses |
+| GPT-6 Luna | [gpt6_luna_paper.yaml](configs/agent/gpt6_luna_paper.yaml) | Responses |
+| GPT-6 Sol | [gpt6_sol_paper.yaml](configs/agent/gpt6_sol_paper.yaml) | Responses |
+| Kimi K3 | [kimi_k3_paper.yaml](configs/agent/kimi_k3_paper.yaml) | Chat Completions |
+
+The paper's Qwen2.5-VL-7B-Instruct results, compared with training-based harnesses
+in its appendix, used a separate configuration that this release does not include.
+
+The registry also covers every Qwen3-VL Instruct size (2B to 235B-A22B, with FP8
+builds) and OpenAI's GPT-5 to GPT-6.1 models; to use one, copy its family's
+preset and change one line ([other registered models](docs/models.md#other-registered-models)).
+
+### 2. Prepare models and tools
 
 To run all nine capabilities, prepare these services before starting the agent:
 
-- **Models:** serve Qwen locally or connect to a GPT endpoint, following the
-  [model setup guide](docs/models.md). Both presets also need a Qwen endpoint for
-  search tools; the Qwen main and auxiliary roles can share one server. The guide
-  includes the tested model revision, serving versions, and GPU configuration.
+- **Models:** serve Qwen locally or connect to a GPT or Kimi endpoint, following
+  the [model setup guide](docs/models.md). Every preset also needs a
+  Qwen3-VL-8B-Instruct endpoint for search tools; the 8B preset can share it with
+  the main model, while the 32B preset needs a second server for it. The
+  guide includes the tested model revision, serving versions, and GPU configuration.
 - **Perception:** launch SAM 3, PaddleOCR-VL, and Depth Anything 3 using the
-  [tool service guide](src/openvlharness/services/tools/README.md). These run as
+  [tool service guide](openvlharness/services/tools/README.md). These run as
   separate GPU services behind the router.
 - **Search:** configure a Serper key using `SERPER_API_KEY` or
   `SERPER_API_KEY_FILE`. Reverse image search additionally needs a GCS or S3
   bucket for image uploads. Follow the
-  [search and storage setup](src/openvlharness/services/tools/serper_text_search/README.md).
+  [search and storage setup](openvlharness/services/tools/serper_text_search/README.md).
 
 For the local Qwen setup, set these variables in both the router and agent
 terminals. Adjust the addresses to match your deployment:
@@ -113,17 +187,17 @@ export OCR_SERVER_URL=http://127.0.0.1:8085
 export DEPTH_ESTIMATION_SERVER_URL=http://127.0.0.1:8087
 ```
 
-The `empty` keys above are for unauthenticated local endpoints. For GPT, select
-`configs/agent/gpt6_luna_paper.yaml` in the commands and Python example below,
-set `MODEL_BASE_URL` and `MODEL_API_KEY` for your Responses endpoint, and keep the
-auxiliary connection pointing to Qwen. See the [GPT connection example](docs/models.md#connect-the-presets).
+The `empty` keys above are for unauthenticated local endpoints. For GPT or Kimi,
+select its preset in the commands and Python example below, set `MODEL_BASE_URL`
+and `MODEL_API_KEY` for that provider, and keep the auxiliary connection pointing
+to Qwen. See the [connection examples](docs/models.md#connect-the-presets).
 
 ### 3. Run a question
 
 Start the router with the same configuration that the agent will use:
 
 ```bash
-python -m openvlharness.services.server --config configs/agent/qwen3_paper.yaml
+python -m openvlharness.services.server --config configs/agent/qwen3_8b_paper.yaml
 ```
 
 In another terminal with the environment configured, check the router:
@@ -133,12 +207,16 @@ curl --fail http://127.0.0.1:8101/health
 curl --fail http://127.0.0.1:8101/backend-status
 ```
 
+These checks only show that the router is up, how many tools it registered, and its
+concurrency limits. Unreachable GPU workers, missing Serper keys and missing bucket
+credentials surface on the first call to the affected tool.
+
 Then ask a question from Python:
 
 ```python
 from openvlharness.bootstrap import build_agent
 
-agent = build_agent("configs/agent/qwen3_paper.yaml")
+agent = build_agent("configs/agent/qwen3_8b_paper.yaml")
 result = agent.generate([
     {"type": "image", "value": "/path/to/image.jpg"},
     {"type": "text", "value": "How many bottles are visible?"},
@@ -151,33 +229,46 @@ Replace the image path with your own image. Inputs can include multiple images;
 image values can be local paths, HTTP(S) URLs, or data URLs. The returned trajectory
 records the model's turns, tool calls, and evidence for inspection.
 
-The coding tool executes generated Python locally in the agent process. Run it in
-an isolated environment appropriate for your data; its execution timeout is not a
-security sandbox. See [execution details](src/openvlharness/services/tools/python_coding_agent/README.md).
+If `result["prediction"]` is `Error: Unable to get response from the server.`, the
+agent produced no answer. When a model request failed, the cause is in
+`result["extra_records"]["trajectory"]["error"]`; without that key, the model ended
+without a final answer. `Error: Reached the iteration limit without a final answer.`
+means the question used all `agent.max_iterations` iterations; the trajectory's `error`
+records the limit.
 
-## Evaluate on benchmarks
+> [!WARNING]
+> The coding tool runs generated Python in a subprocess on the agent host, with your
+> user's permissions and with network and filesystem access. Its execution timeout
+> is not a sandbox; run the agent in an isolated environment appropriate for your
+> data. See [SECURITY.md](SECURITY.md) and the
+> [coding tool README](openvlharness/services/tools/python_coding_agent/README.md).
+
+<a id="evaluation"></a>
+## 📊 Evaluation
 
 ### Run a small evaluation
 
-Install the benchmark dependencies in a separate evaluation environment, keeping
-the model and tool services running:
+Install the evaluation layer (benchmark loaders, judges and the runner) with the
+`eval` extra, keeping the model and tool services running:
 
 ```bash
-python -m venv .venv-eval
-source .venv-eval/bin/activate
-python -m pip install -r requirements.txt
-python -m pip install -e '.[qwen]'
+python -m pip install -e '.[eval,qwen]'
 ```
 
-Use the same connection variables as above. Set `LMUData` and the work directory
-to a fast local disk when available. This example evaluates 12 reproducibly
+This installs the dependencies of the `openvlharness-eval` command;
+`python run_benchmark.py` at the repository root is the same program. The
+evaluation code lives in [evaluation_kit](evaluation_kit) and needs no GPU packages.
+
+Use the same connection variables as above. `LMUData` is required: benchmark data
+downloads there, and the evaluator raises an error if it is unset. Put it and the
+work directory on a fast local disk. This example evaluates 12 reproducibly
 sampled questions **per dataset** from the FSC147 and ODinW validation splits,
 using direct counting and box metrics without an LLM judge:
 
 ```bash
 export LMUData=/path/to/local/datasets
-python run_benchmark.py \
-  --config configs/agent/qwen3_paper.yaml \
+openvlharness-eval \
+  --config configs/agent/qwen3_8b_paper.yaml \
   --judge-config configs/judge_no_judge.yaml \
   --data FSC147_val ODinW13_bbox_val_qwen3 \
   --num-examples 12 --shuffle --seed 42 \
@@ -193,29 +284,39 @@ installation rather than reproducing those scores.
 ### Datasets and scoring
 
 Dataset names passed to `--data` select loaders in
-[mini_vlm_toolkit/dataset](mini_vlm_toolkit/dataset). Examples across the four
-domains are:
+[evaluation_kit/dataset](evaluation_kit/dataset). The paper's 23 benchmarks
+(Table 1) and the five additional search benchmarks of its appendix are:
 
-| Domain | Example dataset names |
+| Domain | Dataset names |
 | --- | --- |
 | Counting and grounding | `FSC147_val`, `CountQA`, `PixmoCount_val`, `FSCD_147_bbox_val`, `FSCD_LVIS_bbox_val`, `ODinW13_bbox_val_qwen3` |
-| Multimodal search and deep research | `MMSearch`, `MMSearchPlus`, `RealXBench`, `BrowseCompVL` |
-| General VQA and hallucination | `RealWorldQA`, `HallusionBench`, `VStarBench`, `FREAK_MCQ`, `FREAK_VQA` |
+| Multimodal search and deep research | `MMSearch`, `MMSearchPlus`, `RealXBench`, `FVQA_test`, `hle`, `BrowseCompVL` |
+| General VQA and hallucination | `RealWorldQA`, `SimpleVQA`, `HallusionBench`, `FREAK_VQA`, `FREAK_MCQ`, `VStarBench` |
 | Spatial understanding | `MMSIBench_wo_circular`, `ERQA`, `EmbSpatialBench`, `SparBench_tiny`, `MindCubeBench_tiny_raw_qa` |
+| Extended search (appendix) | `MMBrowseComp`, `VDRBench`, `VisBrowseBench`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` |
 
-Prepared counting, grounding, VQA, and spatial splits are available in
-[OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
-and download into `LMUData` on first use. Other loaders obtain data from their
-original sources. ODinW also downloads evaluation annotations into `LMUData/GLIP`
+Every dataset above except `PixmoCount_val` and `CountQA` downloads, with its images,
+from [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)
+into `LMUData` on first use; the loaders build those two from their original
+sources. `PixmoCount_val` is built from
+[allenai/pixmo-count](https://huggingface.co/datasets/allenai/pixmo-count), with
+images fetched from their original URLs; images that can no longer be fetched are
+left out, so a fresh build can contain fewer than the 534 images the paper evaluated.
+`CountQA` is built from
+[Jayant-Sravan/CountQA](https://huggingface.co/datasets/Jayant-Sravan/CountQA) on
+the Hugging Face Hub. ODinW also downloads evaluation annotations into `LMUData/GLIP`
 unless `GLIP_ROOT` is set. The
-[preparation scripts](mini_vlm_toolkit/dataset/scripts) document how the released
+[preparation scripts](evaluation_kit/dataset/scripts) document how the released
 splits were built.
 
 For benchmarks requiring an LLM judge or answer extractor, start from
 [configs/judge.yaml](configs/judge.yaml) and configure the judge model, endpoint,
-and key. The paper uses GPT-4o for search and deep-research judging and
-Qwen3-VL-8B-Instruct for other LLM-judged tasks and answer extraction. The shipped
-judge configuration points to Qwen; use the appropriate judge for each benchmark.
+and key. `api_base` is the full chat-completions URL, for example
+`https://api.openai.com/v1/chat/completions`. For an `api.openai.com` judge you can
+omit `key` and export `OPENAI_API_KEY` instead. The paper uses GPT-4o for search and
+deep-research judging and Qwen3-VL-8B-Instruct for other LLM-judged tasks and
+answer extraction. The shipped judge configuration points to Qwen; use the
+appropriate judge for each benchmark.
 
 <details>
 <summary>Grounding confidence scores</summary>
@@ -239,26 +340,27 @@ For image/text benchmarks, the main artifacts are:
 | --- | --- |
 | `<model>.xlsx` | Predictions; set `PRED_FORMAT=tsv` or `PRED_FORMAT=json` to change the format |
 | Dataset-specific metric files | Scores and diagnostics written by the evaluator |
-| `input_snapshot.json` | Inputs selected for this dataset run |
 | `full_trajectories/<sample_id>.json` | Agent messages, tool results and final answer |
 | `full_trajectories/images/` | Copied trajectory images; `--save-images base64` embeds images instead |
 | `tool_detections/<sample_id>.json` | Detection sidecars for samples with grounding results |
 | `htmls/<sample_id>.html` | Browsable tool evidence when `--save-html all` is supplied |
 | `<model>_incremental.jsonl` | Streaming results when `--incremental-json` is supplied |
 
-The video runner additionally writes `trajectories.jsonl`. Prediction filenames
-use the model ID's final component, such as `Qwen3-VL-8B-Instruct`.
+Prediction filenames use the model ID's final component, such as
+`Qwen3-VL-8B-Instruct`.
 
 The parent run directory contains `run_manifest.json`,
 `agent_config.redacted.yaml`, `judge_config.redacted.yaml`, and
 `tool_env_snapshot.json`, recording the effective configuration, resolved model
 profiles and service metadata. Add `--resume` to continue a compatible partial
-run; changes to the effective configuration require a new run.
+run; changes to the effective configuration require a new run. Rows that failed
+because a service was unreachable are scored as incorrect; once the service is
+back, rerun with `--run-dir <run-dir> --ignore-failed` to redo only those rows.
 
 To evaluate saved predictions, select the run directly:
 
 ```bash
-python run_benchmark.py --mode eval --run-dir "$RUN_DIR" --data FSC147_val
+openvlharness-eval --mode eval --run-dir "$RUN_DIR" --data FSC147_val
 ```
 
 Evaluation reads the saved model identity, prediction format and judge configuration;
@@ -268,13 +370,29 @@ Inference resumes still validate the effective configuration and resolved model
 profiles. Without `--run-dir`, evaluation discovers the latest complete saved run
 under `--work-dir`; use `--run-dir` when several model/agent identities are present.
 
-For **Qwen-only token-level export**, add `--save-raw-trace`. This writes per-sample
+For **Qwen3-VL-8B-only token-level export**, add `--save-raw-trace`. This writes per-sample
 JSON and images under `raw_traces/`, with explicit error records for export
 failures. It requires a matching tokenizer and a server that returns token IDs;
 see [raw trace export](docs/models.md#raw-trace-export-qwen-only). Ordinary
-trajectory JSON and HTML reports work with both presets.
+trajectory JSON and HTML reports work with every preset.
 
-## Configure and extend
+Where files go:
+
+- Run outputs go under `--work-dir` (default `./outputs`).
+- Benchmark TSVs and images go in `$LMUData`.
+- Image archives and ODinW annotations are downloaded into the Hugging Face cache
+  (`HF_HOME`, default `~/.cache/huggingface`) and then extracted into `$LMUData`,
+  so they are stored twice: about 3.6 GB of archives for the datasets listed above.
+  The CountQA and PixmoCount sources are cached there as well.
+- ODinW annotations go in `$LMUData/GLIP` unless `GLIP_ROOT` is set.
+- `openvlharness-eval` reads `./.env` if present, without overriding variables that
+  are already set. The router and the Python API do not read it.
+- For inference, the default `--config` and `--judge-config` paths
+  (`configs/agent/qwen3_8b_paper.yaml` and `configs/judge.yaml`) are relative, so
+  run from the repository root or pass both.
+
+<a id="configure-and-extend"></a>
+## 🧩 Configure and extend
 
 Each agent YAML separates `agent` policy, `memory`, `capabilities`, and `services`.
 Start from a copy of a paper preset and select the capabilities your deployment
@@ -296,12 +414,12 @@ GPU workers can run on another machine reachable from the router. The main Qwen
 model and the auxiliary Qwen summarizer also need model serving, separately from
 these perception workers; a hosted main model still needs auxiliary Qwen when
 the search capabilities are enabled. See the [model](docs/models.md) and
-[tool deployment](src/openvlharness/services/tools/README.md) guides.
+[tool deployment](openvlharness/services/tools/README.md) guides.
 
 Only reverse image search needs the upload bucket. Text search, including its
 image-search mode, and webpage visits do not. Configure `SERPER_API_KEY` or
 `SERPER_API_KEY_FILE` in the router environment, and follow the
-[S3/GCS credential instructions](src/openvlharness/services/tools/serper_text_search/README.md#credentials-and-reverse-image-upload)
+[S3/GCS credential instructions](openvlharness/services/tools/serper_text_search/README.md#credentials-and-reverse-image-upload)
 when enabling `image_search`.
 
 ### Disable capabilities you do not need
@@ -317,17 +435,17 @@ when enabling `image_search`.
    every configured model is validated, even if its capability is disabled.
    Removing unused connections lets you leave their environment variables unset.
 3. Restart the router with the edited file and pass that same file to
-   `build_agent(...)` or `run_benchmark.py --config ...`. Check `/tools` and
+   `build_agent(...)` or `openvlharness-eval --config ...`. Check `/tools` and
    `/llm-schema` to confirm the selected tool set. Disabled capabilities are omitted
    from the model's tool schemas and their backend implementations are not loaded.
 
 <details>
 <summary>Example: zoom and coding with a hosted GPT model, without GPU tool workers, Serper, or cloud storage</summary>
 
-Save this complete configuration as `configs/agent/local_tools.yaml`. It needs
-only `MODEL_BASE_URL`, `MODEL_API_KEY`, and `TOOL_SERVER_URL` from the quick start;
-point the model connection to your GPT Responses endpoint. Code generation still
-calls that model endpoint.
+This configuration ships as [examples/local_tools.yaml](examples/local_tools.yaml).
+It needs only `MODEL_BASE_URL`, `MODEL_API_KEY`, and `TOOL_SERVER_URL` from the
+quick start; point the model connection to your GPT Responses endpoint. Code
+generation still calls that model endpoint.
 
 ```yaml
 agent_name: MainAgent
@@ -371,11 +489,20 @@ services:
 ```
 
 Start it with
-`python -m openvlharness.services.server --config configs/agent/local_tools.yaml`,
-then use `build_agent("configs/agent/local_tools.yaml")`. Keep the configured
+`python -m openvlharness.services.server --config examples/local_tools.yaml`,
+then use `build_agent("examples/local_tools.yaml")`. Keep the configured
 router port aligned with `TOOL_SERVER_URL`.
 
 </details>
+
+### Use another model
+
+Registered models are listed in the [model guide](docs/models.md#other-registered-models):
+copy the preset of the same family and change the orchestrator's `alias`. To add a
+model outside those families, register its served ID, API protocol, prompt, and
+supported options in [model_registry.yaml](openvlharness/services/model_registry.yaml).
+Auxiliary models can also use a registered compatible profile; multimodal Qwen
+remains the official search default.
 
 ### Connect your own service
 
@@ -393,13 +520,13 @@ services:
 
 Use the service base URL; the backend wrapper adds the request route. The service
 must accept the wrapper's request format and return the expected result fields.
-The optional [GroundingDINO backend](src/openvlharness/services/tools/grounding_dino/README.md)
+The optional [GroundingDINO backend](openvlharness/services/tools/grounding_dino/README.md)
 shows how to select a different implementation of the same grounding capability.
 
 To integrate a service with a different API, add a wrapper under
-`src/openvlharness/services/tools/<backend>/tool.py`; the
-[OCR wrapper](src/openvlharness/services/tools/ocr/tool.py) is an HTTP example and
-the [zoom backend](src/openvlharness/services/tools/zoom_in_image_by_bbox/tool.py)
+`openvlharness/services/tools/<backend>/tool.py`; the
+[OCR wrapper](openvlharness/services/tools/ocr/tool.py) is an HTTP example and
+the [zoom backend](openvlharness/services/tools/zoom_in_image_by_bbox/tool.py)
 is a small local example. Implement the backend's `BaseTool.execute` method,
 translate its response to the capability's expected fields, and register the
 backend as described below. Endpoints and credentials belong in deployment
@@ -410,27 +537,27 @@ configuration or the service environment; public tool arguments describe the tas
 New capability names and backends require source registration before they can be
 selected in YAML. The relevant files are:
 
-1. **Capability interface:** create `src/openvlharness/capabilities/<name>.py`,
-   following [zoom.py](src/openvlharness/capabilities/zoom.py). Define the public
+1. **Capability interface:** create `openvlharness/capabilities/<name>.py`,
+   following [zoom.py](openvlharness/capabilities/zoom.py). Define the public
    function schema, a typed output contract, and a `Capability` subclass of
-   [BaseCapability](src/openvlharness/capabilities/_base.py). Set `name`, `schema`,
+   [BaseCapability](openvlharness/capabilities/_base.py). Set `name`, `schema`,
    and `backends` (backend key to concrete tool class name). Implement
    `normalize_result` and `process_output` for canonical results and model-readable
    evidence. Use `translate_args`, `validate_result`, and `store_result` as needed
    to adapt arguments, validate results before registration, and retain numerical
    data for later tools. Image arguments such as `image_id` resolve through memory.
 2. **Backend implementation:** add a package with `__init__.py` and `tool.py` under
-   `src/openvlharness/services/tools/<backend>/`. Its tool class must match the
+   `openvlharness/services/tools/<backend>/`. Its tool class must match the
    capability's `backends` mapping. Implement
-   [BaseTool](src/openvlharness/services/tools/base.py)'s `execute` method and return
+   [BaseTool](openvlharness/services/tools/base.py)'s `execute` method and return
    result data; the router adds the success/error envelope and tool-call ID.
 3. **Configuration registration:** update `PAPER_CAPABILITIES`, `PAPER_BACKENDS`,
    and the backend/service-option validation in
-   [bootstrap.py](src/openvlharness/bootstrap.py). For another implementation of
+   [bootstrap.py](openvlharness/bootstrap.py). For another implementation of
    an existing capability, extend its `backends` mapping and accepted backend
    selections. Add HTTP workers to `RAW_BACKENDS` when they need `server_url`
    injected from their service configuration.
-4. **Router wiring:** [server.py](src/openvlharness/services/server.py) imports the
+4. **Router wiring:** [server.py](openvlharness/services/server.py) imports the
    configured backend class. Extend its construction logic if your tool needs
    injected model clients or other dependencies. For resource-limited services,
    assign a `BACKEND_GROUPS` entry and a `DEFAULT_LIMITS` concurrency limit. Keep
@@ -444,21 +571,42 @@ selected in YAML. The relevant files are:
 
 See [runtime design](docs/runtime.md) for capability, memory, and service contracts.
 
-### Use another model
+<a id="repository-layout"></a>
+## 📁 Repository layout
 
-To add a model, register its served ID, API protocol, prompt, and supported options
-in [model_registry.yaml](src/openvlharness/services/model_registry.yaml). Auxiliary
-models can also use a registered compatible profile; multimodal Qwen remains the
-official search default.
+```text
+openvlharness/          the harness (installed as the openvlharness package)
+  agent/                orchestrator loop over model requests and tool calls
+  capabilities/         the nine capability interfaces above
+  memory/               per-question multimodal memory and Environment Update
+  services/             model profiles, tool client and tool router
+    tools/              tool backends (SAM 3, OCR, depth, search, Python executor, ...)
+  prompts/              system prompts
+  bootstrap.py          builds an agent from a YAML config
+evaluation_kit/         benchmark loaders, judges and the runner (openvlharness-eval)
+configs/                paper agent presets and judge settings
+examples/               example agent configurations
+docs/                   model, runtime and validation notes
+tests/                  harness tests; tests/evaluation/ needs the eval extra
+validation/             fixed perception subset for checking a tool deployment
+assets/                 logo and README figures
+run_benchmark.py        same program as openvlharness-eval
+```
 
-### Further documentation
+The harness never imports `evaluation_kit`; the evaluation layer uses the
+harness the same way any other application would.
+
+<a id="documentation-and-tests"></a>
+## 📚 Documentation and tests
 
 | Guide | Contents |
 | --- | --- |
-| [Model services](docs/models.md) | Qwen serving, GPT connections, per-role settings, raw trace export |
-| [Tool services](src/openvlharness/services/tools/README.md) | GPU workers, router deployment, search credentials, backend guides |
+| [Model services](docs/models.md) | Presets, registered models, Qwen serving, GPT and Kimi connections, per-role settings, raw trace export |
+| [Tool services](openvlharness/services/tools/README.md) | GPU workers, router deployment, search credentials, backend guides |
 | [Runtime design](docs/runtime.md) | Agent loop, configuration, memory, capability interfaces |
+| [Benchmarks and judges](evaluation_kit/dataset/README.md) | Benchmark loaders, metrics, judge configuration, `score_mode` |
 | [Release validation](docs/validation.md) | Regression coverage and live validation evidence |
+| [Security](SECURITY.md) | What runs where, what leaves your machine, reporting vulnerabilities |
 
 To run the package tests:
 
@@ -467,16 +615,34 @@ python -m pip install -e '.[test,server]'
 python -m pytest tests -q
 ```
 
-## License
+The evaluator tests under `tests/evaluation` are collected only when the `eval`
+extra is installed as well.
+
+<a id="acknowledgements"></a>
+## 🙏 Acknowledgements
+
+The benchmark loaders and evaluators build on
+[VLMEvalKit](https://github.com/open-compass/VLMEvalKit). The default tools use
+[SAM 3](https://github.com/facebookresearch/sam3),
+[Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3),
+[PaddleOCR-VL](https://github.com/PaddlePaddle/PaddleOCR) and the
+[Serper](https://serper.dev/) search APIs, and
+[Qwen3-VL](https://github.com/QwenLM/Qwen3-VL) serves as the default backbone and
+search summarizer. We thank their authors for releasing them.
+
+<a id="license"></a>
+## 📄 License
 
 OpenVLHarness is released under the [MIT License](LICENSE). The benchmark
-loaders and evaluators under `mini_vlm_toolkit/` are derived from
-[VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0);
-see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for that notice and for
-the licenses of the models, services and datasets the default tools use, which
-are not covered by the MIT License.
+loaders and evaluators under `evaluation_kit/` are derived from
+[VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0), and
+the SAM 3 visualization helpers in `openvlharness/services/tools/sam3_segment/viz/`
+are under the SAM License. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
+for these notices and for the licenses of the models, services and datasets the
+default tools use, which are not covered by the MIT License.
 
-## Citation
+<a id="citation"></a>
+## 📝 Citation
 
 If you use OpenVLHarness in your research, please cite:
 

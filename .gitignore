@@ -1,6 +1,4 @@
 outputs/
-reference/
-mini_vlm_toolkit/tool_infra/tests/output/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -222,33 +220,8 @@ __marimo__/
 .vscode/
 outputs/
 
-# Tool API keys
-# Retired tool runtime may still contain private local environment/key files.
-/mini_vlm_toolkit/tool_infra/
-mini_vlm_toolkit/tool_infra/src/tools/serpapi_image_search/serpapi_api_key
-mini_vlm_toolkit/tool_infra/.env.latest
-
-# RL integration runtime artifacts
-rl/data/*.parquet
-rl/configs/tool_config.smoke.yaml
-
 # Runtime artifacts
 wandb/
 checkpoints/
 debug_dumps/
 .claude/
-analyze/
-harness-search/runs/
-harness-optimization/
-
-# SFT module: track shared templates and code, ignore per-user files.
-# Configs and the dataset registry ship as `_example` templates; on first
-# run of `bash sft/scripts/run_sft.sh`, the script auto-creates the editable
-# (non-example) counterparts below from those templates. Each user's local
-# copies are gitignored so individual customizations don't conflict with the
-# upstream templates.
-sft/saves/
-sft/configs/sft_lora_qwen3vl_8b.yaml
-sft/configs/sft_full_qwen3vl_8b.yaml
-sft/data/dataset_info.json
-sft/data/

@@ -1,5 +1,4 @@
 """Raw export boundaries with deterministic Qwen-style token replies; no servers."""
-import base64
 import copy
 import json
 import re

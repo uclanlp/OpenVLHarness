@@ -1,17 +1,8 @@
-import importlib.util
-import pytest
-
-if importlib.util.find_spec("mini_vlm_toolkit") is None:
-    pytest.skip("Retained evaluator is available only from the research checkout", allow_module_level=True)
-
-for dependency in ("pandas", "torch", "validators", "openpyxl", "xlsxwriter"):
-    pytest.importorskip(dependency, reason="Retained evaluator dependencies are optional")
-
 import json
 import os
 import tempfile
 
-from mini_vlm_toolkit.utils.reporting_utils import (
+from evaluation_kit.utils.reporting_utils import (
     build_complete_messages_from_trajectory,
     write_full_trajectory_jsons,
 )

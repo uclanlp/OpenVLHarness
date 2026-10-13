@@ -1,0 +1,92 @@
+# Kimi K3 orchestrator through an OpenAI-compatible Chat Completions endpoint.
+# Reasoning tokens count against max_tokens, so the paper runs used 65536.
+# The paper's provider accepted temperature 0.6 / top_p 0.95; Moonshot's own API
+# fixes both (temperature 1.0, top_p 0.95), so remove the two lines if it rejects them.
+# Orchestrator and tool-router HTTP requests retry up to 8 times (9 attempts) on
+# timeouts, connection errors and HTTP 408, 429, 500, 502, 503 and 504.
+# The auxiliary model uses retry: 2.
+agent_name: MainAgent
+agent_config_version: paper_v1
+agent:
+  model_service: orchestrator
+  max_iterations: 15
+  max_context_length: 256000
+  tool_choice: auto
+  paired_sampling_seed: false
+memory:
+  emit_policy: always
+  modules:
+  - name: image
+  - name: tool_context
+  - name: url
+    webpage_env_update_limit: 20
+capabilities:
+  registries:
+  - paper
+  tools:
+    grounding:
+      backend: sam3_segment
+    text_search:
+      backend: serper_text_search
+    image_search:
+      backend: serper_image_search
+    web_visit:
+      backend: serper_webpage_visit
+    ocr:
+      backend: ocr
+    depth:
+      backend: depth_estimation
+    camera_pose:
+      backend: camera_trajectory
+    zoom:
+      backend: zoom_in_image_by_bbox
+    coding:
+      generator: python_coding_agent
+      executor: python_executor_local
+services:
+  client:
+    base_url: ${TOOL_SERVER_URL}
+    timeout_seconds: 600
+    retry: 8
+  server:
+    host: 127.0.0.1
+    port: 8101
+    registration: configured_only
+  tools:
+    sam3_segment:
+      server_url: ${SAM3_SERVER_URL}
+    ocr:
+      server_url: ${OCR_SERVER_URL}
+    # Depth and camera trajectory share one DA3 server.
+    depth_estimation: &da3_server
+      server_url: ${DEPTH_ESTIMATION_SERVER_URL}
+    camera_trajectory: *da3_server
+    serper_text_search:
+      model_service: auxiliary
+    serper_image_search:
+      model_service: auxiliary
+    serper_webpage_visit:
+      model_service: auxiliary
+    zoom_in_image_by_bbox: {}
+    python_coding_agent:
+      model_service: orchestrator
+      context: fresh
+    python_executor_local:
+      transport: local
+      timeout_seconds: 30
+  models:
+    orchestrator:
+      alias: kimi-k3
+      base: ${MODEL_BASE_URL}
+      key: ${MODEL_API_KEY}
+      max_tokens: 65536
+      temperature: 0.6
+      top_p: 0.95
+      timeout: 1800
+      retry: 8
+    auxiliary:
+      alias: qwen3-vl-8b-instruct
+      base: ${AUXILIARY_MODEL_BASE_URL}
+      key: ${AUXILIARY_MODEL_API_KEY}
+      timeout: 600
+      retry: 2

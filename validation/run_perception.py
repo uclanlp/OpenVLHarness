@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def selected_datasets(manifest, data_root):
     """Load the frozen indices and verify source image and question hashes."""
-    from mini_vlm_toolkit.dataset import build_dataset
+    from evaluation_kit.dataset import build_dataset
 
     selected = []
     for name, spec in manifest["datasets"].items():
@@ -34,9 +34,10 @@ def selected_datasets(manifest, data_root):
 def main():
     """Run direct-metric evaluation with a fresh output directory and saved identity."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("perception_samples.json"))
+    parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("perception_samples.json"),
+                        help="Frozen sample selection (default: perception_samples.json next to this script)")
     parser.add_argument("--data-root", type=Path, required=True, help="Prepared LMUData directory")
-    parser.add_argument("--config", default="configs/agent/qwen3_paper.yaml", help="Agent-system YAML for live runs")
+    parser.add_argument("--config", default="configs/agent/qwen3_8b_paper.yaml", help="Agent-system YAML for live runs")
     parser.add_argument("--output-dir", type=Path, help="New run directory; required for live runs")
     parser.add_argument("--check-only", action="store_true", help="Verify inputs without initializing model or tool clients")
     args = parser.parse_args()
@@ -54,9 +55,9 @@ def main():
         parser.error("Use an empty --output-dir; validation never overwrites earlier results")
 
     from openvlharness.bootstrap import build_agent, load_agent_config
-    from mini_vlm_toolkit import infer_image_job
-    from mini_vlm_toolkit.smp import get_pred_file_path
-    from mini_vlm_toolkit.utils.run_identity import build_run_manifest
+    from evaluation_kit import infer_image_job
+    from evaluation_kit.smp import get_pred_file_path
+    from evaluation_kit.utils.run_identity import build_run_manifest
 
     config = load_agent_config(args.config)
     agent = build_agent(config)

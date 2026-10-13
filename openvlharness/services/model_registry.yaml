@@ -1,0 +1,145 @@
+# Exact registered profiles. Provider behavior is explicit, not inferred by prefix.
+# Families share a template through YAML merge keys; every alias still resolves to a
+# complete profile, and its model_id is the exact name sent to the server.
+templates:
+  qwen3_vl_instruct: &qwen3_vl_instruct
+    prompt_bundle: v8_instruct
+    adapter: chat_completions
+    final_answer: answer_tag
+    context_policy: qwen_tokenizer
+    extra_final_request: true
+    continue_empty_answer: true
+    append_final_message: false
+    context_error_fallback: true
+    allowed_options: [max_tokens, temperature, top_p, top_k,
+      repetition_penalty, presence_penalty, return_token_ids]
+  openai_responses: &openai_responses
+    prompt_bundle: openai_v1
+    adapter: responses
+    final_answer: answer_tag_or_text
+    context_policy: provider_enforced
+    extra_final_request: false
+    continue_empty_answer: false
+    append_final_message: true
+    context_error_fallback: false
+    allowed_options: [max_tokens, reasoning_effort, service_tier]
+
+profiles:
+  # Qwen3-VL Instruct models served with vLLM (hermes tool parser). Raw trace export
+  # is registered for the 8B model only.
+  qwen3-vl-8b-instruct:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-8B-Instruct
+    raw_trace_format: qwen_chatml
+    raw_trace_tokenizer_revision: 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b
+  qwen3-vl-8b-instruct-fp8:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-8B-Instruct-FP8
+  qwen3-vl-2b-instruct:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-2B-Instruct
+  qwen3-vl-2b-instruct-fp8:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-2B-Instruct-FP8
+  qwen3-vl-4b-instruct:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-4B-Instruct
+  qwen3-vl-4b-instruct-fp8:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-4B-Instruct-FP8
+  qwen3-vl-32b-instruct:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-32B-Instruct
+  qwen3-vl-32b-instruct-fp8:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-32B-Instruct-FP8
+  qwen3-vl-30b-a3b-instruct:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-30B-A3B-Instruct
+  qwen3-vl-30b-a3b-instruct-fp8:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-30B-A3B-Instruct-FP8
+  qwen3-vl-235b-a22b-instruct:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-235B-A22B-Instruct
+  qwen3-vl-235b-a22b-instruct-fp8:
+    <<: *qwen3_vl_instruct
+    model_id: Qwen/Qwen3-VL-235B-A22B-Instruct-FP8
+
+  # OpenAI reasoning models through the Responses API. gpt-5-2025-08-07 is the paper's
+  # GPT-5 snapshot. gpt-5-pro is not registered: it accepts only high effort, and the
+  # coding generator requests medium.
+  gpt-6-luna:
+    <<: *openai_responses
+    model_id: gpt-6-luna
+  gpt-6-sol:
+    <<: *openai_responses
+    model_id: gpt-6-sol
+  gpt-6-astra:
+    <<: *openai_responses
+    model_id: gpt-6-astra
+  gpt-6.1-sol:
+    <<: *openai_responses
+    model_id: gpt-6.1-sol
+  gpt-5.6-luna:
+    <<: *openai_responses
+    model_id: gpt-5.6-luna
+  gpt-5.6-terra:
+    <<: *openai_responses
+    model_id: gpt-5.6-terra
+  gpt-5.6-sol:
+    <<: *openai_responses
+    model_id: gpt-5.6-sol
+  gpt-5.5:
+    <<: *openai_responses
+    model_id: gpt-5.5
+  gpt-5.5-pro:
+    <<: *openai_responses
+    model_id: gpt-5.5-pro
+  gpt-5.4:
+    <<: *openai_responses
+    model_id: gpt-5.4
+  gpt-5.4-mini:
+    <<: *openai_responses
+    model_id: gpt-5.4-mini
+  gpt-5.4-nano:
+    <<: *openai_responses
+    model_id: gpt-5.4-nano
+  gpt-5.4-pro:
+    <<: *openai_responses
+    model_id: gpt-5.4-pro
+  gpt-5.2:
+    <<: *openai_responses
+    model_id: gpt-5.2
+  gpt-5.2-pro:
+    <<: *openai_responses
+    model_id: gpt-5.2-pro
+  gpt-5.1:
+    <<: *openai_responses
+    model_id: gpt-5.1
+  gpt-5:
+    <<: *openai_responses
+    model_id: gpt-5
+  gpt-5-2025-08-07:
+    <<: *openai_responses
+    model_id: gpt-5-2025-08-07
+  gpt-5-mini:
+    <<: *openai_responses
+    model_id: gpt-5-mini
+  gpt-5-nano:
+    <<: *openai_responses
+    model_id: gpt-5-nano
+
+  # Kimi K3 through an OpenAI-compatible Chat Completions endpoint. Tool calls work
+  # with the openai_v1 prompt bundle; the endpoint rejects vLLM-only options.
+  kimi-k3:
+    model_id: kimi-k3
+    prompt_bundle: openai_v1
+    adapter: chat_completions
+    final_answer: answer_tag
+    context_policy: provider_enforced
+    extra_final_request: true
+    continue_empty_answer: true
+    append_final_message: false
+    context_error_fallback: true
+    allowed_options: [max_tokens, temperature, top_p, reasoning_effort]
