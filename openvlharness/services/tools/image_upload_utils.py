@@ -200,6 +200,12 @@ def upload_image_bytes(
     so repeated calls reuse the cached URL even when other arguments differ.
     """
     ch = _content_hash(image_bytes)
+    provider = (provider or os.getenv("IMAGE_UPLOAD_PROVIDER", "gcs")).lower()
+
+    # The local provider is cheap (a file write) and its public base URL may
+    # change when a tunnel restarts, so it is never served from the URL cache.
+    if provider == "local":
+        return _upload_local(image_bytes, content_type, extension, ch)
 
     # Level 1: in-memory cache (avoids even a HEAD request)
     cached = _get_cached_url(ch)
@@ -207,13 +213,10 @@ def upload_image_bytes(
         return cached
 
     # Level 2: remote check + conditional upload
-    provider = (provider or os.getenv("IMAGE_UPLOAD_PROVIDER", "gcs")).lower()
     if provider == "gcs":
         url = _upload_gcs(image_bytes, content_type, extension, ch)
     elif provider == "s3":
         url = _upload_s3(image_bytes, content_type, extension, ch)
-    elif provider == "local":
-        url = _upload_local(image_bytes, content_type, extension, ch)
     else:
         raise ValueError(f"Unknown IMAGE_UPLOAD_PROVIDER: {provider!r}. Use 'gcs', 's3' or 'local'.")
 

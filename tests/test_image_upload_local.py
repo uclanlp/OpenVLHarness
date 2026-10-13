@@ -38,6 +38,8 @@ class LocalProviderTests(unittest.TestCase):
             self.assertEqual(f.read(), JPEG)
         self.assertEqual(up.upload_image_bytes(JPEG, "image/jpeg", ".jpg"), url)
         self.assertEqual(len(os.listdir(self.tmp.name)), 1)
+        with patch.dict(os.environ, {"IMAGE_UPLOAD_PUBLIC_BASE_URL": "https://moved.example.test"}):
+            self.assertEqual(up.upload_image_bytes(JPEG, "image/jpeg", ".jpg"), f"https://moved.example.test/{name}")
 
     def test_missing_public_base_url_is_an_error(self):
         with patch.dict(os.environ, {"IMAGE_UPLOAD_PUBLIC_BASE_URL": ""}):
