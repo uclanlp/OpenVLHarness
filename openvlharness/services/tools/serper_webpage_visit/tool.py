@@ -12,6 +12,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from openvlharness.services import degradation
 from openvlharness.services.models import AuxiliaryModel
 from openvlharness.services.tools.base import BaseTool, ToolArgumentError
 from openvlharness.services.tools.serper_common import SerperClient, strip_think_tags
@@ -395,7 +396,13 @@ class Webpage_Visit_Tool(BaseTool):
                 temperature=0.0,
                 top_p=1.0,
             )
-        except Exception:
+        except Exception as exc:
+            # EXTRACT_DEGRADED is a stable log token for watchdogs; keep it literal.
+            logger.warning(
+                "EXTRACT_DEGRADED tool=%s reason=%s -- extraction call failed, "
+                "returning raw page content (%s)", TOOL_NAME, type(exc).__name__, exc,
+            )
+            degradation.record("extract", tool=TOOL_NAME, reason=type(exc).__name__)
             return {
                 "evidence": content,
                 "summary": description or "Extraction service unavailable.",
@@ -415,14 +422,40 @@ class Webpage_Visit_Tool(BaseTool):
                 candidate = candidate[4:].strip()
         try:
             result = json.loads(candidate)
-            if isinstance(result, dict):
-                return {
-                    "evidence": result.get("evidence") or content,
-                    "summary": result.get("summary") or description or "",
-                }
         except json.JSONDecodeError:
-            pass
-        return {"evidence": candidate, "summary": candidate}
+            logger.warning(
+                "EXTRACT_DEGRADED tool=%s reason=unparseable_json -- returning the raw extraction reply",
+                TOOL_NAME,
+            )
+            degradation.record("extract", tool=TOOL_NAME, reason="unparseable_json")
+            return {"evidence": candidate, "summary": candidate}
+
+        if isinstance(result, dict):
+            evidence, summary = result.get("evidence"), result.get("summary")
+            # The prompt allows empty strings ("no content available"), so only a
+            # non-string value is a schema violation. Empty fields fall back to the
+            # page content and the description; a non-empty summary is always kept.
+            wrong = [k for k, v in (("evidence", evidence), ("summary", summary))
+                     if v is not None and not isinstance(v, str)]
+            if wrong:
+                logger.warning(
+                    "EXTRACT_DEGRADED tool=%s reason=invalid_schema -- non-string %s",
+                    TOOL_NAME, ", ".join(wrong),
+                )
+                degradation.record("extract", tool=TOOL_NAME, reason="invalid_schema")
+            return {
+                "evidence": evidence if isinstance(evidence, str) and evidence.strip() else content,
+                "summary": summary if isinstance(summary, str) and summary.strip() else (description or ""),
+            }
+
+        # Parseable reply that is not an object: keep the page content so the
+        # agent still gets evidence, and count the fallback.
+        logger.warning(
+            "EXTRACT_DEGRADED tool=%s reason=invalid_schema -- returning raw page content "
+            "(top-level: %s)", TOOL_NAME, type(result).__name__,
+        )
+        degradation.record("extract", tool=TOOL_NAME, reason="invalid_schema")
+        return {"evidence": content, "summary": description or ""}
 
     # ------------------------------------------------------------------
     # Output formatting
