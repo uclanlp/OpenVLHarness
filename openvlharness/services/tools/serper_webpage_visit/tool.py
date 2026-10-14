@@ -422,19 +422,29 @@ class Webpage_Visit_Tool(BaseTool):
                 candidate = candidate[4:].strip()
         try:
             result = json.loads(candidate)
-            if isinstance(result, dict):
-                return {
-                    "evidence": result.get("evidence") or content,
-                    "summary": result.get("summary") or description or "",
-                }
         except json.JSONDecodeError:
-            pass
+            logger.warning(
+                "EXTRACT_DEGRADED tool=%s reason=unparseable_json -- returning the raw extraction reply",
+                TOOL_NAME,
+            )
+            degradation.record("extract", tool=TOOL_NAME, reason="unparseable_json")
+            return {"evidence": candidate, "summary": candidate}
+
+        evidence = result.get("evidence") if isinstance(result, dict) else None
+        summary = result.get("summary") if isinstance(result, dict) else None
+        if isinstance(evidence, str) and evidence.strip():
+            if not (isinstance(summary, str) and summary.strip()):
+                summary = description or ""
+            return {"evidence": evidence, "summary": summary}
+
+        # Parseable reply without usable string fields: keep the page content
+        # so the agent still gets evidence, and count the fallback.
         logger.warning(
-            "EXTRACT_DEGRADED tool=%s reason=unparseable_json -- returning the raw extraction reply",
-            TOOL_NAME,
+            "EXTRACT_DEGRADED tool=%s reason=invalid_schema -- returning raw page content "
+            "(top-level: %s)", TOOL_NAME, type(result).__name__,
         )
-        degradation.record("extract", tool=TOOL_NAME, reason="unparseable_json")
-        return {"evidence": candidate, "summary": candidate}
+        degradation.record("extract", tool=TOOL_NAME, reason="invalid_schema")
+        return {"evidence": content, "summary": description or ""}
 
     # ------------------------------------------------------------------
     # Output formatting

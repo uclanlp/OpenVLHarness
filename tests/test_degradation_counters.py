@@ -61,9 +61,20 @@ class DegradationCounterTests(unittest.TestCase):
         with self.assertLogs(web_tool.logger, level="WARNING"):
             out = web_tool.Webpage_Visit_Tool._parse_extraction_response("not json", "page text", "")
         self.assertEqual(out["evidence"], "not json")
+        parse = web_tool.Webpage_Visit_Tool._parse_extraction_response
+        for reply in ('{"summary": "x"}', '{"evidence": 5, "summary": "x"}', '["a"]', '{"evidence": "  "}'):
+            with self.subTest(reply=reply):
+                with self.assertLogs(web_tool.logger, level="WARNING"):
+                    out = parse(reply, "page text", "desc")
+                self.assertEqual(out, {"evidence": "page text", "summary": "desc"})
+        self.assertEqual(parse('{"evidence": "found", "summary": 7}', "page text", "desc"),
+                         {"evidence": "found", "summary": "desc"})
+        self.assertEqual(parse('{"evidence": "found", "summary": "ok"}', "page text", "desc"),
+                         {"evidence": "found", "summary": "ok"})
         counts = degradation.snapshot()["counts"]
         self.assertEqual(counts["extract:TimeoutError"], 1)
         self.assertEqual(counts["extract:unparseable_json"], 1)
+        self.assertEqual(counts["extract:invalid_schema"], 4)
 
     def test_image_search_counts_fallbacks(self):
         with self.assertLogs(image_tool.logger, level="WARNING"):
