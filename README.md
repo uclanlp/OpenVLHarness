@@ -20,7 +20,7 @@
   <a href="https://openvlharness.github.io/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/teaser-dark.png">
-      <img src="assets/teaser.png" alt="Average score over 23 benchmarks for six backbones with and without OpenVLHarness, and GPT-6 Luna performance versus cost across reasoning efforts" width="100%">
+      <img src="assets/teaser.png" alt="Average score over 22 benchmarks for six backbones with and without OpenVLHarness, and GPT-6 Luna performance versus cost across five reasoning efforts" width="100%">
     </picture>
   </a>
 </p>
@@ -41,8 +41,8 @@ evidence readable and reusable across reasoning steps.
   task-level interface that returns evidence the model can read.
 - **Multimodal memory.** Images, boxes, masks, depth maps and web references stay
   addressable for the whole question, so later tools and code can build on them.
-- **Consistent gains.** Across 23 benchmarks in four domains, six backbones gain
-  **9.2 to 12.6 points** on average over the same models without tools.
+- **Consistent gains.** Across 22 benchmarks in four domains, seven backbones gain
+  **9.7 to 12.6 points** on average over the same models without tools.
 - **Any registered model.** Presets for six of the paper's seven backbones, plus
   every Qwen3-VL Instruct size and OpenAI's GPT-5 to GPT-6.1 models in the
   [model registry](docs/models.md#other-registered-models).
@@ -98,17 +98,18 @@ same backbone as the main model.
 <a id="results"></a>
 ## 📈 Results
 
-Average score over the paper's 23 benchmarks (counting and grounding, multimodal
+Average score over the paper's 22 benchmarks (counting and grounding, multimodal
 search, general VQA and hallucination, and spatial understanding):
 
 | Backbone | Base | + OpenVLHarness | Gain |
 | --- | ---: | ---: | ---: |
-| Qwen3-VL-8B-Instruct | 35.99 | **47.14** | +11.15 |
-| Qwen3-VL-32B-Instruct | 40.10 | **52.51** | +12.41 |
-| Kimi K3 | 57.95 | **67.15** | +9.20 |
-| GPT-5 | 45.74 | **57.15** | +11.41 |
-| GPT-6 Luna (medium effort) | 43.18 | **55.76** | +12.58 |
-| GPT-6 Sol (medium effort) | 54.26 | **65.48** | +11.22 |
+| Qwen3-VL-8B-Instruct | 34.24 | **45.41** | +11.17 |
+| Qwen3-VL-32B-Instruct | 38.30 | **50.92** | +12.62 |
+| Kimi K3 (max effort) | 56.43 | **66.09** | +9.66 |
+| GPT-5 (medium effort) | 44.37 | **55.65** | +11.28 |
+| GPT-6 Luna (medium effort) | 45.76 | **56.52** | +10.76 |
+| GPT-6 Sol (medium effort) | 52.67 | **64.31** | +11.64 |
+| GPT-6 Astra (medium effort) | 60.27 | **70.17** | +9.90 |
 
 Qwen3-VL results are the mean of three runs. Per-benchmark results, comparisons
 with other harnesses, and recorded trajectories are on the
@@ -284,16 +285,18 @@ installation rather than reproducing those scores.
 ### Datasets and scoring
 
 Dataset names passed to `--data` select loaders in
-[evaluation_kit/dataset](evaluation_kit/dataset). The paper's 23 benchmarks
-(Table 1) and the five additional search benchmarks of its appendix are:
+[evaluation_kit/dataset](evaluation_kit/dataset). The paper's 22 benchmarks
+(Table 1), the five additional search benchmarks of its appendix, and PixmoCount
+(supported but not reported in the paper) are:
 
 | Domain | Dataset names |
 | --- | --- |
-| Counting and grounding | `FSC147_val`, `CountQA`, `PixmoCount_val`, `FSCD_147_bbox_val`, `FSCD_LVIS_bbox_val`, `ODinW13_bbox_val_qwen3` |
+| Counting and grounding | `FSC147_val`, `CountQA`, `FSCD_147_bbox_val`, `FSCD_LVIS_bbox_val`, `ODinW13_bbox_val_qwen3` |
 | Multimodal search and deep research | `MMSearch`, `MMSearchPlus`, `RealXBench`, `FVQA_test`, `hle`, `BrowseCompVL` |
 | General VQA and hallucination | `RealWorldQA`, `SimpleVQA`, `HallusionBench`, `FREAK_VQA`, `FREAK_MCQ`, `VStarBench` |
 | Spatial understanding | `MMSIBench_wo_circular`, `ERQA`, `EmbSpatialBench`, `SparBench_tiny`, `MindCubeBench_tiny_raw_qa` |
 | Extended search (appendix) | `MMBrowseComp`, `VDRBench`, `VisBrowseBench`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` |
+| Additional | `PixmoCount_val` |
 
 Every dataset above except `PixmoCount_val` and `CountQA` downloads, with its images,
 from [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets)

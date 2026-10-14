@@ -8,7 +8,7 @@ row and, after inference, `evaluate(prediction_file, **judge_kwargs)`.
 
 ## Benchmarks
 
-The 23 benchmarks of the paper's Table 1, followed by the five extended search benchmarks
+The 22 benchmarks of the paper's Table 1 and PixmoCount (supported, but no longer reported in the paper), followed by the five extended search benchmarks
 of its appendix. Files are relative to this directory; rows are those evaluated by default.
 
 | `--data` | Class | File | Rows | Metric | Judge or extractor (default prompt) |

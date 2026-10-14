@@ -9,7 +9,7 @@ repository-code: "https://github.com/uclanlp/OpenVLHarness"
 abstract: >-
   A training-free harness that gives multimodal language models nine tool
   capabilities and a per-question multimodal memory, together with the
-  evaluation code for the paper's 23 benchmarks.
+  evaluation code for the paper's 22 benchmarks.
 keywords:
   - multimodal large language models
   - tool use
