@@ -6,6 +6,7 @@ A process-local cache reuses URLs for 50 minutes; signed URLs last one hour.
 
 import hashlib
 import os
+import stat
 import time
 from typing import Dict, Optional, Tuple
 
@@ -154,8 +155,7 @@ def _upload_local(image_bytes: bytes, content_type: str, extension: str, content
             "IMAGE_UPLOAD_PUBLIC_BASE_URL is not set; it must be the public address of the image host."
         )
     import tempfile
-    directory = local_upload_dir()
-    os.makedirs(directory, mode=0o700, exist_ok=True)
+    directory = prepare_private_directory(local_upload_dir())
     name = f"{content_hash}{extension}"
     path = os.path.join(directory, name)
     if not os.path.exists(path):
@@ -177,6 +177,28 @@ def local_upload_dir() -> str:
     """Return the directory shared by the local provider and the image host."""
     import tempfile
     return os.getenv("IMAGE_UPLOAD_LOCAL_DIR") or os.path.join(tempfile.gettempdir(), "openvlharness-uploads")
+
+
+def prepare_private_directory(path: str) -> str:
+    """Create ``path`` if needed and make sure it is a private directory this process owns.
+
+    Rejects symbolic links and directories owned by another user, and tightens
+    the mode to 0700 when it is more permissive. Returns the resolved path.
+
+    Raises:
+        RuntimeError: The path is a symbolic link, not a directory, or owned by someone else.
+    """
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    if os.path.islink(path):
+        raise RuntimeError(f"Image upload directory must not be a symbolic link: {path}")
+    info = os.stat(path)
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError(f"Image upload directory is not a directory: {path}")
+    if hasattr(os, "getuid") and info.st_uid != os.getuid():
+        raise RuntimeError(f"Image upload directory is owned by another user: {path}")
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        os.chmod(path, 0o700)
+    return os.path.realpath(path)
 
 
 # ---- Public API -----------------------------------------------------------

@@ -14,14 +14,18 @@ import re
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-from .tools.image_upload_utils import local_upload_dir
+from .tools.image_upload_utils import local_upload_dir, prepare_private_directory
 
 # Content-hash file names only: no path separators, no dot segments.
 _NAME = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9]{1,8}$")
 
 
 def create_app(directory: str) -> FastAPI:
-    """Build a FastAPI app that serves content-hash-named files from ``directory``."""
+    """Build a FastAPI app that serves content-hash-named files from ``directory``.
+
+    The directory is created if needed and must be a private directory owned by
+    this process (see ``prepare_private_directory``).
+    """
     app = FastAPI(title="OpenVLHarness image host")
 
     @app.get("/health")
@@ -29,7 +33,7 @@ def create_app(directory: str) -> FastAPI:
         """Report readiness."""
         return {"status": "ok"}
 
-    root = os.path.realpath(directory)
+    root = prepare_private_directory(directory)
 
     @app.get("/{name}")
     async def image(name: str):
@@ -56,7 +60,6 @@ def main():
     parser.add_argument("--port", type=int, default=8111)
     args = parser.parse_args()
     directory = args.dir or local_upload_dir()
-    os.makedirs(directory, mode=0o700, exist_ok=True)
     import uvicorn
     uvicorn.run(create_app(directory), host=args.host, port=args.port)
 

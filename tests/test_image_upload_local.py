@@ -79,6 +79,18 @@ class LocalProviderTests(unittest.TestCase):
         finally:
             os.unlink(outside)
 
+    def test_directory_must_be_private_and_owned(self):
+        loose = os.path.join(self.tmp.name, "loose")
+        os.makedirs(loose, mode=0o755)
+        up.prepare_private_directory(loose)
+        self.assertEqual(os.stat(loose).st_mode & 0o777, 0o700)
+        link = os.path.join(self.tmp.name, "link")
+        os.symlink(loose, link)
+        with self.assertRaises(RuntimeError):
+            up.prepare_private_directory(link)
+        with self.assertRaises(RuntimeError):
+            image_host.create_app(link)
+
     def test_image_host_serves_stored_images_only(self):
         url = up.upload_image_bytes(JPEG, "image/jpeg", ".jpg")
         name = url.rsplit("/", 1)[1]

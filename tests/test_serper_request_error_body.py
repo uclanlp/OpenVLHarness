@@ -60,6 +60,19 @@ class ProviderBodyTests(unittest.TestCase):
         self.assertEqual(err.attempts, sc._SERPER_MAX_RETRIES)
         self.assertEqual(err.provider_body, "upstream unavailable")
 
+    def test_scrape_account_level_failure_is_logged_once(self):
+        response = requests.Response()
+        response.status_code = 400
+        response._content = b'{"message":"Not enough credits"}'
+        response.url = "https://scrape.invalid"
+        with patch("openvlharness.services.tools.serper_common.requests.post", return_value=response):
+            client = sc.SerperClient(api_key="test-key")
+            with self.assertLogs(sc.logger, level="ERROR") as logs:
+                for _ in range(2):
+                    with self.assertRaises(requests.HTTPError):
+                        client.scrape("https://example.test/page")
+        self.assertEqual(sum("ACCOUNT-LEVEL" in line for line in logs.output), 1)
+
     def test_missing_response_body_is_empty_string(self):
         self.assertEqual(sc._http_error_body(requests.HTTPError("no response")), "")
 

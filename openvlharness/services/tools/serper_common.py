@@ -556,7 +556,18 @@ class SerperClient:
         response = requests.post(
             SERPER_SCRAPE_BASE, headers=self._headers, json=payload, timeout=60,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            # The caller keeps its own retry policy; the provider body is
+            # logged here so account-level failures are diagnosed the same
+            # way as for the search and lens endpoints.
+            code, _ = _classify_http_error(exc)
+            body = _http_error_body(exc)
+            if body:
+                logger.warning("Serper scrape failed: HTTP %s | provider body: %s", code, body)
+            _warn_once_if_account_level("scrape", code, body)
+            raise
         return response.json()
 
 
