@@ -32,7 +32,7 @@ class ProviderBodyTests(unittest.TestCase):
         self.assertEqual(err.status_code, 400)
         self.assertIn("Not enough credits", err.provider_body)
         self.assertNotIn("credits", str(err))
-        self.assertTrue(err.is_account_level)
+        self.assertTrue(sc._is_account_level_body(err.provider_body))
         self.assertEqual(err.attempts, 1)
 
     def test_ordinary_client_error_is_not_account_level(self):
@@ -40,7 +40,7 @@ class ProviderBodyTests(unittest.TestCase):
             with self.subTest(body=body):
                 err = self._call(_http_error(400, body))
                 self.assertIn(body[13:20], err.provider_body)
-                self.assertFalse(err.is_account_level)
+                self.assertFalse(sc._is_account_level_body(err.provider_body))
 
     def test_body_is_cleared_when_a_later_attempt_fails_without_one(self):
         attempts = iter([_http_error(503, "upstream unavailable"), requests.Timeout("slow"), requests.Timeout("slow")])

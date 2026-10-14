@@ -6,11 +6,7 @@ codes, so an empty 200 never triggered it and the tool reported NO VISUAL
 MATCHES on the first drop. These tests run offline: the Serper client is stubbed.
 """
 import importlib
-import os
 
-import pytest
-
-os.environ.setdefault("SERPER_API_KEY", "test-key-not-used")
 
 import openvlharness.services.tools.serper_image_search.tool as ist  # noqa: E402
 from openvlharness.services.tools.serper_common import SerperRequestError  # noqa: E402

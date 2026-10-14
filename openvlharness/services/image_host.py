@@ -26,14 +26,13 @@ def create_app(directory: str) -> FastAPI:
     The directory is created if needed and must be a private directory owned by
     this process (see ``prepare_private_directory``).
     """
+    root = prepare_private_directory(directory)
     app = FastAPI(title="OpenVLHarness image host")
 
     @app.get("/health")
     async def health():
         """Report readiness."""
         return {"status": "ok"}
-
-    root = prepare_private_directory(directory)
 
     @app.get("/{name}")
     async def image(name: str):

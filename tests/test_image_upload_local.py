@@ -53,7 +53,7 @@ class LocalProviderTests(unittest.TestCase):
         def worker():
             try:
                 up._upload_local(JPEG, "image/jpeg", ".jpg", hashlib.sha256(JPEG).hexdigest())
-            except Exception as exc:  # pragma: no cover - the assertion below reports it
+            except Exception as exc:
                 errors.append(exc)
         threads = [threading.Thread(target=worker) for _ in range(16)]
         for t in threads:

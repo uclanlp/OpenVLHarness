@@ -7,6 +7,7 @@ A process-local cache reuses URLs for 50 minutes; signed URLs last one hour.
 import hashlib
 import os
 import stat
+import tempfile
 import time
 from typing import Dict, Optional, Tuple
 
@@ -154,7 +155,6 @@ def _upload_local(image_bytes: bytes, content_type: str, extension: str, content
         raise RuntimeError(
             "IMAGE_UPLOAD_PUBLIC_BASE_URL is not set; it must be the public address of the image host."
         )
-    import tempfile
     directory = prepare_private_directory(local_upload_dir())
     name = f"{content_hash}{extension}"
     path = os.path.join(directory, name)
@@ -175,7 +175,6 @@ def _upload_local(image_bytes: bytes, content_type: str, extension: str, content
 
 def local_upload_dir() -> str:
     """Return the directory shared by the local provider and the image host."""
-    import tempfile
     return os.getenv("IMAGE_UPLOAD_LOCAL_DIR") or os.path.join(tempfile.gettempdir(), "openvlharness-uploads")
 
 

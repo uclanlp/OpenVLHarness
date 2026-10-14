@@ -126,16 +126,6 @@ class SerperRequestError(RuntimeError):
         self.attempts = attempts
         self.provider_body = provider_body
 
-    @property
-    def is_account_level(self) -> bool:
-        """True when the provider body blames the account (credits, key, payment), not this query.
-
-        The agent-facing guidance for a 4xx tells the model to reword the query
-        or switch search_type; under an account-level failure every rewrite
-        fails too. Callers can use this to stop a run instead.
-        """
-        return _is_account_level_body(self.provider_body)
-
 
 _ACCOUNT_LEVEL_MARKERS = (
     "not enough credits", "insufficient credit", "quota",
