@@ -1,34 +1,21 @@
-"""FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate in full unless a subset is asked for."""
-import pandas as pd
+"""The 300-question search subsets are hosted splits, registered like the full ones."""
 import pytest
 
-from evaluation_kit.dataset.image_shortqa import _apply_subset
+from evaluation_kit.dataset import image_shortqa
+from evaluation_kit.dataset.hf_release import HF_DATASET_MD5, HF_SPLITS
 
-FULL = pd.DataFrame({"index": range(1000), "question": ["q"] * 1000})
-
-
-@pytest.mark.parametrize("dataset", ["FVQA_test", "Infoseek_GDM_test", "EncyclopedicVQA_test"])
-def test_full_split_by_default(monkeypatch, dataset):
-    monkeypatch.delenv(f"{dataset.upper()}_SUBSET", raising=False)
-    assert len(_apply_subset(FULL, dataset)) == 1000
+SUBSETS = {"FVQA_test_300": "FVQA", "Infoseek_GDM_test_300": "Infoseek_GDM",
+           "EncyclopedicVQA_test_300": "EncyclopedicVQA"}
 
 
-def test_subset_is_fixed_and_sized(monkeypatch):
-    monkeypatch.setenv("FVQA_TEST_SUBSET", "300")
-    first = _apply_subset(FULL, "FVQA_test")
-    assert len(first) == 300
-    assert first["index"].tolist() == _apply_subset(FULL, "FVQA_test")["index"].tolist()
-    monkeypatch.setenv("FVQA_TEST_SUBSET", "5000")
-    assert len(_apply_subset(FULL, "FVQA_test")) == 1000
+@pytest.mark.parametrize("name,folder", sorted(SUBSETS.items()))
+def test_subset_is_hosted_next_to_its_full_split(name, folder):
+    full = name[: -len("_300")]
+    assert HF_SPLITS[name] == HF_SPLITS[full] == folder
+    assert name in HF_DATASET_MD5 and HF_DATASET_MD5[name] != HF_DATASET_MD5[full]
+    assert name in image_shortqa.ImageShortQADataset.supported_datasets()
 
 
-@pytest.mark.parametrize("value", ["0", "-3", "all", "true"])
-def test_invalid_subset_is_rejected(monkeypatch, value):
-    monkeypatch.setenv("FVQA_TEST_SUBSET", value)
-    with pytest.raises(ValueError, match="FVQA_TEST_SUBSET"):
-        _apply_subset(FULL, "FVQA_test")
-
-
-def test_other_datasets_are_untouched(monkeypatch):
-    monkeypatch.setenv("HLE_SUBSET", "10")
-    assert len(_apply_subset(FULL, "hle")) == 1000
+def test_no_runtime_sampling_remains():
+    assert not hasattr(image_shortqa, "_apply_subset")
+    assert "WorldVQA_300" in HF_SPLITS and "WorldVQA_VDR300" not in HF_SPLITS

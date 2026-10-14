@@ -278,36 +278,6 @@ def _restore_literal_na_answers(df, source, cols=('answer',)):
     return df
 
 
-_SUBSET_SPLITS = ('FVQA_test', 'Infoseek_GDM_test', 'EncyclopedicVQA_test')
-
-
-def _apply_subset(df, dataset):
-    """Return the full split, or the fixed random subset that <DATASET>_SUBSET=<n> asks for.
-
-    FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate their full splits, as in
-    the paper. FVQA_TEST_SUBSET, INFOSEEK_GDM_TEST_SUBSET and ENCYCLOPEDICVQA_TEST_SUBSET set
-    to a positive integer n select n rows with seed 42, a quick estimate of the full score.
-    """
-    if dataset not in _SUBSET_SPLITS:
-        return df
-    env = f'{dataset.upper()}_SUBSET'
-    raw = os.environ.get(env, '').strip()
-    if not raw:
-        return df
-    try:
-        n = int(raw)
-    except ValueError:
-        n = 0
-    if n <= 0:
-        raise ValueError(f"{env} must be a positive integer (unset = full split); got {raw!r}")
-    if n >= len(df):
-        return df
-    before = len(df)
-    df = df.sample(n=n, random_state=42).reset_index(drop=True)
-    print(f"[{dataset}] {env}={n}: {before} → {len(df)} rows (seed=42)")
-    return df
-
-
 def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
                      n: int = 300, seed: int = 42):
     """Materialise an N-row random subset TSV from an existing full-eval TSV.
@@ -708,6 +678,11 @@ class ImageShortQADataset(ImageBaseDataset):
         # extracts images from iNat2021 / GoogleLandmarksV2 tars under the
         # MMDR_EVQA_DATA_ROOT directory (default {LMUData}/../train/).
         'EncyclopedicVQA_test': '',
+        # Fixed 300-question subsets of the three test splits above, hosted on the
+        # OpenVLHarness eval repo, for a quick estimate of the full-split score.
+        'FVQA_test_300': '',
+        'Infoseek_GDM_test_300': '',
+        'EncyclopedicVQA_test_300': '',
         # EVQA val = all 2950 val rows (no sampling). Inference + future
         # experience-learning use. Test (2000 subset) stays the eval split.
         # Same image-resolution path as EncyclopedicVQA_test.
@@ -793,7 +768,7 @@ class ImageShortQADataset(ImageBaseDataset):
                 df = df[df['category'].astype(str).str.lower() == cat].reset_index(drop=True)
                 print(f"[FVQA_train] FVQA_CATEGORY={cat}: filtered {before} → {len(df)} rows")
 
-        return _apply_subset(df, dataset)
+        return df
 
     # It returns a DataFrame
     # Needs an LLM judge (there is no exact-matching scorer); checked before inference.
@@ -832,12 +807,16 @@ class ImageShortQADataset(ImageBaseDataset):
             'Infoseek_GDM_val':            'judge_rs',
             'Infoseek_GDM_test':           'judge_vdr',
             'EncyclopedicVQA_test':        'judge_vdr',
+            'FVQA_test_300':               'judge_vdr',
+            'Infoseek_GDM_test_300':       'judge_vdr',
+            'EncyclopedicVQA_test_300':    'judge_vdr',
             'EncyclopedicVQA_val':         'judge_rs',
             # 300-sample mini variants inherit underlying default
             'FVQA_train_mini':             'judge_rs',
             'EncyclopedicVQA_val_mini':    'judge_rs',
         }
-        _HLE_FAMILY_DATASETS = {'hle', 'FVQA_train', 'FVQA_test',
+        _HLE_FAMILY_DATASETS = {'hle', 'FVQA_train', 'FVQA_test', 'FVQA_test_300',
+                                'Infoseek_GDM_test_300', 'EncyclopedicVQA_test_300',
                                 'Infoseek_GDM_val',
                                 'Infoseek_GDM_test',
                                 'EncyclopedicVQA_test', 'EncyclopedicVQA_val',

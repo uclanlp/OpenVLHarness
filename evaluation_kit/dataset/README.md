@@ -46,6 +46,7 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | `VisBrowseBench` | `VisBrowseBenchDataset` | `visbrowse_bench.py` | 169 | judged accuracy | judge (`judge_vdr`) |
 | `Infoseek_GDM_test` | `ImageShortQADataset` | `image_shortqa.py` | 2,000 | judged accuracy | judge (`judge_vdr`) |
 | `EncyclopedicVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 1,960 | judged accuracy | judge (`judge_vdr`) |
+| `FVQA_test_300`, `Infoseek_GDM_test_300`, `EncyclopedicVQA_test_300` | `ImageShortQADataset` | `image_shortqa.py` | 300 each | judged accuracy | judge (`judge_vdr`) |
 
 - Every TSV except CountQA and PixmoCount downloads with its images on first use from
   [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets).
@@ -53,10 +54,9 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
   by fetching each image from its source URL, dropping rows whose image is gone, so its row
   count can fall below the 534 listed as source URLs disappear.
 - HallusionBench: the TSV has 1,129 rows; the 178 without an image are skipped.
-- FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate their full splits, as in
-  the paper. `FVQA_TEST_SUBSET=300`, `INFOSEEK_GDM_TEST_SUBSET=300` or
-  `ENCYCLOPEDICVQA_TEST_SUBSET=300` evaluates a fixed random subset (seed 42) instead, a
-  quick estimate of the full-split score.
+- `FVQA_test_300`, `Infoseek_GDM_test_300` and `EncyclopedicVQA_test_300` are fixed
+  300-question subsets of the full test splits (`sample(n=300, random_state=42)`, same
+  images), hosted alongside them, for a quick estimate of the full-split score.
 - SparBench_tiny averages 11 multiple-choice accuracies, 8 mean relative accuracies (MRA)
   for numeric tasks and one view-change score.
 
