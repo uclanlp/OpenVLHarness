@@ -42,7 +42,7 @@ capabilities:
 services:
   client:
     base_url: ${TOOL_SERVER_URL}
-    timeout_seconds: 600
+    timeout_seconds: 2400
     retry: 8
   server:
     host: 127.0.0.1
@@ -67,6 +67,9 @@ services:
     python_coding_agent:
       model_service: orchestrator
       context: fresh
+      # Code generation uses the orchestrator's options (output cap, reasoning effort, service
+      # tier, timeout), as in the paper's GPT-6 Luna runs.
+      generation: inherit
     python_executor_local:
       transport: local
       timeout_seconds: 30
@@ -77,7 +80,7 @@ services:
       key: ${MODEL_API_KEY}
       max_tokens: 16000
       reasoning_effort: medium
-      timeout: 600
+      timeout: 1800
       retry: 8
     auxiliary:
       alias: qwen3-vl-8b-instruct

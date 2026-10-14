@@ -192,6 +192,7 @@ where the table names a model.
 | `services.tools.serper_*.model_service` | string | `auxiliary` | `auxiliary` | Model service for summarization and webpage extraction in `serper_text_search`, `serper_image_search` and `serper_webpage_visit`. |
 | `services.tools.python_coding_agent.model_service` | string | `agent.model_service` | `orchestrator` | Model service for code generation; must resolve to the orchestrator's model and protocol. |
 | `services.tools.python_coding_agent.context` | string | `fresh` | `fresh` | The only accepted value: code generation uses its own prompt, not the orchestrator conversation. |
+| `services.tools.python_coding_agent.generation` | string | `fixed` | `fixed`, `inherit` | `fixed` requests up to 4,096 tokens at medium reasoning effort with a 600-second timeout; `inherit` uses the configured model's options (output cap, reasoning effort, service tier) and timeout. The GPT-6 Luna preset uses `inherit`. |
 | `services.tools.python_executor_local.transport` | string | `local` | `local` | The only accepted value. |
 | `services.tools.python_executor_local.timeout_seconds` | positive number | `30` | `30` | Deadline for executing generated code, in seconds. |
 | `services.tools.zoom_in_image_by_bbox` | empty mapping | required when zoom is selected | `{}` | Takes no options. |
