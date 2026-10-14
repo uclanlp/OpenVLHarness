@@ -181,8 +181,8 @@ def local_upload_dir() -> str:
 def prepare_private_directory(path: str) -> str:
     """Create ``path`` if needed and make sure it is a private directory this process owns.
 
-    Rejects symbolic links and directories owned by another user, and tightens
-    the mode to 0700 when it is more permissive. Returns the resolved path.
+    Rejects symbolic links and directories owned by another user, and sets the
+    mode to 0700 whenever it differs. Returns the resolved path.
 
     Raises:
         RuntimeError: The path is a symbolic link, not a directory, or owned by someone else.
@@ -195,7 +195,7 @@ def prepare_private_directory(path: str) -> str:
         raise RuntimeError(f"Image upload directory is not a directory: {path}")
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
         raise RuntimeError(f"Image upload directory is owned by another user: {path}")
-    if stat.S_IMODE(info.st_mode) & 0o077:
+    if stat.S_IMODE(info.st_mode) != 0o700:
         os.chmod(path, 0o700)
     return os.path.realpath(path)
 

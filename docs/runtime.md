@@ -239,7 +239,9 @@ all of them, even those it does not use.
 | `FVQA_TEST_ALL`, `INFOSEEK_GDM_TEST_ALL`, `ENCYCLOPEDICVQA_TEST_ALL` | `FVQA_test`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` | `true` evaluates the full split. Unset or `false` evaluates a fixed 300-question subset sampled with seed 42. |
 | `SERPER_API_KEY` | router | Serper API key; takes precedence over the key file. |
 | `SERPER_API_KEY_FILE` | router | Path to a file containing the Serper API key. |
-| `IMAGE_UPLOAD_PROVIDER` | router | Object storage for reverse image search uploads: `gcs` (default) or `s3`. |
+| `IMAGE_UPLOAD_PROVIDER` | router | Where reverse image search publishes the query image: `gcs` (default), `s3` or `local`. |
+| `IMAGE_UPLOAD_PUBLIC_BASE_URL`, `IMAGE_UPLOAD_LOCAL_DIR` | router, local uploads | Public address of the image host (required) and the directory it serves (default: `openvlharness-uploads` under the system temporary folder). |
+| `SEARCH_LENS_EMPTY_MAX_ATTEMPTS`, `SEARCH_LENS_EMPTY_BACKOFF_BASE_SEC`, `SEARCH_LENS_EMPTY_BACKOFF_MAX_SEC` | router | Retries for a Serper Lens reply with no matches: attempts (default 4), first backoff (0.5 s) and backoff cap (4 s). |
 | `GCS_BUCKET_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`, `GCS_PROJECT_ID` | router, GCS uploads | Bucket (required), service-account key file (required) and optional project ID. |
 | `AWS_S3_BUCKET_NAME`, `AWS_S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | router, S3 uploads | Bucket (required), region (default `us-east-1`) and credentials. Without the key variables, boto3 uses its default credential chain. |
 | `OCR_MODEL_ID` | router, OCR server | Served PaddleOCR-VL model name; default `PaddlePaddle/PaddleOCR-VL-1.5`. The router sends it as the request model, so it must match the OCR server. |

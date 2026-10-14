@@ -221,10 +221,10 @@ curl --fail http://127.0.0.1:8101/backend-status
 These checks only show that the router is up, how many tools it registered, and its
 concurrency limits. Unreachable GPU workers, missing Serper keys and missing image
 hosting settings surface on the first call to the affected tool. `/backend-status`
-also reports `degradations`: counts of search calls that fell back to raw provider
-results because the auxiliary model timed out or returned unusable output. A
-healthy router keeps these at zero; the same events are logged with the token
-`SUMMARIZE_DEGRADED`.
+also reports `degradations`: counts of search and webpage-visit calls that fell
+back to raw provider content because the auxiliary model timed out or returned
+unusable output. A healthy router keeps these at zero; the same events are logged
+with the tokens `SUMMARIZE_DEGRADED` and `EXTRACT_DEGRADED`.
 
 Then ask a question from Python:
 

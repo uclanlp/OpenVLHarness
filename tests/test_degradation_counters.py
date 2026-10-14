@@ -1,6 +1,5 @@
 """Silent summarizer fallbacks are counted and exposed on the router status endpoint."""
 import unittest
-from unittest.mock import patch
 
 from openvlharness.services import degradation
 from openvlharness.services.tools.serper_text_search import tool as text_tool
@@ -52,6 +51,19 @@ class DegradationCounterTests(unittest.TestCase):
                 self.assertIn("Example", rendered)
                 self.assertTrue(any("SUMMARIZE_DEGRADED" in line for line in logs.output))
                 self.assertEqual(degradation.snapshot()["counts"][f"summarize:{reason}"], 1)
+
+    def test_webpage_visit_counts_extraction_fallbacks(self):
+        from openvlharness.services.tools.serper_webpage_visit import tool as web_tool
+        tool = web_tool.Webpage_Visit_Tool(llm_engine=_FailingEngine(exc=TimeoutError("slow")))
+        with self.assertLogs(web_tool.logger, level="WARNING"):
+            out = tool._extract_content("page text", "goal", "")
+        self.assertEqual(out["evidence"], "page text")
+        with self.assertLogs(web_tool.logger, level="WARNING"):
+            out = web_tool.Webpage_Visit_Tool._parse_extraction_response("not json", "page text", "")
+        self.assertEqual(out["evidence"], "not json")
+        counts = degradation.snapshot()["counts"]
+        self.assertEqual(counts["extract:TimeoutError"], 1)
+        self.assertEqual(counts["extract:unparseable_json"], 1)
 
     def test_image_search_counts_fallbacks(self):
         with self.assertLogs(image_tool.logger, level="WARNING"):

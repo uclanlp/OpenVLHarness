@@ -84,6 +84,9 @@ class LocalProviderTests(unittest.TestCase):
         os.makedirs(loose, mode=0o755)
         up.prepare_private_directory(loose)
         self.assertEqual(os.stat(loose).st_mode & 0o777, 0o700)
+        os.chmod(loose, 0o600)
+        up.prepare_private_directory(loose)
+        self.assertEqual(os.stat(loose).st_mode & 0o777, 0o700)
         link = os.path.join(self.tmp.name, "link")
         os.symlink(loose, link)
         with self.assertRaises(RuntimeError):
