@@ -18,7 +18,7 @@ def test_judge_only_benchmark_without_judge_exits_before_inference(name):
         cli._check_judge([name], NO_JUDGE)
 
 
-@pytest.mark.parametrize("name", ["FREAK_VQA", "SimpleVQA", "SimpleVQA_EN", "hle", "FVQA_test"])
+@pytest.mark.parametrize("name", ["FREAK_VQA", "SimpleVQA", "SimpleVQA_300", "hle", "FVQA_test"])
 def test_strict_benchmarks_also_reject_exact_matching(name):
     with pytest.raises(SystemExit, match="scored by an LLM judge"):
         cli._check_judge([name], EXACT)

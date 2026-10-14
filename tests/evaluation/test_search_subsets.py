@@ -19,3 +19,11 @@ def test_subset_is_hosted_next_to_its_full_split(name, folder):
 def test_no_runtime_sampling_remains():
     assert not hasattr(image_shortqa, "_apply_subset")
     assert "WorldVQA_300" in HF_SPLITS and "WorldVQA_VDR300" not in HF_SPLITS
+    assert HF_SPLITS["SimpleVQA_300"] == "SimpleVQA" and "SimpleVQA_EN" not in HF_SPLITS
+
+
+@pytest.mark.parametrize("name", ["FVQA_train", "Infoseek_GDM_val", "EncyclopedicVQA_val", "Gen_Seed_V0",
+                                  "LiveMMBench_Reasoning", "MMSearch_Requery", "VDRBench_Full", "SimpleVQA_EN"])
+def test_unreleased_splits_are_not_registered(name):
+    from evaluation_kit import dataset as datasets
+    assert not any(name in c.supported_datasets() for c in datasets.IMAGE_DATASET)

@@ -62,7 +62,7 @@ HF_SPLITS = {
     'VDRBench': 'VDRBench',
     'VisBrowseBench': 'VisBrowseBench',
     'SimpleVQA': 'SimpleVQA',
-    'SimpleVQA_EN': 'SimpleVQA',
+    'SimpleVQA_300': 'SimpleVQA',
     'WorldVQA_300': 'WorldVQA',
 }
 
@@ -93,7 +93,7 @@ HF_DATASET_MD5 = {
     'VDRBench': '887e364a005cad5479813872d0350164',
     'VisBrowseBench': '08ee00f73d9bf0d06629ac3e7258b549',
     'SimpleVQA': '87a55db6b42507a80f11e8e1c84c190f',
-    'SimpleVQA_EN': '198c569fd852a95cb0fd830cf6e9d650',
+    'SimpleVQA_300': '198c569fd852a95cb0fd830cf6e9d650',
     'WorldVQA_300': 'adaf33776d1b16f77782032d989a2a36',
 }
 

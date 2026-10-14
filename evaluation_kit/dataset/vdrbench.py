@@ -29,8 +29,7 @@ from .utils.judge_cache import guard_cache, require_judge
 logger = logging.getLogger(__name__)
 
 _HF_DATASET_IDS = {
-    "VDRBench": "Osilly/VDR-Bench-testmini",      # 500 samples (default, matches paper)
-    "VDRBench_Full": "Osilly/VDR-Bench",           # 2000 samples (full set)
+    "VDRBench": "Osilly/VDR-Bench-testmini",  # 500 samples, as in the paper
 }
 
 ANSWER_FORMAT_INSTRUCTION = (
@@ -378,16 +377,14 @@ class VDRBench(ImageBaseDataset):
 
     DATASET_URL = {
         "VDRBench": "https://huggingface.co/datasets/Osilly/VDR-Bench-testmini",
-        "VDRBench_Full": "https://huggingface.co/datasets/Osilly/VDR-Bench",
     }
     DATASET_MD5 = {
         "VDRBench": "",
-        "VDRBench_Full": "",
     }
 
     @classmethod
     def supported_datasets(cls) -> List[str]:
-        return ["VDRBench", "VDRBench_Full"]
+        return ["VDRBench"]
 
     def load_data(self, dataset: str) -> pd.DataFrame:
         if dataset in HF_SPLITS:
