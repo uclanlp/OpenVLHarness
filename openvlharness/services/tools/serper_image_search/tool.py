@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # image it can match on the next call. SerperClient retries only transient HTTP
 # codes, so an empty 200 is retried here instead.
 LENS_EMPTY_MAX_ATTEMPTS = max(
-    1, int(os.getenv("SEARCH_LENS_EMPTY_MAX_ATTEMPTS", "4"))
+    1, int(float(os.getenv("SEARCH_LENS_EMPTY_MAX_ATTEMPTS", "4")))
 )
 LENS_EMPTY_BACKOFF_BASE_SEC = max(
     0.0, float(os.getenv("SEARCH_LENS_EMPTY_BACKOFF_BASE_SEC", "0.5"))

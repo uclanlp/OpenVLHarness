@@ -16,8 +16,9 @@ from fastapi.responses import FileResponse
 
 from .tools.image_upload_utils import local_upload_dir, prepare_private_directory
 
-# Content-hash file names only: no path separators, no dot segments.
-_NAME = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9]{1,8}$")
+# Content-hash file names with the image extensions the uploader writes: no path
+# separators, no dot segments.
+_NAME = re.compile(r"^[0-9a-f]{64}\.(?:jpg|png|webp|gif|bmp|tiff)$")
 
 
 def create_app(directory: str) -> FastAPI:
@@ -27,7 +28,8 @@ def create_app(directory: str) -> FastAPI:
     this process (see ``prepare_private_directory``).
     """
     root = prepare_private_directory(directory)
-    app = FastAPI(title="OpenVLHarness image host")
+    # No /docs, /redoc or /openapi.json: the host is meant to be reachable publicly.
+    app = FastAPI(title="OpenVLHarness image host", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.get("/health")
     async def health():
@@ -46,7 +48,7 @@ def create_app(directory: str) -> FastAPI:
             raise HTTPException(status_code=404)
         if os.path.dirname(os.path.realpath(path)) != root:
             raise HTTPException(status_code=404)
-        return FileResponse(path)
+        return FileResponse(path, headers={"X-Content-Type-Options": "nosniff"})
 
     return app
 

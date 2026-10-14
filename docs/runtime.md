@@ -240,7 +240,7 @@ all of them, even those it does not use.
 | `SERPER_API_KEY` | router | Serper API key; takes precedence over the key file. |
 | `SERPER_API_KEY_FILE` | router | Path to a file containing the Serper API key. |
 | `IMAGE_UPLOAD_PROVIDER` | router | Where reverse image search publishes the query image: `gcs` (default), `s3` or `local`. |
-| `IMAGE_UPLOAD_PUBLIC_BASE_URL`, `IMAGE_UPLOAD_LOCAL_DIR` | router, local uploads | Public address of the image host (required) and the directory it serves (default: `openvlharness-uploads` under the system temporary folder). |
+| `IMAGE_UPLOAD_PUBLIC_BASE_URL`, `IMAGE_UPLOAD_LOCAL_DIR` | router, local uploads | Public address of the image host (required) and the directory it serves (default: `openvlharness-uploads` under the system temporary folder, which follows `TMPDIR`; set it explicitly and identically for the router and the image host). Uploaded images stay publicly fetchable at their URLs until the directory is cleared; unlike signed GCS/S3 URLs they do not expire. |
 | `SEARCH_LENS_EMPTY_MAX_ATTEMPTS`, `SEARCH_LENS_EMPTY_BACKOFF_BASE_SEC`, `SEARCH_LENS_EMPTY_BACKOFF_MAX_SEC` | router | Retries for a Serper Lens reply with no matches: attempts (default 4), first backoff (0.5 s) and backoff cap (4 s). |
 | `GCS_BUCKET_NAME`, `GOOGLE_APPLICATION_CREDENTIALS`, `GCS_PROJECT_ID` | router, GCS uploads | Bucket (required), service-account key file (required) and optional project ID. |
 | `AWS_S3_BUCKET_NAME`, `AWS_S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | router, S3 uploads | Bucket (required), region (default `us-east-1`) and credentials. Without the key variables, boto3 uses its default credential chain. |

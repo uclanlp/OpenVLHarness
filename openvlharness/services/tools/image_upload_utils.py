@@ -1,4 +1,5 @@
-"""Upload image bytes to GCS or S3 and return time-limited signed URLs.
+"""Publish image bytes for Serper Lens: GCS or S3 (time-limited signed URLs) or a local directory
+served by ``openvlharness.services.image_host``.
 
 SHA-256 object names and remote existence checks avoid redundant uploads.
 A process-local cache reuses URLs for 50 minutes; signed URLs last one hour.
@@ -14,7 +15,7 @@ from typing import Dict, Optional, Tuple
 # ---------------------------------------------------------------------------
 # Provider selection via environment variable
 # ---------------------------------------------------------------------------
-#   IMAGE_UPLOAD_PROVIDER = "gcs" | "s3"
+#   IMAGE_UPLOAD_PROVIDER = "gcs" | "s3" | "local"
 #
 # GCS env vars:
 #   GCS_BUCKET_NAME                   (required)
@@ -188,9 +189,9 @@ def prepare_private_directory(path: str) -> str:
         RuntimeError: The path is a symbolic link, not a directory, or owned by someone else.
     """
     os.makedirs(path, mode=0o700, exist_ok=True)
-    if os.path.islink(path):
+    info = os.lstat(path)
+    if stat.S_ISLNK(info.st_mode):
         raise RuntimeError(f"Image upload directory must not be a symbolic link: {path}")
-    info = os.stat(path)
     if not stat.S_ISDIR(info.st_mode):
         raise RuntimeError(f"Image upload directory is not a directory: {path}")
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
