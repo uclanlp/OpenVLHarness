@@ -39,7 +39,8 @@ class LocalProviderTests(unittest.TestCase):
         self.assertEqual(up.upload_image_bytes(JPEG, "image/jpeg", ".jpg"), url)
         self.assertEqual(len(os.listdir(self.tmp.name)), 1)
         with patch.dict(os.environ, {"IMAGE_UPLOAD_PUBLIC_BASE_URL": "https://moved.example.test"}):
-            self.assertEqual(up.upload_image_bytes(JPEG, "image/jpeg", ".jpg"), f"https://moved.example.test/{name}")
+            self.assertEqual(up.upload_image_bytes(JPEG, "image/jpeg", ".jpg"),
+                             f"https://moved.example.test/{name}")
 
     def test_missing_public_base_url_is_an_error(self):
         with patch.dict(os.environ, {"IMAGE_UPLOAD_PUBLIC_BASE_URL": ""}):
@@ -73,7 +74,8 @@ class LocalProviderTests(unittest.TestCase):
             app = image_host.create_app(self.tmp.name)
 
             async def run():
-                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://host.invalid") as client:
+                transport = httpx.ASGITransport(app=app)
+                async with httpx.AsyncClient(transport=transport, base_url="http://host.invalid") as client:
                     self.assertEqual((await client.get("/" + "1" * 64 + ".jpg")).status_code, 404)
             asyncio.run(run())
         finally:
@@ -100,7 +102,8 @@ class LocalProviderTests(unittest.TestCase):
         app = image_host.create_app(self.tmp.name)
 
         async def run():
-            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://host.invalid") as client:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://host.invalid") as client:
                 ok = await client.get(f"/{name}")
                 self.assertEqual(ok.status_code, 200)
                 self.assertEqual(ok.content, JPEG)

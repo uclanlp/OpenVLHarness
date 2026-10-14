@@ -739,7 +739,8 @@ class Text_Search_Tool(BaseTool):
         kept_value = parsed.get("kept_indices")
         if not isinstance(kept_value, list):
             logger.warning(
-                "SUMMARIZE_DEGRADED tool=%s reason=kept_indices_invalid -- LLM summarize JSON: 'kept_indices' is missing or not a list "
+                "SUMMARIZE_DEGRADED tool=%s reason=kept_indices_invalid -- LLM summarize JSON: "
+                "'kept_indices' is missing or not a list "
                 "(top-level keys: %s); returning raw results to avoid silent data loss",
                 TOOL_NAME, list(parsed.keys()),
             )
