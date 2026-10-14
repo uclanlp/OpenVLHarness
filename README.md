@@ -334,7 +334,8 @@ splits were built.
 benchmarks (1,800, 2,000 and 1,960 questions). `FVQA_test_300`,
 `Infoseek_GDM_test_300` and `EncyclopedicVQA_test_300` are fixed 300-question subsets
 of them, a quick estimate of the full-split score at a fraction of the time and
-search cost.
+search cost; `SimpleVQA_300` is the 300 English SimpleVQA questions WebWatcher
+evaluates on.
 
 Benchmarks that need an LLM judge or answer extractor read it from `JUDGE_MODEL`,
 `JUDGE_API_BASE` (the full chat-completions URL) and `JUDGE_API_KEY` through

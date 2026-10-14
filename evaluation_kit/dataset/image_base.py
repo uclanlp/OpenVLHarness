@@ -12,7 +12,7 @@ def img_root_map(dataset):
         'EncyclopedicVQA_test': 'EncyclopedicVQA',
         'FVQA_test_300': 'FVQA', 'Infoseek_GDM_test_300': 'Infoseek_GDM',
         'EncyclopedicVQA_test_300': 'EncyclopedicVQA',
-        'hle': 'HLE', 'SimpleVQA_EN': 'SimpleVQA', 'WorldVQA_300': 'WorldVQA',
+        'hle': 'HLE', 'SimpleVQA_300': 'SimpleVQA', 'WorldVQA_300': 'WorldVQA',
     }
     if dataset in hosted_folder:
         return hosted_folder[dataset]

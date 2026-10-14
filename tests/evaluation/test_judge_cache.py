@@ -217,7 +217,7 @@ def _evaluator(cls, name):
 @pytest.mark.parametrize("cls,name", [
     (freak.FREAKVQADataset, "FREAK_VQA"),
     (simplevqa.SimpleVQA, "SimpleVQA"),
-    (simplevqa.SimpleVQA_EN, "SimpleVQA_EN"),
+    (simplevqa.SimpleVQA_300, "SimpleVQA_300"),
 ])
 def test_llm_only_benchmarks_require_a_judge(tmp_path, cls, name, model):
     with pytest.raises(ValueError, match=f"{name} is scored by an LLM judge; pass --judge-config"):

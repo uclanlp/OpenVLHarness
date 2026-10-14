@@ -30,6 +30,7 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | *General VQA and hallucination* | | | | | |
 | `RealWorldQA` | `ImageMCQDataset` | `image_mcq.py` | 765 | option accuracy | fallback extractor |
 | `SimpleVQA` | `SimpleVQA` | `simplevqa.py` | 2,025 | share graded correct | judge (`COMPARE_ANSWER_PROMPT`) |
+| `SimpleVQA_300` | `SimpleVQA_300` | `simplevqa.py` | 300 | judged accuracy | judge (`hle`) |
 | `HallusionBench` | `ImageYORNDataset` | `image_yorn.py` | 951 | mean of aAcc, fAcc, qAcc | fallback extractor |
 | `FREAK_VQA` | `FREAKVQADataset` | `freak.py` | 799 | judged accuracy | judge (`QUESTION_QUALITY_PROMPT_EN_NO_COT`) |
 | `FREAK_MCQ` | `FREAKMCQDataset` | `freak.py` | 994 | option accuracy | fallback extractor |
@@ -56,7 +57,8 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 - HallusionBench: the TSV has 1,129 rows; the 178 without an image are skipped.
 - `FVQA_test_300`, `Infoseek_GDM_test_300` and `EncyclopedicVQA_test_300` are fixed
   300-question subsets of the full test splits (`sample(n=300, random_state=42)`, same
-  images), hosted alongside them, for a quick estimate of the full-split score.
+  images), hosted alongside them, for a quick estimate of the full-split score. `SimpleVQA_300`
+  is the 300 English SimpleVQA questions that WebWatcher evaluates on.
 - SparBench_tiny averages 11 multiple-choice accuracies, 8 mean relative accuracies (MRA)
   for numeric tasks and one view-change score.
 
@@ -81,8 +83,8 @@ ImageBaseDataset (image_base.py)
     CustomVQADataset
 ```
 
-`SimpleVQA_EN`, the MMSearch sub-task loaders and `LVISMaskDataset` (masks, scored by IoU
-matching rather than AP; not covered here) are also registered. An unknown name falls back to
+`LVISMaskDataset` (masks, scored by IoU matching rather than AP; not covered here) is also
+registered. An unknown name falls back to
 `$LMUData/<name>.tsv`, which needs a `question` column. It is loaded as `CustomMCQDataset` if
 it has `A` and `B` option columns and an `image` or `image_path` column (an A/B TSV without
 either is rejected), and otherwise as `CustomVQADataset`, which has no evaluator.

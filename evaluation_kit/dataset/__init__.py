@@ -16,8 +16,8 @@ from .image_yorn import ImageYORNDataset
 from .image_mcq import ImageMCQDataset, CustomMCQDataset
 from .image_vqa import ImageVQADataset, CustomVQADataset, FSC147Dataset
 from .image_shortqa import ImageShortQADataset
-from .simplevqa import SimpleVQA, SimpleVQA_EN
-from .mmsearch import MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization
+from .simplevqa import SimpleVQA, SimpleVQA_300
+from .mmsearch import MMSearchEnd2End
 from .freak import FREAKMCQDataset, FREAKVQADataset
 from .pixmo_count import PixmoCount
 from .countqa import CountQA
@@ -40,8 +40,8 @@ from .sparbench import SparBench
 # order of the original VLMEvalKit-style registry.
 IMAGE_DATASET = [
     ImageYORNDataset, ImageMCQDataset, ImageVQADataset, ImageShortQADataset,
-    SimpleVQA, SimpleVQA_EN,
-    MMSearchEnd2End, MMSearchRequery, MMSearchRerank, MMSearchSummarization,
+    SimpleVQA, SimpleVQA_300,
+    MMSearchEnd2End,
     FSC147Dataset, FREAKMCQDataset, FREAKVQADataset, PixmoCount, CountQA,
     LVISBBoxDataset, LVISMaskDataset, ODinWBBoxDataset, FSCD147BBoxDataset, FSCDLVISBBoxDataset,
     BrowseCompVLDataset, RealXBench, MMSearchPlus, MMBrowseCompDataset, VDRBench, VisBrowseBenchDataset,

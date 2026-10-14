@@ -113,29 +113,6 @@ _REGISTRY: Dict[str, Tuple[Callable, Dict[str, Any]]] = {
             "raw_cols": ["f1_score"],
         },
     ),
-    "MMSearchSummarization": (
-        _adapters.inplace_score_adapter,
-        {
-            "score_col": "f1_score",
-            "correct_threshold": 0.5,
-            "raw_cols": ["f1_score"],
-        },
-    ),
-    "MMSearchRequery": (
-        _adapters.inplace_score_adapter,
-        {
-            "score_col": "requery_score",
-            "raw_cols": ["requery_score"],
-        },
-    ),
-    "MMSearchRerank": (
-        _adapters.inplace_score_adapter,
-        {
-            "score_col": "rerank_score",
-            "correct_threshold": 1.0,
-            "raw_cols": ["rerank_score"],
-        },
-    ),
     # --- RealXBench (eval_file overwritten in place) ---
     "RealXBench": (
         _adapters.inplace_score_adapter,

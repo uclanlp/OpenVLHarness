@@ -223,12 +223,12 @@ class SimpleVQA(ImageBaseDataset):
         return score
 
 
-class SimpleVQA_EN(SimpleVQA):
-    """SimpleVQA filtered to English-only rows (language == 'EN').
+class SimpleVQA_300(SimpleVQA):
+    """The 300 English SimpleVQA questions that WebWatcher evaluates on.
 
-    Loads the hosted SimpleVQA_EN split from the OpenVLHarness eval repo: the 300 English
-    questions we evaluate on. The language filter below is then a no-op; it only matters if
-    SimpleVQA_EN is removed from ``hf_release.HF_SPLITS`` and the full SimpleVQA TSV is used.
+    Loads the hosted SimpleVQA_300 split from the OpenVLHarness eval repo. The language
+    filter below is then a no-op; it only matters if SimpleVQA_300 is removed from
+    ``hf_release.HF_SPLITS`` and the full SimpleVQA TSV is used.
 
     Scoring uses the HLE-style binary judge (extract_final_answer +
     correct yes/no JSON) instead of the parent class's Chinese-style
@@ -238,10 +238,10 @@ class SimpleVQA_EN(SimpleVQA):
     """
 
     DATASET_URL = {
-        "SimpleVQA_EN": "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv",
+        "SimpleVQA_300": "https://opencompass.openxlab.space/utils/VLMEval/SimpleVQA.tsv",
     }
     DATASET_MD5 = {
-        "SimpleVQA_EN": "e3ce3c11df59a2a15d37489a8b245a87",
+        "SimpleVQA_300": "e3ce3c11df59a2a15d37489a8b245a87",
     }
 
     def load_data(self, dataset):
@@ -254,7 +254,7 @@ class SimpleVQA_EN(SimpleVQA):
         if "language" in data.columns:
             before = len(data)
             data = data[data["language"] == "EN"].reset_index(drop=True)
-            print(f"SimpleVQA_EN: filtered {before} -> {len(data)} English rows")
+            print(f"SimpleVQA_300: filtered {before} -> {len(data)} English rows")
         return data
 
     def get_scores(self, result_file: str, **judge_kwargs: Any) -> pd.DataFrame:
