@@ -237,7 +237,7 @@ all of them, even those it does not use.
 | `SCORE_MODE` | grounding evaluation | `constant` or `original` box confidence scoring, used when the judge configuration sets no `score_mode`. With neither, both modes run when detection sidecars exist (`original` is primary), otherwise `constant` alone. |
 | `MMDR_JUDGE_PROMPT` | search evaluation, `SimpleVQA_EN` | Overrides the judge configuration's `judge_prompt` (same values). It is not recorded with the run. |
 | `HARNESS_SEARCH_SAMPLE_INDEX` | agent | Integer added (times 1,000,003) to the paired sampling seed of `agent.paired_sampling_seed`; default 0. |
-| `FVQA_TEST_ALL`, `INFOSEEK_GDM_TEST_ALL`, `ENCYCLOPEDICVQA_TEST_ALL` | `FVQA_test`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` | `true` evaluates the full split. Unset or `false` evaluates a fixed 300-question subset sampled with seed 42. |
+| `FVQA_TEST_SUBSET`, `INFOSEEK_GDM_TEST_SUBSET`, `ENCYCLOPEDICVQA_TEST_SUBSET` | `FVQA_test`, `Infoseek_GDM_test`, `EncyclopedicVQA_test` | A positive integer n evaluates a fixed random subset of n questions (seed 42) instead of the full split. |
 | `SERPER_API_KEY` | router | Serper API key; takes precedence over the key file. |
 | `SERPER_API_KEY_FILE` | router | Path to a file containing the Serper API key. |
 | `IMAGE_UPLOAD_PROVIDER` | router | Object storage for reverse image search uploads: `gcs` (default) or `s3`. |

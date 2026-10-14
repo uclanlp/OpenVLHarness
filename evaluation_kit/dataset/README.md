@@ -24,7 +24,7 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | `MMSearch` | `MMSearchEnd2End` | `mmsearch.py` | 171 | judged accuracy | judge (`judge_vdr`) |
 | `MMSearchPlus` | `MMSearchPlus` | `mmsearch_plus.py` | 311 | judged accuracy | judge (`judge_vdr`) |
 | `RealXBench` | `RealXBench` | `realxbench.py` | 194 | judged accuracy | judge (`judge_vdr`) |
-| `FVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 300 of 1,800 | judged accuracy | judge (`judge_vdr`) |
+| `FVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 1,800 | judged accuracy | judge (`judge_vdr`) |
 | `hle` | `ImageShortQADataset` | `image_shortqa.py` | 330 | judged accuracy | judge (`judge_vdr`) |
 | `BrowseCompVL` | `BrowseCompVLDataset` | `browsecomp_vl.py` | 399 | judged accuracy | judge (`judge_vdr`) |
 | *General VQA and hallucination* | | | | | |
@@ -44,8 +44,8 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | `MMBrowseComp` | `MMBrowseCompDataset` | `mmbrowsecomp.py` | 243 | judged accuracy | judge (`judge_vdr`) |
 | `VDRBench` | `VDRBench` | `vdrbench.py` | 500 | judged accuracy | judge (`judge_vdr`) |
 | `VisBrowseBench` | `VisBrowseBenchDataset` | `visbrowse_bench.py` | 169 | judged accuracy | judge (`judge_vdr`) |
-| `Infoseek_GDM_test` | `ImageShortQADataset` | `image_shortqa.py` | 300 of 2,000 | judged accuracy | judge (`judge_vdr`) |
-| `EncyclopedicVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 300 of 1,960 | judged accuracy | judge (`judge_vdr`) |
+| `Infoseek_GDM_test` | `ImageShortQADataset` | `image_shortqa.py` | 2,000 | judged accuracy | judge (`judge_vdr`) |
+| `EncyclopedicVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 1,960 | judged accuracy | judge (`judge_vdr`) |
 
 - Every TSV except CountQA and PixmoCount downloads with its images on first use from
   [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets).
@@ -53,9 +53,10 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
   by fetching each image from its source URL, dropping rows whose image is gone, so its row
   count can fall below the 534 listed as source URLs disappear.
 - HallusionBench: the TSV has 1,129 rows; the 178 without an image are skipped.
-- FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate a fixed 300-row sample
-  (`random_state=42`) unless `FVQA_TEST_ALL`, `INFOSEEK_GDM_TEST_ALL` or
-  `ENCYCLOPEDICVQA_TEST_ALL` is `true`.
+- FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate their full splits, as in
+  the paper. `FVQA_TEST_SUBSET=300`, `INFOSEEK_GDM_TEST_SUBSET=300` or
+  `ENCYCLOPEDICVQA_TEST_SUBSET=300` evaluates a fixed random subset (seed 42) instead, a
+  quick estimate of the full-split score.
 - SparBench_tiny averages 11 multiple-choice accuracies, 8 mean relative accuracies (MRA)
   for numeric tasks and one view-change score.
 

@@ -278,8 +278,34 @@ def _restore_literal_na_answers(df, source, cols=('answer',)):
     return df
 
 
-_DEFAULT_SUBSET_SPLITS = ('FVQA_test', 'Infoseek_GDM_test', 'EncyclopedicVQA_test')
-_DEFAULT_SUBSET_N = 300
+_SUBSET_SPLITS = ('FVQA_test', 'Infoseek_GDM_test', 'EncyclopedicVQA_test')
+
+
+def _apply_subset(df, dataset):
+    """Return the full split, or the fixed random subset that <DATASET>_SUBSET=<n> asks for.
+
+    FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate their full splits, as in
+    the paper. FVQA_TEST_SUBSET, INFOSEEK_GDM_TEST_SUBSET and ENCYCLOPEDICVQA_TEST_SUBSET set
+    to a positive integer n select n rows with seed 42, a quick estimate of the full score.
+    """
+    if dataset not in _SUBSET_SPLITS:
+        return df
+    env = f'{dataset.upper()}_SUBSET'
+    raw = os.environ.get(env, '').strip()
+    if not raw:
+        return df
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 0
+    if n <= 0:
+        raise ValueError(f"{env} must be a positive integer (unset = full split); got {raw!r}")
+    if n >= len(df):
+        return df
+    before = len(df)
+    df = df.sample(n=n, random_state=42).reset_index(drop=True)
+    print(f"[{dataset}] {env}={n}: {before} → {len(df)} rows (seed=42)")
+    return df
 
 
 def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
@@ -767,22 +793,7 @@ class ImageShortQADataset(ImageBaseDataset):
                 df = df[df['category'].astype(str).str.lower() == cat].reset_index(drop=True)
                 print(f"[FVQA_train] FVQA_CATEGORY={cat}: filtered {before} → {len(df)} rows")
 
-        # FVQA_test / Infoseek_GDM_test / EncyclopedicVQA_test evaluate on a
-        # fixed 300-row subset (random_state=42) by default; set
-        # <DATASET>_ALL=true (FVQA_TEST_ALL, INFOSEEK_GDM_TEST_ALL,
-        # ENCYCLOPEDICVQA_TEST_ALL) for the full split.
-        if dataset in _DEFAULT_SUBSET_SPLITS:
-            env = f'{dataset.upper()}_ALL'
-            raw = os.environ.get(env, '').strip().lower()
-            if raw not in ('', 'true', 'false'):
-                raise ValueError(f"{env} must be 'true' or 'false' (unset = false); got {raw!r}")
-            if raw == 'true':
-                print(f"[{dataset}] {env}=true: keeping full {len(df)} rows")
-            elif len(df) > _DEFAULT_SUBSET_N:
-                before = len(df)
-                df = df.sample(n=_DEFAULT_SUBSET_N, random_state=42).reset_index(drop=True)
-                print(f"[{dataset}] default subset: {before} → {len(df)} rows (seed=42); {env}=true for all")
-        return df
+        return _apply_subset(df, dataset)
 
     # It returns a DataFrame
     # Needs an LLM judge (there is no exact-matching scorer); checked before inference.

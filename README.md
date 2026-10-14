@@ -312,6 +312,12 @@ unless `GLIP_ROOT` is set. The
 [preparation scripts](evaluation_kit/dataset/scripts) document how the released
 splits were built.
 
+`FVQA_test`, `Infoseek_GDM_test` and `EncyclopedicVQA_test` are the largest search
+benchmarks (1,800, 2,000 and 1,960 questions) and evaluate in full by default, as in
+the paper. `FVQA_TEST_SUBSET=300`, `INFOSEEK_GDM_TEST_SUBSET=300` and
+`ENCYCLOPEDICVQA_TEST_SUBSET=300` evaluate a fixed random subset instead (seed 42),
+a quick estimate of the full-split score at a fraction of the time and search cost.
+
 Benchmarks that need an LLM judge or answer extractor read it from `JUDGE_MODEL`,
 `JUDGE_API_BASE` (the full chat-completions URL) and `JUDGE_API_KEY` through
 [configs/judge.yaml](configs/judge.yaml); any OpenAI-compatible endpoint works. The
