@@ -770,7 +770,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
 # ---------------------------------------------------------------------------
 # MMSearch end2end LLM judge
 # ---------------------------------------------------------------------------
-# Default judge: shared HLE-style prompt (extract_final_answer + binary
+# HLE-style judge (``judge_prompt: hle``; the default is judge_vdr): shared prompt (extract_final_answer + binary
 # correct yes/no JSON, see ``utils/hle_judge.py``). Same prompt as the
 # other LLM-judge benchmarks in this project (mmsearch_plus, vdrbench,
 # hle, simplevqa_en, bcvl) so cross-benchmark numbers are directly

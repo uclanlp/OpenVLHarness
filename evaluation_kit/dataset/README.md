@@ -142,7 +142,7 @@ paper benchmarks are below; a few loaders read other flags (`use_verifier`, `ena
 
 | Key | Values | Read by |
 | --- | --- | --- |
-| `judge_prompt` | `judge_vdr` (default), `hle`, `judge_rs`; RealXBench, MMBrowseComp and VisBrowseBench also take their original judges `realxbench`, `mmbrowsecomp` and `vbb` | the search loaders; the `MMDR_JUDGE_PROMPT` environment variable overrides it |
+| `judge_prompt` | `judge_vdr` (default) and `judge_rs` on every search loader; `hle` on the others, while RealXBench, MMBrowseComp and VisBrowseBench take their original judges `realxbench`, `mmbrowsecomp` and `vbb` instead | the search loaders; the `MMDR_JUDGE_PROMPT` environment variable overrides it |
 | `judge_max_tokens` | output-token cap per judge call, default 2048; SimpleVQA's judge call sets no cap | `build_judge`, `resolve_judge_max_tokens` |
 | `score_mode` | `constant` or `original` | the grounding loaders |
 

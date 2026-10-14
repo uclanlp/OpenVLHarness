@@ -33,6 +33,7 @@ def test_unset_judge_variables_are_named(monkeypatch):
 def test_build_judge_passes_the_configured_model_through(monkeypatch):
     for name, value in JUDGE_ENV.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.delenv("LOCAL_LLM", raising=False)  # would replace the configured model
     captured = {}
 
     class Client:

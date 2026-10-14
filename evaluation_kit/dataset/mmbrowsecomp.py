@@ -588,7 +588,8 @@ class MMBrowseCompDataset(ImageBaseDataset):
         """LLM-as-a-judge using Judge_VDR (VDR paper contains-based protocol).
         Produces ONLY overall correctness — no checklist breakdown. Output
         files use the ``_judge_vdr`` suffix to keep results separate from the
-        default mmbrowsecomp checklist judge and from Judge_RS.
+        original mmbrowsecomp checklist judge and from Judge_RS. This is the
+        default judge.
         """
         from tqdm import tqdm
 

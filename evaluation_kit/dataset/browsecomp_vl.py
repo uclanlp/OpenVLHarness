@@ -452,14 +452,15 @@ class BrowseCompVLDataset(ImageBaseDataset):
         enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
         # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
         # the single source of truth; no per-evaluator default).
-        # Optional alternative judge protocol. Default = paper-protocol HLE.
-        # Override via judge_kwargs['judge_prompt'] = 'judge_rs' OR env
-        # MMDR_JUDGE_PROMPT=judge_rs. Filename suffix '_judge_rs' is added
-        # to scoring artifacts so HLE + Judge_RS results coexist in the
-        # same run dir without overwriting each other.
+        # Judge protocol: judge_vdr by default; 'hle' or 'judge_rs' via
+        # judge_kwargs['judge_prompt'] or env MMDR_JUDGE_PROMPT (env wins).
+        # Non-HLE prompts add a '_<prompt>' suffix to the scoring artifacts
+        # so results of different prompts coexist in one run dir.
+        # Pop unconditionally: a leftover judge_prompt would reach the API.
+        yaml_judge_prompt = judge_kwargs.pop('judge_prompt', None)
         judge_name = (
             os.environ.get('MMDR_JUDGE_PROMPT')
-            or judge_kwargs.pop('judge_prompt', None)
+            or yaml_judge_prompt
             or 'judge_vdr'
         ).lower()
         if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):

@@ -111,7 +111,7 @@ def _gt_with_alternatives(item):
 
 
 def HLE_style_auxeval(model, item):
-    """HLE-style binary judge for short-answer datasets (default for hle).
+    """HLE-style binary judge for short-answer datasets (``judge_prompt: hle``).
 
     Mirrors ShortQA_auxeval's interface (returns ``{hit: 0|1, log: str}``)
     but uses the shared HLE judge prompt + JSON-extracting parser, so

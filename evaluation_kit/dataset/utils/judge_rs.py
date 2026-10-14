@@ -10,9 +10,9 @@ are missing. ``JUDGE_RS_VERSION`` (v2) is written into score files; an
 earlier bare Yes/No variant (v1) is no longer shipped.
 
 The search evaluators select it with ``judge_kwargs['judge_prompt'] = 'judge_rs'``
-or the env var ``MMDR_JUDGE_PROMPT=judge_rs``. It is the default judge for
-FVQA, InfoSeek and EncyclopedicVQA; the other evaluators keep their own
-default prompts.
+or the env var ``MMDR_JUDGE_PROMPT=judge_rs``. It is the default judge for the
+train and validation splits of FVQA and InfoSeek; the search benchmarks default
+to ``judge_vdr``.
 """
 
 from __future__ import annotations

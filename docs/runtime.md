@@ -219,7 +219,7 @@ service; its timeout is fixed at 600 seconds. The auxiliary calls take only
 
 ### Environment variables
 
-The presets reference the placeholders in the first four rows. Every process
+The presets reference the placeholders in the rows read by `presets`. Every process
 that loads a preset (the router, the agent and `openvlharness-eval`) must define
 all of them, even those it does not use.
 

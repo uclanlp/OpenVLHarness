@@ -181,7 +181,7 @@ def _extract_answer(prediction: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM judge
 # ---------------------------------------------------------------------------
-# Default judge: HLE-style prompt (extract_final_answer + binary correct
+# HLE-style judge (``judge_prompt: hle``; the default is judge_vdr): prompt (extract_final_answer + binary correct
 # yes/no JSON). Same prompt used by hle / mmsearch / simplevqa / bcvl /
 # vdrbench so cross-benchmark numbers are directly comparable, and
 # WebWatcher-aligned for paper comparisons. See utils/hle_judge.py.

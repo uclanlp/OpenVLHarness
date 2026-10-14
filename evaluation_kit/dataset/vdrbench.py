@@ -162,7 +162,7 @@ def _extract_answer(prediction: str) -> str:
 # ---------------------------------------------------------------------------
 # LLM judge
 # ---------------------------------------------------------------------------
-# Default judge: HLE-style prompt (extract_final_answer + binary correct
+# HLE-style judge (``judge_prompt: hle``; the default is judge_vdr): prompt (extract_final_answer + binary correct
 # yes/no JSON, see ``utils/hle_judge.py``). Same prompt as hle / mmsearch
 # / mmsearch_plus / simplevqa / bcvl so cross-benchmark numbers are
 # directly comparable.

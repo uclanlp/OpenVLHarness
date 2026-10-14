@@ -124,8 +124,8 @@ def _decrypt(ciphertext_b64: str, password: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Primary judge — original VisBrowse-Bench paper protocol (yes/no semantic
-# equivalence). Default grader so reported numbers align with the paper.
+# Original VisBrowse-Bench protocol (yes/no semantic equivalence), selected
+# with judge_prompt 'vbb'; the default judge is judge_vdr.
 # Prompt + parser live in utils/visbrowse_bench_judge.py.
 # ---------------------------------------------------------------------------
 from .utils.visbrowse_bench_judge import (
@@ -489,10 +489,10 @@ class VisBrowseBenchDataset(ImageBaseDataset):
     REQUIRES_LLM_JUDGE = True
 
     def evaluate(self, eval_file, **judge_kwargs):
-        """Evaluate predictions with the original VisBrowse-Bench judge.
+        """Evaluate predictions with the selected judge (judge_vdr by default).
 
-        The primary grader is the upstream ``eval.py`` semantic-yes/no
-        judge — reports align with the paper. Setting ``enable_vdr_aux:
+        ``judge_prompt: vbb`` selects the upstream ``eval.py`` semantic-yes/no
+        judge. Setting ``enable_vdr_aux:
         true`` in the judge config additionally runs a VDR-style
         contains-based grader and saves a separate ``_vbb_vdr.json``
         side-output; the primary accuracy is not overridden.

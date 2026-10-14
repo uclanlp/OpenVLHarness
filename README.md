@@ -330,6 +330,10 @@ export JUDGE_API_BASE=https://api.openai.com/v1/chat/completions
 export JUDGE_API_KEY=$OPENAI_API_KEY
 ```
 
+One judge serves every dataset of an invocation, so evaluate the search benchmarks in a
+separate `openvlharness-eval` run from the others, or re-score a finished run with
+`--mode eval --run-dir <run> --judge-config configs/judge.yaml` after switching the variables.
+
 <details>
 <summary>Grounding confidence scores</summary>
 
