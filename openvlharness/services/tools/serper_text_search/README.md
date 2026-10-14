@@ -1,7 +1,11 @@
 # Search and webpage services
 
 The router hosts the Serper wrappers; they contact external search/scrape APIs
-and a configured auxiliary language model. The official paper configuration
+and a configured auxiliary language model. [Serper](https://serper.dev) is a
+hosted Google Search API: `Text_Search_Tool` uses its search endpoints,
+`Image_Search_Tool` its Google Lens endpoint, and `Webpage_Visit_Tool` its
+page scraper. Reverse image search also needs somewhere to publish the query
+image (see below). The official paper configuration
 uses Qwen3-VL-8B-Instruct for **multimodal** search summarization independently
 of the main GPT or Qwen backbone.
 

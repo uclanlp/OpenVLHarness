@@ -163,14 +163,25 @@ To run all nine capabilities, prepare these services before starting the agent:
 - **Models:** serve Qwen locally or connect to a GPT or Kimi endpoint, following
   the [model setup guide](docs/models.md). Every preset also needs a
   Qwen3-VL-8B-Instruct endpoint for search tools; the 8B preset can share it with
-  the main model, while the 32B preset needs a second server for it. The
-  guide includes the tested model revision, serving versions, and GPU configuration.
+  the main model, while the 32B preset needs a second server for it. Sharing one
+  server is the simplest deployment and scores within run-to-run noise of the
+  paper setup; its cost is throughput, since search summarization and webpage
+  extraction queue behind agent turns on the same GPU. To reproduce the paper
+  exactly, or to keep agent throughput at higher concurrency, serve a second
+  Qwen3-VL-8B instance and point `AUXILIARY_MODEL_BASE_URL` at it. The guide
+  includes the tested model revision, serving versions, and GPU configuration.
 - **Perception:** launch SAM 3, PaddleOCR-VL, and Depth Anything 3 using the
   [tool service guide](openvlharness/services/tools/README.md). These run as
   separate GPU services behind the router.
-- **Search:** configure a Serper key using `SERPER_API_KEY` or
-  `SERPER_API_KEY_FILE`. Reverse image search additionally needs a GCS or S3
-  bucket for image uploads. Follow the
+- **Search:** the three search tools call [Serper](https://serper.dev), a paid
+  Google Search API with a free starter quota: web/image/news search, Google
+  Lens reverse image search, and page scraping for webpage visits. Configure
+  its key using `SERPER_API_KEY` or `SERPER_API_KEY_FILE`. Reverse image search
+  additionally needs a URL Serper can fetch for the query image: either the
+  built-in image host behind a tunnel (no cloud account) or an
+  [Amazon S3](https://aws.amazon.com/s3/) or
+  [Google Cloud Storage](https://cloud.google.com/storage) bucket, where the
+  image is uploaded and handed to Serper as a signed URL. Follow the
   [search and storage setup](openvlharness/services/tools/serper_text_search/README.md).
 
 For the local Qwen setup, set these variables in both the router and agent
@@ -208,8 +219,12 @@ curl --fail http://127.0.0.1:8101/backend-status
 ```
 
 These checks only show that the router is up, how many tools it registered, and its
-concurrency limits. Unreachable GPU workers, missing Serper keys and missing bucket
-credentials surface on the first call to the affected tool.
+concurrency limits. Unreachable GPU workers, missing Serper keys and missing image
+hosting settings surface on the first call to the affected tool. `/backend-status`
+also reports `degradations`: counts of search calls that fell back to raw provider
+results because the auxiliary model timed out or returned unusable output. A
+healthy router keeps these at zero; the same events are logged with the token
+`SUMMARIZE_DEGRADED`.
 
 Then ask a question from Python:
 
@@ -406,7 +421,7 @@ can support.
 | `ocr` | A PaddleOCR-VL GPU worker |
 | `depth`, `camera_pose` | A shared Depth Anything 3 GPU worker |
 | `text_search`, `web_visit` | A funded **Serper** API key and the auxiliary Qwen model endpoint |
-| `image_search` | Serper and auxiliary Qwen, plus an **Amazon S3 or Google Cloud Storage bucket** and upload/signing credentials |
+| `image_search` | Serper and auxiliary Qwen, plus a public URL for the query image: the built-in image host behind a tunnel, or an **Amazon S3 or Google Cloud Storage bucket** with upload/signing credentials |
 | `zoom` | CPU image processing in the router; no external API or GPU worker |
 | `coding` | The orchestrator model endpoint for code generation and local CPU Python execution |
 
@@ -416,7 +431,7 @@ these perception workers; a hosted main model still needs auxiliary Qwen when
 the search capabilities are enabled. See the [model](docs/models.md) and
 [tool deployment](openvlharness/services/tools/README.md) guides.
 
-Only reverse image search needs the upload bucket. Text search, including its
+Only reverse image search needs image hosting. Text search, including its
 image-search mode, and webpage visits do not. Configure `SERPER_API_KEY` or
 `SERPER_API_KEY_FILE` in the router environment, and follow the
 [S3/GCS credential instructions](openvlharness/services/tools/serper_text_search/README.md#credentials-and-reverse-image-upload)
@@ -425,7 +440,7 @@ when enabling `image_search`.
 ### Disable capabilities you do not need
 
 1. Remove the corresponding keys from `capabilities.tools`. For example, remove
-   `image_search` to avoid the bucket requirement; remove `text_search`,
+   `image_search` to avoid the image-hosting requirement; remove `text_search`,
    `image_search`, and `web_visit` to disable Serper-backed tools altogether.
    Remove `grounding`, `ocr`, `depth`, and `camera_pose` to omit the GPU perception
    workers. Both depth and camera capabilities must be removed to stop needing DA3.
