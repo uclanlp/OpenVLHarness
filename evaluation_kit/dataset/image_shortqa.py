@@ -215,10 +215,9 @@ class ImageShortQADataset(ImageBaseDataset):
         data['prediction'] = [str(x) for x in data['prediction']]
         data['answer'] = [str(x) for x in data['answer']]
 
-        # Pop MMSearch-specific keys that would otherwise be forwarded to
+        # Pop the keys that would otherwise be forwarded to
         # OpenAIWrapper.generate_inner and into the request body, where OpenAI
-        # returns 400 on unrecognized fields. Same bug as browsecomp_vl.py
-        # and livevqa.py had; fix mirrors those.
+        # returns 400 on unrecognized fields.
         judge_kwargs = dict(judge_kwargs)
         nproc = judge_kwargs.pop('nproc', 4)
         judge_kwargs.pop('enable_llm_judge', None)
@@ -248,8 +247,7 @@ class ImageShortQADataset(ImageBaseDataset):
         tmp_file = get_intermediate_file_path(eval_file, tmp_stem, 'pkl')
         judge_model = judge_kwargs.get('model', 'gpt-4o-mini')
         guard_cache(storage, data, judge_model, prompt=judge_name, keyed=False)
-        # With g_index the tmp file is keyed by question group, not by row.
-        guard_cache(tmp_file, data, judge_model, prompt=judge_name, keyed='g_index' not in data)
+        guard_cache(tmp_file, data, judge_model, prompt=judge_name, keyed=True)
 
         if not osp.exists(storage):
             ans_map = {} if not osp.exists(tmp_file) else load(tmp_file)
@@ -264,18 +262,10 @@ class ImageShortQADataset(ImageBaseDataset):
                 )
 
             if model is not None:
-                if 'g_index' not in data:
-                    lines = [data.iloc[i] for i in range(len(data))]
-                    indices = [x['index'] for x in lines if x['index'] not in ans_map]
-                    lines = [x for x in lines if x['index'] not in ans_map]
-                    tups = [(model, line) for line in lines]
-                else:
-                    main_data = data[[x == y for x, y in zip(data['index'], data['g_index'])]]
-                    lines = [data[data['g_index'] == x] for x in main_data['index']]
-                    indices = [x.iloc[0]['g_index'] for x in lines if x.iloc[0]['g_index'] not in ans_map]
-                    lines = [x for x in lines if x.iloc[0]['g_index'] not in ans_map]
-                    tups = [(model, x) for x in lines]
-                    data = main_data
+                lines = [data.iloc[i] for i in range(len(data))]
+                indices = [x['index'] for x in lines if x['index'] not in ans_map]
+                lines = [x for x in lines if x['index'] not in ans_map]
+                tups = [(model, line) for line in lines]
 
                 if len(lines):
                     if judge_name == 'judge_rs':
