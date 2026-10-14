@@ -1,6 +1,8 @@
-judge_config_version: v1_0215
-model_name: Qwen/Qwen3-VL-8B-Instruct
-api_base: http://localhost:8222/v1/chat/completions
-key: empty
+# Judge and answer extractor. The paper judged with Qwen3-VL-8B-Instruct, and with
+# GPT-4o on the search and deep-research benchmarks (set the variables accordingly).
+judge_config_version: paper_v1
+model_name: ${JUDGE_MODEL}
+api_base: ${JUDGE_API_BASE}
+key: ${JUDGE_API_KEY}
 retry: 3
 nproc: 4

@@ -122,7 +122,8 @@ def test_mmbrowsecomp_judge_accepts_chat_completions_url(tmp_path, monkeypatch, 
     monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
     rows = {"index": [0], "question": ["Question: q"], "answer": ["a"], "prediction": ["a"]}
     result = evaluator("MMBrowseComp").evaluate(
-        prediction_file(tmp_path, "MMBrowseComp", rows), model="judge", key="k", api_base=api_base)
+        prediction_file(tmp_path, "MMBrowseComp", rows), model="judge", key="k", api_base=api_base,
+        judge_prompt="mmbrowsecomp")
     assert base_urls == ["http://judge.test/v1"]
     assert result["Overall"].iloc[0] == 100.0
 

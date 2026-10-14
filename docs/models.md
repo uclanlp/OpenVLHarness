@@ -204,6 +204,9 @@ export MODEL_BASE_URL=http://127.0.0.1:8222/v1
 export MODEL_API_KEY=empty
 export AUXILIARY_MODEL_BASE_URL=http://127.0.0.1:8222/v1
 export AUXILIARY_MODEL_API_KEY=empty
+export JUDGE_MODEL=Qwen/Qwen3-VL-8B-Instruct
+export JUDGE_API_BASE=http://127.0.0.1:8222/v1/chat/completions
+export JUDGE_API_KEY=empty
 ```
 
 For the GPT presets, keep the auxiliary variables pointing to Qwen and set:

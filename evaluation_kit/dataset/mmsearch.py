@@ -636,8 +636,8 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     other datasets (e.g. MathVista in image_vqa.py).
 
     Judge prompt is selected by env var ``MMDR_JUDGE_PROMPT`` or
-    ``judge_kwargs['judge_prompt']``: ``'hle'`` (default) | ``'judge_rs'`` |
-    ``'judge_vdr'``. Cache + score files are suffixed with ``_judge_rs`` /
+    ``judge_kwargs['judge_prompt']``: ``'judge_vdr'`` (default) | ``'hle'`` |
+    ``'judge_rs'``. Cache + score files are suffixed with ``_judge_rs`` /
     ``_judge_vdr`` when those variants are active so the three results
     coexist on the same run dir.
     """
@@ -652,11 +652,11 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
     # Yaml is the single source of truth; do NOT introduce a per-evaluator
     # default here.
 
-    # Judge prompt selection: env var > judge_kwargs > default 'hle'
+    # Judge prompt selection: env var > judge_kwargs > default 'judge_vdr'
     judge_name = (
         os.environ.get('MMDR_JUDGE_PROMPT')
         or judge_kwargs_local.pop('judge_prompt', None)
-        or 'hle'
+        or 'judge_vdr'
     ).strip().lower()
     if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
         raise ValueError(
@@ -770,7 +770,7 @@ def _run_mmsearch_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Di
 # ---------------------------------------------------------------------------
 # MMSearch end2end LLM judge
 # ---------------------------------------------------------------------------
-# Default judge: shared HLE-style prompt (extract_final_answer + binary
+# HLE-style judge (``judge_prompt: hle``; the default is judge_vdr): shared prompt (extract_final_answer + binary
 # correct yes/no JSON, see ``utils/hle_judge.py``). Same prompt as the
 # other LLM-judge benchmarks in this project (mmsearch_plus, vdrbench,
 # hle, simplevqa_en, bcvl) so cross-benchmark numbers are directly
@@ -839,8 +839,7 @@ def _mmsearch_judge_one(judge, row) -> Dict[str, Any]:
 
 # Judge_RS variant: same row signature, but uses the multimodal-search-r1
 # judge prompt (system + user as separate roles) and the v2 XML output
-# parser. Switched in via env var MMDR_JUDGE_PROMPT=judge_rs (per-call,
-# NOT a global default — HLE remains the default judge for MMSearch).
+# parser. Selected via env var MMDR_JUDGE_PROMPT=judge_rs.
 from .utils.judge_rs import (
     JUDGE_RS_SYSTEM_PROMPT, JUDGE_RS_USER_PROMPT, parse_judge_rs_judgement,
 )
@@ -906,9 +905,7 @@ def _mmsearch_judge_one_judge_rs(judge, row) -> Dict[str, Any]:
         return {"verdict": "error", "raw_response": f"exception: {exc}"}
 
 
-# Optional alternate judge — VDR paper "contains-based" binary judge.
-# Switched in via env MMDR_JUDGE_PROMPT=judge_vdr (per-call, NOT a global
-# default — HLE remains MMSearch's default).
+# VDR paper "contains-based" binary judge, the default judge.
 from .utils.judge_vdr import JUDGE_VDR_PROMPT, parse_judge_vdr_judgement
 
 

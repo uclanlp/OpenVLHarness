@@ -45,6 +45,21 @@ def _expand(value, missing, path=""):
     return value
 
 
+def expand_environment(config, *, label, source="", hint=""):
+    """Return a copy of a configuration with ${NAME} placeholders resolved from the environment.
+
+    Raises ValueError naming every unset variable and the keys that reference it.
+    """
+    missing = {}
+    config = _expand(copy.deepcopy(config), missing)
+    if missing:
+        listed = ", ".join(f"{name} ({', '.join(paths)})" for name, paths in missing.items())
+        plural = len(missing) > 1
+        raise ValueError(f"Missing environment variable{'s' if plural else ''} required by {label}"
+                         f"{source}: {listed}. Set {'them' if plural else 'it'} as in the README quick start{hint}.")
+    return config
+
+
 def load_agent_config(config, *, save_raw_trace=False):
     """Load, expand and validate an agent-system configuration.
 
@@ -68,14 +83,8 @@ def load_agent_config(config, *, save_raw_trace=False):
     if source:
         with open(config) as stream:
             config = yaml.safe_load(stream)
-    missing = {}
-    config = _expand(copy.deepcopy(config), missing)
-    if missing:
-        listed = ", ".join(f"{name} ({', '.join(paths)})" for name, paths in missing.items())
-        plural = len(missing) > 1
-        raise ValueError(f"Missing environment variable{'s' if plural else ''} required by agent configuration"
-                         f"{source}: {listed}. Set {'them' if plural else 'it'} as in the README quick start, "
-                         "or remove unused capabilities and services.")
+    config = expand_environment(config, label="agent configuration", source=source,
+                                hint=", or remove unused capabilities and services")
     if not isinstance(config, dict) or config.get("agent_name") != "MainAgent":
         raise ValueError("Use the OpenVLHarness agent-system format with agent_name: MainAgent")
     allowed = {"agent_name", "agent_config_version", "agent", "memory", "capabilities", "services"}

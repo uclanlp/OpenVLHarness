@@ -1,8 +1,8 @@
 """VisBrowse-Bench paper-protocol LLM judge prompt + parser.
 
 Direct port of the upstream VisBrowse-Bench ``eval.py`` judge: a minimal
-yes/no semantic-equivalence grader. This is the *default* judge for our
-VBB benchmark so reported numbers align with the paper.
+yes/no semantic-equivalence grader, selected with ``judge_prompt: vbb``
+(VisBrowseBench defaults to ``judge_vdr``).
 
 Output is a free-form response containing the first ``yes`` or ``no``
 token; the parser scans for ``\\b(yes|no)\\b`` (case-insensitive) and

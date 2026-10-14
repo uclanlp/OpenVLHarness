@@ -111,7 +111,7 @@ def _gt_with_alternatives(item):
 
 
 def HLE_style_auxeval(model, item):
-    """HLE-style binary judge for short-answer datasets (default for hle).
+    """HLE-style binary judge for short-answer datasets (``judge_prompt: hle``).
 
     Mirrors ShortQA_auxeval's interface (returns ``{hit: 0|1, log: str}``)
     but uses the shared HLE judge prompt + JSON-extracting parser, so
@@ -178,8 +178,8 @@ def Judge_RS_auxeval(model, item):
 def Judge_VDR_auxeval(model, item):
     """Judge_VDR variant of ``HLE_style_auxeval`` (VDR paper contains-based
     judge, plain-text output). Returns the same ``{hit, log}`` shape so
-    downstream aggregation is drop-in compatible. Opt-in via env
-    ``MMDR_JUDGE_PROMPT=judge_vdr``.
+    downstream aggregation is drop-in compatible. The default judge of the
+    evaluation splits.
     """
     from .utils.judge_vdr import grade_with_judge_vdr
 
@@ -276,10 +276,6 @@ def _restore_literal_na_answers(df, source, cols=('answer',)):
             df[col] = df[col].astype(object)
             df.loc[restored.index, col] = restored
     return df
-
-
-_DEFAULT_SUBSET_SPLITS = ('FVQA_test', 'Infoseek_GDM_test', 'EncyclopedicVQA_test')
-_DEFAULT_SUBSET_N = 300
 
 
 def _write_test_mini(lmu_root: str, full_name: str, mini_name: str,
@@ -682,6 +678,11 @@ class ImageShortQADataset(ImageBaseDataset):
         # extracts images from iNat2021 / GoogleLandmarksV2 tars under the
         # MMDR_EVQA_DATA_ROOT directory (default {LMUData}/../train/).
         'EncyclopedicVQA_test': '',
+        # Fixed 300-question subsets of the three test splits above, hosted on the
+        # OpenVLHarness eval repo, for a quick estimate of the full-split score.
+        'FVQA_test_300': '',
+        'Infoseek_GDM_test_300': '',
+        'EncyclopedicVQA_test_300': '',
         # EVQA val = all 2950 val rows (no sampling). Inference + future
         # experience-learning use. Test (2000 subset) stays the eval split.
         # Same image-resolution path as EncyclopedicVQA_test.
@@ -767,21 +768,6 @@ class ImageShortQADataset(ImageBaseDataset):
                 df = df[df['category'].astype(str).str.lower() == cat].reset_index(drop=True)
                 print(f"[FVQA_train] FVQA_CATEGORY={cat}: filtered {before} → {len(df)} rows")
 
-        # FVQA_test / Infoseek_GDM_test / EncyclopedicVQA_test evaluate on a
-        # fixed 300-row subset (random_state=42) by default; set
-        # <DATASET>_ALL=true (FVQA_TEST_ALL, INFOSEEK_GDM_TEST_ALL,
-        # ENCYCLOPEDICVQA_TEST_ALL) for the full split.
-        if dataset in _DEFAULT_SUBSET_SPLITS:
-            env = f'{dataset.upper()}_ALL'
-            raw = os.environ.get(env, '').strip().lower()
-            if raw not in ('', 'true', 'false'):
-                raise ValueError(f"{env} must be 'true' or 'false' (unset = false); got {raw!r}")
-            if raw == 'true':
-                print(f"[{dataset}] {env}=true: keeping full {len(df)} rows")
-            elif len(df) > _DEFAULT_SUBSET_N:
-                before = len(df)
-                df = df.sample(n=_DEFAULT_SUBSET_N, random_state=42).reset_index(drop=True)
-                print(f"[{dataset}] default subset: {before} → {len(df)} rows (seed=42); {env}=true for all")
         return df
 
     # It returns a DataFrame
@@ -812,21 +798,25 @@ class ImageShortQADataset(ImageBaseDataset):
         # {hle, judge_rs, judge_vdr} switch; everything else falls back
         # to Comprehensive_auxeval (ShortQA prompt) regardless.
         _DATASET_DEFAULT_JUDGE = {
-            'hle': 'hle',
-            'FVQA_train': 'judge_rs',  # FVQA uses judge_rs (MMSearch-R1 paper protocol) by default
-            'FVQA_test':  'judge_rs',
-            # InfoSeek_GDM: short-answer factoid (entity names, place names, numbers etc.)
-            # — same family as FVQA. Default to judge_rs (semantic short-answer match)
-            # since strict contains-based judge_vdr would miss many paraphrases.
+            # Evaluation splits use judge_vdr like the other search benchmarks; 'hle' and
+            # 'judge_rs' (the HLE and MMSearch-R1 protocols) remain selectable.
+            # Train/val splits keep judge_rs.
+            'hle': 'judge_vdr',
+            'FVQA_train': 'judge_rs',
+            'FVQA_test':  'judge_vdr',
             'Infoseek_GDM_val':            'judge_rs',
-            'Infoseek_GDM_test':           'judge_rs',
-            'EncyclopedicVQA_test':        'judge_rs',
+            'Infoseek_GDM_test':           'judge_vdr',
+            'EncyclopedicVQA_test':        'judge_vdr',
+            'FVQA_test_300':               'judge_vdr',
+            'Infoseek_GDM_test_300':       'judge_vdr',
+            'EncyclopedicVQA_test_300':    'judge_vdr',
             'EncyclopedicVQA_val':         'judge_rs',
             # 300-sample mini variants inherit underlying default
             'FVQA_train_mini':             'judge_rs',
             'EncyclopedicVQA_val_mini':    'judge_rs',
         }
-        _HLE_FAMILY_DATASETS = {'hle', 'FVQA_train', 'FVQA_test',
+        _HLE_FAMILY_DATASETS = {'hle', 'FVQA_train', 'FVQA_test', 'FVQA_test_300',
+                                'Infoseek_GDM_test_300', 'EncyclopedicVQA_test_300',
                                 'Infoseek_GDM_val',
                                 'Infoseek_GDM_test',
                                 'EncyclopedicVQA_test', 'EncyclopedicVQA_val',
@@ -889,8 +879,8 @@ class ImageShortQADataset(ImageBaseDataset):
                     # For datasets in _HLE_FAMILY_DATASETS (hle, FVQA_train,
                     # FVQA_test): support the 3-way judge switch
                     # {hle, judge_rs, judge_vdr}. Per-dataset default lives
-                    # in _DATASET_DEFAULT_JUDGE above (FVQA → judge_rs,
-                    # hle → hle). Env MMDR_JUDGE_PROMPT or
+                    # in _DATASET_DEFAULT_JUDGE above (evaluation splits →
+                    # judge_vdr, train/val → judge_rs). Env MMDR_JUDGE_PROMPT or
                     # judge_kwargs['judge_prompt'] overrides per call.
                     #
                     # All other ImageShortQA datasets (LiveMMBench_*,

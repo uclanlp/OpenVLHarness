@@ -50,6 +50,9 @@ HF_SPLITS = {
     'FVQA_test': 'FVQA',
     'Infoseek_GDM_test': 'Infoseek_GDM',
     'EncyclopedicVQA_test': 'EncyclopedicVQA',
+    'FVQA_test_300': 'FVQA',
+    'Infoseek_GDM_test_300': 'Infoseek_GDM',
+    'EncyclopedicVQA_test_300': 'EncyclopedicVQA',
     'MMSearch': 'MMSearch',
     'MMSearchPlus': 'MMSearchPlus',
     'hle': 'HLE',
@@ -60,7 +63,7 @@ HF_SPLITS = {
     'VisBrowseBench': 'VisBrowseBench',
     'SimpleVQA': 'SimpleVQA',
     'SimpleVQA_EN': 'SimpleVQA',
-    'WorldVQA_VDR300': 'WorldVQA',
+    'WorldVQA_300': 'WorldVQA',
 }
 
 # MD5 of each hosted TSV (printed by build_hf_release).
@@ -78,6 +81,9 @@ HF_DATASET_MD5 = {
     'FVQA_test': '74c81f819890526042102701cb538c77',
     'Infoseek_GDM_test': 'e1aedfd8d6ac8b0af665ed611cf3cc73',
     'EncyclopedicVQA_test': 'defa1c8d92362a9895a661e048af0587',
+    'FVQA_test_300': '7655e2cdd2da05965ad64a2d8674fe86',
+    'Infoseek_GDM_test_300': '859765d5967e4030853284bb79019fc8',
+    'EncyclopedicVQA_test_300': 'dcae0e8fafc034588fc69dee08cad775',
     'MMSearch': '7b69f9c912f32a668228a943f1cb06ef',
     'MMSearchPlus': '042d455af098d0b556307c6c63360c46',
     'hle': 'bf6120b926904d7752f0ff2eca88636b',
@@ -88,7 +94,7 @@ HF_DATASET_MD5 = {
     'VisBrowseBench': '08ee00f73d9bf0d06629ac3e7258b549',
     'SimpleVQA': '87a55db6b42507a80f11e8e1c84c190f',
     'SimpleVQA_EN': '198c569fd852a95cb0fd830cf6e9d650',
-    'WorldVQA_VDR300': 'adaf33776d1b16f77782032d989a2a36',
+    'WorldVQA_300': 'adaf33776d1b16f77782032d989a2a36',
 }
 
 

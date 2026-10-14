@@ -288,6 +288,12 @@ def _check_datasets(names):
         sys.exit(f"Unknown dataset {name}.{suggestion} See the README 'Datasets and scoring' table.")
 
 
+def _load_judge_mapping(path):
+    """Parse a judge YAML and resolve its ${NAME} placeholders from the environment."""
+    return bootstrap.expand_environment(parse_yaml_mapping(path, label="Judge config"),
+                                        label="judge configuration", source=f" {path}")
+
+
 def _check_judge(names, judge_kwargs):
     """Exit before inference when a benchmark needs an LLM judge and the judge config has none."""
     from evaluation_kit.dataset.utils.judge_cache import require_judge_for
@@ -402,7 +408,7 @@ def main(argv=None):
         run_id = run_manifest["run_id"]
         agent_config_version = run_manifest["agent_config_version"]
         try:
-            judge_config = (parse_yaml_mapping(args.judge_config, label="Judge config") if args.judge_config
+            judge_config = (_load_judge_mapping(args.judge_config) if args.judge_config
                             else run_manifest["config_snapshot_redacted"]["judge"])
             judge_config_version = require_config_version(judge_config, field_name="judge_config_version", label="Judge config")
             judge_kwargs = load_judge_config(judge_config)
@@ -426,7 +432,7 @@ def main(argv=None):
         args.judge_config = args.judge_config or "configs/judge.yaml"
         try:
             agent_config = bootstrap.load_agent_config(args.config, save_raw_trace=args.save_raw_trace)
-            judge_config = parse_yaml_mapping(args.judge_config, label="Judge config")
+            judge_config = _load_judge_mapping(args.judge_config)
             agent_config_version = require_config_version(
                 agent_config,
                 field_name="agent_config_version",
@@ -437,7 +443,7 @@ def main(argv=None):
                 field_name="judge_config_version",
                 label="Judge config",
             )
-            judge_kwargs = load_judge_config(args.judge_config)
+            judge_kwargs = load_judge_config(judge_config)
         except (ValueError, OSError) as exc:
             sys.exit(f"error: {exc}")
         if args.mode == "all":

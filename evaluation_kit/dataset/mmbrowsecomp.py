@@ -315,10 +315,11 @@ class MMBrowseCompDataset(ImageBaseDataset):
 
         Judge selection (via env var ``MMDR_JUDGE_PROMPT`` or
         ``judge_kwargs['judge_prompt']``):
-          - default: paper-protocol ``mmbrowsecomp`` checklist judge
-          - ``'judge_rs'``: multimodal-search-r1 binary judge (no
-            checklist; only overall correctness). Score files are
-            suffixed with ``_judge_rs`` to coexist with the default.
+          - default: ``'judge_vdr'`` (overall correctness only)
+          - ``'mmbrowsecomp'``: the MM-BrowseComp paper checklist judge
+          - ``'judge_rs'``: multimodal-search-r1 binary judge (overall
+            correctness only)
+        Score files are suffixed with the judge name, except for ``mmbrowsecomp``.
         """
         if judge_kwargs.get('use_exact_match', False):
             return self._evaluate_exact_match(eval_file, **judge_kwargs)
@@ -327,7 +328,7 @@ class MMBrowseCompDataset(ImageBaseDataset):
         judge_name = (
             os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.get('judge_prompt', None)
-            or 'mmbrowsecomp'
+            or 'judge_vdr'
         ).strip().lower()
         if judge_name not in ('mmbrowsecomp', 'judge_rs', 'judge_vdr'):
             raise ValueError(
@@ -587,7 +588,8 @@ class MMBrowseCompDataset(ImageBaseDataset):
         """LLM-as-a-judge using Judge_VDR (VDR paper contains-based protocol).
         Produces ONLY overall correctness — no checklist breakdown. Output
         files use the ``_judge_vdr`` suffix to keep results separate from the
-        default mmbrowsecomp checklist judge and from Judge_RS.
+        original mmbrowsecomp checklist judge and from Judge_RS. This is the
+        default judge.
         """
         from tqdm import tqdm
 

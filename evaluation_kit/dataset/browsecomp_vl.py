@@ -216,12 +216,12 @@ def _grade_item(model, item, judge_name: str = 'hle'):
     """Grade a single prediction using the selected judge protocol.
 
     ``judge_name`` selects the judge prompt + parser:
-      - ``'hle'`` (default): paper-protocol HLE_JUDGE_PROMPT (extract +
+      - ``'judge_vdr'`` (default): VDR paper contains-based judge (plain-text output).
+      - ``'hle'``: paper-protocol HLE_JUDGE_PROMPT (extract +
         binary correct yes/no JSON). Reported numbers match the
         BrowseComp-VL paper.
       - ``'judge_rs'``: MMSearch-R1 paper judge (10-rule, XML output).
         For exploratory comparison.
-      - ``'judge_vdr'``: VDR paper contains-based judge (plain-text output).
 
     Returns a dict with keys: correct (1 or 0), extracted_answer, reasoning.
     """
@@ -452,20 +452,21 @@ class BrowseCompVLDataset(ImageBaseDataset):
         enable_vdr_aux = bool(judge_kwargs.pop('enable_vdr_aux', False))
         # ``judge_max_tokens`` is consumed centrally in build_judge() (yaml is
         # the single source of truth; no per-evaluator default).
-        # Optional alternative judge protocol. Default = paper-protocol HLE.
-        # Override via judge_kwargs['judge_prompt'] = 'judge_rs' OR env
-        # MMDR_JUDGE_PROMPT=judge_rs. Filename suffix '_judge_rs' is added
-        # to scoring artifacts so HLE + Judge_RS results coexist in the
-        # same run dir without overwriting each other.
+        # Judge protocol: judge_vdr by default; 'hle' or 'judge_rs' via
+        # judge_kwargs['judge_prompt'] or env MMDR_JUDGE_PROMPT (env wins).
+        # Non-HLE prompts add a '_<prompt>' suffix to the scoring artifacts
+        # so results of different prompts coexist in one run dir.
+        # Pop unconditionally: a leftover judge_prompt would reach the API.
+        yaml_judge_prompt = judge_kwargs.pop('judge_prompt', None)
         judge_name = (
             os.environ.get('MMDR_JUDGE_PROMPT')
-            or judge_kwargs.pop('judge_prompt', None)
-            or 'hle'
+            or yaml_judge_prompt
+            or 'judge_vdr'
         ).lower()
         if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
             raise ValueError(
                 f"Unknown judge_prompt {judge_name!r}; "
-                f"supported: 'hle' (default), 'judge_rs', 'judge_vdr'"
+                f"supported: 'judge_vdr' (default), 'hle', 'judge_rs'"
             )
         judge_suffix = '' if judge_name == 'hle' else f'_{judge_name}'
         judge_model = judge_kwargs.get('model')

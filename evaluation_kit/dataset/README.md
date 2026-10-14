@@ -21,12 +21,12 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | `FSCD_LVIS_bbox_val` | `FSCDLVISBBoxDataset` | `fscd.py` | 1,181 | box AP | none |
 | `ODinW13_bbox_val_qwen3` | `ODinWBBoxDataset` | `odinw.py` | 4,938 | box AP, mean of 13 domains | none |
 | *Multimodal search and deep research* | | | | | |
-| `MMSearch` | `MMSearchEnd2End` | `mmsearch.py` | 171 | judged accuracy | judge (`hle`) |
-| `MMSearchPlus` | `MMSearchPlus` | `mmsearch_plus.py` | 311 | judged accuracy | judge (`hle`) |
-| `RealXBench` | `RealXBench` | `realxbench.py` | 194 | judged accuracy | judge (`realxbench`) |
-| `FVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 300 of 1,800 | judged accuracy | judge (`judge_rs`) |
-| `hle` | `ImageShortQADataset` | `image_shortqa.py` | 330 | judged accuracy | judge (`hle`) |
-| `BrowseCompVL` | `BrowseCompVLDataset` | `browsecomp_vl.py` | 399 | judged accuracy | judge (`hle`) |
+| `MMSearch` | `MMSearchEnd2End` | `mmsearch.py` | 171 | judged accuracy | judge (`judge_vdr`) |
+| `MMSearchPlus` | `MMSearchPlus` | `mmsearch_plus.py` | 311 | judged accuracy | judge (`judge_vdr`) |
+| `RealXBench` | `RealXBench` | `realxbench.py` | 194 | judged accuracy | judge (`judge_vdr`) |
+| `FVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 1,800 | judged accuracy | judge (`judge_vdr`) |
+| `hle` | `ImageShortQADataset` | `image_shortqa.py` | 330 | judged accuracy | judge (`judge_vdr`) |
+| `BrowseCompVL` | `BrowseCompVLDataset` | `browsecomp_vl.py` | 399 | judged accuracy | judge (`judge_vdr`) |
 | *General VQA and hallucination* | | | | | |
 | `RealWorldQA` | `ImageMCQDataset` | `image_mcq.py` | 765 | option accuracy | fallback extractor |
 | `SimpleVQA` | `SimpleVQA` | `simplevqa.py` | 2,025 | share graded correct | judge (`COMPARE_ANSWER_PROMPT`) |
@@ -41,11 +41,12 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
 | `SparBench_tiny` | `SparBench` | `sparbench.py` | 1,000 | mean of 20 task scores (accuracy or MRA) | optional grader |
 | `MindCubeBench_tiny_raw_qa` | `MindCubeBench` | `mindcubebench.py` | 1,040 | option accuracy | optional grader |
 | *Extended search (appendix)* | | | | | |
-| `MMBrowseComp` | `MMBrowseCompDataset` | `mmbrowsecomp.py` | 243 | judged accuracy | judge (`mmbrowsecomp`) |
-| `VDRBench` | `VDRBench` | `vdrbench.py` | 500 | judged accuracy | judge (`hle`) |
-| `VisBrowseBench` | `VisBrowseBenchDataset` | `visbrowse_bench.py` | 169 | judged accuracy | judge (`vbb`) |
-| `Infoseek_GDM_test` | `ImageShortQADataset` | `image_shortqa.py` | 300 of 2,000 | judged accuracy | judge (`judge_rs`) |
-| `EncyclopedicVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 300 of 1,960 | judged accuracy | judge (`judge_rs`) |
+| `MMBrowseComp` | `MMBrowseCompDataset` | `mmbrowsecomp.py` | 243 | judged accuracy | judge (`judge_vdr`) |
+| `VDRBench` | `VDRBench` | `vdrbench.py` | 500 | judged accuracy | judge (`judge_vdr`) |
+| `VisBrowseBench` | `VisBrowseBenchDataset` | `visbrowse_bench.py` | 169 | judged accuracy | judge (`judge_vdr`) |
+| `Infoseek_GDM_test` | `ImageShortQADataset` | `image_shortqa.py` | 2,000 | judged accuracy | judge (`judge_vdr`) |
+| `EncyclopedicVQA_test` | `ImageShortQADataset` | `image_shortqa.py` | 1,960 | judged accuracy | judge (`judge_vdr`) |
+| `FVQA_test_300`, `Infoseek_GDM_test_300`, `EncyclopedicVQA_test_300` | `ImageShortQADataset` | `image_shortqa.py` | 300 each | judged accuracy | judge (`judge_vdr`) |
 
 - Every TSV except CountQA and PixmoCount downloads with its images on first use from
   [OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets).
@@ -53,9 +54,9 @@ of its appendix. Files are relative to this directory; rows are those evaluated 
   by fetching each image from its source URL, dropping rows whose image is gone, so its row
   count can fall below the 534 listed as source URLs disappear.
 - HallusionBench: the TSV has 1,129 rows; the 178 without an image are skipped.
-- FVQA_test, Infoseek_GDM_test and EncyclopedicVQA_test evaluate a fixed 300-row sample
-  (`random_state=42`) unless `FVQA_TEST_ALL`, `INFOSEEK_GDM_TEST_ALL` or
-  `ENCYCLOPEDICVQA_TEST_ALL` is `true`.
+- `FVQA_test_300`, `Infoseek_GDM_test_300` and `EncyclopedicVQA_test_300` are fixed
+  300-question subsets of the full test splits (`sample(n=300, random_state=42)`, same
+  images), hosted alongside them, for a quick estimate of the full-split score.
 - SparBench_tiny averages 11 multiple-choice accuracies, 8 mean relative accuracies (MRA)
   for numeric tasks and one view-change score.
 
@@ -129,16 +130,19 @@ inspecting runs, not reported metrics.
 saved with the run. `load_judge_config` ([`../utils/judge_utils.py`](../utils/judge_utils.py))
 maps `model_name`, `api_base`, `key`, `nproc` and `retry` to `evaluate()` keyword arguments
 and passes any other key through; `build_judge` ([`utils/judge_util.py`](utils/judge_util.py))
-wraps the model in an OpenAI-compatible client. `api_base` is the full chat-completions URL,
-for example `https://api.openai.com/v1/chat/completions`. With `key` omitted or set to
-`empty`, a judge on `api.openai.com` reads `OPENAI_API_KEY`; other endpoints receive the
-value as written. The extra keys that matter for the
+wraps the model in an OpenAI-compatible client (`gpt-4o` resolves to `gpt-4o-2024-05-13`; other
+short names in `build_judge` map likewise). `api_base` is the full chat-completions URL, for
+example `https://api.openai.com/v1/chat/completions`. With `key` omitted or set to `empty`, a
+judge on `api.openai.com` reads `OPENAI_API_KEY`; other endpoints receive the value as
+written. `${NAME}` placeholders resolve from the environment, as in the agent presets:
+`configs/judge.yaml` reads `JUDGE_MODEL`, `JUDGE_API_BASE` and `JUDGE_API_KEY`. The extra keys
+that matter for the
 paper benchmarks are below; a few loaders read other flags (`use_verifier`, `enable_vdr_aux`,
 `use_exact_match`), all off by default.
 
 | Key | Values | Read by |
 | --- | --- | --- |
-| `judge_prompt` | `hle`, `judge_rs`, `judge_vdr`; RealXBench, MMBrowseComp and VisBrowseBench take `realxbench`, `mmbrowsecomp` and `vbb` instead of `hle` | the search loaders; the `MMDR_JUDGE_PROMPT` environment variable overrides it |
+| `judge_prompt` | `judge_vdr` (default) and `judge_rs` on every search loader; `hle` on the others, while RealXBench, MMBrowseComp and VisBrowseBench take their original judges `realxbench`, `mmbrowsecomp` and `vbb` instead | the search loaders; the `MMDR_JUDGE_PROMPT` environment variable overrides it |
 | `judge_max_tokens` | output-token cap per judge call, default 2048; SimpleVQA's judge call sets no cap | `build_judge`, `resolve_judge_max_tokens` |
 | `score_mode` | `constant` or `original` | the grounding loaders |
 
@@ -146,8 +150,9 @@ The `judge_prompt` prompts live in `utils/hle_judge.py`, `utils/judge_rs.py`,
 `utils/judge_vdr.py`, `utils/realxbench_judge.py`, `utils/mmbrowsecomp_judge.py` and
 `utils/visbrowse_bench_judge.py`; the fixed SimpleVQA and FREAK_VQA prompts live in
 `simplevqa.py` and `utils/verifier.py`.
-The benchmark table gives the code defaults; the judge model and prompt behind each paper table
-are stated in the paper's appendix. The table's last column means:
+The benchmark table gives the code defaults, which are the paper's; the paper's search and
+deep-research tables use GPT-4o as the judge model, and the judge behind each paper table is
+stated in the paper's appendix. The table's last column means:
 
 - **judge**: the model decides correctness. The eleven search benchmarks, SimpleVQA and
   FREAK_VQA need one; the last two use fixed prompts and ignore `judge_prompt`.

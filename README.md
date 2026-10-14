@@ -193,6 +193,9 @@ export MODEL_BASE_URL=http://127.0.0.1:8222/v1
 export MODEL_API_KEY=empty
 export AUXILIARY_MODEL_BASE_URL=http://127.0.0.1:8222/v1
 export AUXILIARY_MODEL_API_KEY=empty
+export JUDGE_MODEL=Qwen/Qwen3-VL-8B-Instruct
+export JUDGE_API_BASE=http://127.0.0.1:8222/v1/chat/completions
+export JUDGE_API_KEY=empty
 export TOOL_SERVER_URL=http://127.0.0.1:8101
 export SAM3_SERVER_URL=http://127.0.0.1:8086
 export OCR_SERVER_URL=http://127.0.0.1:8085
@@ -327,14 +330,27 @@ unless `GLIP_ROOT` is set. The
 [preparation scripts](evaluation_kit/dataset/scripts) document how the released
 splits were built.
 
-For benchmarks requiring an LLM judge or answer extractor, start from
-[configs/judge.yaml](configs/judge.yaml) and configure the judge model, endpoint,
-and key. `api_base` is the full chat-completions URL, for example
-`https://api.openai.com/v1/chat/completions`. For an `api.openai.com` judge you can
-omit `key` and export `OPENAI_API_KEY` instead. The paper uses GPT-4o for search and
-deep-research judging and Qwen3-VL-8B-Instruct for other LLM-judged tasks and
-answer extraction. The shipped judge configuration points to Qwen; use the
-appropriate judge for each benchmark.
+`FVQA_test`, `Infoseek_GDM_test` and `EncyclopedicVQA_test` are the largest search
+benchmarks (1,800, 2,000 and 1,960 questions). `FVQA_test_300`,
+`Infoseek_GDM_test_300` and `EncyclopedicVQA_test_300` are fixed 300-question subsets
+of them, a quick estimate of the full-split score at a fraction of the time and
+search cost.
+
+Benchmarks that need an LLM judge or answer extractor read it from `JUDGE_MODEL`,
+`JUDGE_API_BASE` (the full chat-completions URL) and `JUDGE_API_KEY` through
+[configs/judge.yaml](configs/judge.yaml); any OpenAI-compatible endpoint works. The
+paper judged with Qwen3-VL-8B-Instruct, and with GPT-4o on the search and
+deep-research benchmarks:
+
+```bash
+export JUDGE_MODEL=gpt-4o
+export JUDGE_API_BASE=https://api.openai.com/v1/chat/completions
+export JUDGE_API_KEY=$OPENAI_API_KEY
+```
+
+One judge serves every dataset of an invocation, so evaluate the search benchmarks in a
+separate `openvlharness-eval` run from the others, or re-score a finished run with
+`--mode eval --run-dir <run> --judge-config configs/judge.yaml` after switching the variables.
 
 <details>
 <summary>Grounding confidence scores</summary>

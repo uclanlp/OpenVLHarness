@@ -6,10 +6,9 @@ This is the same prompt protocol used by:
     mmsearch / simplevqa / browsecomp-vl)
   - BrowseComp-VL paper's ``evaluate_hle_official.py``
 
-Used as the *default* judge for our LLM-judge benchmarks (mmsearch,
-mmsearch_plus, vdrbench, hle, simplevqa_en, browsecomp_vl) so reported
-numbers are directly comparable across these benchmarks AND comparable
-to other papers that adopt the HLE judge protocol.
+Selectable with ``judge_prompt: hle`` on mmsearch, mmsearch_plus, vdrbench,
+hle and browsecomp_vl, for comparison with papers that adopt the HLE judge
+protocol; these benchmarks default to ``judge_vdr``.
 
 The judge is asked to extract the model's final answer, compare against
 ground truth, and emit a JSON object with binary ``correct: yes|no``.

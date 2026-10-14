@@ -12,10 +12,8 @@ Different from ``judge_rs`` (MMSearch-R1 paper judge):
 - Judge_VDR is contains-based ("does the report contain the correct answer
   anywhere?" — looser, suitable for long deep-research style outputs)
 
-Used as a per-benchmark opt-in via env ``MMDR_JUDGE_PROMPT=judge_vdr`` or
-``judge_kwargs['judge_prompt'] = 'judge_vdr'``. No evaluator uses it by
-default; each keeps its own default prompt (the HLE-style judge for
-MMSearch, MMSearch-Plus, BrowseComp-VL, VDR-Bench and SimpleVQA).
+The default judge of the search benchmarks; ``judge_prompt`` or env
+``MMDR_JUDGE_PROMPT`` selects ``hle``, ``judge_rs`` or a benchmark's original judge instead.
 """
 
 from __future__ import annotations
