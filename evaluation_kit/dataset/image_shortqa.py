@@ -178,8 +178,8 @@ def Judge_RS_auxeval(model, item):
 def Judge_VDR_auxeval(model, item):
     """Judge_VDR variant of ``HLE_style_auxeval`` (VDR paper contains-based
     judge, plain-text output). Returns the same ``{hit, log}`` shape so
-    downstream aggregation is drop-in compatible. Opt-in via env
-    ``MMDR_JUDGE_PROMPT=judge_vdr``.
+    downstream aggregation is drop-in compatible. The default judge of the
+    evaluation splits.
     """
     from .utils.judge_vdr import grade_with_judge_vdr
 
@@ -812,15 +812,15 @@ class ImageShortQADataset(ImageBaseDataset):
         # {hle, judge_rs, judge_vdr} switch; everything else falls back
         # to Comprehensive_auxeval (ShortQA prompt) regardless.
         _DATASET_DEFAULT_JUDGE = {
-            'hle': 'hle',
-            'FVQA_train': 'judge_rs',  # FVQA uses judge_rs (MMSearch-R1 paper protocol) by default
-            'FVQA_test':  'judge_rs',
-            # InfoSeek_GDM: short-answer factoid (entity names, place names, numbers etc.)
-            # — same family as FVQA. Default to judge_rs (semantic short-answer match)
-            # since strict contains-based judge_vdr would miss many paraphrases.
+            # Evaluation splits use judge_vdr like the other search benchmarks; 'hle' and
+            # 'judge_rs' (the HLE and MMSearch-R1 protocols) remain selectable.
+            # Train/val splits keep judge_rs.
+            'hle': 'judge_vdr',
+            'FVQA_train': 'judge_rs',
+            'FVQA_test':  'judge_vdr',
             'Infoseek_GDM_val':            'judge_rs',
-            'Infoseek_GDM_test':           'judge_rs',
-            'EncyclopedicVQA_test':        'judge_rs',
+            'Infoseek_GDM_test':           'judge_vdr',
+            'EncyclopedicVQA_test':        'judge_vdr',
             'EncyclopedicVQA_val':         'judge_rs',
             # 300-sample mini variants inherit underlying default
             'FVQA_train_mini':             'judge_rs',
@@ -889,8 +889,8 @@ class ImageShortQADataset(ImageBaseDataset):
                     # For datasets in _HLE_FAMILY_DATASETS (hle, FVQA_train,
                     # FVQA_test): support the 3-way judge switch
                     # {hle, judge_rs, judge_vdr}. Per-dataset default lives
-                    # in _DATASET_DEFAULT_JUDGE above (FVQA → judge_rs,
-                    # hle → hle). Env MMDR_JUDGE_PROMPT or
+                    # in _DATASET_DEFAULT_JUDGE above (evaluation splits →
+                    # judge_vdr, train/val → judge_rs). Env MMDR_JUDGE_PROMPT or
                     # judge_kwargs['judge_prompt'] overrides per call.
                     #
                     # All other ImageShortQA datasets (LiveMMBench_*,

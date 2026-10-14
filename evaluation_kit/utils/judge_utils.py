@@ -1,9 +1,13 @@
 import yaml
 import os
 
+from openvlharness import bootstrap
+
 def load_judge_config(config_path: str | dict) -> dict:
     """
     Load judge configuration from a YAML file or saved configuration mapping.
+
+    ``${NAME}`` placeholders are resolved from the environment, as in the agent presets.
     
     Expected YAML structure:
     ```yaml
@@ -29,10 +33,13 @@ def load_judge_config(config_path: str | dict) -> dict:
         }
     if isinstance(config_path, dict):
         config = config_path
+        source = ""
     else:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-    
+        source = f" {config_path}"
+    config = bootstrap.expand_environment(config, label="judge configuration", source=source)
+
     judge_kwargs = {
         'model': config.get('model_name'),
         'key': config.get('key', 'empty'),

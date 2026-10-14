@@ -216,12 +216,12 @@ def _grade_item(model, item, judge_name: str = 'hle'):
     """Grade a single prediction using the selected judge protocol.
 
     ``judge_name`` selects the judge prompt + parser:
-      - ``'hle'`` (default): paper-protocol HLE_JUDGE_PROMPT (extract +
+      - ``'judge_vdr'`` (default): VDR paper contains-based judge (plain-text output).
+      - ``'hle'``: paper-protocol HLE_JUDGE_PROMPT (extract +
         binary correct yes/no JSON). Reported numbers match the
         BrowseComp-VL paper.
       - ``'judge_rs'``: MMSearch-R1 paper judge (10-rule, XML output).
         For exploratory comparison.
-      - ``'judge_vdr'``: VDR paper contains-based judge (plain-text output).
 
     Returns a dict with keys: correct (1 or 0), extracted_answer, reasoning.
     """
@@ -460,12 +460,12 @@ class BrowseCompVLDataset(ImageBaseDataset):
         judge_name = (
             os.environ.get('MMDR_JUDGE_PROMPT')
             or judge_kwargs.pop('judge_prompt', None)
-            or 'hle'
+            or 'judge_vdr'
         ).lower()
         if judge_name not in ('hle', 'judge_rs', 'judge_vdr'):
             raise ValueError(
                 f"Unknown judge_prompt {judge_name!r}; "
-                f"supported: 'hle' (default), 'judge_rs', 'judge_vdr'"
+                f"supported: 'judge_vdr' (default), 'hle', 'judge_rs'"
             )
         judge_suffix = '' if judge_name == 'hle' else f'_{judge_name}'
         judge_model = judge_kwargs.get('model')

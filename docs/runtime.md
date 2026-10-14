@@ -226,6 +226,7 @@ all of them, even those it does not use.
 | Variable | Read by | Effect |
 | --- | --- | --- |
 | `MODEL_BASE_URL`, `MODEL_API_KEY` | presets | Orchestrator endpoint and API key. |
+| `JUDGE_MODEL`, `JUDGE_API_BASE`, `JUDGE_API_KEY` | `configs/judge.yaml` | Judge model name, full chat-completions URL and API key. `${NAME}` placeholders in any judge YAML resolve the same way. |
 | `AUXILIARY_MODEL_BASE_URL`, `AUXILIARY_MODEL_API_KEY` | presets | Qwen endpoint and API key for search summarization and webpage extraction. |
 | `TOOL_SERVER_URL` | presets | Router base URL used by the agent. |
 | `SAM3_SERVER_URL`, `OCR_SERVER_URL`, `DEPTH_ESTIMATION_SERVER_URL` | presets | Raw SAM 3, PaddleOCR-VL and DA3 server bases, used by the router. |

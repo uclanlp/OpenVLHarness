@@ -166,7 +166,7 @@ def hle(tmp_path, monkeypatch):
             "prediction": predictions,
         }), eval_file)
         monkeypatch.setattr(image_shortqa, "build_judge", lambda **kwargs: judge)
-        return float(dataset.evaluate(eval_file, model=model, nproc=1)["Overall"][0])
+        return float(dataset.evaluate(eval_file, model=model, nproc=1, judge_prompt="hle")["Overall"][0])
 
     return evaluate
 

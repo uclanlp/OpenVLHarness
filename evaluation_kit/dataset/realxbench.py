@@ -250,7 +250,7 @@ def _judge_one_judge_rs(judge, row) -> Dict[str, Any]:
 
 
 def _judge_one_judge_vdr(judge, row) -> Dict[str, Any]:
-    """Judge_VDR variant. Opt-in via env ``MMDR_JUDGE_PROMPT=judge_vdr``."""
+    """Judge_VDR variant, the default judge."""
     from .utils.judge_vdr import grade_with_judge_vdr
 
     question = str(row.get("question", ""))
@@ -279,8 +279,8 @@ def _judge_one_judge_vdr(judge, row) -> Dict[str, Any]:
 
 
 def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, Any]):
-    """Switch between RealXBench paper-protocol judge (default), Judge_RS,
-    and Judge_VDR via env ``MMDR_JUDGE_PROMPT`` or
+    """Switch between Judge_VDR (default), the RealXBench paper-protocol
+    judge, and Judge_RS via env ``MMDR_JUDGE_PROMPT`` or
     ``judge_kwargs['judge_prompt']``. Cache + score files are suffixed with
     ``_judge_rs`` / ``_judge_vdr`` when those variants are active.
     """
@@ -296,7 +296,7 @@ def _run_llm_judge(eval_file: str, data: pd.DataFrame, judge_kwargs: Dict[str, A
     judge_name = (
         os.environ.get('MMDR_JUDGE_PROMPT')
         or judge_kwargs_local.pop('judge_prompt', None)
-        or 'realxbench'
+        or 'judge_vdr'
     ).strip().lower()
     if judge_name not in ('realxbench', 'judge_rs', 'judge_vdr'):
         raise ValueError(
