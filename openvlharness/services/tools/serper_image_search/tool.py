@@ -15,6 +15,12 @@ from urllib.parse import urlparse
 
 from openvlharness.services import degradation
 from openvlharness.services.tools.base import BaseTool
+from openvlharness.services.tools.image_upload_utils import (
+    ImageHostUnreachableError,
+    content_hash_from_url,
+    forget_verified_base_url,
+    public_url_problem,
+)
 from openvlharness.services.tools.image_utils import (
     decode_base64_image_data,
     infer_image_content_type_and_extension,
@@ -668,6 +674,40 @@ class Image_Search_Tool(BaseTool):
             f"{cls._image_recovery_options()}"
         )
 
+    @staticmethod
+    def _published_image_problem(url: str) -> Optional[str]:
+        """Fetch the published query image the way Serper does; None when it is served."""
+        content_hash = content_hash_from_url(url)
+        if content_hash is None:
+            return None
+        problem = public_url_problem(url, content_hash)
+        if problem is None:
+            return None
+        degradation.record("image_host", tool=TOOL_NAME, reason="unreachable")
+        forget_verified_base_url(url)
+        logger.error(
+            "IMAGE_HOST_UNREACHABLE tool=%s url=%s -- %s. Serper Lens returned no matches "
+            "because it cannot fetch the query image.", TOOL_NAME, url, problem,
+        )
+        return problem
+
+    @classmethod
+    def _format_image_unreachable(cls, image_ref: str, detail: str) -> str:
+        """Structured message when the published query image is not reachable online."""
+        return (
+            "[Image Search Error]\n"
+            "QUERY IMAGE NOT REACHABLE\n\n"
+            "Reason: the reverse image search service could not fetch the query image "
+            f"from where it was published ({detail}). This is a problem with the image "
+            f"hosting on our side, NOT with the image itself.\n"
+            f"Image: {image_ref}\n\n"
+            "Suggested next actions for the agent (each bullet below is an INDEPENDENT\n"
+            "alternative — pick whichever fits, no need to chain them):\n\n"
+            "  - Retrying the same image_id will NOT help until the hosting recovers.\n"
+            "      Prefer Text_Search with a precise description of the image for now.\n\n"
+            f"{cls._image_recovery_options()}"
+        )
+
     @classmethod
     def _format_input_error(cls, reason: str, detail: str = "") -> str:
         """Structured message for input-side failures (upload service down,
@@ -990,6 +1030,8 @@ class Image_Search_Tool(BaseTool):
             resolved_url = self._resolve_image_url(image_base64)
         except ValueError:
             raise
+        except ImageHostUnreachableError as exc:
+            return self._format_image_unreachable(image_ref_for_error, str(exc))
         except Exception as exc:
             logger.warning(
                 "Image_Search_Tool: input resolution failed (%s): %s",
@@ -1060,6 +1102,11 @@ class Image_Search_Tool(BaseTool):
                 time.sleep(backoff)
 
         if not results:
+            # Serper answers an empty 200 both for an image without matches and for
+            # an image it could not fetch, so check the public URL before reporting.
+            problem = self._published_image_problem(resolved_url)
+            if problem is not None:
+                return self._format_image_unreachable(image_ref_for_error, problem)
             # Render an explicit no-matches result with recovery suggestions.
             # Includes cross-tool suggestions so the agent has a recovery path.
             return self._format_no_matches(image_ref_for_error, attempts=lens_attempts)

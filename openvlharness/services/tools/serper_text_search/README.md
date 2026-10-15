@@ -45,7 +45,12 @@ public address, for example with a tunnel such as
 `cloudflared tunnel --url http://127.0.0.1:8111` (no account required), and set
 `IMAGE_UPLOAD_PUBLIC_BASE_URL` to the printed URL. Images are reachable only
 while the host and the tunnel run, so restart the router if the tunnel URL
-changes. This is the quickest way to run; use S3 or GCS for long or highly
+changes. Serper answers an empty result both for an image without matches and
+for an image it cannot fetch, so the router fetches each published image through
+the public address once before the first search and again whenever Lens returns
+no matches; a failure is reported to the agent as an unreachable image, counted
+under `degradations` in `/backend-status` and logged as `IMAGE_HOST_UNREACHABLE`.
+A private base URL (localhost, 127.0.0.1, 10.x) is rejected at upload time. This is the quickest way to run; use S3 or GCS for long or highly
 concurrent runs, for networks that do not allow tunnels, and when the uploaded
 images must stay available afterwards. The paper results used S3.
 

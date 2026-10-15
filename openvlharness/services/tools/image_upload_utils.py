@@ -6,11 +6,17 @@ A process-local cache reuses URLs for 50 minutes; signed URLs last one hour.
 """
 
 import hashlib
+import ipaddress
+import logging
 import os
+import re
 import stat
 import tempfile
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Set, Tuple
+from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Provider selection via environment variable
@@ -143,18 +149,116 @@ def _upload_s3(image_bytes: bytes, content_type: str, extension: str, content_ha
 
 # ---- Local directory served by openvlharness.services.image_host -----------
 
+class ImageHostUnreachableError(RuntimeError):
+    """A published image cannot be fetched at its public URL, so Serper Lens cannot see it."""
+
+
+# Reverse image search silently returns no matches when Serper cannot fetch the
+# query image (HTTP 200 with an empty result set), so the router verifies the
+# public URL itself: once per base URL before the first search of a process, and
+# again whenever Lens returns no matches (see the image search tool).
+_VERIFY_TIMEOUT_SEC = 15.0
+_VERIFY_MAX_BYTES = 64 * 1024 * 1024
+_HASH_NAME = re.compile(r"/([0-9a-f]{64})\.[A-Za-z0-9]{1,8}$")
+_verified_base_urls: Set[str] = set()
+
+
+def _is_private_host(hostname: str) -> bool:
+    """True for localhost and private, loopback or link-local addresses."""
+    if not hostname or hostname.lower() == "localhost" or hostname.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return False
+    return address.is_private or address.is_loopback or address.is_link_local or address.is_unspecified
+
+
+def content_hash_from_url(url: str) -> Optional[str]:
+    """Return the SHA-256 content hash encoded in an uploaded image's URL, if any."""
+    match = _HASH_NAME.search(urlparse(url).path)
+    return match.group(1) if match else None
+
+
+def public_url_problem(url: str, content_hash: str, timeout: float = _VERIFY_TIMEOUT_SEC) -> Optional[str]:
+    """Fetch ``url`` from this process and report why it does not serve the uploaded image.
+
+    Returns None when the response is HTTP 200 and its body hashes to
+    ``content_hash``, otherwise a short reason without the URL. Never raises.
+    """
+    import requests
+
+    try:
+        with requests.get(url, timeout=timeout, stream=True,
+                          headers={"User-Agent": "OpenVLHarness image-host check"}) as response:
+            if response.status_code != 200:
+                return f"HTTP {response.status_code}"
+            digest = hashlib.sha256()
+            size = 0
+            for chunk in response.iter_content(64 * 1024):
+                size += len(chunk)
+                if size > _VERIFY_MAX_BYTES:
+                    return "the response is larger than any uploaded image"
+                digest.update(chunk)
+            if digest.hexdigest() != content_hash:
+                return ("the body served at the URL is not the uploaded image "
+                        "(an error page or another server answered)")
+            return None
+    except Exception as exc:  # noqa: BLE001 - any failure is a reason, never an exception
+        return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def forget_verified_base_url(url: str) -> None:
+    """Re-verify the base URL of ``url`` on the next local upload."""
+    parsed = urlparse(url)
+    _verified_base_urls.discard(f"{parsed.scheme}://{parsed.netloc}")
+
+
+def _verify_public_url(base_url: str, url: str, content_hash: str) -> None:
+    """Raise ImageHostUnreachableError unless ``url`` serves the uploaded image."""
+    from openvlharness.services import degradation
+
+    if base_url in _verified_base_urls:
+        return
+    problem = public_url_problem(url, content_hash)
+    if problem is None:
+        _verified_base_urls.add(base_url)
+        logger.info("Image host verified: %s serves uploaded images.", base_url)
+        return
+    degradation.record("image_host", tool="local_upload", reason="unreachable")
+    logger.error(
+        "IMAGE_HOST_UNREACHABLE url=%s -- %s. Serper Lens cannot fetch images from this host; "
+        "check the image host, the tunnel and IMAGE_UPLOAD_PUBLIC_BASE_URL.", url, problem,
+    )
+    raise ImageHostUnreachableError(problem)
+
+
 def _upload_local(image_bytes: bytes, content_type: str, extension: str, content_hash: str) -> str:
     """Write the image under IMAGE_UPLOAD_LOCAL_DIR and return its public URL.
 
     The directory is served by ``python -m openvlharness.services.image_host``;
     IMAGE_UPLOAD_PUBLIC_BASE_URL is the address at which that server is reachable
     from the internet (for example a tunnel URL). No cloud credentials are needed.
-    Raises RuntimeError when the public base URL is not set.
+    The first upload per base URL is fetched back through that address.
+
+    Raises:
+        RuntimeError: The public base URL is not set, or names a private address
+            that Serper cannot reach.
+        ImageHostUnreachableError: The image is not served at its public URL.
     """
     base_url = os.getenv("IMAGE_UPLOAD_PUBLIC_BASE_URL", "").strip().rstrip("/")
     if not base_url:
         raise RuntimeError(
             "IMAGE_UPLOAD_PUBLIC_BASE_URL is not set; it must be the public address of the image host."
+        )
+    parsed = urlparse(base_url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise RuntimeError(f"IMAGE_UPLOAD_PUBLIC_BASE_URL must be an http(s) URL, got {base_url!r}.")
+    if _is_private_host(parsed.hostname):
+        raise RuntimeError(
+            f"IMAGE_UPLOAD_PUBLIC_BASE_URL={base_url} is a private address. Serper Lens fetches "
+            "query images from the internet; publish the image host through a tunnel and set "
+            "the tunnel URL instead."
         )
     directory = prepare_private_directory(local_upload_dir())
     name = f"{content_hash}{extension}"
@@ -171,7 +275,9 @@ def _upload_local(image_bytes: bytes, content_type: str, extension: str, content
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-    return f"{base_url}/{name}"
+    url = f"{base_url}/{name}"
+    _verify_public_url(base_url, url, content_hash)
+    return url
 
 
 def local_upload_dir() -> str:
