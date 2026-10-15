@@ -43,7 +43,7 @@ evidence readable and reusable across reasoning steps.
   addressable for the whole question, so later tools and code can build on them.
 - **Consistent gains.** Across 22 benchmarks in four domains, seven backbones gain
   **9.7 to 12.6 points** on average over the same models without tools.
-- **Any registered model.** Presets for six of the paper's seven backbones, plus
+- **Any registered model.** Presets for seven of the paper's eight backbones, plus
   every Qwen3-VL Instruct size and OpenAI's GPT-5 to GPT-6.1 models in the
   [model registry](docs/models.md#other-registered-models).
 
@@ -139,7 +139,7 @@ run benchmarks (see [Evaluation](#evaluation)).
 
 ### 1. Pick a preset
 
-The release includes agent presets for six of the paper's seven backbones:
+The release includes agent presets for seven of the paper's eight backbones:
 
 | Main model | Configuration | API |
 | --- | --- | --- |
@@ -148,6 +148,7 @@ The release includes agent presets for six of the paper's seven backbones:
 | GPT-5 | [gpt5_paper.yaml](configs/agent/gpt5_paper.yaml) | Responses |
 | GPT-6 Luna | [gpt6_luna_paper.yaml](configs/agent/gpt6_luna_paper.yaml) | Responses |
 | GPT-6 Sol | [gpt6_sol_paper.yaml](configs/agent/gpt6_sol_paper.yaml) | Responses |
+| GPT-6 Astra | [gpt6_astra_paper.yaml](configs/agent/gpt6_astra_paper.yaml) | Responses |
 | Kimi K3 | [kimi_k3_paper.yaml](configs/agent/kimi_k3_paper.yaml) | Chat Completions |
 
 The paper's Qwen2.5-VL-7B-Instruct results, compared with training-based harnesses
