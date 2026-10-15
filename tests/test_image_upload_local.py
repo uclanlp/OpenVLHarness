@@ -25,8 +25,12 @@ class LocalProviderTests(unittest.TestCase):
                                            "IMAGE_UPLOAD_PUBLIC_BASE_URL": "https://img.example.test/"})
         self.env.start()
         up._upload_cache.clear()
+        up._verified_base_urls.clear()
+        self.verify = patch.object(up, "public_url_problem", lambda *a, **k: None)
+        self.verify.start()
 
     def tearDown(self):
+        self.verify.stop()
         self.env.stop()
         self.tmp.cleanup()
 

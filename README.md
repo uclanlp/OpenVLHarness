@@ -227,8 +227,10 @@ concurrency limits. Unreachable GPU workers, missing Serper keys and missing ima
 hosting settings surface on the first call to the affected tool. `/backend-status`
 also reports `degradations`: counts of search and webpage-visit calls that fell
 back to raw provider content because the auxiliary model timed out or returned
-unusable output. A healthy router keeps these at zero; the same events are logged
-with the tokens `SUMMARIZE_DEGRADED` and `EXTRACT_DEGRADED`.
+unusable output, and image searches whose published query image could not be fetched
+at its public URL (`image_host`). A healthy router keeps these at zero; the same events
+are logged with the tokens `SUMMARIZE_DEGRADED`, `EXTRACT_DEGRADED` and
+`IMAGE_HOST_UNREACHABLE`.
 
 Then ask a question from Python:
 
