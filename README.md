@@ -643,6 +643,7 @@ harness the same way any other application would.
 | [Model services](docs/models.md) | Presets, registered models, Qwen serving, GPT and Kimi connections, per-role settings, raw trace export |
 | [Tool services](openvlharness/services/tools/README.md) | GPU workers, router deployment, search credentials, backend guides |
 | [Runtime design](docs/runtime.md) | Agent loop, configuration, memory, capability interfaces |
+| [Your model in the live demo](docs/demo_endpoint.md) | Serve a model with vLLM and get the Base URL and Model name for the demo's OpenAI-compatible option |
 | [Benchmarks and judges](evaluation_kit/dataset/README.md) | Benchmark loaders, metrics, judge configuration, `score_mode` |
 | [Release validation](docs/validation.md) | Regression coverage and live validation evidence |
 | [Security](SECURITY.md) | What runs where, what leaves your machine, reporting vulnerabilities |
