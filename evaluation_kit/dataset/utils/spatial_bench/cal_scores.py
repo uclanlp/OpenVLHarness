@@ -35,7 +35,8 @@ def mean_relative_accuracy(
     end: float = 0.95,
     interval: float = 0.05,
 ) -> float:
-    # TODO：check this, should be + 1, but in vsi code this is + 2
+    # + 2, not + 1: (end - start) / interval is 8.999... in floating point, so this gives the
+    # ten thresholds 0.50, 0.55, ..., 0.95 (as in the VSI-Bench reference code).
     num_pts = int((end - start) / interval + 2)
     conf_intervs = np.linspace(start, end, num_pts)
     err = abs_dist_norm(pred, target)

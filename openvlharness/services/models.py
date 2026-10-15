@@ -434,17 +434,20 @@ class ModelAdapter:
         tagged = match.group(1).strip() if match else ""
         return tagged or text if self.profile["final_answer"] == "answer_tag_or_text" else tagged
 
-    def generate_text(self, messages, *, max_tokens=4096):
+    def generate_text(self, messages, *, max_tokens=4096, inherit_options=False):
         """Generate text without tools from chat-style messages.
 
         Uses temperature zero for Chat Completions and medium reasoning for
         Responses. max_tokens limits the output; provider failures propagate.
+        inherit_options instead sends this adapter's configured options (output
+        cap, reasoning effort, service tier, sampling) and ignores max_tokens.
         """
-        options = {"max_tokens": max_tokens}
+        options = cp.deepcopy(self.options) if inherit_options else {"max_tokens": max_tokens}
         if self.protocol == "responses":
-            options["reasoning_effort"] = "medium"
+            if not inherit_options:
+                options["reasoning_effort"] = "medium"
             messages = [self.encode_message(m) for m in messages]
-        else:
+        elif not inherit_options:
             options["temperature"] = 0
         response = self.request(messages, options=options)
         text, _, _ = self.parse(response, 0)

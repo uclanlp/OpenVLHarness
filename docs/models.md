@@ -10,7 +10,7 @@ a separate Qwen3-VL-8B-Instruct server for the auxiliary role.
 
 ## Paper presets
 
-Presets for six of the paper's seven backbones, with the paper's decoding settings
+Presets for seven of the paper's eight backbones, with the paper's decoding settings
 (the Qwen2.5-VL-7B-Instruct configuration is not included):
 
 | Preset | Config alias | Exact model ID sent to the server | API | Request settings |
@@ -20,6 +20,7 @@ Presets for six of the paper's seven backbones, with the paper's decoding settin
 | [gpt5_paper.yaml](../configs/agent/gpt5_paper.yaml) | `gpt-5-2025-08-07` | `gpt-5-2025-08-07` | Responses | medium reasoning, 16000 tokens |
 | [gpt6_luna_paper.yaml](../configs/agent/gpt6_luna_paper.yaml) | `gpt-6-luna` | `gpt-6-luna` | Responses | medium reasoning, 16000 tokens |
 | [gpt6_sol_paper.yaml](../configs/agent/gpt6_sol_paper.yaml) | `gpt-6-sol` | `gpt-6-sol` | Responses | medium reasoning, 16000 tokens |
+| [gpt6_astra_paper.yaml](../configs/agent/gpt6_astra_paper.yaml) | `gpt-6-astra` | `gpt-6-astra` | Responses | medium reasoning, 16000 tokens |
 | [kimi_k3_paper.yaml](../configs/agent/kimi_k3_paper.yaml) | `kimi-k3` | `kimi-k3` | Chat Completions | temperature 0.6, top_p 0.95, 65536 tokens |
 
 The vLLM served name must match the exact model ID, including capitalization;
