@@ -228,9 +228,10 @@ hosting settings surface on the first call to the affected tool. `/backend-statu
 also reports `degradations`: counts of search and webpage-visit calls that fell
 back to raw provider content because the auxiliary model timed out or returned
 unusable output, and image searches whose published query image could not be fetched
-at its public URL (`image_host`). A healthy router keeps these at zero; the same events
-are logged with the tokens `SUMMARIZE_DEGRADED`, `EXTRACT_DEGRADED` and
-`IMAGE_HOST_UNREACHABLE`.
+at its public URL (`image_host`), and Serper calls rejected because of the account
+(`serper_account`: credits exhausted, key invalid or payment required). A healthy router
+keeps these at zero; the same events are logged with the tokens `SUMMARIZE_DEGRADED`,
+`EXTRACT_DEGRADED`, `IMAGE_HOST_UNREACHABLE` and `SERPER ACCOUNT-LEVEL FAILURE`.
 
 Then ask a question from Python:
 

@@ -798,6 +798,19 @@ class Text_Search_Tool(BaseTool):
           is a valid recovery path even when the same query just failed)
         """
         type_list = ", ".join(ALL_SEARCH_TYPES)
+        if error.account_level:
+            return (
+                f"[Search Error — Type: {search_type}]\n"
+                "SEARCH UNAVAILABLE\n\n"
+                f"Reason: the search provider rejected the request because of our search "
+                f"account (HTTP {error.status_code}: credits exhausted, key invalid or payment "
+                "required), NOT because of the query. Every search, reverse image search and "
+                "webpage visit will fail the same way until an operator fixes the account.\n"
+                f"Query: {query!r}\n\n"
+                "What to do: do NOT retry, reword the query, switch search_type or try another "
+                "search tool; none of that can help. Continue without web search: answer from "
+                "the image and your own knowledge, and state which facts you could not verify.\n"
+            )
         if error.transient:
             cause = (
                 f"Serper temporarily unavailable (HTTP {error.status_code}, transient) "

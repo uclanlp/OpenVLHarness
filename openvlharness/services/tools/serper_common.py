@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from openvlharness.services import degradation
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -106,6 +108,9 @@ class SerperRequestError(RuntimeError):
         provider_body: The provider's response body (truncated), for logs
             and operators. It is deliberately not part of ``message``:
             ``str(exc)`` is rendered into the agent-visible tool output.
+        account_level: True when the provider blamed the account (credits,
+            key or payment) rather than the request, so every call will fail
+            the same way until an operator intervenes.
     """
 
     def __init__(
@@ -117,6 +122,7 @@ class SerperRequestError(RuntimeError):
         endpoint: str = "",
         attempts: int = 1,
         provider_body: str = "",
+        account_level: bool = False,
     ) -> None:
         """Store the failure message, status, retry classification, endpoint, attempt count and body."""
         super().__init__(message)
@@ -125,18 +131,30 @@ class SerperRequestError(RuntimeError):
         self.endpoint = endpoint
         self.attempts = attempts
         self.provider_body = provider_body
+        self.account_level = account_level
 
 
+# Phrases Serper uses when the account, not the request, is the problem. Bare
+# words such as "forbidden" or "quota" are not enough: a scrape of a site that
+# blocks bots relays a 403, and a 429 body may mention a rate quota.
 _ACCOUNT_LEVEL_MARKERS = (
-    "not enough credits", "insufficient credit", "quota",
-    "payment", "unauthorized", "invalid api key", "forbidden",
+    "not enough credits", "insufficient credit", "credits exhausted", "out of credits",
+    "quota exceeded", "payment required", "invalid api key", "api key", "unauthorized",
+    "subscription",
 )
+# Rate limiting (429) and server errors are never account-level.
+_ACCOUNT_LEVEL_STATUSES = frozenset({400, 401, 402, 403})
 
 
 def _is_account_level_body(body: str) -> bool:
     """Return True when a provider response body blames the account rather than the request."""
     lowered = (body or "").lower()
     return any(marker in lowered for marker in _ACCOUNT_LEVEL_MARKERS)
+
+
+def is_account_level_failure(code: Optional[int], body: str) -> bool:
+    """True for a 400/401/402/403 whose body names credits, the key, payment or the subscription."""
+    return code in _ACCOUNT_LEVEL_STATUSES and _is_account_level_body(body)
 
 
 def _http_error_body(exc: requests.HTTPError, limit: int = 300) -> str:
@@ -155,14 +173,15 @@ _ACCOUNT_LEVEL_WARNED = False
 _ACCOUNT_LEVEL_LOCK = threading.Lock()
 
 
-def _warn_once_if_account_level(endpoint_label: str, code: Optional[int], body: str) -> None:
-    """Log one error line when the provider body indicates an account-level failure."""
+def _warn_once_if_account_level(endpoint_label: str, code: Optional[int], body: str) -> bool:
+    """Count an account-level failure and log the first one per process; return whether it was one."""
     global _ACCOUNT_LEVEL_WARNED
-    if not _is_account_level_body(body):
-        return
+    if not is_account_level_failure(code, body):
+        return False
+    degradation.record("serper_account", tool=endpoint_label, reason=f"http_{code}")
     with _ACCOUNT_LEVEL_LOCK:
         if _ACCOUNT_LEVEL_WARNED:
-            return
+            return True
         _ACCOUNT_LEVEL_WARNED = True
     logger.error(
         "SERPER ACCOUNT-LEVEL FAILURE: HTTP %s from %s -> %s | every search will keep "
@@ -170,6 +189,7 @@ def _warn_once_if_account_level(endpoint_label: str, code: Optional[int], body: 
         "restarting the router cannot help. Scores produced from here on are closed-book.",
         code, endpoint_label, body,
     )
+    return True
 
 
 def _classify_http_error(exc: requests.HTTPError) -> Tuple[Optional[int], bool]:
@@ -216,8 +236,10 @@ def _call_serper_with_retry(
     last_is_transient = False
     last_error: str = ""
     last_body: str = ""
+    last_account_level = False
     for attempt in range(1, max_retries + 1):
         last_body = ""
+        last_account_level = False
         try:
             return do_request()
         except requests.HTTPError as exc:
@@ -250,7 +272,7 @@ def _call_serper_with_retry(
             endpoint_label, attempt, max_retries, last_is_transient, last_error,
             f" | provider body: {last_body}" if last_body else "",
         )
-        _warn_once_if_account_level(endpoint_label, last_code, last_body)
+        last_account_level = _warn_once_if_account_level(endpoint_label, last_code, last_body)
         if not last_is_transient or attempt >= max_retries:
             break
         # Exponential backoff with cap.
@@ -264,6 +286,7 @@ def _call_serper_with_retry(
         endpoint=endpoint_label,
         attempts=attempt,
         provider_body=last_body,
+        account_level=last_account_level,
     )
 
 
@@ -556,7 +579,14 @@ class SerperClient:
             body = _http_error_body(exc)
             if body:
                 logger.warning("Serper scrape failed: HTTP %s | provider body: %s", code, body)
-            _warn_once_if_account_level("scrape", code, body)
+            if _warn_once_if_account_level("scrape", code, body):
+                # An account-level failure is not a property of the page, so it is
+                # raised as a structured error that the caller must not retry.
+                raise SerperRequestError(
+                    f"Serper scrape failed: HTTP {code} from scrape",
+                    status_code=code, transient=False, endpoint="scrape",
+                    provider_body=body, account_level=True,
+                ) from exc
             raise
         return response.json()
 
