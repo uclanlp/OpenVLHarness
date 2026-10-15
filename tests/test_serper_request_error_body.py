@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import requests
 
+from openvlharness.services import degradation
 from openvlharness.services.tools import serper_common as sc
 
 
@@ -17,6 +18,7 @@ def _http_error(status, body):
 class ProviderBodyTests(unittest.TestCase):
     def setUp(self):
         sc._ACCOUNT_LEVEL_WARNED = False
+        degradation.reset()
 
     def _call_each(self, do_request):
         with patch("time.sleep"):
@@ -69,8 +71,10 @@ class ProviderBodyTests(unittest.TestCase):
             client = sc.SerperClient(api_key="test-key")
             with self.assertLogs(sc.logger, level="ERROR") as logs:
                 for _ in range(2):
-                    with self.assertRaises(requests.HTTPError):
+                    with self.assertRaises(sc.SerperRequestError) as ctx:
                         client.scrape("https://example.test/page")
+                    self.assertTrue(ctx.exception.account_level)
+                    self.assertEqual(ctx.exception.endpoint, "scrape")
         self.assertEqual(sum("ACCOUNT-LEVEL" in line for line in logs.output), 1)
 
     def test_missing_response_body_is_empty_string(self):

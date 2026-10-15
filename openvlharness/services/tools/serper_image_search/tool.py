@@ -593,6 +593,19 @@ class Image_Search_Tool(BaseTool):
         * A targeted retry hint (or no-retry hint, by failure mode)
         * The shared recovery-options menu — see ``_image_recovery_options``
         """
+        if error.account_level:
+            return (
+                "[Image Search Error]\n"
+                "REVERSE IMAGE SEARCH UNAVAILABLE\n\n"
+                f"Reason: the search provider rejected the request because of our search "
+                f"account (HTTP {error.status_code}: credits exhausted, key invalid or payment "
+                "required), NOT because of the image. Every reverse image search, text search "
+                "and webpage visit will fail the same way until an operator fixes the account.\n"
+                f"Image: {image_ref}\n\n"
+                "What to do: do NOT retry, crop, zoom or try another image_id or search tool; "
+                "none of that can help. Continue without web search: answer from the image and "
+                "your own knowledge, and state which facts you could not verify.\n"
+            )
         if error.transient:
             cause = (
                 f"Serper Lens (reverse image search) temporarily unavailable "

@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from openvlharness.services import degradation
 from openvlharness.services.models import AuxiliaryModel
 from openvlharness.services.tools.base import BaseTool, ToolArgumentError
-from openvlharness.services.tools.serper_common import SerperClient, strip_think_tags
+from openvlharness.services.tools.serper_common import SerperClient, SerperRequestError, strip_think_tags
 
 logger = logging.getLogger(__name__)
 
@@ -317,6 +317,17 @@ class Webpage_Visit_Tool(BaseTool):
             attempts = attempt + 1
             try:
                 return self._fetch_page_serper(url)
+            except SerperRequestError as exc:
+                # Raised by SerperClient.scrape only for account-level failures,
+                # which no retry or other URL can fix.
+                raise RuntimeError(
+                    f"Failed to fetch {url}: the search provider rejected the request because "
+                    f"of our search account (HTTP {exc.status_code}: credits exhausted, key "
+                    "invalid or payment required), NOT because of this page. Every webpage "
+                    "visit, text search and reverse image search will fail the same way until "
+                    "an operator fixes the account. Do NOT retry or try other URLs; continue "
+                    "without web pages and state which facts you could not verify."
+                ) from exc
             except Exception as exc:
                 last_error = str(exc)
                 m = _HTTP_CODE_RE.match(last_error)
