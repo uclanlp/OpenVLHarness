@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import importlib
+import logging
 import sys
 
 from fastapi import FastAPI
@@ -15,6 +16,8 @@ from . import degradation
 from .models import ModelAdapter, AuxiliaryModel
 from .tools.base import ToolArgumentError
 from .envelope import _normalize_result_payload, _build_error_payload, _build_success_payload
+
+logger = logging.getLogger(__name__)
 
 BACKEND_GROUPS = {
     "sam3_segment": "sam3", "grounding_dino": "dino", "ocr": "ocr",
@@ -45,6 +48,29 @@ def redact(value):
     if isinstance(value, list):
         return [redact(item) for item in value]
     return value
+
+
+def _warn_if_serper_key_missing(backends):
+    """Log one warning when a Serper-backed tool is configured but no Serper key is set.
+
+    Serper is optional: a configuration without search tools needs no key, and
+    with one the router still starts so the rest of the tools work. The
+    affected tools fail on every call until a key is set.
+    """
+    from openvlharness.services.tools.serper_common import get_serper_api_key
+
+    serper = sorted(b for b in backends if b.startswith("serper_"))
+    if not serper:
+        return
+    try:
+        get_serper_api_key()
+    except FileNotFoundError:
+        problem = "no Serper API key is configured (set SERPER_API_KEY or SERPER_API_KEY_FILE)"
+    except OSError as exc:
+        problem = f"the Serper key file could not be read ({exc})"
+    else:
+        return
+    logger.warning("%s; %s will fail on every call until a key is set.", problem, ", ".join(serper))
 
 
 def create_app(config, *, implementations=None):
@@ -90,6 +116,7 @@ def create_app(config, *, implementations=None):
             else:
                 tool = cls()
         registry[cap.concrete_name] = (tool, cap.backend, service)
+    _warn_if_serper_key_missing([cap.backend for cap in capabilities.values()])
     semaphores = {name: asyncio.Semaphore(limit) for name, limit in limits.items()}
     active = dict.fromkeys(limits, 0)
     app = FastAPI(title="OpenVLHarness tool router")
