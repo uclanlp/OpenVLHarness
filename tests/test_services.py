@@ -381,3 +381,34 @@ class CapacityTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SerperKeyWarningTests(unittest.TestCase):
+    """Serper is optional: a missing key is a startup warning, only when a Serper tool is configured."""
+
+    def setUp(self):
+        from openvlharness.services.tools import serper_common
+        self.env = patch.dict("os.environ", {"SERPER_API_KEY": "", "SERPER_API_KEY_FILE": ""})
+        self.env.start()
+        serper_common._cached_api_key = None
+
+    def tearDown(self):
+        from openvlharness.services.tools import serper_common
+        self.env.stop()
+        serper_common._cached_api_key = None
+
+    def test_search_tool_without_a_key_warns_but_starts(self):
+        from openvlharness.services import server
+        with self.assertLogs(server.logger, level="WARNING") as logs:
+            app = create_app(config_for("text_search", "zoom"),
+                             implementations={"serper_text_search": FakeTool(), "zoom_in_image_by_bbox": FakeTool()})
+        self.assertEqual(len(app.state.registry), 2)
+        self.assertEqual(sum("SERPER_API_KEY" in line and "serper_text_search" in line for line in logs.output), 1)
+
+    def test_no_search_tool_or_a_key_gives_no_warning(self):
+        from openvlharness.services import server
+        with patch.object(server.logger, "warning") as warn:
+            create_app(config_for("zoom"), implementations={"zoom_in_image_by_bbox": FakeTool()})
+            with patch.dict("os.environ", {"SERPER_API_KEY": "fixture-serper-key"}):
+                create_app(config_for("text_search"), implementations={"serper_text_search": FakeTool()})
+        warn.assert_not_called()
