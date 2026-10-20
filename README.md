@@ -25,9 +25,7 @@
 </p>
 
 <p align="center"><em>
-OpenVLHarness is a training-free harness that lets multimodal models combine
-perception, web search and Python computation, and keeps every piece of tool
-evidence readable and reusable across reasoning steps.
+Turn any MLLM into an evidence-based visual reasoner that thinks and codes in visual space.
 </em></p>
 
 <a id="highlights"></a>
