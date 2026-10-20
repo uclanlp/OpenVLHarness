@@ -50,10 +50,13 @@ authors:
     given-names: Kai-Wei
     affiliation: "University of California, Los Angeles"
 preferred-citation:
-  type: generic
+  type: article
   title: "OpenVLHarness: Real World Visual Agentic Tool-Use with Multimodal Memory"
+  journal: "arXiv preprint arXiv:2610.26860"
   year: 2026
-  url: "https://openvlharness.github.io/"
+  month: 10
+  doi: "10.48550/arXiv.2610.26860"
+  url: "https://arxiv.org/abs/2610.26860"
   authors:
     - family-names: Zhou
       given-names: Yu

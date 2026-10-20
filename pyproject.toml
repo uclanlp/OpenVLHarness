@@ -28,6 +28,7 @@ openvlharness-eval = "evaluation_kit.cli:main"
 
 [project.urls]
 Homepage = "https://openvlharness.github.io/"
+Paper = "https://arxiv.org/abs/2610.26860"
 Datasets = "https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"
 Source = "https://github.com/uclanlp/OpenVLHarness"
 Issues = "https://github.com/uclanlp/OpenVLHarness/issues"
