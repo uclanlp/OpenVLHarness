@@ -9,6 +9,7 @@
 <h3 align="center">Real-World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
 <p align="center">
+  <a href="https://arxiv.org/abs/2610.26860"><img src="https://img.shields.io/badge/arXiv-2610.26860-b31b1b.svg" alt="arXiv:2610.26860"></a>
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
   <a href="https://openvlharness.github.io/#playground"><img src="https://img.shields.io/badge/Demo-Interactive-8a2f6f.svg" alt="Interactive demo"></a>
   <a href="https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Datasets-Evaluation-f1b33c.svg" alt="Evaluation datasets on Hugging Face"></a>
@@ -687,10 +688,11 @@ default tools use, which are not covered by the MIT License.
 If you use OpenVLHarness in your research, please cite:
 
 ```bibtex
-@misc{openvlharness2026,
-  title  = {OpenVLHarness: Real World Visual Agentic Tool-Use with Multimodal Memory},
-  author = {Zhou, Yu and Yang, Cheng-Fu and Sun, Rui and Wu, Di and Peng, Sibo and Zhang, Mingyang and Yang, Zhen and Zhang, Ruiyi and Peng, Nanyun and Gan, Zhe and Chang, Kai-Wei},
-  year   = {2026},
-  url    = {https://openvlharness.github.io/}
+@article{openvlharness2026,
+  title   = {OpenVLHarness: Real World Visual Agentic Tool-Use with Multimodal Memory},
+  author  = {Zhou, Yu and Yang, Cheng-Fu and Sun, Rui and Wu, Di and Peng, Sibo and Zhang, Mingyang and Yang, Zhen and Zhang, Ruiyi and Peng, Nanyun and Gan, Zhe and Chang, Kai-Wei},
+  journal = {arXiv preprint arXiv:2610.26860},
+  year    = {2026},
+  url     = {https://arxiv.org/abs/2610.26860}
 }
 ```
