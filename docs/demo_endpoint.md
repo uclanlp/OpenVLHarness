@@ -1,6 +1,6 @@
 # Use your own model in the live demo
 
-The [interactive demo](https://openvlharness.github.io/#playground) runs the agent loop
+The [interactive demo](https://huggingface.co/spaces/uclanlp/OpenVLHarness) runs the agent loop
 and perception tools on our server. Your model does the rest: it orchestrates, writes
 the coding tool's Python, and summarizes search results. This guide covers the
 **OpenAI-compatible** option, where the model runs on a server you host yourself.
