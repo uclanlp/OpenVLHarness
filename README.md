@@ -11,10 +11,8 @@
 <p align="center">
   <a href="https://arxiv.org/abs/2610.26860"><img src="https://img.shields.io/badge/arXiv-2610.26860-b31b1b.svg" alt="arXiv:2610.26860"></a>
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
-  <a href="https://openvlharness.github.io/#playground"><img src="https://img.shields.io/badge/Demo-Interactive-8a2f6f.svg" alt="Interactive demo"></a>
+  <a href="https://huggingface.co/spaces/uclanlp/OpenVLHarness"><img src="https://img.shields.io/badge/Demo-Interactive-8a2f6f.svg" alt="Interactive demo"></a>
   <a href="https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Datasets-Evaluation-f1b33c.svg" alt="Evaluation datasets on Hugging Face"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/Python-3.10%2B-3776ab.svg" alt="Python 3.10+">
 </p>
 
 <p align="center">
