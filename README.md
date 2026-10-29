@@ -9,10 +9,11 @@
 <h3 align="center">Real World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
 <p align="center">
-  <a href="https://arxiv.org/abs/2610.26860"><img src="https://img.shields.io/badge/arXiv-2610.26860-b31b1b.svg" alt="arXiv:2610.26860"></a>
-  <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Page-2653c1.svg" alt="Project page"></a>
-  <a href="https://huggingface.co/spaces/uclanlp/OpenVLHarness"><img src="https://img.shields.io/badge/Demo-Interactive-8a2f6f.svg" alt="Interactive demo"></a>
-  <a href="https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Datasets-Evaluation-f1b33c.svg" alt="Evaluation datasets on Hugging Face"></a>
+  <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
+  <a href="https://arxiv.org/abs/2610.26860"><img src="https://img.shields.io/badge/arXiv-2610.26860-b31b1b.svg?style=for-the-badge" height="25" alt="arXiv:2610.26860"></a>
+  <a href="https://huggingface.co/papers/2610.26860"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Daily-Paper-ffd21e.svg?style=for-the-badge" height="25" alt="Hugging Face Daily Paper"></a>
+  <a href="https://huggingface.co/spaces/uclanlp/OpenVLHarness"><img src="https://img.shields.io/badge/Interactive-Demo-8a2f6f.svg?style=for-the-badge" height="25" alt="Interactive demo"></a>
+  <a href="https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Evaluation-Datasets-f1b33c.svg?style=for-the-badge" height="25" alt="Evaluation datasets on Hugging Face"></a>
 </p>
 
 <p align="center">
@@ -55,8 +56,7 @@ Turn any MLLM into an evidence-based visual reasoner that thinks and codes in vi
 - [Configure and extend](#configure-and-extend)
 - [Repository layout](#repository-layout)
 - [Documentation and tests](#documentation-and-tests)
-- [Acknowledgements](#acknowledgements)
-- [License](#license)
+- [Misc](#misc)
 - [Citation](#citation)
 
 <a id="how-it-works"></a>
@@ -655,28 +655,32 @@ python -m pytest tests -q
 The evaluator tests under `tests/evaluation` are collected only when the `eval`
 extra is installed as well.
 
+<a id="misc"></a>
+## 📌 Misc
+
+<a id="star-history"></a>
+<p>
+  <a href="https://www.star-history.com/#uclanlp/OpenVLHarness&Date">
+    <img src="https://api.star-history.com/svg?repos=uclanlp/OpenVLHarness&type=Date" width="600" alt="Star history chart for uclanlp/OpenVLHarness">
+  </a>
+</p>
+
 <a id="acknowledgements"></a>
-## 🙏 Acknowledgements
+### Acknowledgements
 
 The benchmark loaders and evaluators build on
 [VLMEvalKit](https://github.com/open-compass/VLMEvalKit). The default tools use
 [SAM 3](https://github.com/facebookresearch/sam3),
 [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3),
 [PaddleOCR-VL](https://github.com/PaddlePaddle/PaddleOCR) and the
-[Serper](https://serper.dev/) search APIs, and
-[Qwen3-VL](https://github.com/QwenLM/Qwen3-VL) serves as the default backbone and
-search summarizer. We thank their authors for releasing them.
+[Serper](https://serper.dev/) search APIs. We thank their authors for releasing
+them.
 
 <a id="license"></a>
-## 📄 License
+### License
 
-OpenVLHarness is released under the [MIT License](LICENSE). The benchmark
-loaders and evaluators under `evaluation_kit/` are derived from
-[VLMEvalKit](https://github.com/open-compass/VLMEvalKit) (Apache License 2.0), and
-the SAM 3 visualization helpers in `openvlharness/services/tools/sam3_segment/viz/`
-are under the SAM License. See [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)
-for these notices and for the licenses of the models, services and datasets the
-default tools use, which are not covered by the MIT License.
+OpenVLHarness is released under the [MIT License](LICENSE). For third-party
+models and tools, see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
 <a id="citation"></a>
 ## 📝 Citation
