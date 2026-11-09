@@ -6,7 +6,7 @@
   OpenVLHarness
 </h1>
 
-<h3 align="center">Turn any MLLM into an evidence&#8209;based visual reasoner that thinks and codes in visual space.</h3>
+<h3 align="center">Make any MLLM think and code in visual space with multimodal evidence.</h3>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
