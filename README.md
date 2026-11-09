@@ -6,7 +6,12 @@
   OpenVLHarness
 </h1>
 
-<h3 align="center">Make any MLLM think and code in visual space with multimodal evidence.</h3>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/subtitle-dark.svg">
+    <img src="assets/subtitle.svg" alt="Real World Visual Agentic Tool-Use with Multimodal Memory" width="687">
+  </picture>
+</p>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
@@ -23,6 +28,13 @@
       <img src="assets/teaser.png" alt="Average score over 22 benchmarks for six backbones with and without OpenVLHarness, and GPT-6 Luna performance versus cost across five reasoning efforts" width="100%">
     </picture>
   </a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/tagline-dark.svg">
+    <img src="assets/tagline.svg" alt="Teach any MLLM to think and code in visual space with precise multimodal evidence" width="660">
+  </picture>
 </p>
 
 <a id="news"></a>
