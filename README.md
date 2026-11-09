@@ -6,12 +6,12 @@
   OpenVLHarness
 </h1>
 
-<h3 align="center">Real World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
+<h3 align="center">Turn any MLLM into an evidence&#8209;based visual reasoner that thinks and codes in visual space.</h3>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
   <a href="https://arxiv.org/abs/2610.26860"><img src="https://img.shields.io/badge/arXiv-2610.26860-b31b1b.svg?style=for-the-badge" height="25" alt="arXiv:2610.26860"></a>
-  <a href="https://huggingface.co/papers/2610.26860"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Daily-Paper-ffd21e.svg?style=for-the-badge" height="25" alt="Hugging Face Daily Paper"></a>
+  <a href="https://huggingface.co/papers/2610.26860"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Top%203-Paper-ffd21e.svg?style=for-the-badge" height="25" alt="Hugging Face Daily Papers: Top 3 Paper of the Day"></a>
   <a href="https://huggingface.co/spaces/uclanlp/OpenVLHarness"><img src="https://img.shields.io/badge/Interactive-Demo-8a2f6f.svg?style=for-the-badge" height="25" alt="Interactive demo"></a>
   <a href="https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Evaluation-Datasets-f1b33c.svg?style=for-the-badge" height="25" alt="Evaluation datasets on Hugging Face"></a>
 </p>
@@ -25,25 +25,34 @@
   </a>
 </p>
 
-<p align="center"><em>
-Turn any MLLM into an evidence-based visual reasoner that thinks and codes in visual space.
-</em></p>
+<a id="news"></a>
+## 📰 News
+
+- **2026-10-24:** Listed on [Hugging Face Trending Papers](https://huggingface.co/papers/trending) and featured by [Hugging Papers](https://x.com/HuggingPapers/status/2114027064751685782) on X.
+- **2026-10-20:** [Featured by AK on X](https://x.com/_akhaliq/status/2112566784343876081).
+- **2026-10-20:** Top 3 Paper of the Day on [Hugging Face Daily Papers](https://huggingface.co/papers/date/2026-10-20).
+- **2026-10-19:** Paper released on [arXiv](https://arxiv.org/abs/2610.26860).
 
 <a id="highlights"></a>
 ## ✨ Highlights
 
-- **Training-free.** Works with the backbone's existing weights through native
-  tool calling; nothing is fine-tuned.
-- **Nine capabilities.** Visual grounding, OCR, depth, camera trajectory, zoom,
-  text search, image search, webpage visits and a Python coding agent, each behind a
-  task-level interface that returns evidence the model can read.
+- **Consistent gains.** Across 22 benchmarks in four domains, seven backbones
+  (GPT-6 Astra, Sol and Luna, GPT-5, Kimi K3, Qwen3-VL-32B and Qwen3-VL-8B) gain
+  9.7 to 12.6 points on average over the same models without tools.
+- **Cost efficiency.** With GPT-6 Luna, OpenVLHarness at low reasoning effort
+  already averages 49.9 across the 22 benchmarks, ahead of the base model, Codex
+  and Visual Sketchpad at max effort (48.0 to 48.8), while spending at most 26%
+  of their model-token cost.
+- **Flexible capabilities.** Customizable capabilities and backend models based on
+  your performance, cost, and latency preferences.
+  [Choose the capabilities you want.](#configure-and-extend)
 - **Multimodal memory.** Images, boxes, masks, depth maps and web references stay
   addressable for the whole question, so later tools and code can build on them.
-- **Consistent gains.** Across 22 benchmarks in four domains, seven backbones gain
-  **9.7 to 12.6 points** on average over the same models without tools.
-- **Any registered model.** Presets for seven of the paper's eight backbones, plus
-  every Qwen3-VL Instruct size and OpenAI's GPT-5 to GPT-6.1 models in the
+- **Any model.** Gains validated on eight backbones across five open-weight and
+  proprietary model families. Try any model of your choice by adding it to the
   [model registry](docs/models.md#other-registered-models).
+- **Training-free.** Works with the backbone's existing weights through native
+  tool calling; nothing is fine-tuned.
 
 <a id="table-of-contents"></a>
 ## 🗂️ Table of Contents
