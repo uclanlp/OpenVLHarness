@@ -40,6 +40,7 @@
 <a id="news"></a>
 ## 📰 News
 
+- **2026-11-13:** We will give a [talk on OpenVLHarness](https://mp.weixin.qq.com/s/Y0SOJ3esuFWU0GnR2p6q5w) on Friday, November 13, 2026, 6–7 PM PST. [Register here](https://t.bilibili.com/1268243648604012563).
 - **2026-10-24:** Listed on [Hugging Face Trending Papers](https://huggingface.co/papers/trending) and featured by [Hugging Papers](https://x.com/HuggingPapers/status/2114027064751685782) on X.
 - **2026-10-20:** [Featured by AK on X](https://x.com/_akhaliq/status/2112566784343876081).
 - **2026-10-20:** Top 3 Paper of the Day on [Hugging Face Daily Papers](https://huggingface.co/papers/date/2026-10-20).
