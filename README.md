@@ -6,12 +6,7 @@
   OpenVLHarness
 </h1>
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/subtitle-dark.svg">
-    <img src="assets/subtitle.svg" alt="Real World Visual Agentic Tool-Use with Multimodal Memory" width="687">
-  </picture>
-</p>
+<h3 align="center">Real World Visual Agentic Tool&#8209;Use with Multimodal Memory</h3>
 
 <p align="center">
   <a href="https://openvlharness.github.io/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
