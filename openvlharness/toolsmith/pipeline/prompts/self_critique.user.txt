@@ -1,0 +1,19 @@
+Question: {question}
+Final answer the agent gave: {prediction}
+Ground-truth answer: {gold}
+
+The agent invoked these tools: {tool_counts}
+Last tool errors: {recent_errors}
+
+Would a NEW tool have let the agent answer correctly? Reply with one of:
+- NEW_TOOL_NEEDED: capability X is missing
+- ARGUMENT_MISTAKE: right tool, wrong usage
+- SEARCH_NOISE: tools worked, bad results
+- AMBIGUOUS: question itself unanswerable
+
+If NEW_TOOL_NEEDED, describe:
+  (a) input modality (text / image+text / image)
+  (b) data source (website/API or web search)
+  (c) which field of the gold answer to extract
+
+Reply: LABEL: <label>  WHY: <one sentence>

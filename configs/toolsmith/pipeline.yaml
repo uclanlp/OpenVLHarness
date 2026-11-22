@@ -1,0 +1,22 @@
+# Tool generation with the paper's settings. The agent configuration's
+# toolsmith.catalog is the catalog that grows.
+# The paper's generator is gpt-5-2025-08-07; OpenAI lists it for shutdown on 2026-12-11.
+pipeline_config_version: paper_v1
+agent: configs/agent/qwen3_8b_toolsmith.yaml
+models:
+  generator: &gpt5
+    alias: gpt-5-2025-08-07
+    base: ${TOOLSMITH_MODEL_BASE_URL}
+    key: ${TOOLSMITH_MODEL_API_KEY}
+    timeout: 600
+  critic: *gpt5
+  analyst: *gpt5
+encoder: BAAI/bge-m3
+clusters: 500
+reuse_threshold: 0.40
+retries: 2
+timeout_seconds: 10
+critic_mean: 3.0
+critic_min: 1
+dedup_threshold: 0.55
+workers: 8

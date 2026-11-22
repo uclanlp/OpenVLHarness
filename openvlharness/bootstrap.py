@@ -87,12 +87,20 @@ def load_agent_config(config, *, save_raw_trace=False):
                                 hint=", or remove unused capabilities and services")
     if not isinstance(config, dict) or config.get("agent_name") != "MainAgent":
         raise ValueError("Use the OpenVLHarness agent-system format with agent_name: MainAgent")
-    allowed = {"agent_name", "agent_config_version", "agent", "memory", "capabilities", "services"}
+    allowed = {"agent_name", "agent_config_version", "agent", "memory", "capabilities", "services", "toolsmith"}
     if set(config) - allowed:
         raise ValueError(f"Unknown agent-system sections: {sorted(set(config) - allowed)}")
     for section in ("agent", "memory", "capabilities", "services"):
         if not isinstance(config.get(section), dict):
             raise ValueError(f"{section} must be a mapping")
+    if "toolsmith" in config:
+        toolsmith = config["toolsmith"]
+        if not isinstance(toolsmith, dict) or set(toolsmith) - {"catalog", "top_k", "encoder"}:
+            raise ValueError("toolsmith must be a mapping with optional catalog, top_k and encoder")
+        if type(toolsmith.get("top_k", 10)) is not int or toolsmith.get("top_k", 10) <= 0:
+            raise ValueError("toolsmith.top_k must be a positive integer")
+        if "catalog" in toolsmith and not Path(toolsmith["catalog"]).is_dir():
+            raise ValueError(f"toolsmith.catalog {toolsmith['catalog']!r} is not a directory")
     memory_factory(config["memory"])()
     agent = config["agent"]
     if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed"}:
@@ -264,7 +272,8 @@ def build_agent(config):
         config: Agent-system mapping or YAML path accepted by load_agent_config.
 
     Returns:
-        A MainAgent ready to accept image/text questions.
+        A MainAgent ready to accept image/text questions, or a ToolSmithAgent
+        when the configuration has a toolsmith section.
 
     Raises:
         ValueError: Configuration or model-profile validation fails.
@@ -282,6 +291,11 @@ def build_agent(config):
     resources = files("openvlharness.prompts")
     system = resources.joinpath(adapter.profile["prompt_bundle"] + "_system.txt").read_text()
     prefix = resources.joinpath("user_prefix.txt").read_text()
-    return MainAgent(adapter, build_capabilities(config), memory_factory(config["memory"]),
-        system, prefix, max_iterations=options.get("max_iterations", 15),
-        tool_choice=options.get("tool_choice", "auto"), paired_sampling_seed=options.get("paired_sampling_seed", False))
+    arguments = (adapter, build_capabilities(config), memory_factory(config["memory"]), system, prefix)
+    settings = {"max_iterations": options.get("max_iterations", 15), "tool_choice": options.get("tool_choice", "auto"),
+                "paired_sampling_seed": options.get("paired_sampling_seed", False)}
+    if "toolsmith" in config:
+        from .toolsmith.agent import ToolSmithAgent
+        return ToolSmithAgent(*arguments, toolsmith=config["toolsmith"],
+                              client_config=config["services"]["client"], **settings)
+    return MainAgent(*arguments, **settings)

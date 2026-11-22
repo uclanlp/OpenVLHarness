@@ -12,7 +12,9 @@ from starlette.concurrency import run_in_threadpool
 
 from ..bootstrap import load_agent_config, build_capabilities, RAW_BACKENDS
 from ..contracts import ServiceResult
+from ..toolsmith.catalog import load_catalog
 from . import degradation
+from .client import ToolClient
 from .models import ModelAdapter, AuxiliaryModel
 from .tools.base import ToolArgumentError
 from .envelope import _normalize_result_payload, _build_error_payload, _build_success_payload
@@ -120,6 +122,12 @@ def create_app(config, *, implementations=None):
             else:
                 tool = cls()
         registry[cap.concrete_name] = (tool, cap.backend, service)
+    if "toolsmith" in config:
+        catalog = load_catalog(config["toolsmith"].get("catalog"), client=ToolClient(**settings["client"]))
+        shadowed = sorted(set(catalog) & set(registry))
+        if shadowed:
+            raise ValueError(f"Generated tools shadow base tools: {shadowed}")
+        registry.update((name, (tool, "toolsmith", {})) for name, tool in catalog.items())
     _warn_if_serper_key_missing([cap.backend for cap in capabilities.values()])
     semaphores = {name: asyncio.Semaphore(limit) for name, limit in limits.items()}
     active = dict.fromkeys(limits, 0)

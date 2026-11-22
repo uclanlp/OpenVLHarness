@@ -1,0 +1,96 @@
+import os
+import time
+
+import requests
+
+from openvlharness.toolsmith import GeneratedTool
+
+HEADERS = {"User-Agent": "OpenVLHarness-ToolSmith/0.1 (https://github.com/uclanlp/OpenVLHarness)",
+           "Accept": "application/json"}
+MUSICBRAINZ = "https://musicbrainz.org/ws/2"
+TMDB = "https://api.themoviedb.org/3"
+
+
+def get_json(url, params):
+    for attempt in range(3):
+        response = requests.get(url, params=params, headers=HEADERS, timeout=20)
+        if response.status_code not in {429, 503}:
+            break
+        time.sleep(1.5 * (attempt + 1))
+    response.raise_for_status()
+    return response.json()
+
+
+class MediaCatalog(GeneratedTool):
+    def __init__(self):
+        super().__init__(
+            tool_name="media_catalog",
+            tool_description=(
+                "Canonical metadata of a creative work or media person: music artists and releases from MusicBrainz; "
+                "films, TV series and people from TMDB (needs TMDB_API_KEY). Returns {found, canonical_title, "
+                "alternate_titles, native_title, source, ...}. DO NOT USE FOR: identifying works from an image."),
+            input_schema={"type": "object", "properties": {
+                "title": {"type": "string", "description": "Name of the work, artist or person."},
+                "media_type": {"type": "string", "enum": ["film", "tv", "music", "person"]}},
+                "required": ["title", "media_type"]})
+
+    def execute(self, title="", media_type=""):
+        if not title.strip() or media_type not in {"film", "tv", "music", "person"}:
+            return {"found": False, "error": "title and a media_type of film, tv, music or person are required"}
+        try:
+            return self.music(title.strip()) if media_type == "music" else self.tmdb(title.strip(), media_type)
+        except (requests.RequestException, ValueError) as exc:
+            return {"found": False, "error": f"{media_type} lookup failed: {exc}"}
+
+    @staticmethod
+    def music(title):
+        for entity in ("artist", "release"):
+            search = get_json(f"{MUSICBRAINZ}/{entity}", {"query": title, "fmt": "json", "limit": 5})
+            hits = search.get(f"{entity}s") or []
+            if not hits:
+                continue
+            hit = next((h for h in hits if (h.get("name") or h.get("title") or "").lower() == title.lower()), hits[0])
+            record = get_json(f"{MUSICBRAINZ}/{entity}/{hit['id']}", {"fmt": "json", "inc": "aliases"})
+            aliases = record.get("aliases") or []
+            result = {"found": True, "media_type": "music", "source": "musicbrainz", "id": record.get("id"),
+                      "canonical_title": record.get("name") or record.get("title", ""),
+                      "alternate_titles": [a["name"] for a in aliases if a.get("name")],
+                      "native_title": next((a["name"] for a in aliases if a.get("primary") and a.get("name")), ""),
+                      "type": record.get("type", ""), "country": record.get("country", "")}
+            if entity == "artist":
+                return {**result, "life_span": record.get("life-span", {})}
+            credit = record.get("artist-credit") or [{}]
+            return {**result, "date": record.get("date", ""), "artist": credit[0].get("name", "")}
+        return {"found": False}
+
+    @staticmethod
+    def tmdb(title, media_type):
+        key = os.environ.get("TMDB_API_KEY")
+        if not key:
+            return {"found": False, "error": "TMDB_API_KEY is not set"}
+        endpoint = {"film": "movie", "tv": "tv", "person": "person"}[media_type]
+        results = get_json(f"{TMDB}/search/{endpoint}", {"api_key": key, "query": title}).get("results") or []
+        if not results:
+            return {"found": False}
+        params = {"api_key": key}
+        if media_type != "person":
+            params["append_to_response"] = "alternative_titles"
+        record = get_json(f"{TMDB}/{endpoint}/{results[0]['id']}", params)
+        if media_type == "person":
+            names = record.get("also_known_as") or []
+            return {"found": True, "media_type": "person", "source": "tmdb", "id": record.get("id"),
+                    "canonical_title": record.get("name", ""), "alternate_titles": names,
+                    "native_title": names[0] if names else "", "birthday": record.get("birthday"),
+                    "deathday": record.get("deathday"), "place_of_birth": record.get("place_of_birth", ""),
+                    "known_for_department": record.get("known_for_department", "")}
+        alternatives = record.get("alternative_titles") or {}
+        tv = media_type == "tv"
+        return {"found": True, "media_type": media_type, "source": "tmdb", "id": record.get("id"),
+                "canonical_title": record.get("name" if tv else "title", ""),
+                "alternate_titles": [a["title"] for a in alternatives.get("titles") or alternatives.get("results") or []
+                                     if a.get("title")],
+                "native_title": record.get("original_name" if tv else "original_title", ""),
+                "original_language": record.get("original_language", ""),
+                "release_date": record.get("first_air_date" if tv else "release_date", ""),
+                "genres": [g["name"] for g in record.get("genres") or [] if g.get("name")],
+                "overview": record.get("overview", "")}
