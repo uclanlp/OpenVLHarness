@@ -83,6 +83,7 @@ class MainAgent:
         del dataset
         original = copy.deepcopy(message)
         question, system = normalize_input(message, self.system_prompt)
+        capabilities = self.tools_for(question)
         memory = self.memory_factory()
         history = [self.adapter.encode_message(m) for m in input_messages(question, system, self.user_prefix)]
         initial = memory.start(question)
@@ -93,7 +94,8 @@ class MainAgent:
         error = None
         capture = {} if self.adapter.raw_trace_enabled else None
         try:
-            final = self._run(history, memory, turns, detections, usage, task_id, capture=capture)
+            final = self._run(history, memory, turns, detections, usage, task_id,
+                              capabilities=capabilities, capture=capture)
         except (RuntimeError, OSError) as exc:
             error = str(exc)
         trajectory = {"input_messages": original, "chat_history": turns,
@@ -115,16 +117,31 @@ class MainAgent:
             extra["usage"] = {"total": usage}
         return {"prediction": final, "extra_records": extra}
 
-    def _run(self, history, memory, turns, detections, usage, task_id, *, capture=None):
+    def tools_for(self, question):
+        """Return the capabilities offered for one question.
+
+        Args:
+            question: Normalized user input items returned by normalize_input.
+
+        Returns:
+            A mapping of public tool names to capability instances; the configured
+            capabilities by default.
+        """
+        return self.capabilities
+
+    def _run(self, history, memory, turns, detections, usage, task_id, *, capabilities=None, capture=None):
         """Run model/tool iterations, updating history, memory and reporting lists.
 
         Returns the extracted final answer or the failure message. The adapter may
         compact history or issue a text-only final request according to its profile.
-        When supplied, capture holds the terminating response and its exact request.
+        capabilities defaults to the configured mapping. When supplied, capture
+        holds the terminating response and its exact request.
         """
         adapter = self.adapter
         policy = adapter.profile
-        tools, choice = self.json_schema, self.tool_choice
+        capabilities = self.capabilities if capabilities is None else capabilities
+        tools = [capability.public_schema() for capability in capabilities.values()]
+        choice = self.tool_choice
         seed_base = None
         if self.paired_sampling_seed and task_id is not None:
             base = int(hashlib.md5(str(task_id).encode()).hexdigest()[:8], 16) % 1_000_000_000
@@ -160,10 +177,10 @@ class MainAgent:
                     if call.get("parse_error"):
                         result = failure(virtual, call["parse_error"]["code"], call["parse_error"]["message"],
                                          details=call["parse_error"].get("details"))
-                    elif call["name"] not in self.capabilities:
+                    elif call["name"] not in capabilities:
                         result = failure(virtual, "tool_not_found", f"Tool not found: {call['name']}")
                     else:
-                        result = self.capabilities[call["name"]].invoke(virtual, memory)
+                        result = capabilities[call["name"]].invoke(virtual, memory)
                     if result.detection:
                         detection = copy.deepcopy(result.detection)
                         detection["tool_call_idx"] = len(detections)
