@@ -209,6 +209,9 @@ where the table names a model.
 | `services.models.<name>.presence_penalty` | number, -2 to 2 | provider default | Qwen `1.5` | Qwen profiles. |
 | `services.models.<name>.reasoning_effort` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max` | provider default | GPT `medium` | GPT and Kimi profiles; each model rejects the levels it does not support. |
 | `services.models.<name>.return_token_ids` | boolean | `false` | Qwen `false` | Requests token IDs for raw trace export. `true` is accepted only for `qwen3-vl-8b-instruct`; `--save-raw-trace` sets it. Qwen profiles. |
+| `toolsmith.catalog` | directory | the packaged catalog | not set | Generated tools the router serves and the agent can retrieve. With a `toolsmith` section the agent is a `ToolSmithAgent`; see [ToolSmith](../toolsmith/README.md). |
+| `toolsmith.top_k` | positive integer | `10` | not set | Generated tools added to the base tools for each question. |
+| `toolsmith.encoder` | string | `BAAI/bge-m3` | not set | Sentence-transformers model that embeds questions and tool descriptions for retrieval. |
 
 Each selected backend needs a `services.tools.<backend>` mapping. The model
 generation options (`max_tokens` through `return_token_ids`) apply to
