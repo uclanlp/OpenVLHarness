@@ -3,6 +3,14 @@ import re
 from openvlharness.toolsmith import GeneratedTool, ToolCallError
 
 
+def page_answers(page):
+    """Yield the first summary line of each fetched page; failed fetches carry no answer."""
+    for block in str(page or "").split("\n=======\n"):
+        summary = block.split("Summary:", 1)[1].strip() if "Summary:" in block else ""
+        if summary and not summary.startswith(("FETCH FAILED", "No summary generated")):
+            yield summary.splitlines()[0][:120]
+
+
 class ActressByCharacter(GeneratedTool):
     def __init__(self):
         super().__init__(
@@ -27,5 +35,4 @@ class ActressByCharacter(GeneratedTool):
                                   goal=f"Name the actor or actress who plays {character} {work}. Reply with the name only.")
         except ToolCallError as exc:
             return {"error": str(exc)}
-        summary = page.split("Summary:", 1)[-1].strip() if isinstance(page, str) else ""
-        return summary.splitlines()[0][:120] if summary else {"error": "the cast page does not name the performer"}
+        return next(page_answers(page), None) or {"error": "the cast pages do not name the performer"}

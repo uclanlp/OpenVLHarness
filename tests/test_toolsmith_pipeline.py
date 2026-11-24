@@ -133,6 +133,35 @@ class PackagedToolTests(unittest.TestCase):
                     self.assertEqual(scan(path.read_text()), [])
 
 
+    def test_examples_skip_failed_page_fetches(self):
+        from openvlharness.toolsmith.catalog import load_catalog
+        from openvlharness.toolsmith.pipeline.generation import EXAMPLES
+
+        def block(url, summary):
+            return (f"The useful information in {url} for user goal g as follows: \n\n"
+                    f"Evidence in page: \ne\n\nSummary: \n{summary}\n\n")
+        failed = block("https://a.example/page", "FETCH FAILED.\n\nReason: HTTP 403")
+        good = block("https://b.example/page", "Emma Watson\nshe plays Hermione")
+
+        class Client:
+            def __init__(self, page):
+                self.page = page
+
+            def execute(self, tool_name, args, *, tool_call_id):
+                result = ("Results: https://a.example/page https://b.example/page" if tool_name == "Text_Search_Tool"
+                          else self.page)
+                return {"ok": True, "result": result}
+        for page, actress, stat in ((failed + "\n\n=======\n\n" + good, "Emma Watson", "Emma Watson"),
+                                    (failed, {"error": "the cast pages do not name the performer"},
+                                     {"error": "approximate total winnings not found on "
+                                               "https://liquipedia.net/dota2/Miracle-"})):
+            tools = load_catalog(EXAMPLES, client=Client(page))
+            with self.subTest(page=page[:60]):
+                self.assertEqual(tools["actress_by_character"].execute(character="Hermione Granger"), actress)
+                self.assertEqual(tools["esports_player_stats"].execute(
+                    player="Miracle-", game="dota2", statistic="approximate total winnings"), stat)
+
+
 class PhaseTests(unittest.TestCase):
     def test_reuse_finds_the_closest_description(self):
         descriptions = {"river": "Report the length of a river.", "bird": "Identify a bird species from an image."}

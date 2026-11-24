@@ -1,6 +1,14 @@
 from openvlharness.toolsmith import GeneratedTool, ToolCallError
 
 
+def page_answers(page):
+    """Yield the first summary line of each fetched page; failed fetches carry no answer."""
+    for block in str(page or "").split("\n=======\n"):
+        summary = block.split("Summary:", 1)[1].strip() if "Summary:" in block else ""
+        if summary and not summary.startswith(("FETCH FAILED", "No summary generated")):
+            yield summary.splitlines()[0][:120]
+
+
 class EsportsPlayerStats(GeneratedTool):
     def __init__(self):
         super().__init__(
@@ -22,5 +30,4 @@ class EsportsPlayerStats(GeneratedTool):
                                   goal=f"Report the {statistic} of {player}. Reply with the value only.")
         except ToolCallError as exc:
             return {"error": str(exc)}
-        summary = page.split("Summary:", 1)[-1].strip() if isinstance(page, str) else ""
-        return summary.splitlines()[0][:120] if summary else {"error": f"{statistic} not found on {url}"}
+        return next(page_answers(page), None) or {"error": f"{statistic} not found on {url}"}
