@@ -125,8 +125,11 @@ python -m openvlharness.toolsmith.pipeline --config configs/toolsmith/pipeline.y
 ```
 
 Admitted tools are written to the catalog. `gaps.jsonl` keeps the mined
-representatives and `decisions.jsonl` records each gap's outcome with the gate feedback;
-a rerun resumes from both. Serve the grown catalog with the same preset.
+representatives, `mining.json` the rollouts (with a hash of each judged predictions file)
+and the mining settings they came from, and `decisions.jsonl` each gap's outcome with the
+gate feedback. A rerun resumes from them; with other rollouts or mining settings it stops
+with an error, unless `--rebuild-gaps` asks to mine the rollouts again. Serve the grown
+catalog with the same preset.
 
 ## Write a tool
 

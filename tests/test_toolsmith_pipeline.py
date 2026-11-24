@@ -209,6 +209,16 @@ class PipelineTests(unittest.TestCase):
         with patch("openvlharness.toolsmith.pipeline.AuxiliaryModel", StubModel):
             return Pipeline(self.config, self.root / "work")
 
+    def judged_rollout(self, name, question, hit=0):
+        import pandas as pd
+
+        rollout = self.root / name
+        (rollout / "full_trajectories").mkdir(parents=True, exist_ok=True)
+        pd.DataFrame([{"index": "c", "question": question, "answer": "Austria", "prediction": "Germany",
+                       "image_path": "c.png", "hit": hit}]).to_excel(
+            rollout / "Qwen3-VL-8B-Instruct_judge_judge_vdr.xlsx", index=False)
+        return str(rollout)
+
     def test_failed_rollouts_become_admitted_tools_and_reruns_resume(self):
         pipeline = self.pipeline()
         self.assertEqual(pipeline.run([self.rollout]), {"admitted": 1})
@@ -257,6 +267,58 @@ class PipelineTests(unittest.TestCase):
                          {"decision": "duplicate", "tool": "river_length_lookup", "file": "river_length_lookup.py"})
         self.assertEqual(path.read_text(), existing)
         self.assertNotIn("river_length_lookup", pipeline.descriptions)
+
+    def test_the_gap_cache_is_reused_only_for_the_rollouts_and_settings_it_was_mined_from(self):
+        self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})
+        record = json.loads((self.root / "work" / "mining.json").read_text())
+        self.assertEqual([(Path(entry["directory"]).name, entry["predictions"]) for entry in record["rollouts"]],
+                         [("FVQA_train", "Qwen3-VL-8B-Instruct_judge_judge_vdr.xlsx")])
+        self.assertEqual((record["encoder"], record["clusters"], record["analyst"]), ("BAAI/bge-m3", 4, {"alias": "stub"}))
+        self.assertEqual(self.pipeline().run([self.rollout]), {})
+        infoseek = self.judged_rollout("Infoseek_GDM_val", "Which country is this castle in?")
+        for change, message in (({}, "rollout .*Infoseek_GDM_val is new"), ({"clusters": 3}, "clusters was 4, now 3"),
+                                ({"encoder": "BAAI/bge-base-en-v1.5"}, "encoder was 'BAAI/bge-m3'")):
+            with self.subTest(change=change):
+                rollouts = [self.rollout, infoseek] if not change else [self.rollout]
+                with patch.dict(self.config, change), self.assertRaisesRegex(ValueError, message + ".*--rebuild-gaps"):
+                    self.pipeline().run(rollouts)
+        self.judged_rollout("FVQA_train", "How long is the river in this map?")
+        with self.assertRaisesRegex(ValueError, "the judged predictions of .*FVQA_train changed"):
+            self.pipeline().run([self.rollout])
+        counts = self.pipeline().run([self.rollout, infoseek], rebuild_gaps=True)
+        self.assertEqual(sum(counts.values()), 2)
+        sources = [json.loads(line)["source"] for line in (self.root / "work" / "gaps.jsonl").read_text().splitlines()]
+        self.assertEqual(sorted(sources), ["FVQA_train:c", "Infoseek_GDM_val:c"])
+        self.assertEqual(self.pipeline().run([infoseek, self.rollout]), {})
+        (self.root / "work" / "mining.json").unlink()
+        with self.assertRaisesRegex(ValueError, "no mining.json"):
+            self.pipeline().run([self.rollout, infoseek])
+
+    def test_the_command_line_rebuilds_gaps_only_when_asked(self):
+        from openvlharness.toolsmith.pipeline import __main__ as cli
+
+        calls = []
+
+        class Recorder:
+            def __init__(self, config, work_dir):
+                pass
+
+            def run(self, rollouts, *, rebuild_gaps=False):
+                calls.append((rollouts, rebuild_gaps))
+                if not rebuild_gaps:
+                    raise ValueError("gaps.jsonl was mined from other inputs")
+                return {"admitted": 2}
+        config = self.root / "pipeline.yaml"
+        config.write_text("pipeline_config_version: paper_v1\n")
+        argv = ["pipeline", "--config", str(config), "--rollouts", self.rollout, "--work-dir", str(self.root / "w")]
+        with patch.object(cli, "Pipeline", Recorder), patch.object(sys, "argv", argv), \
+                self.assertRaisesRegex(SystemExit, "error: gaps.jsonl was mined from other inputs"):
+            cli.main()
+        with patch.object(cli, "Pipeline", Recorder), patch.object(sys, "argv", argv + ["--rebuild-gaps"]), \
+                patch("builtins.print") as printed:
+            cli.main()
+        self.assertEqual(calls, [([self.rollout], False), ([self.rollout], True)])
+        printed.assert_called_once_with("admitted: 2")
 
     def test_a_failing_model_call_leaves_the_gap_undecided(self):
         pipeline = self.pipeline()

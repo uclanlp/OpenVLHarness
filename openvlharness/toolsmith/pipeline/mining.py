@@ -32,6 +32,18 @@ class Gap:
         return json.dumps(asdict(self), ensure_ascii=False)
 
 
+def judged_predictions(directory):
+    """Return the judged predictions file that failures reads from a dataset directory.
+
+    Raises:
+        ValueError: The directory holds no judged predictions.
+    """
+    judged = sorted(Path(directory).glob("*_judge*.xlsx"))
+    if not judged:
+        raise ValueError(f"{directory} has no judged predictions (*_judge*.xlsx); evaluate the run first")
+    return judged[0]
+
+
 def failures(directory):
     """Layer A: yield the queries the LLM judge marked incorrect in one dataset directory of a run.
 
@@ -45,10 +57,7 @@ def failures(directory):
     import pandas as pd
 
     directory = Path(directory)
-    judged = sorted(directory.glob("*_judge*.xlsx"))
-    if not judged:
-        raise ValueError(f"{directory} has no judged predictions (*_judge*.xlsx); evaluate the run first")
-    for row in pd.read_excel(judged[0]).to_dict("records"):
+    for row in pd.read_excel(judged_predictions(directory)).to_dict("records"):
         if row.get("hit") != 0:
             continue
         trajectory = directory / "full_trajectories" / f"{row['index']}.json"
