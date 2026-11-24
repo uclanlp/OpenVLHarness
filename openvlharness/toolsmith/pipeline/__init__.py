@@ -17,8 +17,7 @@ from pathlib import Path
 
 from ...bootstrap import build_capabilities, load_agent_config
 from ...services.models import AuxiliaryModel
-from ..catalog import load_catalog
-from ..worker import memory_limit_enforced
+from ..worker import catalog_tools, memory_limit_enforced
 from .generation import Generator, describe_tools
 from .mining import Gap, evidence_digest, judged_predictions, mine
 from .reuse import closest
@@ -75,7 +74,9 @@ class Pipeline:
             raise ValueError("Set toolsmith.catalog in the agent configuration to the catalog directory to grow")
         self.catalog = Path(agent["toolsmith"]["catalog"])
         base = {capability.name: capability.public_schema()["function"] for capability in build_capabilities(agent).values()}
-        tools = load_catalog(self.catalog)
+        # Read in a worker, so catalog code does not run on the mining host.
+        tools = catalog_tools(self.catalog, settings={**(agent["toolsmith"].get("worker") or {}),
+                                                      "isolation": self.settings["isolation"]})
         self.descriptions = {**{name: schema["description"] for name, schema in base.items()},
                              **{name: tool.tool_description for name, tool in tools.items()}}
         self.models = {role: AuxiliaryModel(config["models"][role]) for role in ("generator", "critic", "analyst")}

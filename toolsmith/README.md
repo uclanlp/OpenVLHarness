@@ -118,6 +118,13 @@ image-upload directory writable, and `worker.network: false` removes network acc
 well. On a host without unprivileged user namespaces the router refuses to start the
 worker unless `worker.isolation` is false.
 
+The agent and the pipeline read the tools' names, descriptions and schemas from a
+short-lived worker started the same way, so catalog code does not run in the evaluator or
+on the mining host either. A `TOOLSMITH_LEGACY_*` environment variable, which research
+shims that patch the agent when a catalog module imports them rely on, makes both import
+the catalog in their own process instead, with that process's privileges; they log a
+warning when they do.
+
 The [packaged catalog](../openvlharness/toolsmith/tools) holds example tools, among them
 `wikidata_query`, `gazetteer_lookup`, `unit_compute`, `media_catalog` (TMDB lookups
 read `TMDB_API_KEY`), `image_similarity` and `species_id`, which other tools build on.

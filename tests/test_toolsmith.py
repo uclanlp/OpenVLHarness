@@ -74,6 +74,23 @@ class Sleepy(GeneratedTool):
 '''
 
 
+MARKER_TOOL = '''
+import sys
+
+from openvlharness.toolsmith import GeneratedTool
+
+sys.toolsmith_marker_imported = True
+
+
+class Marker(GeneratedTool):
+    def __init__(self):
+        super().__init__(tool_name="marker", tool_description="bird egg marker", input_schema={"type": "object"})
+
+    def execute(self):
+        return "marked"
+'''
+
+
 def write_tool(directory, name, description, cls=None):
     cls = cls or "".join(part.title() for part in name.split("_"))
     Path(directory, f"{name}.py").write_text(TOOL.format(cls=cls, name=name, description=description))
@@ -256,7 +273,7 @@ class RetrievalAndAgentTests(unittest.TestCase):
                              requester=requester)
         with fake_encoder():
             agent = ToolSmithAgent(model, {}, MemoryStore, "fixture system", "Question: {user_query}",
-                                   toolsmith={"catalog": directory, "top_k": top_k},
+                                   toolsmith={"catalog": directory, "top_k": top_k, "worker": {"isolation": ISOLATION}},
                                    client_config={"base_url": "http://router.invalid", "retry": 0})
         return agent, requests
 
@@ -286,6 +303,23 @@ class RetrievalAndAgentTests(unittest.TestCase):
         self.assertEqual(client.calls[0][0], "bird_egg_lookup")
         self.assertNotIn("river_length_lookup", agent.tools_for([{"type": "text", "value": "bird egg"}]))
 
+    def test_the_agent_reads_tool_metadata_without_importing_the_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "marker.py").write_text(MARKER_TOOL)
+            write_tool(directory, "bird_egg_lookup", "bird egg incubation days")
+            agent, _ = self.make_agent(directory, [], top_k=2)
+            self.assertFalse(hasattr(sys, "toolsmith_marker_imported"))  # the module ran only in the worker
+            self.assertEqual(set(agent.generated), {"bird_egg_lookup", "marker"})
+            self.assertEqual(agent.generated["marker"].public_schema()["function"],
+                             {"name": "marker", "description": "bird egg marker", "parameters": {"type": "object"}})
+            with patch.dict(os.environ, {"TOOLSMITH_LEGACY_TEST": "1"}), \
+                    self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
+                legacy, _ = self.make_agent(directory, [], top_k=2)
+            self.addCleanup(lambda: sys.__dict__.pop("toolsmith_marker_imported", None))
+            self.assertTrue(getattr(sys, "toolsmith_marker_imported", False))  # the research path imports it
+            self.assertIn("research path", logs.output[0])
+            self.assertEqual(agent.generated["marker"].public_schema(), legacy.generated["marker"].public_schema())
+
     def test_main_agent_offers_every_configured_tool(self):
         model = ModelAdapter({"alias": "qwen3-vl-8b-instruct", "base": "http://fixture.invalid/v1"})
         agent = MainAgent(model, {}, MemoryStore, "fixture system", "Question: {user_query}")
@@ -298,7 +332,8 @@ class RetrievalAndAgentTests(unittest.TestCase):
             base = Capability(load_catalog(directory)["Image_Search_Tool"], client_config={"base_url": "http://router.invalid"})
             with fake_encoder(), self.assertRaisesRegex(ValueError, "shadow base tools"):
                 ToolSmithAgent(model, {"Image_Search_Tool": base}, MemoryStore, "s", "{user_query}",
-                               toolsmith={"catalog": directory}, client_config={"base_url": "http://router.invalid"})
+                               toolsmith={"catalog": directory, "worker": {"isolation": ISOLATION}},
+                               client_config={"base_url": "http://router.invalid"})
 
 
 class ConfigurationTests(unittest.TestCase):

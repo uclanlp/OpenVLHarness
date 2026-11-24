@@ -1,8 +1,8 @@
 """The agent sees the base tools plus the generated tools retrieved for each query."""
 from ..agent.agent import MainAgent
 from .capability import Capability
-from .catalog import load_catalog
 from .retrieval import ENCODER, TOP_K, ToolRetriever
+from .worker import catalog_tools
 
 
 class ToolSmithAgent(MainAgent):
@@ -21,7 +21,8 @@ class ToolSmithAgent(MainAgent):
             ValueError: The catalog cannot be loaded or a generated tool shadows a base tool.
         """
         super().__init__(*args, **kwargs)
-        tools = load_catalog(toolsmith.get("catalog"))
+        # Read in a worker like the router's, so catalog code does not run in the evaluator.
+        tools = catalog_tools(toolsmith.get("catalog"), settings=toolsmith.get("worker"))
         shadowed = sorted(set(tools) & set(self.capabilities))
         if shadowed:
             raise ValueError(f"Generated tools shadow base tools: {shadowed}")

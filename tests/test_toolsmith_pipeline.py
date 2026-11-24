@@ -488,6 +488,15 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse((self.root / "work" / "decisions.jsonl").exists())
         self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})
 
+    def test_the_pipeline_reads_catalog_metadata_without_importing_it(self):
+        (self.catalog / "marker.py").write_text("import sys\n" + tool(
+            name="atlas_marker", description="Translate a phrase into French.").replace(
+            "class RiverLength", "sys.toolsmith_pipeline_marker = True\n\n\nclass RiverLength"))
+        pipeline = self.pipeline()
+        self.assertFalse(hasattr(sys, "toolsmith_pipeline_marker"))
+        self.assertEqual(pipeline.descriptions["atlas_marker"], "Translate a phrase into French.")
+        self.assertIn("- atlas_marker(river): Translate a phrase into French.", pipeline.generator.system)
+
     def test_settings_and_catalog_are_validated(self):
         self.config["clusterz"] = 3
         with self.assertRaisesRegex(ValueError, "Unknown pipeline settings"):

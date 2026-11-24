@@ -36,6 +36,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 from ..contracts import ServiceResult
 from ..services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
@@ -99,7 +100,8 @@ def worker_environment(granted=()):
         if name in PATH_LISTS:
             environment[name] = os.pathsep.join(os.path.abspath(entry) if entry else entry
                                                 for entry in value.split(os.pathsep))
-        elif value and not os.path.isabs(value) and (name in PATH_SETTINGS or name in granted and os.path.exists(value)):
+        elif value and not os.path.isabs(value) and (name in PATH_SETTINGS
+                                                     or name in granted and os.path.exists(value)):
             environment[name] = os.path.abspath(value)
     environment["PYTHONPATH"] = os.pathsep.join(filter(None, (str(PACKAGE_ROOT), environment.get("PYTHONPATH"))))
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
@@ -330,7 +332,7 @@ class CatalogWorker:
     """Serve the generated tools of a catalog from a worker process; the router's handle on them."""
 
     def __init__(self, directory=None, *, client, base_tools=(), environment=(), timeout_seconds=600,
-                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True):
+                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True, report_environment=True):
         """Copy the catalog, start the first worker and read the tools it loaded.
 
         Args:
@@ -344,6 +346,7 @@ class CatalogWorker:
             isolation: Confine the worker with Linux namespaces; without it, generated
                 tools can read every file the router can.
             network: Let a confined worker use the network.
+            report_environment: Warn about the credential-like variables the worker does not inherit.
 
         Raises:
             ValueError: The catalog cannot be loaded.
@@ -375,7 +378,7 @@ class CatalogWorker:
             logger.warning("toolsmith.worker.isolation is off: generated tools can read every file the router can "
                            "read and reach the network.")
         withheld = sorted(set(os.environ) - set(self.environment))
-        if withheld:
+        if withheld and report_environment:
             logger.warning("Generated tools run without these router environment variables: %s. Grant any they "
                            "read with toolsmith.worker.environment.", ", ".join(withheld))
         self.lock = threading.Lock()
@@ -567,6 +570,48 @@ class CatalogWorker:
         except (TypeError, ValueError) as exc:
             worker.send({"type": "reply", "id": message["id"], "error": {
                 "module": "builtins", "type": "RuntimeError", "message": f"{name}: the reply is not JSON: {exc}"}})
+
+
+def legacy_switches():
+    """The TOOLSMITH_LEGACY_* research switches set in this environment."""
+    return sorted(name for name, value in os.environ.items()
+                  if name.startswith("TOOLSMITH_LEGACY_") and value not in ("", "0"))
+
+
+def catalog_tools(directory=None, *, settings=None):
+    """Return each catalog tool's name, description and input schema without running catalog code here.
+
+    A worker (confined as settings, a toolsmith.worker mapping, say) loads the catalog,
+    reports its tools and stops. With a TOOLSMITH_LEGACY_* switch set, the catalog is
+    imported in this process instead, as before: research shims behind those switches
+    patch the agent when a catalog module imports them. That path runs catalog code with
+    this process's privileges and logs a warning.
+
+    Returns:
+        A mapping of tool names to objects with tool_name, tool_description and input_schema.
+    """
+    switches = legacy_switches()
+    if switches:
+        logger.warning("%s set: importing the ToolSmith catalog in this process, with its privileges (research "
+                       "path).", ", ".join(switches))
+        return load_catalog(directory)
+    settings = settings or {}
+    worker = CatalogWorker(directory, client=_NoCalls(), environment=settings.get("environment", ()),
+                           memory_gib=settings.get("memory_gib", MEMORY_GIB),
+                           write_files=settings.get("write_files", False), isolation=settings.get("isolation", True),
+                           network=settings.get("network", True), report_environment=False)
+    try:
+        return {name: SimpleNamespace(**metadata) for name, metadata in worker.tools.items()}
+    finally:
+        worker.close()
+
+
+class _NoCalls:
+    """Client for a worker that only reports its tools: a call made while the catalog loads fails."""
+
+    def execute(self, tool_name, args, *, tool_call_id):
+        return _build_error_payload(tool_name, tool_call_id, "unavailable",
+                                    "tools cannot be called while the catalog loads")
 
 
 def _rebuild(error):
