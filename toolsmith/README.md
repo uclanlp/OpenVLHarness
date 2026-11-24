@@ -30,7 +30,9 @@ through it.
    expected answer shape, the callable tools and six example tools.
 4. **Verification and inference.** Gate 1 scans the source for dynamic execution and
    I/O, then runs the tool once on dummy input in a separate, resource-limited process
-   under a ten-second budget, with every tool call answering with a failure. Gate 2 is
+   under a ten-second budget, with every tool call answering with a failure. The process
+   runs in Linux namespaces with no network, and sees only the interpreter, the
+   packages and the candidate, read-only. Gate 2 is
    an LLM critic that scores parametric usage,
    description abstractness, edge-case handling and task alignment. A rejected
    candidate is revised with the gate's feedback. A tool that passes both gates is
@@ -79,6 +81,8 @@ toolsmith:
     timeout_seconds: 600    # per call; default services.client.timeout_seconds
     memory_gib: 128         # address-space limit
     write_files: false      # true for image uploads, model downloads and PyTorch
+    isolation: true         # confine the worker with Linux namespaces
+    network: true           # false: no network inside the confined worker
 ```
 
 The router loads every tool in the catalog. The agent embeds the tool descriptions once
@@ -99,6 +103,17 @@ raises, crashes the worker or runs past `worker.timeout_seconds` returns an erro
 agent, and the router starts a new worker for later calls. The ToolSmith preset grants the
 credentials that the packaged `visual_matches` (Serper Lens and the image upload) and
 `media_catalog` (TMDB) read, and file writes.
+
+With `worker.isolation` (the default) the worker runs in Linux user, mount, PID and IPC
+namespaces, under the router's uid and without root. It sees the interpreter, the Python
+packages, the catalog copy and the model caches read-only, and has a private `/tmp` and
+home directory; a file that a granted variable names, such as a key file, is readable
+too. It cannot see the router's other files (the repository, other home directories,
+credential files such as `~/.aws/credentials`) or any process outside its namespace, and
+Hugging Face token files are hidden. `write_files` makes the caches and the local
+image-upload directory writable, and `worker.network: false` removes network access as
+well. On a host without unprivileged user namespaces the router refuses to start the
+worker unless `worker.isolation` is false.
 
 The [packaged catalog](../openvlharness/toolsmith/tools) holds example tools, among them
 `wikidata_query`, `gazetteer_lookup`, `unit_compute`, `media_catalog` (TMDB lookups
@@ -124,6 +139,9 @@ export TOOLSMITH_MODEL_API_KEY=$OPENAI_API_KEY
 python -m openvlharness.toolsmith.pipeline --config configs/toolsmith/pipeline.yaml \
   --rollouts outputs/Qwen3-VL-8B-Instruct/mainagent/<run>/<dataset> --work-dir toolsmith_run
 ```
+
+Gate 1 needs unprivileged Linux user namespaces as well. Without them the pipeline stops,
+unless its configuration sets `isolation: false`.
 
 Admitted tools are written to the catalog. `gaps.jsonl` keeps the mined
 representatives, `mining.json` the rollouts (with a hash of each judged predictions file)

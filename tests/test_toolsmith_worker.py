@@ -15,7 +15,11 @@ import requests
 from openvlharness.services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
 from openvlharness.toolsmith import worker as worker_module
 from openvlharness.toolsmith.catalog import load_catalog
+from openvlharness.toolsmith.isolation import available
 from openvlharness.toolsmith.worker import CatalogWorker
+
+# Workers run confined where this host allows it, as the router runs them; elsewhere they run without isolation.
+ISOLATION = available()[0]
 
 TOOL = '''
 import os
@@ -23,6 +27,11 @@ import time
 
 from openvlharness.services.tools.base import ToolArgumentError
 from openvlharness.toolsmith import GeneratedTool, ToolCallError
+
+import sys
+
+# Tells worker processes apart (in a PID namespace each one is PID 1); shared by the modules of one process.
+INSTANCE = sys.__dict__.setdefault("toolsmith_test_instance", os.urandom(8).hex())
 
 
 class {cls}(GeneratedTool):
@@ -37,7 +46,8 @@ class {cls}(GeneratedTool):
 BODIES = {
     "probe": """        print("tool output on stdout")
         names = ("SERVICE_API_KEY", "GRANTED_TOKEN", "TOOLSMITH_LEGACY_MAY_INPUTS", "PLAIN_SETTING")
-        return {"pid": os.getpid(), "cwd": os.getcwd(), "env": {name: os.environ.get(name) for name in names}}""",
+        return {"pid": os.getpid(), "instance": INSTANCE, "cwd": os.getcwd(),
+                "env": {name: os.environ.get(name) for name in names}}""",
     "mixed": """        return {"text": "naïve ✓ \\u2028", "float": 0.1 + 0.2, "big": 10 ** 30, "neg_zero": -0.0,
                 5: "int key", "set": {3, 1, 2}, "bytes": b"raw", "nested": [(1, 2.5), None, True],
                 "nan": float("nan")}""",
@@ -45,7 +55,7 @@ BODIES = {
     "bad_args": """        raise ToolArgumentError("value must be a river")""",
     "crash": """        os._exit(3)""",
     "sleepy": """        time.sleep(float(value))
-        return {"slept": float(value), "pid": os.getpid()}""",
+        return {"slept": float(value), "instance": INSTANCE}""",
     "writer": """        with open("written.txt", "w") as stream:
             stream.write("content")
             stream.flush()
@@ -106,6 +116,7 @@ class WorkerTests(unittest.TestCase):
 
     def start(self, directory, **options):
         options.setdefault("client", FakeClient())
+        options.setdefault("isolation", ISOLATION)
         worker = CatalogWorker(directory, **options)
         self.addCleanup(worker.close)
         return worker
@@ -156,27 +167,28 @@ class WorkerTests(unittest.TestCase):
         payload, status = worker.execute("writer", {}, tool_call_id="call-1")
         self.assertEqual(status, 500)
         self.assertIn("File too large", payload["error"]["message"])
-        pid = worker.execute("probe", {}, tool_call_id="call-2")[0]["result"]["pid"]
+        instance = worker.execute("probe", {}, tool_call_id="call-2")[0]["result"]["instance"]
         payload, _ = worker.execute("hog", {"value": str(2 << 30)}, tool_call_id="call-3")
         self.assertEqual(payload["error"]["detail"]["exception_type"], "MemoryError")
         self.assertEqual(worker.execute("hog", {"value": "1024"}, tool_call_id="call-4")[0]["result"], 1024)
-        self.assertEqual(worker.execute("probe", {}, tool_call_id="call-5")[0]["result"]["pid"], pid)
+        self.assertEqual(worker.execute("probe", {}, tool_call_id="call-5")[0]["result"]["instance"], instance)
         writable = self.start(directory, write_files=True)
         self.assertEqual(writable.execute("writer", {}, tool_call_id="call-6")[0]["result"], "wrote")
 
     def test_a_crash_returns_an_error_and_later_calls_get_a_new_worker(self):
         worker = self.start(self.catalog("crash", "probe"))
-        before = worker.execute("probe", {}, tool_call_id="call-1")[0]["result"]["pid"]
+        before = worker.execute("probe", {}, tool_call_id="call-1")[0]["result"]["instance"]
         payload, status = worker.execute("crash", {}, tool_call_id="call-2")
         self.assertEqual((status, payload["ok"], payload["tool_call_id"]), (500, False, "call-2"))
         self.assertIn("exited with status 3", payload["error"]["message"])
         payload, status = worker.execute("probe", {}, tool_call_id="call-3")
         self.assertEqual(status, 200)
-        self.assertNotEqual(payload["result"]["pid"], before)
+        self.assertNotEqual(payload["result"]["instance"], before)
 
     def test_a_call_past_the_time_limit_fails_while_other_calls_finish(self):
         worker = self.start(self.catalog("sleepy", "probe"), timeout_seconds=3)
-        old = worker.execute("probe", {}, tool_call_id="call-0")[0]["result"]["pid"]
+        old = worker.execute("probe", {}, tool_call_id="call-0")[0]["result"]["instance"]
+        process = worker.current.process
         results = {}
 
         def call(key, seconds):
@@ -195,19 +207,14 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("did not finish within 3 seconds", payload["error"]["message"])
         self.assertLess(elapsed, 10)
         (payload, status), _ = results["other"]
-        self.assertEqual((status, payload["result"]["slept"], payload["result"]["pid"]), (200, 2.25, old))
+        self.assertEqual((status, payload["result"]["slept"], payload["result"]["instance"]), (200, 2.25, old))
         payload, status = worker.execute("probe", {}, tool_call_id="call-3")
         self.assertEqual(status, 200)
-        self.assertNotEqual(payload["result"]["pid"], old)
+        self.assertNotEqual(payload["result"]["instance"], old)
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            try:
-                os.kill(old, 0)
-            except ProcessLookupError:
-                break
+        while process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.1)
-        else:
-            self.fail("the worker with the hung call was not stopped")
+        self.assertIsNotNone(process.poll(), "the worker with the hung call was not stopped")
 
     def test_tools_reach_only_the_allowed_router_tools(self):
         client = FakeClient(result={"text": "summary"})
@@ -231,16 +238,16 @@ class WorkerTests(unittest.TestCase):
 
     def test_an_oversized_or_malformed_message_stops_only_that_worker(self):
         worker = self.start(self.catalog("talker", "probe"))
-        before = worker.execute("probe", {}, tool_call_id="call-1")[0]["result"]["pid"]
+        before = worker.execute("probe", {}, tool_call_id="call-1")[0]["result"]["instance"]
         with patch.object(worker_module, "MAX_MESSAGE_BYTES", 4096):
             worker._retire(worker.current)
-            small = worker.execute("probe", {}, tool_call_id="call-2")[0]["result"]["pid"]
+            small = worker.execute("probe", {}, tool_call_id="call-2")[0]["result"]["instance"]
         payload, status = worker.execute("talker", {"value": "100000"}, tool_call_id="call-3")
         self.assertEqual(status, 500)
         self.assertIn("invalid message", payload["error"]["message"])
         payload, status = worker.execute("probe", {}, tool_call_id="call-4")
         self.assertEqual(status, 200)
-        self.assertNotIn(payload["result"]["pid"], (before, small))
+        self.assertNotIn(payload["result"]["instance"], (before, small))
 
     def test_a_worker_whose_router_is_gone_exits_and_removes_its_copy(self):
         worker = self.start(self.catalog("probe"))
@@ -263,31 +270,31 @@ class WorkerTests(unittest.TestCase):
 
     def test_catalog_errors_are_raised_when_the_worker_starts(self):
         with self.assertRaisesRegex(ValueError, "not a directory"):
-            CatalogWorker("/nonexistent/toolsmith/catalog", client=FakeClient())
+            CatalogWorker("/nonexistent/toolsmith/catalog", client=FakeClient(), isolation=ISOLATION)
         directory = self.catalog()
         Path(directory, "empty.py").write_text("VALUE = 1\n")
         expected = "^" + re.escape(f"{Path(directory, 'empty.py')} must define exactly one")
         with self.assertRaisesRegex(ValueError, expected):
-            CatalogWorker(directory, client=FakeClient())
+            CatalogWorker(directory, client=FakeClient(), isolation=ISOLATION)
         directory = self.catalog("probe")
         Path(directory, "copy.py").write_text(Path(directory, "probe.py").read_text())
         with self.assertRaisesRegex(ValueError, "Duplicate generated tool name 'probe'"):
-            CatalogWorker(directory, client=FakeClient())
+            CatalogWorker(directory, client=FakeClient(), isolation=ISOLATION)
         directory = self.catalog()
         Path(directory, "broken.py").write_text("import missing_module_for_the_test\n")
         with self.assertRaisesRegex(RuntimeError, "No module named 'missing_module_for_the_test'"):
-            CatalogWorker(directory, client=FakeClient())
+            CatalogWorker(directory, client=FakeClient(), isolation=ISOLATION)
 
     def test_configuration_settings_reach_the_worker(self):
         directory = self.catalog("probe")
         config = {"toolsmith": {"catalog": directory, "worker": {"environment": ["GRANTED_TOKEN"], "memory_gib": 2,
-                                                                 "write_files": True}},
+                                                                 "write_files": True, "isolation": ISOLATION}},
                   "services": {"client": {"base_url": "http://router.invalid", "timeout_seconds": 42}}}
         worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools={"OCR_Tool", "Depth_Estimation_Tool"})
         self.addCleanup(worker.close)
         self.assertEqual((worker.timeout, worker.limits, worker.refused),
                          (42, {"memory_bytes": 2 << 30, "file_bytes": None}, {"Depth_Estimation_Tool"}))
-        del config["toolsmith"]["worker"]
+        config["toolsmith"]["worker"] = {"isolation": ISOLATION}
         worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
         self.addCleanup(worker.close)
         self.assertEqual((worker.timeout, worker.limits), (42, {"memory_bytes": 128 << 30, "file_bytes": 0}))

@@ -22,6 +22,9 @@ from openvlharness.toolsmith import GeneratedTool, ToolCallError
 from openvlharness.toolsmith.agent import ToolSmithAgent
 from openvlharness.toolsmith.capability import Capability
 from openvlharness.toolsmith.catalog import load_catalog
+from openvlharness.toolsmith.isolation import available
+
+ISOLATION = available()[0]  # router tests confine the worker where this host allows it
 
 IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
@@ -289,7 +292,8 @@ class ConfigurationTests(unittest.TestCase):
             loaded = load_agent_config(config(catalog=directory, top_k=10, encoder="BAAI/bge-m3"))
             self.assertEqual(loaded["toolsmith"]["top_k"], 10)
         with tempfile.TemporaryDirectory() as directory:
-            worker = {"environment": ["SERPER_API_KEY"], "timeout_seconds": 30, "memory_gib": 16, "write_files": True}
+            worker = {"environment": ["SERPER_API_KEY"], "timeout_seconds": 30, "memory_gib": 16, "write_files": True,
+                      "isolation": True, "network": False}
             self.assertEqual(load_agent_config(config(catalog=directory, worker=worker))["toolsmith"]["worker"], worker)
         for bad, message in (({"top_k": 0}, "positive integer"), ({"top_k": "10"}, "positive integer"),
                              ({"router": "tfidf"}, "optional catalog, top_k, encoder and worker"),
@@ -299,7 +303,9 @@ class ConfigurationTests(unittest.TestCase):
                              ({"worker": {"environment": ["SERPER API KEY"]}}, "list environment variable names"),
                              ({"worker": {"timeout_seconds": 0}}, "timeout_seconds must be a positive number"),
                              ({"worker": {"memory_gib": float("inf")}}, "memory_gib must be a positive number"),
-                             ({"worker": {"write_files": "yes"}}, "write_files must be true or false")):
+                             ({"worker": {"write_files": "yes"}}, "write_files must be true or false"),
+                             ({"worker": {"isolation": "on"}}, "isolation must be true or false"),
+                             ({"worker": {"network": None}}, "network must be true or false")):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
                 load_agent_config(config(**bad))
         broken = config()
@@ -332,7 +338,8 @@ class RouterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             write_tool(directory, "bird_egg_lookup", "Bird egg facts")
             Path(directory, "worker_pid.py").write_text(PID_TOOL)
-            app = create_app(config(catalog=directory), implementations={"serper_image_search": Lens()})
+            app = create_app(config(catalog=directory, worker={"isolation": ISOLATION}),
+                             implementations={"serper_image_search": Lens()})
         http = TestClient(app)
         self.addCleanup(app.state.registry["bird_egg_lookup"][0].close)
 
@@ -368,7 +375,7 @@ class RouterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             write_tool(directory, "bird_egg_lookup", "Bird egg facts")
-            app = create_app(config(catalog=directory, worker={"timeout_seconds": 20}),
+            app = create_app(config(catalog=directory, worker={"timeout_seconds": 20, "isolation": ISOLATION}),
                              implementations={"serper_image_search": Lens()})
         worker = app.state.registry["bird_egg_lookup"][0]
         self.addCleanup(worker.close)
@@ -396,4 +403,5 @@ class RouterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             write_tool(directory, "Image_Search_Tool", "shadow", cls="Shadow")
             with self.assertRaisesRegex(ValueError, "shadow base tools"):
-                create_app(config(catalog=directory), implementations={"serper_image_search": object()})
+                create_app(config(catalog=directory, worker={"isolation": ISOLATION}),
+                           implementations={"serper_image_search": object()})

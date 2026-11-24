@@ -11,12 +11,16 @@ import numpy as np
 import pytest
 
 pytest.importorskip("sklearn", reason="the pipeline needs scikit-learn")
+from openvlharness.toolsmith.isolation import available  # noqa: E402
 from openvlharness.toolsmith.pipeline import Pipeline  # noqa: E402
 from openvlharness.toolsmith.pipeline.generation import describe_tools, source_of  # noqa: E402
 from openvlharness.toolsmith.pipeline.mining import Gap, critique, representatives  # noqa: E402
 from openvlharness.toolsmith.pipeline.reuse import closest  # noqa: E402
 from openvlharness.toolsmith.pipeline.sandbox import dummy_arguments  # noqa: E402
 from openvlharness.toolsmith.pipeline.verification import review, run_once, scan  # noqa: E402
+
+# Gate 1 runs confined where this host allows it, as the pipeline runs it; elsewhere without isolation.
+ISOLATION = available()[0]
 
 TOOL = '''import re
 
@@ -67,12 +71,31 @@ class GateTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertIn(issue, scan(tool(body=body)))
         self.assertIn("import os is not allowed", scan("import os\n" + tool()))
+        for header, body, issue in (
+                ("import json\n", "return json.codecs.open(river).read()", "json.codecs is not allowed"),
+                ("from re import __builtins__ as b\n", 'return b["open"](river).read()', "re does not export __builtins__"),
+                ("from json import *\n", "return river", "json does not export *"),
+                ("import json.decoder\n", "return river", "import json.decoder is not allowed"),
+                ("import datetime\n", "return datetime.sys.modules", "datetime.sys is not allowed"),
+                ("import json as j\n", "return j.scanner", "j.scanner is not allowed"),
+                ("import json\n", "alias = json\n        return alias.loads(river)", "module json may only be used"),
+                ("", "return (x for x in []).gi_frame.f_globals", "attribute gi_frame is not allowed"),
+                ("", 'return {}.get("__builtins__")', "reaches hidden attributes"),
+                ("", 'return "{0.__class__}".format(self)', "reaches hidden attributes"),
+                ("", 'return help("os")', "help is not allowed")):
+            with self.subTest(body=body):
+                self.assertIn(issue, "; ".join(scan(header + tool(body=body))))
+        clean = tool(body='return json.dumps({"day": (datetime.datetime(2020, 1, 1) + timedelta(days=1)).isoformat(), '
+                          '"words": re.findall(r"\\w+", river), "helper": self._words(river)})')
+        clean = "import datetime\nimport json\nfrom datetime import timedelta\n" + clean.replace(
+            "    def execute", "    def _words(self, text):\n        return text.split()\n\n    def execute")
+        self.assertEqual(scan(clean), [])
         self.assertIn("import from subprocess is not allowed", scan("from subprocess import run\n" + tool()))
         self.assertIn("expected one GeneratedTool subclass, found 0", scan("import re\n"))
         self.assertTrue(scan("def broken(:\n")[0].startswith("syntax error"))
 
     def test_sandbox_runs_candidates_once_with_dummy_input_and_limits(self):
-        metadata, issue = run_once(tool(), 30)
+        metadata, issue = run_once(tool(), 30, isolation=ISOLATION)
         self.assertIsNone(issue)
         self.assertEqual(metadata["tool_name"], "river_length_lookup")
         self.assertEqual(metadata["input_schema"]["required"], ["river"])
@@ -83,10 +106,10 @@ class GateTests(unittest.TestCase):
                                ('return self.call_tool("Text_Search_Tool", query=river)',
                                 "ToolCallError: Text_Search_Tool: tools are unavailable during the sanity run")):
             with self.subTest(body=body):
-                self.assertIn(expected, run_once(tool(body=body), 30)[1])
-        self.assertEqual(run_once(tool(body="while True: pass"), 2)[1], "execution exceeded 2 seconds")
+                self.assertIn(expected, run_once(tool(body=body), 30, isolation=ISOLATION)[1])
+        self.assertEqual(run_once(tool(body="while True: pass"), 2, isolation=ISOLATION)[1], "execution exceeded 2 seconds")
         nullable = tool().replace('{"type": "string"}', '{"type": ["string", "null"]}')
-        self.assertEqual(run_once(nullable, 30)[0]["input_schema"]["properties"]["river"]["type"], ["string", "null"])
+        self.assertEqual(run_once(nullable, 30, isolation=ISOLATION)[0]["input_schema"]["properties"]["river"]["type"], ["string", "null"])
 
     def test_dummy_arguments_cover_required_parameters_and_images(self):
         arguments = dummy_arguments({"properties": {"image_id": {"type": "string"}, "year": {"type": "integer"},
@@ -252,7 +275,7 @@ class PipelineTests(unittest.TestCase):
         self.rollout = str(rollout)
         self.catalog = self.root / "catalog"
         self.catalog.mkdir()
-        self.config = {"pipeline_config_version": "paper_v1", "clusters": 4, "workers": 2,
+        self.config = {"pipeline_config_version": "paper_v1", "clusters": 4, "workers": 2, "isolation": ISOLATION,
                        "models": dict.fromkeys(("generator", "critic", "analyst"), {"alias": "stub"}),
                        "agent": {"agent_name": "MainAgent", "agent_config_version": "paper_v1",
                                  "agent": {"model_service": "orchestrator"},

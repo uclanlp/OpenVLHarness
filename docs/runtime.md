@@ -221,6 +221,8 @@ where the table names a model.
 | `toolsmith.worker.timeout_seconds` | positive number | `services.client.timeout_seconds` | not set | Wall-clock limit of one generated-tool call. A call past it returns an error, and the router replaces that worker once its other calls finish. |
 | `toolsmith.worker.memory_gib` | positive number | `128` | not set | Address-space limit of the worker process, in GiB. |
 | `toolsmith.worker.write_files` | boolean | `false` | not set; ToolSmith preset `true` | Lets generated tools write files, as local image uploads, model downloads and PyTorch (temporary files) do. Otherwise the worker cannot write to files. |
+| `toolsmith.worker.isolation` | boolean | `true` | not set | Runs the worker in Linux user, mount, PID and IPC namespaces: it sees the interpreter, the packages, the catalog copy and the model caches read-only, a private `/tmp` and home directory, and no other host files or processes. Needs unprivileged user namespaces; without them the router does not start unless this is `false`. |
+| `toolsmith.worker.network` | boolean | `true` | not set | With isolation, `false` gives the worker no network access. |
 
 Each selected backend needs a `services.tools.<backend>` mapping. The model
 generation options (`max_tokens` through `return_token_ids`) apply to

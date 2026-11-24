@@ -103,9 +103,9 @@ def load_agent_config(config, *, save_raw_trace=False):
             raise ValueError(f"toolsmith.catalog {toolsmith['catalog']!r} is not a directory")
         worker = toolsmith.get("worker", {})
         if not isinstance(worker, dict) or set(worker) - {"environment", "timeout_seconds", "memory_gib",
-                                                          "write_files"}:
+                                                          "write_files", "isolation", "network"}:
             raise ValueError("toolsmith.worker must be a mapping with optional environment, timeout_seconds, "
-                             "memory_gib and write_files")
+                             "memory_gib, write_files, isolation and network")
         names = worker.get("environment", [])
         if not isinstance(names, list) or not all(
                 isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in names):
@@ -114,8 +114,9 @@ def load_agent_config(config, *, save_raw_trace=False):
             value = worker.get(key, 1)
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"toolsmith.worker.{key} must be a positive number")
-        if type(worker.get("write_files", False)) is not bool:
-            raise ValueError("toolsmith.worker.write_files must be true or false")
+        for key in ("write_files", "isolation", "network"):
+            if type(worker.get(key, False)) is not bool:
+                raise ValueError(f"toolsmith.worker.{key} must be true or false")
     memory_factory(config["memory"])()
     agent = config["agent"]
     if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed",

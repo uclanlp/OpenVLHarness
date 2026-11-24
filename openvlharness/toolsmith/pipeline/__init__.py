@@ -25,7 +25,8 @@ from .verification import review, run_once, scan
 logger = logging.getLogger(__name__)
 
 SETTINGS = {"encoder": "BAAI/bge-m3", "clusters": 500, "reuse_threshold": 0.40, "retries": 2,
-            "timeout_seconds": 10, "critic_mean": 3.0, "critic_min": 1, "dedup_threshold": 0.55, "workers": 8}
+            "timeout_seconds": 10, "critic_mean": 3.0, "critic_min": 1, "dedup_threshold": 0.55, "workers": 8,
+            "isolation": True}
 # Model entry fields that only say how to reach the model, not which model answers or how.
 CONNECTION = {"base", "key", "timeout", "retry"}
 
@@ -43,8 +44,9 @@ class Pipeline:
             work_dir: Directory for gaps.jsonl, mining.json and decisions.jsonl.
 
         Raises:
-            ValueError: Settings are unknown or incomplete, or the agent configuration
-                names no toolsmith.catalog to grow.
+            ValueError: Settings are unknown or incomplete, the agent configuration
+                names no toolsmith.catalog to grow, or isolation is on and this host
+                cannot confine Gate 1 runs.
         """
         unknown = set(config) - set(SETTINGS) - {"pipeline_config_version", "agent", "models"}
         if unknown:
@@ -52,6 +54,17 @@ class Pipeline:
         if set(config.get("models") or {}) != {"generator", "critic", "analyst"}:
             raise ValueError("models must define generator, critic and analyst")
         self.settings = {**SETTINGS, **{key: value for key, value in config.items() if key in SETTINGS}}
+        if type(self.settings["isolation"]) is not bool:
+            raise ValueError("isolation must be true or false")
+        if self.settings["isolation"]:
+            from ..isolation import available
+
+            confinable, reason = available()
+            if not confinable:
+                raise ValueError(f"Gate 1 runs candidates confined by Linux user namespaces, which this host does not "
+                                 f"allow ({reason}). Set isolation: false to run them without it.")
+        else:
+            logger.warning("isolation is off: Gate 1 runs candidates with the pipeline's file and network access.")
         agent = load_agent_config(config["agent"])
         if not (agent.get("toolsmith") or {}).get("catalog"):
             raise ValueError("Set toolsmith.catalog in the agent configuration to the catalog directory to grow")
@@ -152,7 +165,7 @@ class Pipeline:
         issues = scan(source)
         metadata = None
         if not issues:
-            metadata, issue = run_once(source, self.settings["timeout_seconds"])
+            metadata, issue = run_once(source, self.settings["timeout_seconds"], isolation=self.settings["isolation"])
             issues = [issue] if issue else []
         if metadata and not re.fullmatch(r"[a-z][a-z0-9_]*", metadata["tool_name"]):
             issues = [f"tool_name {metadata['tool_name']!r} must be snake_case"]

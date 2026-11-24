@@ -5,7 +5,11 @@ them. The worker process loads a private copy of the catalog, taken when the rou
 started, and runs each call in its own thread. It inherits the router's environment
 without credential-like variables, unless toolsmith.worker.environment grants them,
 starts in a private directory, and runs with its address space capped and, unless
-toolsmith.worker.write_files is set, without file writes.
+toolsmith.worker.write_files is set, without file writes. With toolsmith.worker.isolation
+(the default) it runs confined by Linux namespaces (see isolation): it sees only the
+interpreter, the packages, the catalog copy and the model caches, read-only, and none of
+the router's other files or processes; toolsmith.worker.network: false also removes its
+network access.
 
 A generated tool reaches other tools only through call_tool, which the worker passes
 to the router process: calls to the other generated tools and to the base tools in
@@ -44,6 +48,7 @@ logger = logging.getLogger(__name__)
 CALLABLE_BASE_TOOLS = ("Text_Search_Tool", "Image_Search_Tool", "Webpage_Visit_Tool", "OCR_Tool", "Zoom_In_Tool")
 MEMORY_GIB = 128
 LOAD_SECONDS = 120
+EXIT_SECONDS = 5
 MAX_MESSAGE_BYTES = 256 << 20
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 HOME_PREFIX = "openvlharness-toolsmith-"
@@ -158,11 +163,16 @@ class _Worker:
         self.catalog = self.home / "catalog"
         try:
             self.catalog.mkdir()
+            (self.home / "root").mkdir()
             for name, data in files.items():
                 (self.catalog / name).write_bytes(data)
-            self.process = subprocess.Popen(
-                [sys.executable, "-m", "openvlharness.toolsmith.worker", str(self.catalog), json.dumps(limits)],
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=self.home, env=environment, start_new_session=True)
+            argv = [sys.executable, "-m", "openvlharness.toolsmith.worker", str(self.catalog), json.dumps(limits)]
+            if owner.isolation:
+                from .isolation import command
+
+                argv = command(owner.confinement(self.home), argv)
+            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=self.home,
+                                            env=environment, start_new_session=True)
         except BaseException:
             shutil.rmtree(self.home, ignore_errors=True)
             raise
@@ -246,6 +256,12 @@ class _Worker:
         except Exception as exc:
             reason = f"the worker sent an invalid message ({type(exc).__name__}: {_text(exc)})"
             logger.error("ToolSmith worker %s: %s", self.process.pid, reason)
+        if reason is None:
+            # The isolation launcher outlives the worker briefly while it cleans up; keep its exit status.
+            try:
+                self.process.wait(timeout=EXIT_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
         self.kill()
         with self.process_lock:
             returncode = self.process.wait()
@@ -292,7 +308,7 @@ class CatalogWorker:
     """Serve the generated tools of a catalog from a worker process; the router's handle on them."""
 
     def __init__(self, directory=None, *, client, base_tools=(), environment=(), timeout_seconds=600,
-                 memory_gib=MEMORY_GIB, write_files=False):
+                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True):
         """Copy the catalog, start the first worker and read the tools it loaded.
 
         Args:
@@ -303,10 +319,14 @@ class CatalogWorker:
             timeout_seconds: Wall-clock limit of one call.
             memory_gib: Address-space limit of the worker process, in GiB.
             write_files: Let the worker write files, for example a local image upload.
+            isolation: Confine the worker with Linux namespaces; without it, generated
+                tools can read every file the router can.
+            network: Let a confined worker use the network.
 
         Raises:
             ValueError: The catalog cannot be loaded.
-            RuntimeError: The worker does not start.
+            RuntimeError: The worker does not start, or isolation is requested on a host
+                that does not allow it.
         """
         self.directory = Path(directory or DEFAULT_CATALOG)
         self.files = {path.name: path.read_bytes() for path in catalog_modules(self.directory)}
@@ -315,6 +335,18 @@ class CatalogWorker:
         self.timeout = timeout_seconds
         self.limits = {"memory_bytes": int(memory_gib * (1 << 30)), "file_bytes": None if write_files else 0}
         self.environment = worker_environment(environment)
+        self.granted = set(environment)
+        self.isolation, self.network = isolation, network
+        if isolation:
+            from .isolation import available
+
+            confinable, reason = available()
+            if not confinable:
+                raise RuntimeError(f"Generated tools run confined by Linux user namespaces, which this host does not "
+                                   f"allow ({reason}). Set toolsmith.worker.isolation: false to run them without it.")
+        else:
+            logger.warning("toolsmith.worker.isolation is off: generated tools can read every file the router can "
+                           "read and reach the network.")
         withheld = sorted(set(os.environ) - set(self.environment))
         if withheld:
             logger.warning("Generated tools run without these router environment variables: %s. Grant any they "
@@ -336,7 +368,8 @@ class CatalogWorker:
         timeout = settings.get("timeout_seconds", config["services"]["client"].get("timeout_seconds", 600))
         return cls(toolsmith.get("catalog"), client=client, base_tools=base_tools,
                    environment=settings.get("environment", ()), timeout_seconds=timeout,
-                   memory_gib=settings.get("memory_gib", MEMORY_GIB), write_files=settings.get("write_files", False))
+                   memory_gib=settings.get("memory_gib", MEMORY_GIB), write_files=settings.get("write_files", False),
+                   isolation=settings.get("isolation", True), network=settings.get("network", True))
 
     def execute(self, tool_name, args, *, tool_call_id):
         """Run one call in the worker and return the router envelope and its HTTP status."""
@@ -374,6 +407,39 @@ class CatalogWorker:
             worker.kill()
         for worker in workers:
             worker.reader.join(timeout=5)
+
+    def confinement(self, home):
+        """The isolation spec of a worker whose private directory is home."""
+        from .isolation import python_masks, system_paths
+
+        environment, expand = self.environment, os.path.expanduser
+        caches = [environment.get("HF_HOME") or expand("~/.cache/huggingface"), environment.get("HF_HUB_CACHE"),
+                  environment.get("HUGGINGFACE_HUB_CACHE"), environment.get("TRANSFORMERS_CACHE"),
+                  environment.get("TORCH_HOME") or expand("~/.cache/torch")]
+        caches = list(dict.fromkeys(path for path in caches if path and os.path.isdir(path)))
+        package_root = os.path.realpath(PACKAGE_ROOT)
+        read = system_paths() + [str(home / "catalog")]
+        read += [entry for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
+                 if entry and os.path.isdir(entry) and os.path.realpath(entry) != package_root]
+        # Certificate bundles, and files that granted variables name (a key file, service-account credentials).
+        read += [environment[name] for name in ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                                                *sorted(self.granted))
+                 if environment.get(name) and os.path.isabs(environment[name]) and os.path.exists(environment[name])]
+        write = []
+        if self.limits["file_bytes"] is None:
+            write += caches
+            if environment.get("IMAGE_UPLOAD_PROVIDER", "").lower() == "local":
+                # The local image host serves this directory, so uploads must land in the host's copy.
+                uploads = environment.get("IMAGE_UPLOAD_LOCAL_DIR") or os.path.join(tempfile.gettempdir(),
+                                                                                     "openvlharness-uploads")
+                os.makedirs(uploads, mode=0o700, exist_ok=True)
+                write.append(uploads)
+        else:
+            read += caches
+        temporary = ["/tmp", "/var/tmp", expand("~")] + ([environment["TMPDIR"]] if environment.get("TMPDIR") else [])
+        return {"root": str(home / "root"), "read": read, "write": write, "tmp": temporary,
+                "mask": [os.path.join(cache, name) for cache in caches for name in ("token", "stored_tokens")]
+                + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home)}
 
     def _submit(self, tool_name, args):
         """Send one call to the worker taking new calls; return the worker, the call ID and its answer."""
