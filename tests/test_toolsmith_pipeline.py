@@ -1,5 +1,6 @@
 """ToolSmith pipeline phases with stub models and synthetic rollouts, offline."""
 import json
+import shutil
 import sys
 import tempfile
 import types
@@ -349,6 +350,34 @@ class PipelineTests(unittest.TestCase):
                          {"decision": "duplicate", "tool": "river_length_lookup", "file": "river_length_lookup.py"})
         self.assertEqual(path.read_text(), existing)
         self.assertNotIn("river_length_lookup", pipeline.descriptions)
+
+    def test_judged_predictions_are_read_in_every_prediction_format(self):
+        pytest.importorskip("validators", reason="the evaluator's loader needs the eval extra")
+        import pandas as pd
+        from evaluation_kit.smp.file import dump
+
+        from openvlharness.toolsmith.pipeline.mining import judged_predictions
+
+        rollout = Path(self.rollout)
+        rows = pd.read_excel(rollout / "Qwen3-VL-8B-Instruct_judge_judge_vdr.xlsx")
+        (rollout / "Qwen3-VL-8B-Instruct_judge_judge_vdr.xlsx").unlink()
+        for extension in ("tsv", "json"):
+            with self.subTest(format=extension):
+                for stale in rollout.glob("*_judge*"):
+                    stale.unlink()
+                dump(rows, str(rollout / f"Qwen3-VL-8B-Instruct_judge_judge_vdr.{extension}"))
+                dump(pd.DataFrame([{"Overall": 0.5}]), str(rollout / f"Qwen3-VL-8B-Instruct_acc_judge_vdr.{extension}"))
+                self.assertEqual(judged_predictions(rollout).name, f"Qwen3-VL-8B-Instruct_judge_judge_vdr.{extension}")
+                for name in ("work", "catalog"):
+                    shutil.rmtree(self.root / name, ignore_errors=True)
+                self.catalog.mkdir()
+                self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})
+                gap = json.loads((self.root / "work" / "gaps.jsonl").read_text())
+                self.assertEqual((gap["source"], gap["errors"]), ("FVQA_train:a", ["no results"]))
+        for stale in rollout.glob("*_judge*"):
+            stale.unlink()
+        with self.assertRaisesRegex(ValueError, "no judged predictions"):
+            judged_predictions(rollout)
 
     def test_the_gap_cache_is_reused_only_for_the_rollouts_and_settings_it_was_mined_from(self):
         self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})

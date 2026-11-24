@@ -32,16 +32,31 @@ class Gap:
         return json.dumps(asdict(self), ensure_ascii=False)
 
 
+# The evaluator writes judged rows as <model>_judge[_judge_<prompt>] in the run's PRED_FORMAT;
+# <model>_acc... files beside them hold scores.
+JUDGED = re.compile(r"(?!.*_acc[_.]).+_judge[^.]*\.(?:xlsx|tsv|json)")
+
+
 def judged_predictions(directory):
     """Return the judged predictions file that failures reads from a dataset directory.
 
     Raises:
         ValueError: The directory holds no judged predictions.
     """
-    judged = sorted(Path(directory).glob("*_judge*.xlsx"))
+    judged = sorted(path for path in Path(directory).iterdir() if path.is_file() and JUDGED.fullmatch(path.name))
     if not judged:
-        raise ValueError(f"{directory} has no judged predictions (*_judge*.xlsx); evaluate the run first")
+        raise ValueError(f"{directory} has no judged predictions (<model>_judge*.xlsx, .tsv or .json); "
+                         "evaluate the run first")
     return judged[0]
+
+
+def judged_rows(path):
+    """Read judged predictions with the evaluator's format-aware loader and return them as mappings."""
+    import pandas as pd
+    from evaluation_kit.smp.file import load
+
+    data = load(str(path))
+    return (data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)).to_dict("records")
 
 
 def failures(directory):
@@ -49,15 +64,14 @@ def failures(directory):
 
     Args:
         directory: A dataset directory written by openvlharness-eval, holding the
-            judged predictions (*_judge*.xlsx with a hit column) and full_trajectories/.
+            judged predictions (<model>_judge*.xlsx, .tsv or .json with a hit column)
+            and full_trajectories/.
 
     Raises:
         ValueError: The directory holds no judged predictions.
     """
-    import pandas as pd
-
     directory = Path(directory)
-    for row in pd.read_excel(judged_predictions(directory)).to_dict("records"):
+    for row in judged_rows(judged_predictions(directory)):
         if row.get("hit") != 0:
             continue
         trajectory = directory / "full_trajectories" / f"{row['index']}.json"
