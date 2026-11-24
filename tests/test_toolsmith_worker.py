@@ -159,7 +159,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_a_tool_list_with_malformed_metadata_is_refused(self):
         directory = self.catalog("probe")
-        with patch.object(worker_module, "valid_metadata", lambda tool: False):
+        with patch.object(worker_module, "tool_problem", lambda tool: "input_schema is not a valid JSON Schema"):
             with self.assertRaisesRegex(RuntimeError, "the worker reported no valid tool list"):
                 self.start(directory)
 

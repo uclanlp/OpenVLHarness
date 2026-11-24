@@ -127,7 +127,9 @@ short-lived worker started the same way, so catalog code does not run in the eva
 on the mining host either. A `TOOLSMITH_LEGACY_*` environment variable, which research
 shims that patch the agent when a catalog module imports them rely on, makes both import
 the catalog in their own process instead, with that process's privileges; they log a
-warning when they do.
+warning when they do. Wherever a catalog loads, a tool whose input schema is not a valid
+JSON Schema, or refers to other documents (`$ref`, `$id`, `$schema`), is skipped with a
+warning, and Gate 1 rejects such a candidate.
 
 The [packaged catalog](../openvlharness/toolsmith/tools) holds example tools, among them
 `wikidata_query`, `gazetteer_lookup`, `unit_compute`, `media_catalog` (TMDB lookups

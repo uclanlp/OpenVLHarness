@@ -111,6 +111,8 @@ class GateTests(unittest.TestCase):
         self.assertEqual(run_once(tool(body="while True: pass"), 2, isolation=ISOLATION)[1], "execution exceeded 2 seconds")
         listed = tool(description="Rivers").replace('tool_description="Rivers"', 'tool_description=["Rivers"]')
         self.assertIn("tool_description must be strings", run_once(listed, 30, isolation=ISOLATION)[1])
+        typed = tool().replace('{"type": "string"}', '{"type": "str"}')
+        self.assertIn("not a valid JSON Schema", run_once(typed, 30, isolation=ISOLATION)[1])
         nullable = tool().replace('{"type": "string"}', '{"type": ["string", "null"]}')
         self.assertEqual(run_once(nullable, 30, isolation=ISOLATION)[0]["input_schema"]["properties"]["river"]["type"], ["string", "null"])
 

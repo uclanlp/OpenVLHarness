@@ -45,7 +45,7 @@ class Unavailable:
 def main(directory):
     """Run the directory's single tool once and print its name, description and input schema."""
     limit_resources(memory_bytes=2 << 30, file_bytes=0)
-    tool = next(iter(load_catalog(directory, client=Unavailable()).values()))
+    tool = next(iter(load_catalog(directory, client=Unavailable(), strict=True).values()))
     json.dumps(tool.execute(**dummy_arguments(tool.input_schema)))
     print(json.dumps({"tool_name": tool.tool_name, "tool_description": tool.tool_description,
                       "input_schema": tool.input_schema}))

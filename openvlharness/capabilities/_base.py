@@ -2,11 +2,17 @@
 import copy
 import json
 from jsonschema import Draft7Validator
+from referencing import Registry
 
 from ..contracts import ArtifactRef, CapabilityResult
 from ..services.client import ToolClient
 from ..memory.urls import rewrite_search_result_text, _resolve_urls_in_value
 from ._images import _resolve_image_ids_in_args, prepare_images
+
+
+def _no_retrieval(uri):
+    """Refuse to load a document a schema refers to: validation never reads URLs or files."""
+    raise LookupError(f"{uri} is not loaded")
 
 
 def failure(call, code, message, *, details=None, meta=None):
@@ -76,7 +82,8 @@ class BaseCapability:
         self.concrete_name = self.backends[backend]
         self.service_config = service_config or {}
         self.client = client or ToolClient(**client_config)
-        self.validator = Draft7Validator(self.schema["function"]["parameters"])
+        self.validator = Draft7Validator(self.schema["function"]["parameters"],
+                                         registry=Registry(retrieve=_no_retrieval))
 
     def public_schema(self):
         """Return an independent copy of the model-facing function schema."""
@@ -126,7 +133,12 @@ class BaseCapability:
         """
         allowed = self.schema["function"]["parameters"].get("properties", {})
         hidden = set(call.arguments) - set(allowed)
-        errors = sorted(self.validator.iter_errors(call.arguments), key=lambda e: str(e.path))
+        try:
+            errors = sorted(self.validator.iter_errors(call.arguments), key=lambda e: str(e.path))
+        except Exception as exc:
+            # A schema the validator cannot apply, such as an unknown type; its text may quote what it loaded.
+            return failure(call, "invalid_tool_schema",
+                           f"The input schema of {self.name} cannot be applied ({type(exc).__name__}).")
         if hidden or errors:
             message = (f"Unsupported task arguments: {', '.join(sorted(hidden))}." if hidden
                        else errors[0].message)

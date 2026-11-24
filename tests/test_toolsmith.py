@@ -164,12 +164,56 @@ class CatalogTests(unittest.TestCase):
             Path(directory, "b_lookup.py").write_text(Path(directory, "a_lookup.py").read_text())
             with self.assertRaisesRegex(ValueError, "Duplicate generated tool name 'a_lookup'"):
                 load_catalog(directory)
+
+    def test_tools_the_agent_cannot_offer_are_skipped_or_rejected_in_strict_mode(self):
+        cases = {"listed": ('tool_description="listed"', 'tool_description=["listed"]',
+                            "tool_description must be strings and input_schema a mapping"),
+                 "typed": ('{"type": "string"}', '{"type": "str"}', "not a valid JSON Schema"),
+                 "linked": ('{"type": "string"}', '{"$ref": "file:///etc/hosts"}',
+                            r"uses \$ref, which would load other documents")}
+        for name, (old, new, message) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                write_tool(directory, "good_lookup", "kept")
+                write_tool(directory, name, name)
+                path = Path(directory, f"{name}.py")
+                path.write_text(path.read_text().replace(old, new, 1))
+                with self.assertLogs("openvlharness.toolsmith.catalog", "WARNING") as logs:
+                    self.assertEqual(list(load_catalog(directory)), ["good_lookup"])
+                self.assertRegex(logs.output[0], message)
+                with self.assertRaisesRegex(ValueError, message):
+                    load_catalog(directory, strict=True)
+
+    def test_a_schema_the_validator_cannot_apply_fails_the_call_without_loading_anything(self):
+        import http.server
+        import threading
+
+        requests_seen = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                requests_seen.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"type": "string"}')
+
+            def log_message(self, *args):
+                pass
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
         with tempfile.TemporaryDirectory() as directory:
-            write_tool(directory, "a_lookup", "first")
-            path = Path(directory, "a_lookup.py")
-            path.write_text(path.read_text().replace('tool_description="first"', 'tool_description=["first"]'))
-            with self.assertRaisesRegex(ValueError, "tool_description must be strings and input_schema a mapping"):
-                load_catalog(directory)
+            secret = Path(directory, "credentials.json")
+            secret.write_text('{"client_secret": "not-for-the-model"}')
+            for schema in ({"type": "object", "properties": {"x": {"type": "str"}}},
+                           {"type": "object", "properties": {"x": {"$ref": secret.as_uri()}}},
+                           {"type": "object", "properties": {"x": {"$ref": f"http://127.0.0.1:{server.server_port}/s"}}}):
+                tool = types.SimpleNamespace(tool_name="city_lookup", tool_description="d", input_schema=schema)
+                capability = Capability(tool, client_config={"base_url": "http://router.invalid"}, client=FakeClient())
+                with self.subTest(schema=schema):
+                    result = capability.invoke(VirtualCall("call-1", "city_lookup", {"x": "Paris"}), MemoryStore())
+                    self.assertEqual(result.error["code"], "invalid_tool_schema")
+                    self.assertNotIn("not-for-the-model", json.dumps(result.error))
+        self.assertEqual(requests_seen, [])
 
     def test_packaged_catalog_loads(self):
         tools = load_catalog()

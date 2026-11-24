@@ -2,12 +2,21 @@
 import hashlib
 import importlib.util
 import inspect
+import logging
 import os
 from pathlib import Path
 
+from jsonschema import Draft7Validator
+from jsonschema.exceptions import SchemaError
+
 from .tool import GeneratedTool
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_CATALOG = Path(__file__).with_name("tools")
+# Schema keywords that make a validator load other documents, by URL or file path.
+REFERENCE_KEYWORDS = {"$ref", "$id", "$schema", "$anchor", "$dynamicRef", "$dynamicAnchor", "$recursiveRef",
+                      "$recursiveAnchor"}
 
 
 def catalog_modules(directory=None):
@@ -49,22 +58,59 @@ def valid_metadata(tool):
             and isinstance(field("input_schema"), dict))
 
 
-def load_catalog(directory=None, *, client=None):
+def tool_problem(tool):
+    """Return why the agent cannot offer a tool, or None.
+
+    The name and description must be strings, and the input schema a valid Draft 7
+    schema that refers to no other document (see REFERENCE_KEYWORDS). tool is a
+    GeneratedTool, or the mapping a worker reports for one.
+    """
+    if not valid_metadata(tool):
+        return "tool_name and tool_description must be strings and input_schema a mapping"
+    schema = tool["input_schema"] if isinstance(tool, dict) else tool.input_schema
+    try:
+        found = sorted(REFERENCE_KEYWORDS & set(_keys(schema)))
+        if found:
+            return f"input_schema uses {', '.join(found)}, which would load other documents"
+        Draft7Validator.check_schema(schema)
+    except SchemaError as exc:
+        return f"input_schema is not a valid JSON Schema: {exc.message}"
+    except RecursionError:
+        return "input_schema is nested too deeply"
+    return None
+
+
+def _keys(value):
+    """Yield every mapping key in a JSON value."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _keys(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _keys(item)
+
+
+def load_catalog(directory=None, *, client=None, strict=False):
     """Import every tool module in a catalog directory and instantiate its tool.
+
+    A tool the agent cannot offer (see tool_problem) is skipped with a warning, so
+    one bad module leaves the rest of the catalog usable.
 
     Args:
         directory: Directory holding one GeneratedTool subclass per .py file;
             files starting with an underscore are skipped. Defaults to the
             packaged catalog.
         client: Optional ToolClient the tools use to call other router tools.
+        strict: Raise ValueError for a tool the agent cannot offer instead of
+            skipping it, as Gate 1 does for a candidate.
 
     Returns:
         A mapping of tool names to tool instances, ordered by file name.
 
     Raises:
         ValueError: The directory is missing, a module does not define exactly one
-            tool, a tool's name or description is not a string or its input schema
-            not a mapping, or two tools share a name.
+            tool, two tools share a name, or strict is set and a tool cannot be offered.
     """
     tools = {}
     for path in catalog_modules(directory):
@@ -76,8 +122,12 @@ def load_catalog(directory=None, *, client=None):
         if len(classes) != 1:
             raise ValueError(f"{path} must define exactly one GeneratedTool subclass")
         tool = classes[0]()
-        if not valid_metadata(tool):
-            raise ValueError(f"{path}: tool_name and tool_description must be strings and input_schema a mapping")
+        problem = tool_problem(tool)
+        if problem and strict:
+            raise ValueError(f"{path}: {problem}")
+        if problem:
+            logger.warning("ToolSmith catalog: skipping %s: %s", path.name, problem)
+            continue
         if tool.tool_name in tools:
             raise ValueError(f"Duplicate generated tool name {tool.tool_name!r} in {path}")
         tool.client = client
