@@ -172,11 +172,14 @@ Gate 1 needs unprivileged Linux user namespaces as well. Without them the pipeli
 unless its configuration sets `isolation: false`.
 
 Admitted tools are written to the catalog. `gaps.jsonl` keeps the mined
-representatives, `mining.json` the rollouts (with a hash of each judged predictions file)
-and the mining settings they came from, and `decisions.jsonl` each gap's outcome with the
+representatives, `mining.json` the rollouts (with a hash of each judged predictions file
+and of the failed queries' trajectories) and the mining settings they came from,
+`critiques.json` the self-critiques, and `decisions.jsonl` each gap's outcome with the
 gate feedback. A rerun resumes from them; with other rollouts or mining settings it stops
-with an error, unless `--rebuild-gaps` asks to mine the rollouts again. Serve the grown
-catalog with the same preset.
+with an error, unless `--rebuild-gaps` asks to mine the rollouts again. A self-critique
+that fails leaves its query out, and the next run retries only those. A decision is
+redone when the models or gate settings change, or when the tool it admitted, reused or
+matched is no longer in the catalog. Serve the grown catalog with the same preset.
 
 ## Write a tool
 

@@ -110,26 +110,40 @@ class Pipeline:
 
         mining.json records the rollouts and mining settings gaps.jsonl came from, and
         gaps.jsonl is reused only for the same ones; rebuild mines the rollouts again.
+        Self-critiques are kept in critiques.json: when some failed, mining.json lists
+        their queries, and the next run mines again, asking the analyst only about those.
 
         Raises:
             ValueError: A rollout has no judged predictions, or gaps.jsonl exists for
                 other rollouts or settings, or without a record of them, and rebuild is unset.
         """
-        path, record = self.work_dir / "gaps.jsonl", self.work_dir / "mining.json"
+        path, record, cache = (self.work_dir / name for name in ("gaps.jsonl", "mining.json", "critiques.json"))
         inputs = self.mining_inputs(rollouts)
+        known = {}
         if path.exists() and not rebuild:
             recorded = json.loads(record.read_text()) if record.exists() else None
+            retry = (recorded or {}).pop("failed_critiques", [])
             if recorded != inputs:
                 raise ValueError(f"{path} was mined {_difference(recorded, inputs)}. Pass --rebuild-gaps to "
                                  "mine these rollouts again, or use another --work-dir.")
-            return [Gap(**json.loads(line)) for line in path.read_text().splitlines()]
-        gaps = mine(rollouts, self.models["analyst"], encoder=self.settings["encoder"],
-                    clusters=self.settings["clusters"], workers=self.settings["workers"])
+            if not retry:
+                return [Gap(**json.loads(line)) for line in path.read_text().splitlines()]
+            stored = json.loads(cache.read_text()) if cache.exists() else {}
+            known = stored.get("critiques", {}) if stored.get("analyst") == self.analyst else {}
+            logger.info("Retrying the %d self-critiques that failed when %s was mined", len(retry), path)
+        gaps, critiques, failed = mine(rollouts, self.models["analyst"], encoder=self.settings["encoder"],
+                                       clusters=self.settings["clusters"], workers=self.settings["workers"],
+                                       known=known)
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"analyst": self.analyst, "critiques": critiques}, ensure_ascii=False) + "\n")
         # The record goes last, so an interrupted write never leaves gaps.jsonl with a matching record.
         record.unlink(missing_ok=True)
         path.write_text("".join(gap.to_json() + "\n" for gap in gaps))
-        record.write_text(json.dumps(inputs, indent=2, ensure_ascii=False) + "\n")
+        record.write_text(json.dumps({**inputs, "failed_critiques": sorted(failed)}, indent=2, ensure_ascii=False)
+                          + "\n")
+        if failed:
+            logger.warning("%d self-critiques failed and were left out (%s); run again to retry them", len(failed),
+                           ", ".join(sorted(failed)[:10]) + (", ..." if len(failed) > 10 else ""))
         return gaps
 
     def run(self, rollouts, *, rebuild_gaps=False):
@@ -294,6 +308,7 @@ def _difference(recorded, current):
     """Say how the recorded mining inputs differ from the current ones, for the cache error."""
     if recorded is None:
         return "without a record of its rollouts and settings (no mining.json)"
+    recorded = {key: value for key, value in recorded.items() if key != "failed_critiques"}
     changes = []
     before = {entry["directory"]: entry for entry in recorded.get("rollouts", [])}
     after = {entry["directory"]: entry for entry in current["rollouts"]}

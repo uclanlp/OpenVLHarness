@@ -189,9 +189,43 @@ def representatives(gaps, encoder, clusters):
     return chosen
 
 
-def mine(directories, analyst, *, encoder, clusters, workers=8):
-    """Run Layer A and Layer B over every rollout directory, then pick cluster representatives."""
-    failed = [gap for directory in directories for gap in failures(directory)]
+def critique_key(gap):
+    """SHA-256 of a failed query's evidence, under which its critique is kept between runs."""
+    return hashlib.sha256(Gap(**{**asdict(gap), "label": "", "reason": ""}).to_json().encode()).hexdigest()
+
+
+def mine(directories, analyst, *, encoder, clusters, workers=8, known=None):
+    """Run Layer A and Layer B over every rollout directory, then pick cluster representatives.
+
+    A critique in known (critique_key to [label, reason]) is reused. A failed critique
+    leaves its query out of this mining, so one refused or failed model call does not
+    discard the others.
+
+    Returns:
+        (representatives, critiques, failed): the representatives, the [label, reason]
+        of every critiqued query by critique_key, and the sources whose critique failed.
+    """
+    known = dict(known or {})
+
+    def attempt(gap):
+        key = critique_key(gap)
+        if key in known:
+            gap.label, gap.reason = known[key]
+            return key, gap
+        try:
+            return key, critique(gap, analyst)
+        except Exception as exc:
+            logger.warning("The self-critique of %s failed: %s: %s", gap.source, type(exc).__name__, exc)
+            return key, None
+
+    gaps = [gap for directory in directories for gap in failures(directory)]
+    critiques, failed, critiqued = {}, [], []
     with ThreadPoolExecutor(workers) as pool:
-        critiqued = list(pool.map(lambda gap: critique(gap, analyst), failed))
-    return representatives([gap for gap in critiqued if gap.label == "NEW_TOOL_NEEDED"], encoder, clusters)
+        for gap, (key, result) in zip(gaps, pool.map(attempt, gaps)):
+            if result is None:
+                failed.append(gap.source)
+            else:
+                critiques[key] = [result.label, result.reason]
+                critiqued.append(result)
+    chosen = representatives([gap for gap in critiqued if gap.label == "NEW_TOOL_NEEDED"], encoder, clusters)
+    return chosen, critiques, failed

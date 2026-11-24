@@ -485,6 +485,31 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual(sum(counts.values()), 1)  # the same source, decided again
                 self.assertEqual(self.pipeline().run([self.rollout]), {})
 
+    def test_a_failed_self_critique_is_left_out_and_retried_alone(self):
+        refused = self.judged_rollout("Infoseek_GDM_val", "refused question")
+        asked, refusals = [], [RuntimeError("400 invalid_prompt")]
+        original = StubModel.generate
+
+        def generate(model, request, system_prompt=None, max_tokens=None):
+            if system_prompt.startswith("You are an analyst"):
+                asked.append("refused" if "refused question" in request else "river")
+                if "refused question" in request and refusals:
+                    raise refusals.pop()
+            return original(model, request, system_prompt, max_tokens)
+        with patch.object(StubModel, "generate", generate):
+            with self.assertLogs("openvlharness.toolsmith.pipeline", "WARNING") as logs:
+                self.assertEqual(self.pipeline().run([self.rollout, refused]), {"admitted": 1})
+            self.assertTrue(any("1 self-critiques failed" in line for line in logs.output))
+            record = json.loads((self.root / "work" / "mining.json").read_text())
+            self.assertEqual(record["failed_critiques"], ["Infoseek_GDM_val:c"])
+            self.assertEqual(sorted(asked), ["refused", "river"])
+            asked.clear()
+            self.assertEqual(sum(self.pipeline().run([self.rollout, refused]).values()), 1)  # the refused gap
+            self.assertEqual(asked, ["refused"])  # the other critique came from critiques.json
+        sources = [json.loads(line)["source"] for line in (self.root / "work" / "gaps.jsonl").read_text().splitlines()]
+        self.assertEqual(sorted(sources), ["FVQA_train:a", "Infoseek_GDM_val:c"])
+        self.assertEqual(json.loads((self.root / "work" / "mining.json").read_text())["failed_critiques"], [])
+
     def test_decisions_are_redone_after_their_settings_or_tool_change(self):
         self.config["critic_mean"] = 4.5  # the stub critic's mean is 4.0
         self.assertEqual(self.pipeline().run([self.rollout]), {"rejected": 1})
