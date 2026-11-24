@@ -78,7 +78,7 @@ class Pipeline:
             raise ValueError("Set toolsmith.catalog in the agent configuration to the catalog directory to grow")
         self.catalog = Path(agent["toolsmith"]["catalog"])
         base = {capability.name: capability.public_schema()["function"] for capability in build_capabilities(agent).values()}
-        # Read in a worker, so catalog code does not run on the mining host.
+        # Read in a worker, so catalog code does not run in the pipeline's own process.
         tools = catalog_tools(self.catalog, settings={**(agent["toolsmith"].get("worker") or {}),
                                                       "isolation": self.settings["isolation"]})
         self.descriptions = {**{name: schema["description"] for name, schema in base.items()},
@@ -230,7 +230,11 @@ class Pipeline:
         return self.admit(metadata, source, scores)
 
     def loaded(self, source):
-        """Load a candidate as the router will, in a confined worker, and return its metadata, or an issue."""
+        """Load a candidate as the router will, in a worker (confined unless isolation is off); return its metadata.
+
+        Returns:
+            (metadata, None), or (None, issue) when the candidate does not load as one tool.
+        """
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "candidate.py").write_text(source)
             try:

@@ -34,8 +34,9 @@ through it.
    runs in Linux namespaces with no network, and sees only the interpreter, the
    packages and the candidate, read-only. The scan only narrows what a candidate can
    express; the namespaces are what keep it from the host. The name, description and
-   schema the gates and the catalog use come from loading the candidate in a confined
-   worker, as the router will, and the name must be a string literal that no tool uses yet. Gate 2 is
+   schema the gates and the catalog use come from loading the candidate in a separate
+   worker, as the router will (confined unless `isolation` is false), and the name must be
+   a string literal that no tool uses yet. Gate 2 is
    an LLM critic that scores parametric usage,
    description abstractness, edge-case handling and task alignment. A rejected
    candidate is revised with the gate's feedback. A tool that passes both gates is
@@ -129,7 +130,9 @@ Hugging Face token files are hidden. The host's model caches are never writable:
 `write_files`, writes and downloads into them land in a private in-memory layer of at
 most 1 GiB that is discarded when the worker stops (download models on the host
 beforehand), and the local image-upload directory, which the image host serves, is
-writable. `worker.network: false` removes network access as
+writable. In that layer, renaming a cached directory fails (EXDEV), and deleting and
+recreating one fails (EIO) where tmpfs lacks user extended attributes, as on Linux 5.15;
+tools should write their own files elsewhere, such as under `/tmp`. `worker.network: false` removes network access as
 well. With network access the worker shares the host's network, including services that
 listen on loopback, among them the router itself: a tool can call any router tool over
 HTTP, including those `call_tool` refuses, such as the local Python executor, which is
@@ -141,8 +144,9 @@ namespaces, or one where the namespace cannot refuse nested ones, the router ref
 start the worker unless `worker.isolation` is false.
 
 The agent and the pipeline read the tools' names, descriptions and schemas from a
-short-lived worker started the same way, so catalog code does not run in the evaluator or
-on the mining host either. A `TOOLSMITH_LEGACY_*` environment variable, which research
+short-lived worker started the same way, so catalog code does not run in the evaluator's or
+the pipeline's own process; it runs in that worker, confined unless `worker.isolation` is
+false. A `TOOLSMITH_LEGACY_*` environment variable, which research
 shims that patch the agent when a catalog module imports them rely on, makes both import
 the catalog in their own process instead, with that process's privileges; they log a
 warning when they do. Wherever a catalog loads, a tool whose input schema is not a valid

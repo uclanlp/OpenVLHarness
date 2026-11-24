@@ -21,7 +21,7 @@ class ToolSmithAgent(MainAgent):
             ValueError: The catalog cannot be loaded or a generated tool shadows a base tool.
         """
         super().__init__(*args, **kwargs)
-        # Read in a worker like the router's, so catalog code does not run in the evaluator.
+        # Read in a worker like the router's, so catalog code does not run in the evaluator's own process.
         tools = catalog_tools(toolsmith.get("catalog"), settings=toolsmith.get("worker"))
         shadowed = sorted(set(tools) & set(self.capabilities))
         if shadowed:

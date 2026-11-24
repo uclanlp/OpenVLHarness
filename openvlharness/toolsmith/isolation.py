@@ -121,7 +121,11 @@ def _read_only(libc, target):
 
 
 def _overlay(libc, root, path, layers):
-    """Mount path read-only under a writable layer kept in layers; fall back to a read-only bind."""
+    """Mount path read-only under a writable layer kept in layers; fall back to a read-only bind.
+
+    In the overlay a directory of path cannot be renamed (EXDEV), and recreating one after
+    deleting it fails (EIO) where tmpfs lacks user extended attributes (Linux 5.15).
+    """
     if any(character in path for character in ",:\\"):  # not expressible in overlay mount options
         _bind(libc, root, path, writable=False)
         return
