@@ -7,6 +7,7 @@ those that pass both gates and are not near-duplicates (verification).
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -45,9 +46,9 @@ class Pipeline:
             work_dir: Directory for gaps.jsonl, mining.json and decisions.jsonl.
 
         Raises:
-            ValueError: Settings are unknown or incomplete, the agent configuration
-                names no toolsmith.catalog to grow, or isolation is on and this host
-                cannot confine Gate 1 runs.
+            ValueError: Settings are unknown, incomplete or of the wrong type, the agent
+                configuration names no toolsmith.catalog to grow, or isolation is on and
+                this host cannot confine Gate 1 runs.
         """
         unknown = set(config) - set(SETTINGS) - {"pipeline_config_version", "agent", "models"}
         if unknown:
@@ -55,8 +56,7 @@ class Pipeline:
         if set(config.get("models") or {}) != {"generator", "critic", "analyst"}:
             raise ValueError("models must define generator, critic and analyst")
         self.settings = {**SETTINGS, **{key: value for key, value in config.items() if key in SETTINGS}}
-        if type(self.settings["isolation"]) is not bool:
-            raise ValueError("isolation must be true or false")
+        _check_settings(self.settings)
         if self.settings["isolation"]:
             from ..isolation import available
 
@@ -226,6 +226,22 @@ class Pipeline:
         with self.lock, open(self.work_dir / "decisions.jsonl", "a") as stream:
             stream.write(line + "\n")
         return result
+
+
+def _check_settings(settings):
+    """Raise ValueError unless each setting has its type and range (a null timeout would never expire)."""
+    if not (isinstance(settings["encoder"], str) and settings["encoder"].strip()):
+        raise ValueError("encoder must name a sentence-transformers model")
+    for key, least in (("clusters", 1), ("workers", 1), ("retries", 0)):
+        if type(settings[key]) is not int or settings[key] < least:
+            raise ValueError(f"{key} must be an integer of at least {least}")
+    for key in ("timeout_seconds", "reuse_threshold", "dedup_threshold", "critic_mean", "critic_min"):
+        if type(settings[key]) not in (int, float) or not math.isfinite(settings[key]):
+            raise ValueError(f"{key} must be a number")
+    if settings["timeout_seconds"] <= 0:
+        raise ValueError("timeout_seconds must be a positive number")
+    if type(settings["isolation"]) is not bool:
+        raise ValueError("isolation must be true or false")
 
 
 def _gap_digest(gap):

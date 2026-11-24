@@ -504,6 +504,18 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown pipeline settings"):
             self.pipeline()
         del self.config["clusterz"]
+        for key, value, message in (("timeout_seconds", None, "timeout_seconds must be a number"),
+                                    ("timeout_seconds", 0, "timeout_seconds must be a positive number"),
+                                    ("workers", 0, "workers must be an integer of at least 1"),
+                                    ("clusters", 2.5, "clusters must be an integer of at least 1"),
+                                    ("retries", True, "retries must be an integer of at least 0"),
+                                    ("reuse_threshold", "0.4", "reuse_threshold must be a number"),
+                                    ("critic_mean", float("nan"), "critic_mean must be a number"),
+                                    ("encoder", None, "encoder must name a sentence-transformers model"),
+                                    ("isolation", "yes", "isolation must be true or false")):
+            with self.subTest(key=key, value=value), patch.dict(self.config, {key: value}), \
+                    self.assertRaisesRegex(ValueError, message):
+                self.pipeline()
         del self.config["agent"]["toolsmith"]["catalog"]
         with self.assertRaisesRegex(ValueError, "Set toolsmith.catalog"):
             self.pipeline()
