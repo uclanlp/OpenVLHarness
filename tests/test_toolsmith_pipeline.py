@@ -429,6 +429,29 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no mining.json"):
             self.pipeline().run([self.rollout, infoseek])
 
+    def test_a_rebuilt_gap_is_decided_again_when_its_inputs_changed(self):
+        self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})
+        decision = json.loads((self.root / "work" / "decisions.jsonl").read_text())
+        self.assertEqual(len(decision["gap_sha256"]), 64)
+        self.assertEqual(self.pipeline().run([self.rollout], rebuild_gaps=True), {})  # same inputs: reused
+        import pandas as pd
+        pd.DataFrame([{"index": "a", "question": "How long is the Danube?", "answer": "2850 km", "prediction": "1000 km",
+                       "image_path": "a.png", "hit": 0}]).to_excel(
+            Path(self.rollout, "Qwen3-VL-8B-Instruct_judge_judge_vdr.xlsx"), index=False)
+        for change in ("question", "reason"):
+            with self.subTest(change=change):
+                why = "LABEL: NEW_TOOL_NEEDED  WHY: no atlas lists the Danube" if change == "reason" else None
+                original = StubModel.generate
+
+                def generate(model, request, system_prompt=None, max_tokens=None):
+                    if why and system_prompt.startswith("You are an analyst"):
+                        return why
+                    return original(model, request, system_prompt, max_tokens)
+                with patch.object(StubModel, "generate", generate):
+                    counts = self.pipeline().run([self.rollout], rebuild_gaps=True)
+                self.assertEqual(sum(counts.values()), 1)  # the same source, decided again
+                self.assertEqual(self.pipeline().run([self.rollout]), {})
+
     def test_the_command_line_rebuilds_gaps_only_when_asked(self):
         from openvlharness.toolsmith.pipeline import __main__ as cli
 

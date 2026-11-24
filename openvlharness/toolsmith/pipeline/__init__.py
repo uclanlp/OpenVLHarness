@@ -128,14 +128,20 @@ class Pipeline:
 
         A gap whose model or network calls fail stays undecided and counts as
         failed; rerunning the pipeline retries it. rebuild_gaps mines the rollouts
-        again instead of reusing gaps.jsonl.
+        again instead of reusing gaps.jsonl. A decision is reused only for a gap
+        with the same inputs (the digest decisions record), so a gap that changed
+        under the same source is decided again.
 
         Raises:
             ValueError: The gaps cannot be mined or reused (see gaps).
         """
         record = self.work_dir / "decisions.jsonl"
-        decided = {json.loads(line)["source"] for line in record.read_text().splitlines()} if record.exists() else set()
-        pending = [gap for gap in self.gaps(rollouts, rebuild=rebuild_gaps) if gap.source not in decided]
+        decided = set()
+        if record.exists():
+            decided = {(entry["source"], entry.get("gap_sha256"))
+                       for entry in map(json.loads, record.read_text().splitlines())}
+        pending = [gap for gap in self.gaps(rollouts, rebuild=rebuild_gaps)
+                   if (gap.source, _gap_digest(gap)) not in decided]
         with ThreadPoolExecutor(self.settings["workers"]) as pool:
             results = list(pool.map(self.attempt, pending))
         return Counter(result["decision"] for result in results)
@@ -213,11 +219,17 @@ class Pipeline:
         return {"decision": "admitted", "tool": name, "scores": scores}
 
     def decide(self, gap, result):
-        """Append one decision to decisions.jsonl and return it."""
-        line = json.dumps({"source": gap.source, "question": gap.question, **result}, ensure_ascii=False)
+        """Append one decision, with the digest of the gap it decides, to decisions.jsonl and return it."""
+        line = json.dumps({"source": gap.source, "question": gap.question, "gap_sha256": _gap_digest(gap), **result},
+                          ensure_ascii=False)
         with self.lock, open(self.work_dir / "decisions.jsonl", "a") as stream:
             stream.write(line + "\n")
         return result
+
+
+def _gap_digest(gap):
+    """SHA-256 of everything a decision depends on: the gap's query, answers, tool activity and critique."""
+    return hashlib.sha256(gap.to_json().encode()).hexdigest()
 
 
 def _difference(recorded, current):
