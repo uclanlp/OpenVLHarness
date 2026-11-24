@@ -139,12 +139,20 @@ def _build_root(libc, spec):
     os.chdir(spec.get("cwd") or "/")
 
 
+ROOT_REFUSED = ("isolation refuses to run as root: a uid-0 command keeps its capabilities in the namespace "
+                "and could undo the mounts; run as an unprivileged user")
+
+
 def launch(spec, command):
     """Run command confined as described by spec and exit with its status (the module's entry point)."""
     if platform.machine() not in PIVOT_ROOT:
         sys.exit(f"isolation: unsupported architecture {platform.machine()}")
-    libc = _libc()
     uid, gid = os.getuid(), os.getgid()
+    if uid == 0:
+        # A non-root command loses every capability at exec; root would keep them.
+        print(f"isolation: {ROOT_REFUSED}", file=sys.stderr)
+        os._exit(SETUP_FAILED)
+    libc = _libc()
     # The child makes its own mount namespace below: pivot_root moves the root of every process
     # in a mount namespace, and the launcher keeps the host view to clean up afterwards.
     flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWIPC | (0 if spec.get("network") else CLONE_NEWNET)
@@ -227,6 +235,8 @@ def available():
     if _probe is None:
         if sys.platform != "linux" or platform.machine() not in PIVOT_ROOT:
             _probe = (False, f"needs Linux on {' or '.join(PIVOT_ROOT)}, not {sys.platform} on {platform.machine()}")
+        elif os.getuid() == 0:
+            _probe = (False, ROOT_REFUSED)
         else:
             import tempfile
 

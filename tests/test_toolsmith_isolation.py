@@ -33,6 +33,7 @@ attempt("pid", os.getpid)
 attempt("write prefix", lambda: open(os.path.join(sys.prefix, "isolation-test"), "w").write("x"))
 attempt("connect", lambda: socket.create_connection(("127.0.0.1", int(sys.argv[3])), timeout=5).close())
 attempt("uid", os.getuid)
+attempt("capabilities", lambda: [line.split()[1] for line in open("/proc/self/status") if line.startswith("CapEff")][0])
 print(json.dumps(seen))
 '''
 
@@ -107,6 +108,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(seen["write prefix"], ["blocked", "OSError"])
         self.assertEqual(seen["connect"][0], "blocked")
         self.assertEqual(seen["uid"], ["ok", os.getuid()])
+        self.assertEqual(seen["capabilities"], ["ok", "0000000000000000"])
 
     def test_network_access_is_opt_in(self):
         self.assertEqual(self.confined(network=True)["connect"], ["ok", None])
@@ -189,6 +191,17 @@ class WorkerIsolationTests(unittest.TestCase):
 
 
 class FailClosedTests(unittest.TestCase):
+    def test_root_callers_are_refused(self):
+        with patch.object(isolation, "_probe", None), patch.object(isolation.os, "getuid", return_value=0):
+            confinable, reason = isolation.available()
+        self.assertEqual((confinable, reason), (False, isolation.ROOT_REFUSED))
+        code = ("import os, sys; os.getuid = lambda: 0; from openvlharness.toolsmith.isolation import launch; "
+                "launch({'root': '/nonexistent'}, [sys.executable, '-c', 'print(1)'])")
+        done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
+                              env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+        self.assertEqual((done.returncode, done.stdout), (isolation.SETUP_FAILED, ""))
+        self.assertIn("refuses to run as root", done.stderr)
+
     def test_without_namespaces_the_worker_runs_only_when_isolation_is_turned_off(self):
         with tempfile.TemporaryDirectory() as catalog:
             with patch.object(isolation, "_probe", (False, "user namespaces are disabled")):
