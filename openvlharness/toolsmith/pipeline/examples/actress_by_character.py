@@ -4,9 +4,13 @@ from openvlharness.toolsmith import GeneratedTool, ToolCallError
 
 
 def page_answers(page):
-    """Yield the first summary line of each fetched page; failed fetches carry no answer."""
-    for block in str(page or "").split("\n=======\n"):
-        summary = block.split("Summary:", 1)[1].strip() if "Summary:" in block else ""
+    """Yield the first summary line of each fetched page; failed fetches carry no answer.
+
+    Each page's block starts with "The useful information in" and ends with its summary,
+    after the page's own text, which may hold "=======" or "Summary:" lines too.
+    """
+    for block in str(page or "").split("\n\n=======\n\nThe useful information in "):
+        summary = block.rsplit("\n\nSummary: \n", 1)[1].strip() if "\n\nSummary: \n" in block else ""
         if summary and not summary.startswith(("FETCH FAILED", "No summary generated")):
             yield summary.splitlines()[0][:120]
 

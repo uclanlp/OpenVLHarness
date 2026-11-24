@@ -63,7 +63,8 @@ class AnimalTypicalSizeByImage(GeneratedTool):
                 "Reply with the measurement only."))
         except ToolCallError as exc:
             return {"error": str(exc)}
-        summary = page.split("Summary:", 1)[-1].strip() if isinstance(page, str) else ""
+        # The page's own text comes first and may say "Summary:" too; the router's summary follows the last marker.
+        summary = page.rsplit("\n\nSummary: \n", 1)[-1].strip() if isinstance(page, str) else ""
         answer = summary.splitlines()[0].strip() if summary else ""
         if not answer or answer.lower().startswith(("no ", "not ", "none", "unknown", "the page does not", "fetch failed")):
             return {"error": f"the page gives no typical size for {entity}", "candidate": entity}

@@ -284,6 +284,24 @@ class PackagedToolBehaviourTests(unittest.TestCase):
             self.assertEqual(tool.execute(entity="Q999999999"),
                              {"found": False, "error": "no Wikidata entity matches 'Q999999999'"})
 
+    def test_page_readers_take_the_routers_summary_not_the_pages_own(self):
+        from openvlharness.services.tools.serper_webpage_visit.tool import Webpage_Visit_Tool as Visit
+        from openvlharness.toolsmith.pipeline.examples import actress_by_character, esports_player_stats
+
+        url = "https://en.wikipedia.org/wiki/Cheetah"
+        evidence = "Summary: The cheetah is a large cat.\n\nSummary: \nA heading\n=======\nAfrica"
+        page = Visit._format_success(url, "size", evidence=evidence, summary="Adults weigh 21-72 kg.")
+        tool = self.tools["animal_typical_size_by_image"]
+        tool.client = types.SimpleNamespace(execute=lambda name, args, tool_call_id: {"ok": True, "result": {
+            "visual_matches": [{"title": "Cheetah - Wikipedia", "link": url, "source": "Wikipedia"}],
+            "Webpage_Visit_Tool": page}[name]})
+        self.addCleanup(setattr, tool, "client", None)
+        self.assertEqual(tool.execute(image_base64="AAAA"), "Adults weigh 21-72 kg.")
+        pages = "\n\n=======\n\n".join([page, Visit._format_failure(url, "size", "HTTP 404"),
+                                           Visit._format_success(url, "size", evidence, "Sprints at 100 km/h.")])
+        for module in (actress_by_character, esports_player_stats):
+            self.assertEqual(list(module.page_answers(pages)), ["Adults weigh 21-72 kg.", "Sprints at 100 km/h."])
+
     def test_media_catalog_errors_do_not_reveal_the_tmdb_key(self):
         import requests
 
