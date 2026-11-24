@@ -1,4 +1,5 @@
 """Phase 1: mine capability gaps from failed rollouts and keep one representative per cluster."""
+import hashlib
 import json
 import re
 from collections import Counter
@@ -59,6 +60,23 @@ def judged_rows(path):
     return (data if isinstance(data, pd.DataFrame) else pd.DataFrame(data)).to_dict("records")
 
 
+def failed_rows(directory):
+    """Yield each judged row marked incorrect with the path of its trajectory, which may not exist."""
+    directory = Path(directory)
+    for row in judged_rows(judged_predictions(directory)):
+        if row.get("hit") == 0:
+            yield row, directory / "full_trajectories" / f"{row['index']}.json"
+
+
+def evidence_digest(directory):
+    """SHA-256 over the trajectories that failures reads, a missing trajectory included."""
+    digest = hashlib.sha256()
+    for row, trajectory in failed_rows(directory):
+        content = hashlib.sha256(trajectory.read_bytes()).hexdigest() if trajectory.exists() else "missing"
+        digest.update(f"{row['index']}\0{content}\n".encode())
+    return digest.hexdigest()
+
+
 def failures(directory):
     """Layer A: yield the queries the LLM judge marked incorrect in one dataset directory of a run.
 
@@ -71,10 +89,7 @@ def failures(directory):
         ValueError: The directory holds no judged predictions.
     """
     directory = Path(directory)
-    for row in judged_rows(judged_predictions(directory)):
-        if row.get("hit") != 0:
-            continue
-        trajectory = directory / "full_trajectories" / f"{row['index']}.json"
+    for row, trajectory in failed_rows(directory):
         messages = json.loads(trajectory.read_text()).get("messages", []) if trajectory.exists() else []
         tools, errors = _tool_activity(messages)
         image = row.get("image_path")

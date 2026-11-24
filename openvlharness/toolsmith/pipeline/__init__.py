@@ -20,7 +20,7 @@ from ...services.models import AuxiliaryModel
 from ..catalog import load_catalog
 from ..worker import memory_limit_enforced
 from .generation import Generator, describe_tools
-from .mining import Gap, judged_predictions, mine
+from .mining import Gap, evidence_digest, judged_predictions, mine
 from .reuse import closest
 from .verification import review, run_once, scan
 
@@ -85,12 +85,13 @@ class Pipeline:
         self.lock = threading.Lock()
 
     def mining_inputs(self, rollouts):
-        """Describe what mining reads: each rollout's judged predictions and the mining settings."""
+        """Describe what mining reads: each rollout's judged predictions and failed trajectories, and the settings."""
         entries = []
         for directory in rollouts:
             predictions = judged_predictions(directory)
             entries.append({"directory": str(Path(directory).resolve()), "predictions": predictions.name,
-                            "sha256": hashlib.sha256(predictions.read_bytes()).hexdigest()})
+                            "sha256": hashlib.sha256(predictions.read_bytes()).hexdigest(),
+                            "trajectories_sha256": evidence_digest(directory)})
         return json.loads(json.dumps({"rollouts": sorted(entries, key=lambda entry: entry["directory"]),
                                       "encoder": self.settings["encoder"], "clusters": self.settings["clusters"],
                                       "analyst": self.analyst}))
@@ -228,8 +229,12 @@ def _difference(recorded, current):
     after = {entry["directory"]: entry for entry in current["rollouts"]}
     changes += [f"rollout {name} is new" for name in sorted(set(after) - set(before))]
     changes += [f"rollout {name} is no longer given" for name in sorted(set(before) - set(after))]
-    changes += [f"the judged predictions of {name} changed" for name in sorted(set(before) & set(after))
-                if before[name] != after[name]]
+    for name in sorted(set(before) & set(after)):
+        if (before[name].get("predictions"), before[name].get("sha256")) != (after[name]["predictions"],
+                                                                             after[name]["sha256"]):
+            changes.append(f"the judged predictions of {name} changed")
+        elif before[name] != after[name]:
+            changes.append(f"the trajectories of failed queries in {name} changed")
     changes += [f"{key} was {recorded.get(key)!r}, now {current[key]!r}" for key in ("encoder", "clusters", "analyst")
                 if recorded.get(key) != current[key]]
     return "from other inputs: " + "; ".join(changes or ["the record differs"])

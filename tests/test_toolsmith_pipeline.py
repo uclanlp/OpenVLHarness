@@ -404,6 +404,15 @@ class PipelineTests(unittest.TestCase):
                 rollouts = [self.rollout, infoseek] if not change else [self.rollout]
                 with patch.dict(self.config, change), self.assertRaisesRegex(ValueError, message + ".*--rebuild-gaps"):
                     self.pipeline().run(rollouts)
+        trajectory = Path(self.rollout) / "full_trajectories" / "a.json"
+        recorded = trajectory.read_text()
+        for change in (lambda: trajectory.write_text(json.dumps({"messages": [
+                {"role": "assistant", "tool_calls": [{"function": {"name": "OCR_Tool"}}]}]})), trajectory.unlink):
+            change()
+            with self.assertRaisesRegex(ValueError, "the trajectories of failed queries in .*FVQA_train changed"):
+                self.pipeline().run([self.rollout])
+        trajectory.write_text(recorded)
+        self.assertEqual(self.pipeline().run([self.rollout]), {})
         self.judged_rollout("FVQA_train", "How long is the river in this map?")
         with self.assertRaisesRegex(ValueError, "the judged predictions of .*FVQA_train changed"):
             self.pipeline().run([self.rollout])
@@ -412,6 +421,10 @@ class PipelineTests(unittest.TestCase):
         sources = [json.loads(line)["source"] for line in (self.root / "work" / "gaps.jsonl").read_text().splitlines()]
         self.assertEqual(sorted(sources), ["FVQA_train:c", "Infoseek_GDM_val:c"])
         self.assertEqual(self.pipeline().run([infoseek, self.rollout]), {})
+        Path(self.rollout, "full_trajectories", "c.json").write_text(json.dumps({"messages": []}))  # was missing
+        with self.assertRaisesRegex(ValueError, "the trajectories of failed queries in .*FVQA_train changed"):
+            self.pipeline().run([self.rollout, infoseek])
+        Path(self.rollout, "full_trajectories", "c.json").unlink()
         (self.root / "work" / "mining.json").unlink()
         with self.assertRaisesRegex(ValueError, "no mining.json"):
             self.pipeline().run([self.rollout, infoseek])
