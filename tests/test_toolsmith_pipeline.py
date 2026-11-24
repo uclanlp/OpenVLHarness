@@ -81,8 +81,13 @@ class GateTests(unittest.TestCase):
                 ("import json as j\n", "return j.scanner", "j.scanner is not allowed"),
                 ("import json\n", "alias = json\n        return alias.loads(river)", "module json may only be used"),
                 ("", "return (x for x in []).gi_frame.f_globals", "attribute gi_frame is not allowed"),
-                ("", 'return {}.get("__builtins__")', "reaches hidden attributes"),
-                ("", 'return "{0.__class__}".format(self)', "reaches hidden attributes"),
+                ("", 'return {}.get("__builtins__")', "may name a hidden attribute"),
+                ("", 'return "{0.__class__}".format(self)', "may name a hidden attribute"),
+                ("", 'return {}.get("_" + "_builtins__")', "may name a hidden attribute"),
+                ("", "match self.execute:\n            case object(__func__=f):\n                return f",
+                 "match statements are not allowed"),
+                ("", 'return ("{0." + "_" + "_class" + "_" + "_}").format(self)', "format is allowed only on a string"),
+                ("", 'return str.format_map("{x}", {"x": river})', "format_map is allowed only on a string"),
                 ("", 'return help("os")', "help is not allowed")):
             with self.subTest(body=body):
                 self.assertIn(issue, "; ".join(scan(header + tool(body=body))))
@@ -91,6 +96,7 @@ class GateTests(unittest.TestCase):
         clean = "import datetime\nimport json\nfrom datetime import timedelta\n" + clean.replace(
             "    def execute", "    def _words(self, text):\n        return text.split()\n\n    def execute")
         self.assertEqual(scan(clean), [])
+        self.assertEqual(scan(tool(body='return "{} km, {river}".format(len(river), river=river)')), [])
         self.assertIn("import from subprocess is not allowed", scan("from subprocess import run\n" + tool()))
         self.assertIn("expected one GeneratedTool subclass, found 0", scan("import re\n"))
         self.assertTrue(scan("def broken(:\n")[0].startswith("syntax error"))

@@ -32,7 +32,8 @@ through it.
    I/O, then runs the tool once on dummy input in a separate, resource-limited process
    under a ten-second budget, with every tool call answering with a failure. The process
    runs in Linux namespaces with no network, and sees only the interpreter, the
-   packages and the candidate, read-only. Gate 2 is
+   packages and the candidate, read-only. The scan only narrows what a candidate can
+   express; the namespaces are what keep it from the host. Gate 2 is
    an LLM critic that scores parametric usage,
    description abstractness, edge-case handling and task alignment. A rejected
    candidate is revised with the gate's feedback. A tool that passes both gates is

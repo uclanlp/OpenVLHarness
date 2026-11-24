@@ -21,8 +21,9 @@ FORBIDDEN = {"eval", "exec", "compile", "__import__", "open", "input", "breakpoi
 INTROSPECTION = {"gi_frame", "gi_code", "gi_yieldfrom", "cr_frame", "cr_code", "cr_await", "cr_origin", "ag_frame",
                  "ag_code", "ag_await", "f_globals", "f_locals", "f_builtins", "f_back", "f_code", "tb_frame",
                  "tb_next", "co_code", "co_consts"}
-# A dunder name as a string, or a str.format field that walks into dunders or frames.
-HIDDEN_ACCESS = re.compile(r"^__\w+__$|\{[^{}]*(?:__|\.(?:gi|cr|ag|f|tb|co)_)[^{}]*\}")
+# Any double underscore in a string (dunder names are built from pieces), or a str.format field that walks
+# into frames.
+HIDDEN_ACCESS = re.compile(r"__|\{[^{}]*\.(?:gi|cr|ag|f|tb|co)_[^{}]*\}")
 AXES = ("parametric_usage", "description_abstractness", "edge_case_handling", "task_alignment")
 # How much of each output stream Gate 1 keeps: the end, which holds the error or the metadata line.
 OUTPUT_BYTES = 1 << 20
@@ -39,8 +40,8 @@ def _tail(stream, kept, limit):
 def scan(source):
     """Gate 1 static check: list dynamic-execution, I/O and structure problems in a candidate.
 
-    The scan narrows what a candidate can express; the sandboxed run (run_once)
-    is the boundary that keeps it from the host.
+    The scan narrows what a candidate can express and is defense in depth only:
+    the sandboxed run (run_once) is the boundary that keeps it from the host.
     """
     try:
         tree = ast.parse(source)
@@ -71,10 +72,15 @@ def scan(source):
         elif (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in modules
               and node.attr not in API[modules[node.value.id]]):
             issues.append(f"{node.value.id}.{node.attr} is not allowed")
+        elif isinstance(node, ast.Match):
+            issues.append("match statements are not allowed")  # class patterns read attributes, dunders included
+        elif (isinstance(node, ast.Attribute) and node.attr in {"format", "format_map"}
+              and not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str))):
+            issues.append(f"{node.attr} is allowed only on a string literal")  # a built format string reads attributes
         elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
             text = node.value.decode("latin-1") if isinstance(node.value, bytes) else node.value
             if HIDDEN_ACCESS.search(text):
-                issues.append(f"the string {text[:40]!r} reaches hidden attributes")
+                issues.append(f"the string {text[:40]!r} may name a hidden attribute")
     classes = [node for node in tree.body if isinstance(node, ast.ClassDef)
                and any(isinstance(base, ast.Name) and base.id == "GeneratedTool" for base in node.bases)]
     if len(classes) != 1:
