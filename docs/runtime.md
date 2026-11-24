@@ -75,7 +75,8 @@ tokenizer for the 168000-token context cap. If the tokenizer cannot load, a
 warning records that the provider enforces context size. GPT profiles use
 `openai_v1`, stateless Responses (`store=false`) and provider context
 enforcement. Kimi K3 uses `openai_v1`, Chat Completions and provider context
-enforcement.
+enforcement. `agent.prompt_bundle` replaces the orchestrator's system prompt with
+another packaged one.
 
 The paper configurations use 15 iterations. When the iterations run out, Qwen
 and Kimi K3 send an extra final-answer request; they also continue after an
@@ -176,6 +177,7 @@ where the table names a model.
 | `agent.max_context_length` | positive integer or null | null | `168000`; Kimi K3 `256000` | Context budget including the reserved output tokens; must exceed the orchestrator's `max_tokens` plus 512. Qwen profiles count tokens locally and compact history to fit. Other profiles, or null, leave enforcement to the provider. |
 | `agent.tool_choice` | string | `auto` | `auto` | Sent as the provider's `tool_choice` on regular requests. Not validated locally. |
 | `agent.paired_sampling_seed` | boolean | `false` | `false` | When true, Chat Completions requests for a sample with a task ID carry a seed derived from that ID, the iteration index and `HARNESS_SEARCH_SAMPLE_INDEX`. Responses requests carry no seed. |
+| `agent.prompt_bundle` | string | the orchestrator profile's bundle | not set; ToolSmith presets `toolsmith` | Orchestrator system prompt, read from `openvlharness/prompts/<bundle>_system.txt`. |
 | `memory.modules` | list of `{name: ...}` mappings | required | `image`, `tool_context`, `url` | Enabled memory modules, unique and ordered `image`, `tool_context`, `url`. `image` is required. `tool_context` stores typed tool results (depth, camera, segmentation, OCR) as bindings for code execution; `url` stores webpage references for later tool calls. |
 | `memory.modules[url].webpage_env_update_limit` | positive integer or null | `20` | `20` | Number of most recent webpage references listed in each Environment Update; null lists all. Older references stay resolvable. No other module accepts options. |
 | `memory.emit_policy` | `always` or `on_change` | `always` | `always` | `always` emits the inventory after every successful tool turn; `on_change` emits only when images, the webpage count or the binding count changed. |

@@ -53,9 +53,13 @@ pip install -e ".[server,qwen,eval,toolsmith]"
 pip install open_clip_torch  # for image_similarity and species_id
 ```
 
-[configs/agent/qwen3_8b_toolsmith.yaml](../configs/agent/qwen3_8b_toolsmith.yaml) is the
-Qwen3-VL-8B paper preset plus a `toolsmith` section. Start its tool router and evaluate
-with it as in the main [quick start](../README.md#quick-start):
+[configs/agent/qwen3_8b_toolsmith.yaml](../configs/agent/qwen3_8b_toolsmith.yaml) runs
+ToolSmith with Qwen3-VL-8B, and
+[qwen3_8b_toolsmith_baseline.yaml](../configs/agent/qwen3_8b_toolsmith_baseline.yaml) is
+the same agent without generated tools. Both use the ToolSmith system prompt, the base
+tools except depth and camera pose, temperature 0.3, top-p 0.95, repetition penalty 1.1,
+up to 2,048 output tokens and a 120,000-token context. Start a preset's tool router and
+evaluate with it as in the main [quick start](../README.md#quick-start):
 
 ```bash
 python -m openvlharness.services.server --config configs/agent/qwen3_8b_toolsmith.yaml
@@ -79,7 +83,7 @@ read `TMDB_API_KEY`), `image_similarity` and `species_id`, which other tools bui
 
 ## Grow a catalog
 
-1. Evaluate the baseline agent with an LLM judge on a training pool of your own; the
+1. Evaluate the baseline preset with an LLM judge on a training pool of your own; the
    paper used FVQA train (3,312 questions), InfoSeek val (3,000) and EncyclopedicVQA val
    (2,862). Keep evaluation data out of the pool.
 2. Copy the packaged catalog to a directory, copy the ToolSmith preset and set its

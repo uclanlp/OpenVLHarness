@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+import yaml
 
 from openvlharness.agent.agent import MainAgent
 from openvlharness.bootstrap import load_agent_config
@@ -220,6 +221,14 @@ class ConfigurationTests(unittest.TestCase):
         broken["toolsmith"] = None
         with self.assertRaisesRegex(ValueError, "must be a mapping"):
             load_agent_config(broken)
+
+    def test_the_baseline_preset_is_the_toolsmith_preset_without_generated_tools(self):
+        presets = Path(__file__).resolve().parents[1] / "configs" / "agent"
+        toolsmith, baseline = (yaml.safe_load((presets / f"qwen3_8b_toolsmith{suffix}.yaml").read_text())
+                               for suffix in ("", "_baseline"))
+        self.assertEqual(toolsmith.pop("toolsmith"), {"top_k": 10, "encoder": "BAAI/bge-m3"})
+        self.assertEqual(toolsmith, baseline)
+        self.assertEqual(baseline["agent"]["prompt_bundle"], "toolsmith")
 
 
 class RouterTests(unittest.TestCase):

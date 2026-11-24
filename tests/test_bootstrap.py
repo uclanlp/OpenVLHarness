@@ -206,6 +206,12 @@ class BootstrapBoundaryTests(unittest.TestCase):
         self.assertEqual(agent.capabilities["Python_Coding_Agent_Tool"].service_config["model_service"], "orchestrator")
         self.assertIsNot(agent.memory_factory().state, agent.memory_factory().state)
 
+    def test_prompt_bundle_replaces_the_profile_prompt(self):
+        config = config_for("ocr")
+        config["agent"]["prompt_bundle"] = "toolsmith"
+        prompt = Path(__file__).resolve().parents[1] / "openvlharness" / "prompts" / "toolsmith_system.txt"
+        self.assertEqual(build_agent(config).system_prompt, prompt.read_text())
+
     def test_coding_rejects_backbone_mismatch_and_nonlocal_executor(self):
         config = config_for("coding")
         config["services"]["tools"]["python_coding_agent"]["model_service"] = "auxiliary"

@@ -153,7 +153,10 @@ def _agent_identity_payload(agent_config: dict) -> dict:
     profiles = {}
     for name, model in agent_config["services"]["models"].items():
         profile = load_profile(model["alias"])
-        prompt_names = (profile["prompt_bundle"] + "_system.txt", "user_prefix.txt")
+        bundle = profile["prompt_bundle"]
+        if name == agent_config["agent"]["model_service"]:
+            bundle = agent_config["agent"].get("prompt_bundle", bundle)
+        prompt_names = (bundle + "_system.txt", "user_prefix.txt")
         profiles[name] = {
             "profile": profile,
             "prompt_sha256": {

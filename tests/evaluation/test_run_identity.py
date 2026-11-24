@@ -108,6 +108,21 @@ def test_manifest_rejects_prompt_content_change(tmp_path, monkeypatch, filename)
         validate_manifest_compatibility(existing, expected)
 
 
+def test_manifest_hashes_the_configured_prompt_bundle(tmp_path, monkeypatch):
+    resources = files("openvlharness.prompts")
+    for name in ("toolsmith_system.txt", "user_prefix.txt"):
+        (tmp_path / name).write_bytes(resources.joinpath(name).read_bytes())
+    monkeypatch.setattr(run_identity, "files", lambda package: tmp_path, raising=False)
+    config = _agent_cfg()
+    config["agent"]["prompt_bundle"] = "toolsmith"
+    existing = _manifest(config)
+    assert set(existing["resolved_model_profiles"]["orchestrator"]["prompt_sha256"]) == {
+        "toolsmith_system.txt", "user_prefix.txt"}
+    (tmp_path / "toolsmith_system.txt").write_text("Changed prompt content")
+    with pytest.raises(ValueError, match="agent config mismatch"):
+        validate_manifest_compatibility(existing, _manifest(config))
+
+
 def test_unreferenced_registry_entries_do_not_change_identity(local_registry):
     path, registry = local_registry
     config = _agent_cfg()

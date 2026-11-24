@@ -103,12 +103,17 @@ def load_agent_config(config, *, save_raw_trace=False):
             raise ValueError(f"toolsmith.catalog {toolsmith['catalog']!r} is not a directory")
     memory_factory(config["memory"])()
     agent = config["agent"]
-    if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed"}:
+    if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed",
+                     "prompt_bundle"}:
         raise ValueError("Unknown agent options")
     if type(agent.get("max_iterations", 15)) is not int or agent.get("max_iterations", 15) <= 0:
         raise ValueError("agent.max_iterations must be a positive integer")
     if type(agent.get("paired_sampling_seed", False)) is not bool:
         raise ValueError("agent.paired_sampling_seed must be boolean")
+    bundle = agent.get("prompt_bundle")
+    if bundle is not None and not (isinstance(bundle, str) and re.fullmatch(r"\w+", bundle)
+                                   and files("openvlharness.prompts").joinpath(f"{bundle}_system.txt").is_file()):
+        raise ValueError(f"agent.prompt_bundle {bundle!r} is not a packaged prompt bundle")
     caps = config["capabilities"]
     if set(caps) - {"registries", "tools"}:
         raise ValueError("Unknown capability options")
@@ -289,7 +294,7 @@ def build_agent(config):
                            max_context_length=options.get("max_context_length"))
     adapter.load_tokenizer()
     resources = files("openvlharness.prompts")
-    system = resources.joinpath(adapter.profile["prompt_bundle"] + "_system.txt").read_text()
+    system = resources.joinpath(options.get("prompt_bundle", adapter.profile["prompt_bundle"]) + "_system.txt").read_text()
     prefix = resources.joinpath("user_prefix.txt").read_text()
     arguments = (adapter, build_capabilities(config), memory_factory(config["memory"]), system, prefix)
     settings = {"max_iterations": options.get("max_iterations", 15), "tool_choice": options.get("tool_choice", "auto"),
