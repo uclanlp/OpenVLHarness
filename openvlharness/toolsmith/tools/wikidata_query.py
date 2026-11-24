@@ -94,8 +94,10 @@ class WikidataQuery(GeneratedTool):
         wanted = words(hint)
 
         def overlap(name):
+            # An exact token counts 1 and a token found only as a substring 0.5, so confidence
+            # reaches 1.0 only when the property name contains every hint token.
             have = words(name)
-            return len(wanted & have) + sum(any(w in h or h in w for h in have) for w in wanted)
+            return len(wanted & have) + 0.5 * sum(any(w in h or h in w for h in have) for w in wanted - have)
         best = max(claims, key=overlap, default=None)
         if not wanted or best is None or overlap(best) == 0:
             return None

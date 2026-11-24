@@ -1,5 +1,6 @@
 """ToolSmith catalog loading, generated-tool calls, per-query retrieval and router wiring, offline."""
 import copy
+import json
 import os
 import sys
 import tempfile
@@ -166,6 +167,23 @@ class GeneratedToolTests(unittest.TestCase):
         rejected = capability.invoke(VirtualCall("call-2", "bird_egg_lookup", {"query": "robin"}), memory)
         self.assertEqual(rejected.error["code"], "invalid_tool_arguments")
 
+
+class PackagedToolBehaviourTests(unittest.TestCase):
+    """Packaged helpers with their web requests stubbed."""
+
+    tools = load_catalog()
+
+    def test_wikidata_confidence_reaches_one_only_for_exact_hint_tokens(self):
+        match = type(self.tools["wikidata_query"]).match
+        claims = {"architectural style": ["Gothic architecture"], "architect": ["Pierre de Montreuil"]}
+        self.assertEqual((match(claims, "architect")["property"], match(claims, "architect")["confidence"]),
+                         ("architect", 1.0))
+        partial = match({"architectural style": ["Gothic architecture"]}, "architect")
+        self.assertEqual((partial["property"], partial["confidence"]), ("architectural style", 0.5))
+        self.assertEqual(match({"place of death": ["Paris"]}, "place of birth")["confidence"], 0.5)
+        self.assertEqual(match({"place of death": ["Paris"], "place of birth": ["Lyon"]}, "place of birth"),
+                         {"property": "place of birth", "values": ["Lyon"], "score": 2, "hint_token_count": 2,
+                          "confidence": 1.0})
 
 class RetrievalAndAgentTests(unittest.TestCase):
     def make_agent(self, directory, responses, top_k=1):
