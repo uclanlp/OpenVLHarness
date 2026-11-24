@@ -123,6 +123,28 @@ def test_eval_discovery_uses_saved_metadata_and_latest_complete_predictions(tmp_
     assert module._prepare_evaluation_run(args, logger)[0].endswith("run_1")
 
 
+@pytest.mark.parametrize("recorded_class", ["ToolSmithAgent", "MainAgent"])  # MainAgent: an older manifest
+def test_eval_discovery_keeps_toolsmith_and_baseline_runs_apart(tmp_path, no_inference, recorded_class):
+    from evaluation_kit import cli as module
+    toolsmith, manifest = saved_run(tmp_path, "run_1")
+    manifest["config_snapshot_redacted"]["agent"]["toolsmith"] = {"top_k": 10}
+    manifest["agent_class"] = recorded_class
+    (toolsmith / "run_manifest.json").write_text(json.dumps(manifest))
+    baseline, _ = saved_run(tmp_path, "run_2")
+    args = SimpleNamespace(run_dir=None, config=None, work_dir=str(tmp_path), data=["ToyEval"], sample_filter="all")
+    logger = SimpleNamespace(debug=lambda *args: None)
+    with pytest.raises(ValueError, match="multiple model/agent identities"):
+        module._prepare_evaluation_run(args, logger)
+    selector = {"agent_name": "MainAgent", "agent_config_version": "paper_v1", "agent": {"model_service": "main"},
+                "services": {"models": {"main": {"alias": "removed-profile"}}}}
+    for path, chosen, agent_class in ((tmp_path / "baseline.yaml", baseline, "MainAgent"),
+                                      (tmp_path / "toolsmith.yaml", toolsmith, "ToolSmithAgent")):
+        path.write_text(yaml.safe_dump({**selector, **({"toolsmith": {}} if agent_class == "ToolSmithAgent" else {})}))
+        args.config = str(path)
+        root, _, _, found_class, _ = module._prepare_evaluation_run(args, logger)
+        assert (root, found_class) == (str(chosen), agent_class)
+
+
 def test_explicit_eval_run_requires_requested_prediction_files(tmp_path, no_inference):
     from evaluation_kit import cli as module
     root, manifest = saved_run(tmp_path)

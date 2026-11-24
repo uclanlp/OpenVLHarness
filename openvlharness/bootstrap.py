@@ -286,6 +286,11 @@ def resolved_model_id(config):
     return ModelAdapter(model).model
 
 
+def agent_class_name(config):
+    """Name the agent class build_agent constructs for a configuration mapping."""
+    return "ToolSmithAgent" if "toolsmith" in config else "MainAgent"
+
+
 def build_agent(config):
     """Build a configured agent with prompts, tools and a memory factory.
 

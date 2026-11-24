@@ -154,6 +154,9 @@ def _saved_evaluation_identity(manifest):
     profile = manifest.get("resolved_model_profiles", {}).get(service, {}).get("profile", {})
     model = manifest.get("model_id") or profile.get("model_id")
     agent_class = manifest.get("agent_class") or config.get("agent_name")
+    if "toolsmith" in config:
+        # Manifests written before the effective class was recorded name MainAgent for ToolSmith runs.
+        agent_class = bootstrap.agent_class_name(config)
     if not isinstance(model, str) or not model.strip() or not isinstance(agent_class, str) or not agent_class:
         raise ValueError("Saved run manifest lacks model/agent identity required for evaluation")
     model_name = model.split("/")[-1]
@@ -207,7 +210,8 @@ def _prepare_evaluation_run(args, logger):
                 saved_service = config.get("agent", {}).get("model_service")
                 saved_alias = config.get("services", {}).get("models", {}).get(saved_service, {}).get("alias")
                 if (manifest.get("agent_config_version") != selector.get("agent_config_version")
-                        or config.get("agent_name") != selector.get("agent_name") or saved_alias != alias):
+                        or config.get("agent_name") != selector.get("agent_name") or saved_alias != alias
+                        or _saved_evaluation_identity(manifest)[1] != bootstrap.agent_class_name(selector)):
                     continue
             identity = _saved_evaluation_identity(manifest)
             predictions = _saved_prediction_files(manifest_path.parent, manifest, args.data, args.sample_filter)

@@ -294,6 +294,13 @@ def test_toolsmith_identity_covers_the_packaged_default_catalog(tmp_path, monkey
     assert build_agent_match_hash(_toolsmith_cfg()) != unchanged
 
 
+def test_manifest_records_the_agent_class_the_configuration_builds(tmp_path):
+    from openvlharness.bootstrap import agent_class_name
+
+    assert _manifest(_agent_cfg())["agent_class"] == agent_class_name(_agent_cfg()) == "MainAgent"
+    assert _manifest(_toolsmith_cfg())["agent_class"] == agent_class_name(_toolsmith_cfg()) == "ToolSmithAgent"
+
+
 def test_identity_without_toolsmith_is_unchanged():
     config = _agent_cfg()
     payload = run_identity._agent_identity_payload(config)

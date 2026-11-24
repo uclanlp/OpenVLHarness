@@ -198,13 +198,15 @@ def build_run_manifest(
     judge_config_path: str,
 ) -> dict:
     """Build persisted run metadata for resume safety checks."""
+    from openvlharness.bootstrap import agent_class_name
+
     judge_model_name = require_judge_model_name(judge_config)
     agent_identity = _agent_identity_payload(agent_config)
     orchestrator = agent_config["agent"]["model_service"]
     manifest = {
         "run_id": run_id,
         "model_id": agent_identity["resolved_model_profiles"][orchestrator]["profile"]["model_id"],
-        "agent_class": agent_config["agent_name"],
+        "agent_class": agent_class_name(agent_config),
         "prediction_format": os.environ.get("PRED_FORMAT") or "xlsx",
         "agent_config_version": agent_config_version,
         "judge_config_version": judge_config_version,

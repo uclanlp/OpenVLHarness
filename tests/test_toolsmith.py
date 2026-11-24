@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from openvlharness.agent.agent import MainAgent
-from openvlharness.bootstrap import load_agent_config
+from openvlharness.bootstrap import agent_class_name, load_agent_config
 from openvlharness.contracts import VirtualCall
 from openvlharness.memory.store import MemoryStore
 from openvlharness.services.models import ModelAdapter
@@ -203,6 +203,7 @@ class RetrievalAndAgentTests(unittest.TestCase):
         result = agent.generate([{"type": "image", "value": IMAGE},
                                  {"type": "text", "value": "How many days does this bird egg take?"}])
         self.assertEqual(result["prediction"], "14 days")
+        self.assertEqual(type(agent).__name__, agent_class_name({"toolsmith": {}}))
         self.assertEqual([tool["function"]["name"] for tool in requests[0]["tools"]], ["bird_egg_lookup"])
         self.assertEqual(client.calls[0][0], "bird_egg_lookup")
         self.assertNotIn("river_length_lookup", agent.tools_for([{"type": "text", "value": "bird egg"}]))
