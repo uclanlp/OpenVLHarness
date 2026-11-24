@@ -649,7 +649,7 @@ class CatalogWorker:
         try:
             ready = worker.ready.result(timeout=LOAD_SECONDS)
         except concurrent.futures.TimeoutError:
-            worker.kill()
+            self._discard(worker)
             raise RuntimeError(f"the ToolSmith worker did not load the catalog within {LOAD_SECONDS} seconds")
         error = ready.get("error")
         tools = ready.get("tools")
@@ -659,11 +659,18 @@ class CatalogWorker:
         if error is None and self.tools is not None and [tool["tool_name"] for tool in tools] != list(self.tools):
             error = {"type": "RuntimeError", "message": "a restarted worker loaded different tools"}
         if error is not None:
-            worker.kill()
+            self._discard(worker)
             message = str(error.get("message")).replace(str(worker.catalog), str(self.directory))
             raise (ValueError if error.get("type") == "ValueError" else RuntimeError)(message)
         worker.tools = tools
         return worker
+
+    @staticmethod
+    def _discard(worker):
+        """Stop a worker that did not start and remove its private directory before the caller gives up."""
+        worker.kill()
+        worker.reader.join(timeout=EXIT_SECONDS + 5)
+        shutil.rmtree(worker.home, ignore_errors=True)
 
     def _worker(self):
         """Return the worker that takes new calls, starting one if the last has stopped or been retired."""

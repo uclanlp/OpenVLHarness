@@ -497,6 +497,15 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(any("does not enforce address-space limits" in line for line in logs.output))
         self.assertEqual(worker.execute("probe", {}, tool_call_id="call-1")[1], 200)
 
+    def test_a_catalog_that_fails_to_load_leaves_no_private_directory(self):
+        directory = self.catalog("probe")
+        Path(directory, "probe_copy.py").write_text(Path(directory, "probe.py").read_text())  # a duplicate name
+        temporary = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(temporary, ignore_errors=True))
+        with patch.object(tempfile, "tempdir", temporary), self.assertRaisesRegex(ValueError, "Duplicate"):
+            self.start(directory)
+        self.assertEqual([name for name in os.listdir(temporary) if name.startswith(worker_module.HOME_PREFIX)], [])
+
     def test_caches_follow_xdg_cache_home(self):
         with tempfile.TemporaryDirectory() as xdg:
             for name in ("huggingface", "torch"):
