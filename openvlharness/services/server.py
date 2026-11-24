@@ -1,6 +1,7 @@
 """Configured tool router: python -m openvlharness.services.server --config ..."""
 import argparse
 import asyncio
+import contextlib
 import importlib
 import logging
 import sys
@@ -12,7 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..bootstrap import load_agent_config, build_capabilities, RAW_BACKENDS
 from ..contracts import ServiceResult
-from ..toolsmith.catalog import load_catalog
+from ..toolsmith.worker import CatalogWorker
 from . import degradation
 from .client import ToolClient
 from .models import ModelAdapter, AuxiliaryModel
@@ -88,11 +89,15 @@ def create_app(config, *, implementations=None):
         environment settings and health/status endpoints.
 
     Raises:
-        ValueError: Configuration or backend concurrency limits are invalid.
+        ValueError: Configuration or backend concurrency limits are invalid, or
+            the ToolSmith catalog cannot be loaded.
+        RuntimeError: The ToolSmith worker does not start.
         KeyError: An injected implementation is missing for a selected backend.
 
-    Construction does not start an HTTP server or model worker. Tool execution
-    runs in a thread pool after acquiring the appropriate backend semaphore.
+    Construction does not start an HTTP server or model worker; with a toolsmith
+    section it starts the worker process that runs the generated tools (see
+    openvlharness.toolsmith.worker). Tool execution runs in a thread pool after
+    acquiring the appropriate backend semaphore.
     """
     config = load_agent_config(config)
     capabilities = build_capabilities(config)
@@ -122,16 +127,26 @@ def create_app(config, *, implementations=None):
             else:
                 tool = cls()
         registry[cap.concrete_name] = (tool, cap.backend, service)
+    worker = None
     if "toolsmith" in config:
-        catalog = load_catalog(config["toolsmith"].get("catalog"), client=ToolClient(**settings["client"]))
-        shadowed = sorted(set(catalog) & set(registry))
+        # Generated tools run in a separate worker process; calls they make come back through this router.
+        worker = CatalogWorker.from_config(config, client=ToolClient(**settings["client"]), base_tools=set(registry))
+        shadowed = sorted(set(worker.tools) & set(registry))
         if shadowed:
+            worker.close()
             raise ValueError(f"Generated tools shadow base tools: {shadowed}")
-        registry.update((name, (tool, "toolsmith", {})) for name, tool in catalog.items())
+        registry.update((name, (worker, "toolsmith", {})) for name in worker.tools)
     _warn_if_serper_key_missing([cap.backend for cap in capabilities.values()])
     semaphores = {name: asyncio.Semaphore(limit) for name, limit in limits.items()}
     active = dict.fromkeys(limits, 0)
-    app = FastAPI(title="OpenVLHarness tool router")
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        yield
+        if worker is not None:
+            worker.close()
+
+    app = FastAPI(title="OpenVLHarness tool router", lifespan=lifespan)
     app.state.registry = registry
     app.state.backend_groups = BACKEND_GROUPS
     app.state.semaphores = semaphores
@@ -183,6 +198,8 @@ def create_app(config, *, implementations=None):
                 raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
             if backend in RAW_BACKENDS:
                 args["server_url"] = service["server_url"]
+            if backend == "toolsmith":
+                return tool.execute(request.tool_name, args, tool_call_id=request.tool_call_id)
             result = tool.execute(**args)
             extra = {}
             if isinstance(result, ServiceResult):

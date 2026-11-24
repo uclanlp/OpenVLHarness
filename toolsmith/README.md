@@ -12,8 +12,9 @@
 ToolSmith grows the toolbox of a multimodal search agent from the agent's own failures.
 It mines capability gaps from failed trajectories, has an LLM write each new tool as
 Python code, admits a tool only after two verification gates, and retrieves the
-relevant generated tools for every query at inference time. Generated tools run in the
-OpenVLHarness tool router next to the base tools and reach them through it.
+relevant generated tools for every query at inference time. Generated tools run in a
+resource-limited worker process of the OpenVLHarness tool router and reach the base tools
+through it.
 
 ## How it works
 
@@ -73,11 +74,30 @@ toolsmith:
   catalog: path/to/catalog  # optional; the packaged catalog by default
   top_k: 10
   encoder: BAAI/bge-m3
+  worker:                   # optional; the process that runs the generated tools
+    environment: [TMDB_API_KEY]  # credential-like variables the tools may read
+    timeout_seconds: 600    # per call; default services.client.timeout_seconds
+    memory_gib: 128         # address-space limit
+    write_files: false      # true for image uploads, model downloads and PyTorch
 ```
 
 The router loads every tool in the catalog. The agent embeds the tool descriptions once
 and, for each question, adds the `top_k` generated tools closest to the question text.
 Results are recorded under the `toolsmithagent` run directory.
+
+The router never imports the generated tools. When it starts, it copies the catalog and
+runs the copy in a separate worker process. The worker starts in a private directory and
+inherits the router's environment without credential-like variables (names containing
+`KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL`, or starting with `AWS_` or
+`GOOGLE_APPLICATION`); `worker.environment` grants the ones its tools read. Its address
+space is capped, and it cannot write files unless `worker.write_files` is set; local image
+uploads, model downloads and PyTorch need writes. A tool reaches the other catalog tools
+and `Text_Search_Tool`, `Image_Search_Tool`, `Webpage_Visit_Tool`, `OCR_Tool` and
+`Zoom_In_Tool` through the router, and calls to other router tools are refused. A call that
+raises, crashes the worker or runs past `worker.timeout_seconds` returns an error to the
+agent, and the router starts a new worker for later calls. The ToolSmith preset grants the
+credentials that the packaged `visual_matches` (Serper Lens and the image upload) and
+`media_catalog` (TMDB) read, and file writes.
 
 The [packaged catalog](../openvlharness/toolsmith/tools) holds example tools, among them
 `wikidata_query`, `gazetteer_lookup`, `unit_compute`, `media_catalog` (TMDB lookups

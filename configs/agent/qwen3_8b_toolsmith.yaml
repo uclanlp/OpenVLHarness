@@ -85,3 +85,12 @@ services:
 toolsmith:
   top_k: 10
   encoder: BAAI/bge-m3
+  # Generated tools run in a worker process that does not inherit the router's
+  # credentials. The packaged visual_matches calls Serper Lens and uploads the query
+  # image (GCS, S3 or a local image host), media_catalog calls TMDB, and image_similarity
+  # and species_id run PyTorch, so the preset grants those credentials and file writes.
+  # Every tool in the catalog can read what is granted.
+  worker:
+    environment: [SERPER_API_KEY, SERPER_API_KEY_FILE, TMDB_API_KEY, GOOGLE_APPLICATION_CREDENTIALS,
+                  AWS_S3_BUCKET_NAME, AWS_S3_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]
+    write_files: true

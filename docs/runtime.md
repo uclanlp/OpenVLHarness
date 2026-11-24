@@ -214,6 +214,10 @@ where the table names a model.
 | `toolsmith.catalog` | directory | the packaged catalog | not set | Generated tools the router serves and the agent can retrieve. With a `toolsmith` section the agent is a `ToolSmithAgent`; see [ToolSmith](../toolsmith/README.md). |
 | `toolsmith.top_k` | positive integer | `10` | not set | Generated tools added to the base tools for each question. |
 | `toolsmith.encoder` | string | `BAAI/bge-m3` | not set | Sentence-transformers model that embeds questions and tool descriptions for retrieval. |
+| `toolsmith.worker.environment` | list of variable names | `[]` | not set; ToolSmith preset: the Serper, TMDB and image-upload credentials | Credential-like environment variables the process running the generated tools inherits. It inherits no other variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL` or starts with `AWS_` or `GOOGLE_APPLICATION`. |
+| `toolsmith.worker.timeout_seconds` | positive number | `services.client.timeout_seconds` | not set | Wall-clock limit of one generated-tool call. A call past it returns an error, and the router replaces that worker once its other calls finish. |
+| `toolsmith.worker.memory_gib` | positive number | `128` | not set | Address-space limit of the worker process, in GiB. |
+| `toolsmith.worker.write_files` | boolean | `false` | not set; ToolSmith preset `true` | Lets generated tools write files, as local image uploads, model downloads and PyTorch (temporary files) do. Otherwise the worker cannot write to files. |
 
 Each selected backend needs a `services.tools.<backend>` mapping. The model
 generation options (`max_tokens` through `return_token_ids`) apply to

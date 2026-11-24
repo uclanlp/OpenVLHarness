@@ -141,6 +141,12 @@ class PhaseTests(unittest.TestCase):
         self.assertEqual(source_of('The tool:\n{"name": "t", "code": "def f():\\n    return {}"}'), "def f():\n    return {}\n")
         self.assertIsNone(source_of("no code"))
 
+    def test_generated_tools_may_call_the_base_tools_the_generator_is_shown(self):
+        from openvlharness.toolsmith.pipeline.generation import BASE_RESULTS
+        from openvlharness.toolsmith.worker import CALLABLE_BASE_TOOLS
+
+        self.assertEqual(set(BASE_RESULTS), set(CALLABLE_BASE_TOOLS))
+
     def test_tool_listing_uses_router_argument_names(self):
         base = {"Image_Search_Tool": {"description": "Reverse image search.",
                                       "parameters": {"properties": {"image_id": {"type": "string"}}}}}

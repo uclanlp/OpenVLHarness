@@ -8,6 +8,18 @@ from .tool import GeneratedTool
 DEFAULT_CATALOG = Path(__file__).with_name("tools")
 
 
+def catalog_modules(directory=None):
+    """Return the module files load_catalog imports from a catalog directory, in load order.
+
+    Raises:
+        ValueError: The directory is missing.
+    """
+    directory = Path(directory or DEFAULT_CATALOG)
+    if not directory.is_dir():
+        raise ValueError(f"ToolSmith catalog {str(directory)!r} is not a directory")
+    return [path for path in sorted(directory.glob("*.py")) if not path.name.startswith("_")]
+
+
 def load_catalog(directory=None, *, client=None):
     """Import every tool module in a catalog directory and instantiate its tool.
 
@@ -24,13 +36,8 @@ def load_catalog(directory=None, *, client=None):
         ValueError: The directory is missing, a module does not define exactly one
             tool, or two tools share a name.
     """
-    directory = Path(directory or DEFAULT_CATALOG)
-    if not directory.is_dir():
-        raise ValueError(f"ToolSmith catalog {str(directory)!r} is not a directory")
     tools = {}
-    for path in sorted(directory.glob("*.py")):
-        if path.name.startswith("_"):
-            continue
+    for path in catalog_modules(directory):
         spec = importlib.util.spec_from_file_location(f"toolsmith_catalog_{path.stem}", path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

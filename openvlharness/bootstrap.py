@@ -95,12 +95,27 @@ def load_agent_config(config, *, save_raw_trace=False):
             raise ValueError(f"{section} must be a mapping")
     if "toolsmith" in config:
         toolsmith = config["toolsmith"]
-        if not isinstance(toolsmith, dict) or set(toolsmith) - {"catalog", "top_k", "encoder"}:
-            raise ValueError("toolsmith must be a mapping with optional catalog, top_k and encoder")
+        if not isinstance(toolsmith, dict) or set(toolsmith) - {"catalog", "top_k", "encoder", "worker"}:
+            raise ValueError("toolsmith must be a mapping with optional catalog, top_k, encoder and worker")
         if type(toolsmith.get("top_k", 10)) is not int or toolsmith.get("top_k", 10) <= 0:
             raise ValueError("toolsmith.top_k must be a positive integer")
         if "catalog" in toolsmith and not Path(toolsmith["catalog"]).is_dir():
             raise ValueError(f"toolsmith.catalog {toolsmith['catalog']!r} is not a directory")
+        worker = toolsmith.get("worker", {})
+        if not isinstance(worker, dict) or set(worker) - {"environment", "timeout_seconds", "memory_gib",
+                                                          "write_files"}:
+            raise ValueError("toolsmith.worker must be a mapping with optional environment, timeout_seconds, "
+                             "memory_gib and write_files")
+        names = worker.get("environment", [])
+        if not isinstance(names, list) or not all(
+                isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in names):
+            raise ValueError("toolsmith.worker.environment must list environment variable names")
+        for key in ("timeout_seconds", "memory_gib"):
+            value = worker.get(key, 1)
+            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"toolsmith.worker.{key} must be a positive number")
+        if type(worker.get("write_files", False)) is not bool:
+            raise ValueError("toolsmith.worker.write_files must be true or false")
     memory_factory(config["memory"])()
     agent = config["agent"]
     if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed",

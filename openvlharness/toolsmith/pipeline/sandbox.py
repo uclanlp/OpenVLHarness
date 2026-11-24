@@ -5,10 +5,10 @@ The process cannot write files, is capped at 2 GiB of address space, and every
 tool the candidate calls answers with a failure, so the run reaches no service.
 """
 import json
-import resource
 import sys
 
 from ..catalog import load_catalog
+from ..worker import limit_resources
 
 IMAGE = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 VALUES = {"string": "test", "integer": 1, "number": 1.0, "boolean": False, "array": [], "object": {}}
@@ -37,8 +37,7 @@ class Unavailable:
 
 def main(directory):
     """Run the directory's single tool once and print its name, description and input schema."""
-    resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
-    resource.setrlimit(resource.RLIMIT_AS, (2 << 30, 2 << 30))
+    limit_resources(memory_bytes=2 << 30, file_bytes=0)
     tool = next(iter(load_catalog(directory, client=Unavailable()).values()))
     json.dumps(tool.execute(**dummy_arguments(tool.input_schema)))
     print(json.dumps({"tool_name": tool.tool_name, "tool_description": tool.tool_description,

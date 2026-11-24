@@ -1,5 +1,6 @@
 """ToolSmith catalog loading, generated-tool calls, per-query retrieval and router wiring, offline."""
 import copy
+import os
 import sys
 import tempfile
 import types
@@ -35,6 +36,21 @@ class {cls}(GeneratedTool):
     def execute(self, image_base64):
         matches = self.call_tool("Image_Search_Tool", image_base64=image_base64)
         return {{"top": matches["text"].split()[0]}}
+'''
+
+
+PID_TOOL = '''
+import os
+
+from openvlharness.toolsmith import GeneratedTool
+
+
+class WorkerPid(GeneratedTool):
+    def __init__(self):
+        super().__init__(tool_name="worker_pid", tool_description="pid", input_schema={"type": "object"})
+
+    def execute(self):
+        return os.getpid()
 '''
 
 
@@ -212,9 +228,18 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             loaded = load_agent_config(config(catalog=directory, top_k=10, encoder="BAAI/bge-m3"))
             self.assertEqual(loaded["toolsmith"]["top_k"], 10)
+        with tempfile.TemporaryDirectory() as directory:
+            worker = {"environment": ["SERPER_API_KEY"], "timeout_seconds": 30, "memory_gib": 16, "write_files": True}
+            self.assertEqual(load_agent_config(config(catalog=directory, worker=worker))["toolsmith"]["worker"], worker)
         for bad, message in (({"top_k": 0}, "positive integer"), ({"top_k": "10"}, "positive integer"),
-                             ({"router": "tfidf"}, "optional catalog, top_k and encoder"),
-                             ({"catalog": "/nonexistent/catalog"}, "not a directory")):
+                             ({"router": "tfidf"}, "optional catalog, top_k, encoder and worker"),
+                             ({"catalog": "/nonexistent/catalog"}, "not a directory"),
+                             ({"worker": {"sandbox": True}}, "optional environment, timeout_seconds"),
+                             ({"worker": {"environment": "SERPER_API_KEY"}}, "list environment variable names"),
+                             ({"worker": {"environment": ["SERPER API KEY"]}}, "list environment variable names"),
+                             ({"worker": {"timeout_seconds": 0}}, "timeout_seconds must be a positive number"),
+                             ({"worker": {"memory_gib": float("inf")}}, "memory_gib must be a positive number"),
+                             ({"worker": {"write_files": "yes"}}, "write_files must be true or false")):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
                 load_agent_config(config(**bad))
         broken = config()
@@ -226,7 +251,9 @@ class ConfigurationTests(unittest.TestCase):
         presets = Path(__file__).resolve().parents[1] / "configs" / "agent"
         toolsmith, baseline = (yaml.safe_load((presets / f"qwen3_8b_toolsmith{suffix}.yaml").read_text())
                                for suffix in ("", "_baseline"))
-        self.assertEqual(toolsmith.pop("toolsmith"), {"top_k": 10, "encoder": "BAAI/bge-m3"})
+        section = toolsmith.pop("toolsmith")
+        self.assertEqual(section.pop("worker")["write_files"], True)
+        self.assertEqual(section, {"top_k": 10, "encoder": "BAAI/bge-m3"})
         self.assertEqual(toolsmith, baseline)
         self.assertEqual(baseline["agent"]["prompt_bundle"], "toolsmith")
 
@@ -244,8 +271,10 @@ class RouterTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             write_tool(directory, "bird_egg_lookup", "Bird egg facts")
+            Path(directory, "worker_pid.py").write_text(PID_TOOL)
             app = create_app(config(catalog=directory), implementations={"serper_image_search": Lens()})
         http = TestClient(app)
+        self.addCleanup(app.state.registry["bird_egg_lookup"][0].close)
 
         class InProcessClient:
             def execute(self, tool_name, args, *, tool_call_id):
@@ -259,3 +288,14 @@ class RouterTests(unittest.TestCase):
         rejected = http.post("/execute", json={"tool_name": "bird_egg_lookup", "tool_call_id": "call-2",
                                                "args": {"image_path": "/etc/passwd"}})
         self.assertEqual(rejected.status_code, 400)
+        pid = http.post("/execute", json={"tool_name": "worker_pid", "tool_call_id": "call-3"}).json()["result"]
+        self.assertNotEqual(pid, os.getpid())
+
+    def test_generated_tools_cannot_shadow_router_tools(self):
+        pytest.importorskip("fastapi", reason="router tests need the server extra")
+        from openvlharness.services.server import create_app
+
+        with tempfile.TemporaryDirectory() as directory:
+            write_tool(directory, "Image_Search_Tool", "shadow", cls="Shadow")
+            with self.assertRaisesRegex(ValueError, "shadow base tools"):
+                create_app(config(catalog=directory), implementations={"serper_image_search": object()})
