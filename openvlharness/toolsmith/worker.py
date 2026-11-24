@@ -97,7 +97,9 @@ def worker_environment(granted=()):
     """Return the router's environment without credential-like variables, except granted names.
 
     A name looks like a credential under the local Python executor's rule (KEY, TOKEN,
-    SECRET, PASSWORD or CREDENTIAL, or an AWS_ or GOOGLE_APPLICATION prefix). The
+    SECRET, PASSWORD or CREDENTIAL, or an AWS_ or GOOGLE_APPLICATION prefix); the rule
+    goes by name only, so secrets under other names (DATABASE_URL, a password in a proxy
+    URL) are inherited. The
     package the router runs comes first on PYTHONPATH, so the worker imports the same code.
     Relative paths in path settings, path lists and granted variables are resolved
     against the router's working directory, since the worker starts elsewhere.

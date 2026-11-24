@@ -99,7 +99,10 @@ The router never imports the generated tools. When it starts, it copies the cata
 runs the copy in a separate worker process. The worker starts in a private directory and
 inherits the router's environment without credential-like variables (names containing
 `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL`, or starting with `AWS_` or
-`GOOGLE_APPLICATION`); `worker.environment` grants the ones its tools read. On Linux each
+`GOOGLE_APPLICATION`); `worker.environment` grants the ones its tools read. The filter goes
+by name only, so other secrets, such as `DATABASE_URL`, a `*_PASS` variable, `GITHUB_PAT` or
+a password in a proxy URL, reach the worker: keep them out of the router's environment.
+On Linux each
 of its processes has its address space capped at `worker.memory_gib`, but a tool that starts
 child processes gets that much in each, and memory in its temporary directories is counted
 separately; the worker asks Linux to kill it first when memory runs out, a request a tool
