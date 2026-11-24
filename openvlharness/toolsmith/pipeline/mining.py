@@ -1,6 +1,7 @@
 """Phase 1: mine capability gaps from failed rollouts and keep one representative per cluster."""
 import hashlib
 import json
+import logging
 import re
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -10,6 +11,8 @@ from pathlib import Path
 import numpy as np
 
 from .prompts import prompt
+
+logger = logging.getLogger(__name__)
 
 LABELS = ("NEW_TOOL_NEEDED", "ARGUMENT_MISTAKE", "SEARCH_NOISE", "AMBIGUOUS")
 
@@ -42,12 +45,15 @@ def judged_predictions(directory):
     """Return the judged predictions file that failures reads from a dataset directory.
 
     Raises:
-        ValueError: The directory holds no judged predictions.
+        ValueError: The directory holds no judged predictions, or several.
     """
     judged = sorted(path for path in Path(directory).iterdir() if path.is_file() and JUDGED.fullmatch(path.name))
     if not judged:
         raise ValueError(f"{directory} has no judged predictions (<model>_judge*.xlsx, .tsv or .json); "
                          "evaluate the run first")
+    if len(judged) > 1:
+        raise ValueError(f"{directory} holds several judged predictions ({', '.join(path.name for path in judged)}); "
+                         "mine a directory judged once")
     return judged[0]
 
 
@@ -61,9 +67,19 @@ def judged_rows(path):
 
 
 def failed_rows(directory):
-    """Yield each judged row marked incorrect with the path of its trajectory, which may not exist."""
+    """Yield each judged row marked incorrect with the path of its trajectory, which may not exist.
+
+    Raises:
+        ValueError: See judged_predictions; or the judged rows have no hit column, like
+            the score summary a dataset judged other than per query writes.
+    """
     directory = Path(directory)
-    for row in judged_rows(judged_predictions(directory)):
+    path = judged_predictions(directory)
+    rows = judged_rows(path)
+    if rows and not any("hit" in row for row in rows):
+        raise ValueError(f"{path} has no hit column: mining reads a verdict per query, as the judged "
+                         "predictions of the ToolSmith training pools hold")
+    for row in rows:
         if row.get("hit") == 0:
             yield row, directory / "full_trajectories" / f"{row['index']}.json"
 
@@ -89,13 +105,19 @@ def failures(directory):
         ValueError: The directory holds no judged predictions.
     """
     directory = Path(directory)
+    failed = missing = 0
     for row, trajectory in failed_rows(directory):
+        failed += 1
+        missing += not trajectory.exists()
         messages = json.loads(trajectory.read_text()).get("messages", []) if trajectory.exists() else []
         tools, errors = _tool_activity(messages)
         image = row.get("image_path")
         yield Gap(source=f"{directory.name}:{row['index']}", question=str(row.get("question", "")),
                   prediction=str(row.get("prediction", "")), gold=str(row.get("answer", "")),
                   image=isinstance(image, str) and bool(image.strip(" []'\"")), tried_tools=tools, errors=errors)
+    if missing:
+        logger.warning("%d of %d failed queries in %s have no trajectory (FULL_TRAJECTORIES_LIMIT may have capped "
+                       "them); they are mined without the tools they tried", missing, failed, directory)
 
 
 # A failed call reaches the model as "<error code>: <message>" (models.failure_text).

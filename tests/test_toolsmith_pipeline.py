@@ -364,6 +364,29 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(path.read_text(), existing)
         self.assertNotIn("river_length_lookup", pipeline.descriptions)
 
+    def test_mining_refuses_unclear_verdicts_and_reports_missing_trajectories(self):
+        import pandas as pd
+
+        from openvlharness.toolsmith.pipeline.mining import failures, judged_predictions
+
+        rollout = Path(self.rollout)
+        second = rollout / "Qwen3-VL-8B-Instruct_judge_judge_rs.xlsx"
+        shutil.copy(rollout / "Qwen3-VL-8B-Instruct_judge_judge_vdr.xlsx", second)
+        with self.assertRaisesRegex(ValueError, "several judged predictions .*judge_judge_rs.xlsx"):
+            judged_predictions(rollout)
+        second.unlink()
+        summary = self.root / "MMSearch"  # writes a score summary under a judged-looking name
+        summary.mkdir()
+        pd.DataFrame([{"area": "news", "correct": 3, "total": 5}]).to_excel(
+            summary / "Qwen3-VL-8B-Instruct_mmsearch_llm_judge_judge_vdr.xlsx", index=False)
+        with self.assertRaisesRegex(ValueError, "has no hit column"):
+            self.pipeline().run([str(summary)])
+        self.judged_rollout("FVQA_train", "How long is the Danube?")  # its failed row c has no trajectory
+        with self.assertLogs("openvlharness.toolsmith.pipeline.mining", "WARNING") as logs:
+            gaps = list(failures(rollout))
+        self.assertEqual([(gap.source, gap.tried_tools) for gap in gaps], [("FVQA_train:c", [])])
+        self.assertIn("1 of 1 failed queries", logs.output[0])
+
     def test_judged_predictions_are_read_in_every_prediction_format(self):
         pytest.importorskip("validators", reason="the evaluator's loader needs the eval extra")
         import pandas as pd
