@@ -497,6 +497,20 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(any("does not enforce address-space limits" in line for line in logs.output))
         self.assertEqual(worker.execute("probe", {}, tool_call_id="call-1")[1], 200)
 
+    def test_caches_follow_xdg_cache_home(self):
+        with tempfile.TemporaryDirectory() as xdg:
+            for name in ("huggingface", "torch"):
+                Path(xdg, name).mkdir()
+            Path(xdg, "huggingface", "token").write_text("hf_secret")
+            clean = {name: value for name, value in os.environ.items()
+                     if name not in {"HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE",
+                                     "TORCH_HOME"}}
+            with patch.dict(os.environ, {**clean, "XDG_CACHE_HOME": xdg}, clear=True):
+                worker = self.start(self.catalog("probe"), write_files=True)
+                spec = worker.confinement(Path(tempfile.mkdtemp()))
+            self.assertEqual(spec["overlay"], [os.path.join(xdg, "huggingface"), os.path.join(xdg, "torch")])
+            self.assertIn(os.path.join(xdg, "huggingface", "token"), spec["mask"])
+
     def test_configuration_settings_reach_the_worker(self):
         directory = self.catalog("probe")
         config = {"toolsmith": {"catalog": directory, "worker": {"environment": ["GRANTED_TOKEN"], "memory_gib": 2,

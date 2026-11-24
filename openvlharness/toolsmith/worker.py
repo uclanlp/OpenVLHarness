@@ -584,9 +584,11 @@ class CatalogWorker:
         from .isolation import python_masks, system_paths
 
         environment, expand = self.environment, os.path.expanduser
-        caches = [environment.get("HF_HOME") or expand("~/.cache/huggingface"), environment.get("HF_HUB_CACHE"),
+        # Where Hugging Face and torch put their caches unless HF_HOME or TORCH_HOME says otherwise.
+        xdg = environment.get("XDG_CACHE_HOME") or expand("~/.cache")
+        caches = [environment.get("HF_HOME") or os.path.join(xdg, "huggingface"), environment.get("HF_HUB_CACHE"),
                   environment.get("HUGGINGFACE_HUB_CACHE"), environment.get("TRANSFORMERS_CACHE"),
-                  environment.get("TORCH_HOME") or expand("~/.cache/torch")]
+                  environment.get("TORCH_HOME") or os.path.join(xdg, "torch")]
         caches = list(dict.fromkeys(path for path in caches if path and os.path.isdir(path)))
         masks = [os.path.join(cache, name) for cache in caches for name in ("token", "stored_tokens")]
         # A cache inside another is covered by the outer mount.
