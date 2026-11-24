@@ -79,7 +79,7 @@ toolsmith:
   worker:                   # optional; the process that runs the generated tools
     environment: [TMDB_API_KEY]  # credential-like variables the tools may read
     timeout_seconds: 600    # per call; default services.client.timeout_seconds
-    memory_gib: 128         # address-space limit
+    memory_gib: 128         # address-space limit (enforced on Linux)
     write_files: false      # true for image uploads, model downloads and PyTorch
     isolation: true         # confine the worker with Linux namespaces
     network: true           # false: no network inside the confined worker

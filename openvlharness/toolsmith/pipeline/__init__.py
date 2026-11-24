@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,7 @@ from pathlib import Path
 from ...bootstrap import build_capabilities, load_agent_config
 from ...services.models import AuxiliaryModel
 from ..catalog import load_catalog
+from ..worker import memory_limit_enforced
 from .generation import Generator, describe_tools
 from .mining import Gap, judged_predictions, mine
 from .reuse import closest
@@ -65,6 +67,9 @@ class Pipeline:
                                  f"allow ({reason}). Set isolation: false to run them without it.")
         else:
             logger.warning("isolation is off: Gate 1 runs candidates with the pipeline's file and network access.")
+        if not memory_limit_enforced():
+            logger.warning("%s does not enforce address-space limits: Gate 1 runs candidates without its 2 GiB cap.",
+                           sys.platform)
         agent = load_agent_config(config["agent"])
         if not (agent.get("toolsmith") or {}).get("catalog"):
             raise ValueError("Set toolsmith.catalog in the agent configuration to the catalog directory to grow")

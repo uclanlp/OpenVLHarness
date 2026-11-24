@@ -54,12 +54,20 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 HOME_PREFIX = "openvlharness-toolsmith-"
 
 
+def memory_limit_enforced():
+    """Whether this platform enforces an address-space limit; macOS rejects RLIMIT_AS outright."""
+    return sys.platform.startswith("linux")
+
+
 def limit_resources(*, memory_bytes=None, file_bytes=None):
     """Cap the address space of the calling process and the size of the files it writes.
 
     None leaves a limit unchanged; a cap never exceeds the current hard limit, and
-    the process cannot raise it again.
+    the process cannot raise it again. The address-space cap applies only where
+    memory_limit_enforced().
     """
+    if not memory_limit_enforced():
+        memory_bytes = None
     for kind, value in ((resource.RLIMIT_AS, memory_bytes), (resource.RLIMIT_FSIZE, file_bytes)):
         if value is not None:
             hard = resource.getrlimit(kind)[1]
@@ -334,6 +342,10 @@ class CatalogWorker:
         self.refused = set(base_tools) - set(CALLABLE_BASE_TOOLS)
         self.timeout = timeout_seconds
         self.limits = {"memory_bytes": int(memory_gib * (1 << 30)), "file_bytes": None if write_files else 0}
+        if not memory_limit_enforced():
+            self.limits["memory_bytes"] = None
+            logger.warning("%s does not enforce address-space limits: the generated-tool worker runs without "
+                           "toolsmith.worker.memory_gib.", sys.platform)
         self.environment = worker_environment(environment)
         self.granted = set(environment)
         self.isolation, self.network = isolation, network

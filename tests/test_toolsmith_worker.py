@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 from unittest.mock import patch
 
@@ -284,6 +285,17 @@ class WorkerTests(unittest.TestCase):
         Path(directory, "broken.py").write_text("import missing_module_for_the_test\n")
         with self.assertRaisesRegex(RuntimeError, "No module named 'missing_module_for_the_test'"):
             CatalogWorker(directory, client=FakeClient(), isolation=ISOLATION)
+
+    def test_platforms_without_address_space_limits_run_the_worker_without_one(self):
+        with patch.object(worker_module.sys, "platform", "darwin"), patch.object(worker_module.resource,
+                                                                                "setrlimit") as setrlimit:
+            worker_module.limit_resources(memory_bytes=2 << 30, file_bytes=0)
+            self.assertEqual(setrlimit.call_args_list, [unittest.mock.call(worker_module.resource.RLIMIT_FSIZE, (0, 0))])
+            with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
+                worker = self.start(self.catalog("probe"), isolation=False)
+        self.assertIsNone(worker.limits["memory_bytes"])
+        self.assertTrue(any("does not enforce address-space limits" in line for line in logs.output))
+        self.assertEqual(worker.execute("probe", {}, tool_call_id="call-1")[1], 200)
 
     def test_configuration_settings_reach_the_worker(self):
         directory = self.catalog("probe")
