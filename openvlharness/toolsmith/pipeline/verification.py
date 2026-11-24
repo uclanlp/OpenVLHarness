@@ -76,7 +76,8 @@ def scan(source):
             issues.append("match statements are not allowed")  # class patterns read attributes, dunders included
         elif (isinstance(node, ast.Attribute) and node.attr in {"format", "format_map"}
               and not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str))):
-            issues.append(f"{node.attr} is allowed only on a string literal")  # a built format string reads attributes
+            # A format string built at run time can walk into attributes.
+            issues.append(f"{node.attr} is allowed only on a string literal")
         elif isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
             text = node.value.decode("latin-1") if isinstance(node.value, bytes) else node.value
             if HIDDEN_ACCESS.search(text):
@@ -136,7 +137,7 @@ def run_once(source, timeout, *, isolation=True):
         if isolation:
             from ..isolation import command, python_masks, system_paths
 
-            argv = command({"root": root, "read": system_paths() + [directory], "mask": python_masks(),
+            argv = command({"root": root, "read": system_paths(network=False) + [directory], "mask": python_masks(),
                             "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "network": False, "parent": os.getpid()},
                            argv)
         # Output is drained as it comes and only its end is kept, so a chatty candidate cannot fill memory.

@@ -310,7 +310,7 @@ def available():
             import tempfile
 
             with tempfile.TemporaryDirectory(prefix="openvlharness-probe-") as root:
-                spec = {"root": root, "read": system_paths(), "tmp": ["/tmp"], "network": False,
+                spec = {"root": root, "read": system_paths(network=False), "tmp": ["/tmp"], "network": False,
                         "parent": os.getpid()}
                 try:
                     done = subprocess.run(command(spec, [sys.executable, "-c", "pass"]), capture_output=True,
@@ -329,11 +329,16 @@ def probe_environment():
     return {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-def system_paths():
-    """Host paths every confined Python process reads: system directories, the interpreter and this package."""
+def system_paths(*, network=True):
+    """Host paths every confined Python process reads: system directories, the interpreter and this package.
+
+    Without network, the systemd-resolved directory is left out: its socket resolves
+    names, and file-system sockets ignore network namespaces.
+    """
     from .worker import PACKAGE_ROOT
 
-    paths = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/sys", "/run/systemd/resolve",
+    paths = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/sys",
+             *(["/run/systemd/resolve"] if network else []),
              *(f"/etc/{name}" for name in ETC), sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix,
              os.path.dirname(os.path.realpath(sys.executable)), str(PACKAGE_ROOT / "openvlharness")]
     package_root = os.path.realpath(PACKAGE_ROOT)

@@ -592,7 +592,7 @@ class CatalogWorker:
         # A cache inside another is covered by the outer mount.
         caches = [path for path in caches if not any(path.startswith(other.rstrip("/") + "/") for other in caches)]
         package_root = os.path.realpath(PACKAGE_ROOT)
-        read = system_paths() + [str(home / "catalog")]
+        read = system_paths(network=self.network) + [str(home / "catalog")]
         read += [entry for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
                  if entry and os.path.isdir(entry) and os.path.realpath(entry) != package_root]
         # Certificate bundles, and files that granted variables name (a key file, service-account credentials).

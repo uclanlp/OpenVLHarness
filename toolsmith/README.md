@@ -130,7 +130,9 @@ writable. `worker.network: false` removes network access as
 well. With network access the worker shares the host's network, including services that
 listen on loopback, among them the router itself: a tool can call any router tool over
 HTTP, including those `call_tool` refuses, such as the local Python executor, which is
-not a sandbox. Most packaged and research-catalog tools query web services directly and
+not a sandbox. It can also reach the host's abstract UNIX sockets, and `/proc/net` lists
+the host's connections. Without network access it cannot resolve names either, as the
+resolver's socket is not mounted. Most packaged and research-catalog tools query web services directly and
 need network access; `call_tool` works without it. On a host without unprivileged user
 namespaces the router refuses to start the worker unless `worker.isolation` is false.
 

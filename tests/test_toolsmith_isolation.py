@@ -43,6 +43,7 @@ def nested():
         raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
 attempt("nested user namespace", nested)
 attempt("process cap", lambda: __import__("resource").getrlimit(__import__("resource").RLIMIT_NPROC)[0])
+attempt("resolver", lambda: os.path.exists("/run/systemd/resolve"))
 attempt("tmpfs", lambda: {path: [os.statvfs(path).f_blocks * os.statvfs(path).f_frsize, os.statvfs(path).f_files]
                           for path in ("/tmp", "/dev/shm", "/dev", "/")})
 print(json.dumps(seen))
@@ -103,7 +104,7 @@ class LauncherTests(unittest.TestCase):
             secret, script = Path(home, "secret.txt"), Path(home, "probe.py")
             secret.write_text("a key")
             script.write_text(PROBE)
-            spec = {"root": root, "read": isolation.system_paths() + [str(script)], "tmp": ["/tmp"],
+            spec = {"root": root, "read": isolation.system_paths(network=network) + [str(script)], "tmp": ["/tmp"],
                     "cwd": "/tmp", "network": network}
             argv = [sys.executable, str(script), str(secret), str(os.getpid()), str(server.getsockname()[1])]
             done = subprocess.run(isolation.command(spec, argv), capture_output=True, text=True, timeout=60,
@@ -129,6 +130,13 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(done.stdout), ["host", "changed", ["config.json", "planted.py"], False])
             self.assertEqual(((cache / "config.json").read_text(), sorted(os.listdir(cache))), ("host", ["config.json"]))
+
+    def test_without_network_the_resolver_socket_is_not_mounted(self):
+        # A file-system socket reaches systemd-resolved whatever the network namespace.
+        host = os.path.exists("/run/systemd/resolve")
+        self.assertEqual((self.confined(network=True)["resolver"], self.confined(network=False)["resolver"]),
+                         (["ok", host], ["ok", False]))
+        self.assertNotIn("/run/systemd/resolve", isolation.system_paths(network=False))
 
     def test_nested_namespaces_are_refused_and_processes_capped(self):
         # A nested user namespace would bring back capabilities: to mount an uncapped tmpfs, or look under a mask.
