@@ -242,3 +242,66 @@ def test_manifest_compat_rejects_judge_model_change():
         assert "judge model mismatch" in str(exc)
         return
     raise AssertionError("Expected ValueError for judge model mismatch")
+
+
+def _toolsmith_cfg(catalog=None):
+    config = _agent_cfg()
+    config["toolsmith"] = {} if catalog is None else {"catalog": str(catalog)}
+    return config
+
+
+def _module(name):
+    return (f"from openvlharness.toolsmith import GeneratedTool\n\n\nclass Tool(GeneratedTool):\n"
+            f"    def __init__(self):\n        super().__init__(tool_name={name!r}, tool_description='d', "
+            f"input_schema={{}})\n")
+
+
+def test_toolsmith_identity_covers_the_files_the_catalog_loader_imports(tmp_path):
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    (catalog / "lookup.py").write_text(_module("lookup"))
+    first = _manifest(_toolsmith_cfg(catalog))
+    assert first["toolsmith_catalog_sha256"] == run_identity._agent_identity_payload(
+        _toolsmith_cfg(catalog))["toolsmith_catalog_sha256"]
+    (catalog / "_helpers.py").write_text("UNUSED = 1\n")
+    (catalog / "notes.txt").write_text("not a module\n")
+    (catalog / "__pycache__").mkdir()
+    assert build_agent_match_hash(_toolsmith_cfg(catalog)) == first["agent_config_hash"]
+    hashes = {first["agent_config_hash"]}
+    for change in (lambda: (catalog / "lookup.py").write_text(_module("lookup") + "# grown in place\n"),
+                   lambda: (catalog / "added.py").write_text(_module("added")),
+                   lambda: (catalog / "added.py").rename(catalog / "renamed.py")):
+        change()
+        expected = _manifest(_toolsmith_cfg(catalog))
+        assert expected["agent_config_hash"] not in hashes
+        hashes.add(expected["agent_config_hash"])
+        with pytest.raises(ValueError, match="agent config mismatch"):
+            validate_manifest_compatibility(first, expected)
+
+
+def test_toolsmith_identity_covers_the_packaged_default_catalog(tmp_path, monkeypatch):
+    from openvlharness.toolsmith import catalog as catalog_module
+
+    packaged = run_identity._agent_identity_payload(_toolsmith_cfg())
+    assert packaged["toolsmith_catalog_sha256"] == catalog_module.catalog_fingerprint(catalog_module.DEFAULT_CATALOG)
+    copy_dir = tmp_path / "tools"
+    copy_dir.mkdir()
+    for path in catalog_module.catalog_modules():
+        (copy_dir / path.name).write_bytes(path.read_bytes())
+    monkeypatch.setattr(catalog_module, "DEFAULT_CATALOG", copy_dir)
+    unchanged = build_agent_match_hash(_toolsmith_cfg())
+    (copy_dir / "unit_compute.py").write_text((copy_dir / "unit_compute.py").read_text() + "# edited\n")
+    assert build_agent_match_hash(_toolsmith_cfg()) != unchanged
+
+
+def test_identity_without_toolsmith_is_unchanged():
+    config = _agent_cfg()
+    payload = run_identity._agent_identity_payload(config)
+    assert set(payload) == {"config", "resolved_model_profiles"}
+    before = {"config": config, "resolved_model_profiles": payload["resolved_model_profiles"]}
+    assert build_agent_match_hash(config) == run_identity.sha256_text(
+        run_identity.canonical_json(run_identity.strip_sensitive_fields(before)))
+    manifest = _manifest(config)
+    assert "toolsmith_catalog_sha256" not in manifest
+    assert manifest["matching_policy"]["agent"] == "full_config_and_resolved_model_profiles_without_sensitive_fields"
+

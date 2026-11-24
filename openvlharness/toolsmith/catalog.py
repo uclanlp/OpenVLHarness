@@ -1,6 +1,8 @@
 """Load the generated tools of a catalog directory."""
+import hashlib
 import importlib.util
 import inspect
+import os
 from pathlib import Path
 
 from .tool import GeneratedTool
@@ -18,6 +20,18 @@ def catalog_modules(directory=None):
     if not directory.is_dir():
         raise ValueError(f"ToolSmith catalog {str(directory)!r} is not a directory")
     return [path for path in sorted(directory.glob("*.py")) if not path.name.startswith("_")]
+
+
+def catalog_fingerprint(directory=None):
+    """Return a SHA-256 over the file names and contents of the modules load_catalog imports.
+
+    Raises:
+        ValueError: The directory is missing.
+    """
+    digest = hashlib.sha256()
+    for path in catalog_modules(directory):
+        digest.update(os.fsencode(path.name) + b"\0" + hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
 
 
 def load_catalog(directory=None, *, client=None):

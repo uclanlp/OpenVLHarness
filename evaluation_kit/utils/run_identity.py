@@ -146,7 +146,7 @@ def sha256_text(text: str) -> str:
 
 
 def _agent_identity_payload(agent_config: dict) -> dict:
-    """Resolve configured model behavior and prompts without initializing services."""
+    """Resolve configured model behavior, prompts and the ToolSmith catalog without initializing services."""
     from openvlharness.services.models import load_profile
 
     resources = files("openvlharness.prompts")
@@ -164,14 +164,20 @@ def _agent_identity_payload(agent_config: dict) -> dict:
                 for filename in prompt_names
             },
         }
-    return strip_sensitive_fields({
+    payload = {
         "config": agent_config,
         "resolved_model_profiles": profiles,
-    })
+    }
+    if "toolsmith" in agent_config:
+        from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+        # The catalog's loadable files, so a catalog grown in place starts a new run instead of resuming one.
+        payload["toolsmith_catalog_sha256"] = catalog_fingerprint(agent_config["toolsmith"].get("catalog"))
+    return strip_sensitive_fields(payload)
 
 
 def build_agent_match_hash(agent_config: dict) -> str:
-    """Hash config, resolved model profiles and prompt content, excluding secrets."""
+    """Hash config, resolved model profiles, prompt content and any ToolSmith catalog files, excluding secrets."""
     return sha256_text(canonical_json(_agent_identity_payload(agent_config)))
 
 
@@ -195,7 +201,7 @@ def build_run_manifest(
     judge_model_name = require_judge_model_name(judge_config)
     agent_identity = _agent_identity_payload(agent_config)
     orchestrator = agent_config["agent"]["model_service"]
-    return {
+    manifest = {
         "run_id": run_id,
         "model_id": agent_identity["resolved_model_profiles"][orchestrator]["profile"]["model_id"],
         "agent_class": agent_config["agent_name"],
@@ -220,6 +226,12 @@ def build_run_manifest(
         },
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if "toolsmith_catalog_sha256" in agent_identity:
+        # Recorded for inspection; agent_config_hash already covers it.
+        manifest["toolsmith_catalog_sha256"] = agent_identity["toolsmith_catalog_sha256"]
+        manifest["matching_policy"]["agent"] = ("full_config_resolved_model_profiles_and_toolsmith_catalog_files"
+                                                "_without_sensitive_fields")
+    return manifest
 
 
 def validate_manifest_compatibility(existing: dict, expected: dict) -> None:

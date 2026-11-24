@@ -107,6 +107,9 @@ and the shared user prefix. The resume identity combines these with the agent
 configuration, excluding credentials. Editing a referenced registry entry or
 prompt content therefore rejects resume into the same run, even when the YAML
 alias is unchanged. Unreferenced registry entries do not affect the identity.
+With a `toolsmith` section the identity also covers a SHA-256 of the names and
+contents of the catalog's module files (the packaged catalog when none is set),
+so a catalog grown in place starts a new run instead of resuming one.
 A saved manifest whose identity hash differs is rejected; start a new run
 directory rather than mixing new inference into those saved results.
 
