@@ -12,8 +12,9 @@ holding null, zero, full, random and urandom. An overlay path is the host direct
 private writable layer of at most 1 GiB that disappears with the namespace. The host
 filesystem is detached, the command starts without capabilities and cannot gain
 privileges, and everything in the namespace dies with the launcher. SPEC is JSON with
-root, read, write, overlay, mask (paths hidden inside read paths), tmp, cwd, network and
-cleanup (a directory the launcher removes when the command ends).
+root, read, write, overlay, mask (paths hidden inside read paths), tmp, cwd, network,
+cleanup (a directory the launcher removes when the command ends) and parent (the PID of
+the caller, whose end kills the launcher and so the namespace).
 """
 import ctypes
 import json
@@ -194,6 +195,11 @@ def launch(spec, command):
         print(f"isolation: {ROOT_REFUSED}", file=sys.stderr)
         os._exit(SETUP_FAILED)
     libc = _libc()
+    if spec.get("parent") is not None:
+        # Linux kills the launcher when the thread that started it ends; if that already happened, stop.
+        _check(libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0), "prctl")
+        if os.getppid() != spec["parent"]:
+            os._exit(SETUP_FAILED)
     # The child makes its own mount namespace below: pivot_root moves the root of every process
     # in a mount namespace, and the launcher keeps the host view to clean up afterwards.
     flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWIPC | (0 if spec.get("network") else CLONE_NEWNET)
@@ -282,7 +288,8 @@ def available():
             import tempfile
 
             with tempfile.TemporaryDirectory(prefix="openvlharness-probe-") as root:
-                spec = {"root": root, "read": system_paths(), "tmp": ["/tmp"], "network": False}
+                spec = {"root": root, "read": system_paths(), "tmp": ["/tmp"], "network": False,
+                        "parent": os.getpid()}
                 try:
                     done = subprocess.run(command(spec, [sys.executable, "-c", "pass"]), capture_output=True,
                                           text=True, timeout=60, env=probe_environment(), check=False)

@@ -85,6 +85,9 @@ BODIES = {
         for thread in threads:
             thread.join()
         return results""",
+    "spinner": """        import re
+        return bool(re.match(r"(a+)+$", "a" * 60 + "b"))  # backtracks for ages, holding the GIL""",
+    "echo": """        return len(value)""",
     "chatty": """        print("chatty " * 20000, flush=True)
         import warnings
         warnings.warn("chatty warning")
@@ -95,6 +98,15 @@ BODIES = {
 def write_tool(directory, name, body=None):
     cls = "".join(part.title() for part in name.split("_"))
     Path(directory, f"{name}.py").write_text(TOOL.format(cls=cls, name=name, body=body or BODIES[name]))
+
+
+def _alive(pid):
+    """Whether a process exists and is not a zombie."""
+    try:
+        with open(f"/proc/{pid}/stat") as stream:
+            return stream.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
 
 
 class FakeClient:
@@ -162,6 +174,66 @@ class WorkerTests(unittest.TestCase):
         with patch.object(worker_module, "tool_problem", lambda tool: "input_schema is not a valid JSON Schema"):
             with self.assertRaisesRegex(RuntimeError, "the worker reported no valid tool list"):
                 self.start(directory)
+
+    def test_a_call_to_a_worker_that_stopped_reading_still_times_out(self):
+        def call(worker, name, value, results):
+            started = time.monotonic()
+            payload, status = worker.execute(name, {"value": value}, tool_call_id=name)
+            results[name] = (status, payload["error"]["message"], time.monotonic() - started)
+
+        # The spinner holds the GIL, so the worker reads nothing; the echo call is larger than the pipe buffer.
+        for grace, delay, expected in ((60, 1, "echo did not finish within 3 seconds"),
+                                       (0.5, 2, "the generated-tool worker stopped while echo was running")):
+            with self.subTest(grace=grace), patch.object(worker_module, "RETIRE_SECONDS", grace):
+                worker = self.start(self.catalog("spinner", "echo"), timeout_seconds=3)
+                first, results = worker.current, {}
+                spinning = threading.Thread(target=call, args=(worker, "spinner", "", results))
+                spinning.start()
+                time.sleep(delay)
+                large = threading.Thread(target=call, args=(worker, "echo", "A" * (2 << 20), results))
+                large.start()
+                spinning.join(20)
+                large.join(20)
+                self.assertEqual(results["spinner"][:2], (500, "spinner did not finish within 3 seconds"))
+                self.assertEqual(results["echo"][0], 500)
+                self.assertTrue(results["echo"][1].startswith(expected), results["echo"][1])
+                self.assertLess(results["echo"][2], 3.5)  # its own deadline, or the retired worker's end
+                deadline = time.monotonic() + 15
+                while first.process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.2)
+                self.assertIsNotNone(first.process.poll())  # the retired worker was killed
+                self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-9"),
+                                 (_build_success_payload("echo", "call-9", 2, {}), 200))
+
+    def test_a_worker_started_by_a_thread_that_ended_keeps_running(self):
+        # Linux sends the death signal when the starting thread ends, so workers start from a lasting thread.
+        started = []
+        thread = threading.Thread(target=lambda: started.append(self.start(self.catalog("echo"))))
+        thread.start()
+        thread.join()
+        time.sleep(1)
+        self.assertEqual(started[0].execute("echo", {"value": "abc"}, tool_call_id="call-1")[1], 200)
+
+    def test_workers_die_with_the_router(self):
+        script = ("import sys, threading, time\nfrom openvlharness.toolsmith.worker import CatalogWorker\n"
+                  "worker = CatalogWorker(sys.argv[1], client=None, isolation=sys.argv[2] == '1', "
+                  "report_environment=False)\nprint(worker.current.process.pid, flush=True)\n"
+                  "threading.Thread(target=worker.execute, args=('spinner', {}), kwargs={'tool_call_id': 'c'}, "
+                  "daemon=True).start()\ntime.sleep(600)\n")
+        directory = self.catalog("spinner")
+        for confined in sorted({False, ISOLATION}):
+            with self.subTest(isolation=confined):
+                router = subprocess.Popen([sys.executable, "-c", script, directory, "1" if confined else "0"],
+                                          stdout=subprocess.PIPE, text=True,
+                                          env={**os.environ, "PYTHONPATH": str(worker_module.PACKAGE_ROOT)})
+                child = int(router.stdout.readline())
+                time.sleep(2)
+                router.kill()
+                router.wait()
+                deadline = time.monotonic() + 10
+                while _alive(child) and time.monotonic() < deadline:
+                    time.sleep(0.2)
+                self.assertFalse(_alive(child))
 
     def test_tool_prints_reach_a_router_log_file_without_file_writes(self):
         # The router's stderr is often a log file; the worker, which cannot write files, still prints there.
@@ -390,11 +462,14 @@ class WorkerTests(unittest.TestCase):
                   "services": {"client": {"base_url": "http://router.invalid", "timeout_seconds": 42}}}
         worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools={"OCR_Tool", "Depth_Estimation_Tool"})
         self.addCleanup(worker.close)
+        parent = None if ISOLATION else os.getpid()  # an unconfined worker watches the router itself
         self.assertEqual((worker.timeout, worker.limits, worker.refused),
-                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": None}, {"Depth_Estimation_Tool"}))
+                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": None, "parent": parent},
+                          {"Depth_Estimation_Tool"}))
         config["toolsmith"]["worker"] = {"isolation": ISOLATION, "timeout_seconds": 42}
         with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
             worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
         self.addCleanup(worker.close)
-        self.assertEqual((worker.timeout, worker.limits), (42, {"memory_bytes": 128 << 30, "file_bytes": 0}))
+        self.assertEqual((worker.timeout, worker.limits),
+                         (42, {"memory_bytes": 128 << 30, "file_bytes": 0, "parent": parent}))
         self.assertTrue(any("may time out and retry" in line for line in logs.output))

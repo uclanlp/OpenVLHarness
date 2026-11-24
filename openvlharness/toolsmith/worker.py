@@ -19,7 +19,9 @@ CALLABLE_BASE_TOOLS go through the router as before, and calls to the other rout
 tools are refused. A call that fails, crashes the worker or runs past the time limit
 returns an error envelope, and the router starts a new worker for later calls; a
 worker with a call past the limit takes no new calls and is stopped once its other
-calls finish.
+calls finish, or RETIRE_SECONDS later at most. A worker dies with the router: the
+router starts every worker from one long-lived thread, and the worker (or, confined,
+its launcher) asks Linux to kill it when that parent ends.
 
 The router starts the worker as: python -m openvlharness.toolsmith.worker CATALOG LIMITS
 """
@@ -30,6 +32,7 @@ import itertools
 import json
 import logging
 import os
+import queue
 import resource
 import shutil
 import signal
@@ -53,6 +56,7 @@ MEMORY_GIB = 128
 LOAD_SECONDS = 120
 CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP timeout
 EXIT_SECONDS = 5
+RETIRE_SECONDS = 10  # how long the other calls of a worker retired by a timeout may still run
 MAX_MESSAGE_BYTES = 256 << 20
 MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -176,6 +180,56 @@ def _exit_reason(returncode):
     return f"the worker exited with status {returncode}"
 
 
+def _line(message):
+    """Encode one protocol message.
+
+    Raises:
+        TypeError, ValueError: The message cannot be sent as JSON.
+    """
+    return json.dumps(message).encode("ascii") + b"\n"
+
+
+_spawns = None
+_spawns_lock = threading.Lock()
+
+
+def _spawn(argv, **options):
+    """Start a process from one long-lived thread and return its Popen.
+
+    Linux sends the death signal a worker asks for when the thread that started it
+    ends, so every worker starts from a thread that lasts as long as the router.
+    """
+    global _spawns
+    with _spawns_lock:
+        if _spawns is None:
+            _spawns = queue.SimpleQueue()
+            threading.Thread(target=_serve_spawns, args=(_spawns,), name="toolsmith-spawner", daemon=True).start()
+        started = concurrent.futures.Future()
+        _spawns.put((started, argv, options))
+    return started.result()
+
+
+def _serve_spawns(requests):
+    """Start the processes _spawn asks for, forever."""
+    while True:
+        started, argv, options = requests.get()
+        try:
+            started.set_result(subprocess.Popen(argv, **options))
+        except BaseException as exc:
+            started.set_exception(exc)
+
+
+def _die_with(parent):
+    """Ask Linux to kill this process when parent, the process that started it, ends; exit if it already has."""
+    if parent is None or not sys.platform.startswith("linux"):
+        return
+    import ctypes
+
+    ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGKILL, 0, 0, 0)  # PR_SET_PDEATHSIG
+    if os.getppid() != parent:
+        os._exit(1)
+
+
 def _copy_to_stderr(stream):
     """Copy a worker's stderr (what its tools print) to the router's stderr until the worker ends."""
     with stream:
@@ -212,14 +266,16 @@ class _Worker:
                 argv = command(owner.confinement(self.home), argv)
             # stderr is a pipe the router copies to its own: a log file there would fall under the
             # worker's file-size limit, which drops prints and fails tools that flush them.
-            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE, cwd=self.home, env=environment,
-                                            start_new_session=True)
+            self.process = _spawn(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  cwd=self.home, env=environment, start_new_session=True)
         except BaseException:
             shutil.rmtree(self.home, ignore_errors=True)
             raise
         threading.Thread(target=_copy_to_stderr, args=(self.process.stderr,), daemon=True).start()
-        self.channel = _Channel(self.process.stdout, self.process.stdin, limit=MAX_MESSAGE_BYTES)
+        self.channel = _Channel(self.process.stdout, None, limit=MAX_MESSAGE_BYTES)
+        # One thread writes to the worker, so a worker that stops reading blocks no caller.
+        self.outbox = queue.SimpleQueue()
+        threading.Thread(target=self._write, daemon=True).start()
         self.ready = concurrent.futures.Future()
         self.calls = {}
         self.abandoned = set()
@@ -245,19 +301,29 @@ class _Worker:
             request = next(self.ids)
             answer = self.calls[request] = concurrent.futures.Future()
         try:
-            self.channel.send({"type": "execute", "id": request, "tool": tool_name, "args": args})
-        except OSError as exc:
+            self.send({"type": "execute", "id": request, "tool": tool_name, "args": args})
+        except (TypeError, ValueError):
             with self.lock:
                 self.calls.pop(request, None)
-            raise _WorkerGone(self.reason or "the worker closed its input") from exc
+            raise
         return request, answer
 
     def send(self, message):
-        """Send a message unless the worker has stopped."""
-        try:
-            self.channel.send(message)
-        except OSError:
-            pass
+        """Queue a message for the worker; it is dropped if the worker has stopped.
+
+        Raises:
+            TypeError, ValueError: The message cannot be sent as JSON.
+        """
+        self.outbox.put(_line(message))
+
+    def _write(self):
+        """Write queued messages to the worker until it stops."""
+        while (line := self.outbox.get()) is not None:
+            try:
+                self.process.stdin.write(line)
+                self.process.stdin.flush()
+            except (OSError, ValueError):
+                return  # the worker has stopped; its calls fail when the reader sees it end
 
     def abandon(self, request):
         """Stop waiting for a call past its time limit; return False when its answer has already arrived."""
@@ -268,12 +334,16 @@ class _Worker:
             return True
 
     def retire(self):
-        """Take no new calls and stop the process once the calls still running have finished."""
+        """Take no new calls; stop the process once the calls still running finish, or after RETIRE_SECONDS."""
         with self.lock:
             self.retiring = True
             idle = not self.calls
         if idle:
             self.kill()
+        else:
+            timer = threading.Timer(RETIRE_SECONDS, self.kill)
+            timer.daemon = True
+            timer.start()
 
     def kill(self):
         """Kill the process and anything it started, unless it has already been reaped."""
@@ -326,6 +396,7 @@ class _Worker:
             answer.set_result({"failure": self.reason})
         if not self.ready.done():
             self.ready.set_result({"type": "ready", "error": {"type": "RuntimeError", "message": self.reason}})
+        self.outbox.put(None)
         shutil.rmtree(self.home, ignore_errors=True)
         self.owner._stopped(self)
 
@@ -403,6 +474,8 @@ class CatalogWorker:
         self.environment = worker_environment(environment)
         self.granted = set(environment)
         self.isolation, self.network = isolation, network
+        # A confined worker dies with its launcher's namespace; an unconfined one watches the router itself.
+        self.limits["parent"] = None if isolation else os.getpid()
         if isolation:
             from .isolation import available
 
@@ -515,7 +588,8 @@ class CatalogWorker:
             read += caches
         temporary = ["/tmp", "/var/tmp", expand("~")] + ([environment["TMPDIR"]] if environment.get("TMPDIR") else [])
         return {"root": str(home / "root"), "read": read, "write": write, "overlay": overlay, "tmp": temporary,
-                "mask": masks + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home)}
+                "mask": masks + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home),
+                "parent": os.getpid()}
 
     def _submit(self, tool_name, args):
         """Send one call to the worker taking new calls; return the worker, the call ID and its answer."""
@@ -750,8 +824,10 @@ def main(directory, limits):
     os.dup2(null, 0)
     os.close(null)
     os.dup2(2, 1)
+    limits = json.loads(limits)
+    _die_with(limits.pop("parent", None))
     _prefer_oom_kill()
-    limit_resources(**json.loads(limits))
+    limit_resources(**limits)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     router = _Router(channel)
     try:

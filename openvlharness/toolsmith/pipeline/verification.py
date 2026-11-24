@@ -118,7 +118,8 @@ def run_once(source, timeout, *, isolation=True):
             from ..isolation import command, python_masks, system_paths
 
             argv = command({"root": root, "read": system_paths() + [directory], "mask": python_masks(),
-                            "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "network": False}, argv)
+                            "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "network": False, "parent": os.getpid()},
+                           argv)
         # Output is drained as it comes and only its end is kept, so a chatty candidate cannot fill memory.
         process = subprocess.Popen(argv, cwd=directory, env=environment, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE)
