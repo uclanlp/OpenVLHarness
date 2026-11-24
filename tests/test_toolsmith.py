@@ -204,6 +204,28 @@ class PackagedToolBehaviourTests(unittest.TestCase):
                 requests.ConnectionError(f"Max retries exceeded with url: {url}?api_key=tmdb-secret-123"))}):
             self.assertNotIn("tmdb-secret-123", json.dumps(tool.execute(title="Heat", media_type="music")))
 
+    def test_media_catalog_prefers_an_exact_release_to_a_fuzzy_artist(self):
+        tool = self.tools["media_catalog"]
+        searches = {"artist": [{"name": "Thriller Kids", "id": "a1"}], "release": [{"title": "Thriller", "id": "r1"}]}
+        records = {"a1": {"id": "a1", "name": "Thriller Kids", "type": "Group"},
+                   "r1": {"id": "r1", "title": "Thriller", "date": "1982-11-30",
+                          "artist-credit": [{"name": "Michael Jackson"}]}}
+        requested = []
+
+        def get_json(url, params):
+            requested.append(url.rsplit("/ws/2/", 1)[1])
+            entity = url.rsplit("/", 2)
+            return records[entity[-1]] if entity[-1] in records else {f"{entity[-1]}s": searches[entity[-1]]}
+        with patch.dict(tool.execute.__globals__, {"get_json": get_json}):
+            release = tool.execute(title="thriller", media_type="music")
+            self.assertEqual((release["canonical_title"], release["artist"]), ("Thriller", "Michael Jackson"))
+            requested.clear()
+            self.assertEqual(tool.execute(title="Thriller Kids", media_type="music")["canonical_title"], "Thriller Kids")
+            self.assertEqual(requested, ["artist", "artist/a1"])
+            searches["release"] = [{"title": "Thriller (Remastered)", "id": "r1"}]
+            self.assertEqual(tool.execute(title="Thriller", media_type="music")["id"], "a1")
+
+
 class RetrievalAndAgentTests(unittest.TestCase):
     def make_agent(self, directory, responses, top_k=1):
         requests = []

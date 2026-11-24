@@ -47,24 +47,30 @@ class MediaCatalog(GeneratedTool):
 
     @staticmethod
     def music(title):
+        # An exact artist or release name wins over the first fuzzy hit of either search.
+        fallback = None
         for entity in ("artist", "release"):
             search = get_json(f"{MUSICBRAINZ}/{entity}", {"query": title, "fmt": "json", "limit": 5})
             hits = search.get(f"{entity}s") or []
-            if not hits:
-                continue
-            hit = next((h for h in hits if (h.get("name") or h.get("title") or "").lower() == title.lower()), hits[0])
-            record = get_json(f"{MUSICBRAINZ}/{entity}/{hit['id']}", {"fmt": "json", "inc": "aliases"})
-            aliases = record.get("aliases") or []
-            result = {"found": True, "media_type": "music", "source": "musicbrainz", "id": record.get("id"),
-                      "canonical_title": record.get("name") or record.get("title", ""),
-                      "alternate_titles": [a["name"] for a in aliases if a.get("name")],
-                      "native_title": next((a["name"] for a in aliases if a.get("primary") and a.get("name")), ""),
-                      "type": record.get("type", ""), "country": record.get("country", "")}
-            if entity == "artist":
-                return {**result, "life_span": record.get("life-span", {})}
-            credit = record.get("artist-credit") or [{}]
-            return {**result, "date": record.get("date", ""), "artist": credit[0].get("name", "")}
-        return {"found": False}
+            exact = next((h for h in hits if (h.get("name") or h.get("title") or "").lower() == title.lower()), None)
+            if exact:
+                return MediaCatalog.music_record(entity, exact)
+            fallback = fallback or (hits and (entity, hits[0]))
+        return MediaCatalog.music_record(*fallback) if fallback else {"found": False}
+
+    @staticmethod
+    def music_record(entity, hit):
+        record = get_json(f"{MUSICBRAINZ}/{entity}/{hit['id']}", {"fmt": "json", "inc": "aliases"})
+        aliases = record.get("aliases") or []
+        result = {"found": True, "media_type": "music", "source": "musicbrainz", "id": record.get("id"),
+                  "canonical_title": record.get("name") or record.get("title", ""),
+                  "alternate_titles": [a["name"] for a in aliases if a.get("name")],
+                  "native_title": next((a["name"] for a in aliases if a.get("primary") and a.get("name")), ""),
+                  "type": record.get("type", ""), "country": record.get("country", "")}
+        if entity == "artist":
+            return {**result, "life_span": record.get("life-span", {})}
+        credit = record.get("artist-credit") or [{}]
+        return {**result, "date": record.get("date", ""), "artist": credit[0].get("name", "")}
 
     @staticmethod
     def tmdb(title, media_type):
