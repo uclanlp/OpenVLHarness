@@ -99,8 +99,12 @@ def load_agent_config(config, *, save_raw_trace=False):
             raise ValueError("toolsmith must be a mapping with optional catalog, top_k, encoder and worker")
         if type(toolsmith.get("top_k", 10)) is not int or toolsmith.get("top_k", 10) <= 0:
             raise ValueError("toolsmith.top_k must be a positive integer")
-        if "catalog" in toolsmith and not Path(toolsmith["catalog"]).is_dir():
+        # An explicit null is rejected: callers read these keys with defaults that null would bypass.
+        if "catalog" in toolsmith and not (isinstance(toolsmith["catalog"], (str, os.PathLike))
+                                           and Path(toolsmith["catalog"]).is_dir()):
             raise ValueError(f"toolsmith.catalog {toolsmith['catalog']!r} is not a directory")
+        if "encoder" in toolsmith and not (isinstance(toolsmith["encoder"], str) and toolsmith["encoder"].strip()):
+            raise ValueError("toolsmith.encoder must name a sentence-transformers model")
         worker = toolsmith.get("worker", {})
         if not isinstance(worker, dict) or set(worker) - {"environment", "timeout_seconds", "memory_gib",
                                                           "write_files", "isolation", "network"}:
