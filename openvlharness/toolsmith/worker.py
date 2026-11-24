@@ -173,6 +173,18 @@ def _exit_reason(returncode):
     return f"the worker exited with status {returncode}"
 
 
+def _copy_to_stderr(stream):
+    """Copy a worker's stderr (what its tools print) to the router's stderr until the worker ends."""
+    with stream:
+        while chunk := stream.read1(1 << 16):
+            view = memoryview(chunk)
+            try:
+                while view:
+                    view = view[os.write(2, view):]
+            except OSError:
+                pass  # the router's stderr is gone; keep draining so the worker never blocks on a full pipe
+
+
 class _WorkerGone(RuntimeError):
     """The worker process has stopped and takes no calls."""
 
@@ -195,11 +207,15 @@ class _Worker:
                 from .isolation import command
 
                 argv = command(owner.confinement(self.home), argv)
-            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, cwd=self.home,
-                                            env=environment, start_new_session=True)
+            # stderr is a pipe the router copies to its own: a log file there would fall under the
+            # worker's file-size limit, which drops prints and fails tools that flush them.
+            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, cwd=self.home, env=environment,
+                                            start_new_session=True)
         except BaseException:
             shutil.rmtree(self.home, ignore_errors=True)
             raise
+        threading.Thread(target=_copy_to_stderr, args=(self.process.stderr,), daemon=True).start()
         self.channel = _Channel(self.process.stdout, self.process.stdin, limit=MAX_MESSAGE_BYTES)
         self.ready = concurrent.futures.Future()
         self.calls = {}
@@ -706,7 +722,7 @@ def _prefer_oom_kill():
 def main(directory, limits):
     """Load the catalog, report its tools, then run calls until the router closes the pipe."""
     channel = _Channel(os.fdopen(os.dup(0), "rb"), os.fdopen(os.dup(1), "wb"))
-    # Messages use private copies of the pipes; prints from tools go to the router's stderr.
+    # Messages use private copies of the pipes; prints from tools go to stderr, which the router copies to its own.
     null = os.open(os.devnull, os.O_RDONLY)
     os.dup2(null, 0)
     os.close(null)

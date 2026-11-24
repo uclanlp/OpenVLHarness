@@ -3,6 +3,8 @@ import copy
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -69,6 +71,10 @@ BODIES = {
         except Exception as exc:
             return {"exception": f"{type(exc).__name__}: {exc}"}""",
     "talker": """        return "x" * int(value)""",
+    "chatty": """        print("chatty " * 20000, flush=True)
+        import warnings
+        warnings.warn("chatty warning")
+        return "printed\"""",
 }
 
 
@@ -121,6 +127,25 @@ class WorkerTests(unittest.TestCase):
         worker = CatalogWorker(directory, **options)
         self.addCleanup(worker.close)
         return worker
+
+    def test_tool_prints_reach_a_router_log_file_without_file_writes(self):
+        # The router's stderr is often a log file; the worker, which cannot write files, still prints there.
+        directory = self.catalog("chatty")
+        log = Path(directory, "router.log")
+        log.write_text("router started\n")
+        script = ("import json, sys\nfrom openvlharness.toolsmith.worker import CatalogWorker\n"
+                  "worker = CatalogWorker(sys.argv[1], client=None, isolation=sys.argv[2] == '1', "
+                  "report_environment=False)\n"
+                  "print(json.dumps(worker.execute('chatty', {}, tool_call_id='call-1')), file=sys.__stdout__)\n"
+                  "worker.close()\n")
+        with open(log, "a") as stream:
+            done = subprocess.run([sys.executable, "-c", script, directory, "1" if ISOLATION else "0"],
+                                  stdout=subprocess.PIPE, stderr=stream, text=True, timeout=120,
+                                  env={**os.environ, "PYTHONPATH": str(worker_module.PACKAGE_ROOT)})
+        payload, status = json.loads(done.stdout)
+        self.assertEqual((payload["result"], status), ("printed", 200), log.read_text()[-2000:])
+        self.assertIn("chatty " * 20000, log.read_text())
+        self.assertIn("chatty warning", log.read_text())
 
     def test_tools_run_outside_the_router_and_return_the_in_process_envelopes(self):
         directory = self.catalog("probe", "mixed", "fails", "bad_args")
