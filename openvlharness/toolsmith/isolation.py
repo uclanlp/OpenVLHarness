@@ -10,8 +10,10 @@ the read paths, writable bind mounts of the write paths, private tmpfs directori
 most 1 GiB each, a fresh /proc that shows only the namespace's processes, and a /dev
 holding null, zero, full, random and urandom. An overlay path is the host directory, read-only, under a
 private writable layer of at most 1 GiB that disappears with the namespace. The host
-filesystem is detached, the command starts without capabilities and cannot gain
-privileges, and everything in the namespace dies with the launcher. SPEC is JSON with
+filesystem is detached, the command starts without capabilities, cannot gain privileges
+or create nested user namespaces, runs at most PROCESSES processes and threads (Linux
+5.14 and later), and everything in the namespace dies with the launcher. Memory is
+capped per process only (see worker.limit_resources), and CPU not at all. SPEC is JSON with
 root, read, write, overlay, mask (paths hidden inside read paths), tmp, cwd, network,
 cleanup (a directory the launcher removes when the command ends) and parent (the PID of
 the caller, whose end kills the launcher and so the namespace).
@@ -21,6 +23,7 @@ import json
 import os
 import platform
 import re
+import resource
 import shutil
 import signal
 import subprocess
@@ -39,6 +42,8 @@ ETC = ("resolv.conf", "hosts", "nsswitch.conf", "host.conf", "gai.conf", "servic
        "ca-certificates", "ca-certificates.conf", "pki", "ld.so.cache", "ld.so.conf", "ld.so.conf.d", "localtime",
        "timezone", "mime.types")
 SETUP_FAILED = 125
+# Processes and threads of the confined command, counted in its own user namespace from Linux 5.14.
+PROCESSES = 4096
 # Caps of the tmpfs mounts, whose memory the address-space limit does not count: each private
 # temporary directory and /dev/shm, and the root and /dev, which hold only mount points and devices.
 TMPFS = "size=1g,nr_inodes=65536"
@@ -230,6 +235,7 @@ def launch(spec, command):
             os.close(alive)
             _check(libc.unshare(CLONE_NEWNS), "unshare the mount namespace")
             _build_root(libc, spec)
+            _limit_namespace()
             _check(libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0), "prctl")
             _init(command, reported)
         except BaseException as exc:
@@ -250,6 +256,22 @@ def launch(spec, command):
         signal.signal(os.WTERMSIG(status), signal.SIG_DFL)
         os.kill(os.getpid(), os.WTERMSIG(status))
     os._exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else SETUP_FAILED)
+
+
+def _limit_namespace():
+    """Refuse nested user namespaces and cap the namespace's processes, while it still holds capabilities.
+
+    A nested user namespace would give the command capabilities again, to mount an
+    uncapped tmpfs or look under a mask. The process cap needs per-namespace counting
+    (Linux 5.14); earlier kernels count every process of the uid.
+    """
+    try:
+        with open("/proc/sys/user/max_user_namespaces", "w") as stream:
+            stream.write("0")
+    except OSError as exc:
+        print(f"isolation: nested user namespaces stay allowed ({exc})", file=sys.stderr)
+    if tuple(int(part) for part in re.findall(r"\d+", platform.release())[:2]) >= (5, 14):
+        resource.setrlimit(resource.RLIMIT_NPROC, (PROCESSES, PROCESSES))
 
 
 def _init(command, reported):

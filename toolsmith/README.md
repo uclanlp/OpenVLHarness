@@ -96,9 +96,13 @@ The router never imports the generated tools. When it starts, it copies the cata
 runs the copy in a separate worker process. The worker starts in a private directory and
 inherits the router's environment without credential-like variables (names containing
 `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL`, or starting with `AWS_` or
-`GOOGLE_APPLICATION`); `worker.environment` grants the ones its tools read. Its address
-space is capped, and it cannot write files unless `worker.write_files` is set; local image
-uploads, model downloads and PyTorch need writes. A tool reaches the other catalog tools
+`GOOGLE_APPLICATION`); `worker.environment` grants the ones its tools read. On Linux each
+of its processes has its address space capped at `worker.memory_gib`, but a tool that starts
+child processes gets that much in each, and memory in its temporary directories is counted
+separately; the worker asks Linux to kill it first when memory runs out, a request a tool
+can take back. CPU time is not limited. For hard memory and CPU limits, run the router in
+a cgroup or a container. The worker cannot write files unless `worker.write_files` is set;
+local image uploads, model downloads and PyTorch need writes. A tool reaches the other catalog tools
 and `Text_Search_Tool`, `Image_Search_Tool`, `Webpage_Visit_Tool`, `OCR_Tool` and
 `Zoom_In_Tool` through the router, and calls to other router tools are refused. A call that
 raises, crashes the worker or runs past `worker.timeout_seconds` returns an error to the
@@ -109,9 +113,11 @@ credentials that the packaged `visual_matches` (Serper Lens and the image upload
 With `worker.isolation` (the default) the worker runs in Linux user, mount, PID and IPC
 namespaces, under the router's uid and without root. It sees the interpreter, the Python
 packages, the catalog copy, the model caches and the resolver, certificate and time-zone
-settings from `/etc` read-only, and has a private `/tmp`, home directory and `/dev/shm` of
-at most 1 GiB each, held in memory; a file that a granted variable names, such as a key
-file, is readable too. It cannot see the router's other files (the repository, other home directories,
+settings from `/etc` read-only, and has a private `/tmp`, home directory and `/dev/shm`,
+each a memory-backed file system of at most 1 GiB; a file that a granted variable names,
+such as a key file, is readable too. It cannot create nested user namespaces, which would
+give it back the capabilities to mount others, and on Linux 5.14 and later it runs at
+most 4,096 processes and threads. It cannot see the router's other files (the repository, other home directories,
 credential files such as `~/.aws/credentials`) or any process outside its namespace, and
 Hugging Face token files are hidden. The host's model caches are never writable: with
 `write_files`, writes and downloads into them land in a private in-memory layer of at

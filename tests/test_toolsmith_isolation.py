@@ -36,6 +36,13 @@ attempt("uid", os.getuid)
 attempt("capabilities", lambda: [line.split()[1] for line in open("/proc/self/status") if line.startswith("CapEff")][0])
 attempt("etc", lambda: sorted(os.listdir("/etc")))
 attempt("opt", lambda: os.listdir("/opt"))
+def nested():
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.unshare(0x10000000) != 0:  # CLONE_NEWUSER
+        raise OSError(ctypes.get_errno(), os.strerror(ctypes.get_errno()))
+attempt("nested user namespace", nested)
+attempt("process cap", lambda: __import__("resource").getrlimit(__import__("resource").RLIMIT_NPROC)[0])
 attempt("tmpfs", lambda: {path: [os.statvfs(path).f_blocks * os.statvfs(path).f_frsize, os.statvfs(path).f_files]
                           for path in ("/tmp", "/dev/shm", "/dev", "/")})
 print(json.dumps(seen))
@@ -122,6 +129,14 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(done.stdout), ["host", "changed", ["config.json", "planted.py"], False])
             self.assertEqual(((cache / "config.json").read_text(), sorted(os.listdir(cache))), ("host", ["config.json"]))
+
+    def test_nested_namespaces_are_refused_and_processes_capped(self):
+        # A nested user namespace would bring back capabilities: to mount an uncapped tmpfs, or look under a mask.
+        seen = self.confined(network=False)
+        self.assertEqual(seen["nested user namespace"], ["blocked", "OSError"])
+        release = tuple(int(part) for part in __import__("re").findall(r"\d+", __import__("platform").release())[:2])
+        if release >= (5, 14):
+            self.assertEqual(seen["process cap"], ["ok", isolation.PROCESSES])
 
     def test_temporary_file_systems_are_capped(self):
         # tmpfs memory is outside the address-space limit, so each mount has its own size and file cap.
