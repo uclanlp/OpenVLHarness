@@ -15,14 +15,21 @@ VALUES = {"string": "test", "integer": 1, "number": 1.0, "boolean": False, "arra
 
 
 def dummy_arguments(schema):
-    """Return minimal values for the required parameters of an input schema; images get a 1x1 PNG."""
+    """Return minimal values for the required parameters of an input schema; images get a 1x1 PNG.
+
+    A type union such as ["string", "null"] uses its first supported member, and null
+    only when it is the sole choice.
+    """
     arguments = {}
     for key in schema.get("required", []):
         if key.endswith("image_id"):
             arguments[f"{key[:-3]}_base64"] = IMAGE
-        else:
-            kind = (schema.get("properties", {}).get(key) or {}).get("type", "string")
-            arguments[key] = VALUES.get(kind, "test")
+            continue
+        kind = (schema.get("properties", {}).get(key) or {}).get("type", "string")
+        if isinstance(kind, list):
+            kind = next((member for member in kind if isinstance(member, str) and member in VALUES),
+                        "null" if "null" in kind else "string")
+        arguments[key] = None if kind == "null" else VALUES.get(kind, "test") if isinstance(kind, str) else "test"
     return arguments
 
 

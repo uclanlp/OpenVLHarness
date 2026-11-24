@@ -85,6 +85,8 @@ class GateTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertIn(expected, run_once(tool(body=body), 30)[1])
         self.assertEqual(run_once(tool(body="while True: pass"), 2)[1], "execution exceeded 2 seconds")
+        nullable = tool().replace('{"type": "string"}', '{"type": ["string", "null"]}')
+        self.assertEqual(run_once(nullable, 30)[0]["input_schema"]["properties"]["river"]["type"], ["string", "null"])
 
     def test_dummy_arguments_cover_required_parameters_and_images(self):
         arguments = dummy_arguments({"properties": {"image_id": {"type": "string"}, "year": {"type": "integer"},
@@ -93,6 +95,11 @@ class GateTests(unittest.TestCase):
         self.assertEqual(sorted(arguments), ["image_base64", "labels", "year"])
         self.assertTrue(arguments["image_base64"].startswith("data:image/png;base64,"))
         self.assertEqual((arguments["year"], arguments["labels"]), (1, []))
+        unions = dummy_arguments({"properties": {"name": {"type": ["string", "null"]},
+                                                 "count": {"type": ["null", "integer"]},
+                                                 "nothing": {"type": ["null"]}, "odd": {"type": ["mystery"]}},
+                                  "required": ["name", "count", "nothing", "odd"]})
+        self.assertEqual(unions, {"name": "test", "count": 1, "nothing": None, "odd": "test"})
 
     def test_review_applies_mean_and_minimum_thresholds(self):
         class Critic:
