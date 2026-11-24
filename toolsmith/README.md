@@ -6,6 +6,7 @@
   <a href="https://threesr.github.io/toolsmith/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
   <a href="https://aclanthology.org/2026.findings-emnlp.1699/"><img src="https://img.shields.io/badge/Findings-EMNLP%202026-b31b1b.svg?style=for-the-badge" height="25" alt="Findings of EMNLP 2026"></a>
   <a href="https://huggingface.co/datasets/uclanlp/ToolSmith-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Data-Training%20pools-ffc107.svg?style=for-the-badge" height="25" alt="ToolSmith training pools on Hugging Face"></a>
+  <a href="../LICENSE"><img src="https://img.shields.io/badge/License-MIT-2e7d32.svg?style=for-the-badge" height="25" alt="MIT License"></a>
 </p>
 
 ToolSmith grows the toolbox of a multimodal search agent from the agent's own failures.
@@ -142,6 +143,14 @@ class EntityPropertyLookup(GeneratedTool):
 The [examples](../openvlharness/toolsmith/pipeline/examples) shown to the generator and
 the [prompts](../openvlharness/toolsmith/pipeline/prompts) of every pipeline step are
 part of the package.
+
+## License
+
+ToolSmith is part of OpenVLHarness and is released under the same
+[MIT License](../LICENSE), including the pipeline, the inference code and the packaged
+tool catalog. The training pools on Hugging Face keep the licenses of their source
+datasets; third-party models and tools are listed in
+[THIRD_PARTY_LICENSES.md](../THIRD_PARTY_LICENSES.md).
 
 ## Citation
 
