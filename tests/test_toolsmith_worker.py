@@ -176,34 +176,54 @@ class WorkerTests(unittest.TestCase):
                 self.start(directory)
 
     def test_a_call_to_a_worker_that_stopped_reading_still_times_out(self):
-        def call(worker, name, value, results):
+        worker = self.start(self.catalog("spinner", "echo"), timeout_seconds=3)
+        first, results = worker.current, {}
+
+        def call(name, value):
             started = time.monotonic()
             payload, status = worker.execute(name, {"value": value}, tool_call_id=name)
             results[name] = (status, payload["error"]["message"], time.monotonic() - started)
-
         # The spinner holds the GIL, so the worker reads nothing; the echo call is larger than the pipe buffer.
-        for grace, delay, expected in ((60, 1, "echo did not finish within 3 seconds"),
-                                       (0.5, 2, "the generated-tool worker stopped while echo was running")):
-            with self.subTest(grace=grace), patch.object(worker_module, "RETIRE_SECONDS", grace):
-                worker = self.start(self.catalog("spinner", "echo"), timeout_seconds=3)
-                first, results = worker.current, {}
-                spinning = threading.Thread(target=call, args=(worker, "spinner", "", results))
-                spinning.start()
-                time.sleep(delay)
-                large = threading.Thread(target=call, args=(worker, "echo", "A" * (2 << 20), results))
-                large.start()
-                spinning.join(20)
-                large.join(20)
-                self.assertEqual(results["spinner"][:2], (500, "spinner did not finish within 3 seconds"))
-                self.assertEqual(results["echo"][0], 500)
-                self.assertTrue(results["echo"][1].startswith(expected), results["echo"][1])
-                self.assertLess(results["echo"][2], 3.5)  # its own deadline, or the retired worker's end
-                deadline = time.monotonic() + 15
-                while first.process.poll() is None and time.monotonic() < deadline:
-                    time.sleep(0.2)
-                self.assertIsNotNone(first.process.poll())  # the retired worker was killed
-                self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-9"),
-                                 (_build_success_payload("echo", "call-9", 2, {}), 200))
+        spinning = threading.Thread(target=call, args=("spinner", ""))
+        spinning.start()
+        time.sleep(1)
+        large = threading.Thread(target=call, args=("echo", "A" * (2 << 20)))
+        large.start()
+        spinning.join(20)
+        large.join(20)
+        self.assertEqual({name: outcome[:2] for name, outcome in results.items()},
+                         {"spinner": (500, "spinner did not finish within 3 seconds"),
+                          "echo": (500, "echo did not finish within 3 seconds")})
+        self.assertLess(results["echo"][2], 4.5)  # its own deadline, not a blocked send
+        deadline = time.monotonic() + 10
+        while first.process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.assertIsNotNone(first.process.poll())  # retired and, with no call left, killed
+        self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-9"),
+                         (_build_success_payload("echo", "call-9", 2, {}), 200))
+
+    def test_a_timeout_does_not_cut_short_the_other_calls_of_its_worker(self):
+        # B times out and retires the worker; A, started later, still finishes within its own limit.
+        worker = self.start(self.catalog("sleepy"), timeout_seconds=3)
+        first, results = worker.current, {}
+
+        def call(name, seconds):
+            results[name] = worker.execute("sleepy", {"value": str(seconds)}, tool_call_id=name)
+        with patch.object(worker_module, "RETIRE_GRACE_SECONDS", 0.5):
+            late = threading.Thread(target=call, args=("B", 30))
+            late.start()
+            time.sleep(2)
+            other = threading.Thread(target=call, args=("A", 2.5))  # finishes about 1.5 s after B's timeout
+            other.start()
+            late.join(20)
+            other.join(20)
+            self.assertEqual(results["B"][1], 500)
+            self.assertEqual((results["A"][1], results["A"][0]["result"]["slept"]), (200, 2.5))
+            deadline = time.monotonic() + 10
+            while first.process.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.2)
+        self.assertIsNotNone(first.process.poll())  # stopped once A had finished
+        self.assertIsNot(worker.current, first)
 
     def test_a_worker_started_by_a_thread_that_ended_keeps_running(self):
         # Linux sends the death signal when the starting thread ends, so workers start from a lasting thread.

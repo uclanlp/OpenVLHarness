@@ -18,8 +18,9 @@ to the router process: calls to the other generated tools and to the base tools 
 CALLABLE_BASE_TOOLS go through the router as before, and calls to the other router
 tools are refused. A call that fails, crashes the worker or runs past the time limit
 returns an error envelope, and the router starts a new worker for later calls; a
-worker with a call past the limit takes no new calls and is stopped once its other
-calls finish, or RETIRE_SECONDS later at most. A worker dies with the router: the
+worker with a call past the limit takes no new calls and is stopped once each of its
+other calls has finished or passed its own limit (RETIRE_GRACE_SECONDS later at the
+latest). A worker dies with the router: the
 router starts every worker from one long-lived thread, and the worker (or, confined,
 its launcher) asks Linux to kill it when that parent ends.
 
@@ -42,6 +43,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -58,7 +60,7 @@ MEMORY_GIB = 128
 LOAD_SECONDS = 120
 CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP timeout
 EXIT_SECONDS = 5
-RETIRE_SECONDS = 10  # how long the other calls of a worker retired by a timeout may still run
+RETIRE_GRACE_SECONDS = 5  # how long a retired worker outlives the deadline of its last call in flight
 MAX_MESSAGE_BYTES = 32 << 20  # a message from the worker; its JSON takes many times that once parsed
 STDERR_BYTES = 8 << 20  # what one worker's tools may print to the router's stderr
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # control characters but tab and newline
@@ -313,6 +315,7 @@ class _Worker:
         threading.Thread(target=self._write, daemon=True).start()
         self.ready = concurrent.futures.Future()
         self.calls = {}
+        self.deadlines = {}  # when each call in flight reaches its time limit (time.monotonic)
         self.abandoned = set()
         self.ids = itertools.count(1)
         self.lock = threading.Lock()
@@ -335,11 +338,13 @@ class _Worker:
                 raise _WorkerGone(self.reason)
             request = next(self.ids)
             answer = self.calls[request] = concurrent.futures.Future()
+            self.deadlines[request] = time.monotonic() + self.owner.timeout
         try:
             self.send({"type": "execute", "id": request, "tool": tool_name, "args": args})
         except (TypeError, ValueError):
             with self.lock:
                 self.calls.pop(request, None)
+                self.deadlines.pop(request, None)
             raise
         return request, answer
 
@@ -363,20 +368,32 @@ class _Worker:
     def abandon(self, request):
         """Stop waiting for a call past its time limit; return False when its answer has already arrived."""
         with self.lock:
+            self.deadlines.pop(request, None)
             if self.calls.pop(request, None) is None:
                 return False
             self.abandoned.add(request)
             return True
 
     def retire(self):
-        """Take no new calls; stop the process once the calls still running finish, or after RETIRE_SECONDS."""
+        """Take no new calls; stop the process once each call in flight has finished or passed its deadline."""
         with self.lock:
             self.retiring = True
-            idle = not self.calls
-        if idle:
+        self._stop_when_done()
+
+    def _stop_when_done(self):
+        """Kill a retired worker now if it runs no call, else check again RETIRE_GRACE_SECONDS after the last deadline.
+
+        The calls past their deadline were abandoned by their callers, and each answer
+        or abandonment of the others kills an idle retired worker at once; the timer
+        only bounds a worker whose remaining calls neither answer nor time out.
+        """
+        with self.lock:
+            latest = max(self.deadlines.values(), default=None) if self.calls else None
+        wait = 0 if latest is None else latest + RETIRE_GRACE_SECONDS - time.monotonic()
+        if wait <= 0:
             self.kill()
         else:
-            timer = threading.Timer(RETIRE_SECONDS, self.kill)
+            timer = threading.Timer(wait, self._stop_when_done)
             timer.daemon = True
             timer.start()
 
@@ -426,6 +443,7 @@ class _Worker:
             self.stopped = True
             self.reason = reason or _exit_reason(returncode)
             calls, self.calls = self.calls, {}
+            self.deadlines.clear()
             self.abandoned.clear()
         for answer in calls.values():
             answer.set_result({"failure": self.reason})
@@ -445,6 +463,7 @@ class _Worker:
                 raise ValueError("malformed result")
             with self.lock:
                 answer = self.calls.pop(message.get("id"), None)
+                self.deadlines.pop(message.get("id"), None)
                 late = answer is None and message.get("id") in self.abandoned
                 self.abandoned.discard(message.get("id"))
                 idle = self.retiring and not self.calls
