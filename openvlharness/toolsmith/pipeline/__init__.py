@@ -6,6 +6,7 @@ those that pass both gates and are not near-duplicates (verification).
 """
 import json
 import logging
+import os
 import re
 import threading
 from collections import Counter
@@ -120,7 +121,9 @@ class Pipeline:
             issues = [issue] if issue else []
         if metadata and not re.fullmatch(r"[a-z][a-z0-9_]*", metadata["tool_name"]):
             issues = [f"tool_name {metadata['tool_name']!r} must be snake_case"]
-        elif metadata and metadata["tool_name"] in self.descriptions:
+        elif metadata and (metadata["tool_name"] in self.descriptions
+                           or os.path.lexists(self.catalog / f"{metadata['tool_name']}.py")):
+            # A module file of that name may register a different public name; it is a collision too.
             issues = [f"a tool named {metadata['tool_name']} already exists; choose another name"]
         if issues:
             return {"feedback": "Gate 1: " + "; ".join(issues)}
@@ -131,13 +134,27 @@ class Pipeline:
         return self.admit(metadata, source, scores)
 
     def admit(self, metadata, source, scores):
-        """Admit a verified candidate unless its description nearly duplicates an existing tool."""
+        """Admit a verified candidate unless its description nearly duplicates an existing tool.
+
+        The module file is created exclusively: an existing file of that name is a
+        collision even when the module in it registers a different tool name.
+        """
         name = metadata["tool_name"]
+        path = self.catalog / f"{name}.py"
         with self.lock:
             match, similarity = closest(metadata["tool_description"], self.descriptions)
             if similarity >= self.settings["dedup_threshold"] or name in self.descriptions:
                 return {"decision": "duplicate", "tool": name, "match": match, "similarity": similarity}
-            (self.catalog / f"{name}.py").write_text(source)
+            try:
+                stream = open(path, "x", encoding="utf-8")
+            except FileExistsError:
+                return {"decision": "duplicate", "tool": name, "file": path.name}
+            try:
+                with stream:
+                    stream.write(source)
+            except BaseException:
+                path.unlink(missing_ok=True)
+                raise
             self.descriptions[name] = metadata["tool_description"]
         return {"decision": "admitted", "tool": name, "scores": scores}
 

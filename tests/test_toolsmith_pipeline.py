@@ -242,6 +242,22 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(decision["attempts"][0], "Gate 1: tool_name '../escape' must be snake_case")
         self.assertFalse((self.root / "escape.py").exists())
 
+    def test_a_catalog_file_is_never_overwritten_by_a_tool_with_another_public_name(self):
+        existing = tool(name="phrase_translator", description="Translate a phrase into French.")
+        path = self.catalog / "river_length_lookup.py"
+        path.write_text(existing)
+        pipeline = self.pipeline()
+        self.assertEqual(pipeline.run([self.rollout]), {"rejected": 1})
+        decision = json.loads((self.root / "work" / "decisions.jsonl").read_text())
+        self.assertEqual(decision["attempts"],
+                         ["Gate 1: a tool named river_length_lookup already exists; choose another name"] * 3)
+        self.assertEqual(path.read_text(), existing)
+        metadata = {"tool_name": "river_length_lookup", "tool_description": "Report the length of a river."}
+        self.assertEqual(pipeline.admit(metadata, tool(), {}),
+                         {"decision": "duplicate", "tool": "river_length_lookup", "file": "river_length_lookup.py"})
+        self.assertEqual(path.read_text(), existing)
+        self.assertNotIn("river_length_lookup", pipeline.descriptions)
+
     def test_a_failing_model_call_leaves_the_gap_undecided(self):
         pipeline = self.pipeline()
 
