@@ -229,6 +229,17 @@ class PackagedToolBehaviourTests(unittest.TestCase):
                          {"property": "place of birth", "values": ["Lyon"], "score": 2, "hint_token_count": 2,
                           "confidence": 1.0})
 
+    def test_wikidata_reports_a_missing_qid_as_not_found(self):
+        tool = self.tools["wikidata_query"]
+
+        def get_json(url, params):
+            if params.get("action") != "wbgetentities":
+                raise AssertionError(f"no claims are read for a missing item ({url})")
+            return {"entities": {"Q999999999": {"id": "Q999999999", "missing": ""}}}
+        with patch.dict(tool.execute.__globals__, {"get_json": get_json}):
+            self.assertEqual(tool.execute(entity="Q999999999"),
+                             {"found": False, "error": "no Wikidata entity matches 'Q999999999'"})
+
     def test_media_catalog_errors_do_not_reveal_the_tmdb_key(self):
         import requests
 

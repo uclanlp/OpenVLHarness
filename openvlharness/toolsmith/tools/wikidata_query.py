@@ -71,6 +71,8 @@ class WikidataQuery(GeneratedTool):
         if re.fullmatch(r"Q\d+", entity):
             record = get_json(API, {"action": "wbgetentities", "ids": entity, "props": "labels|descriptions",
                                     "languages": "en", "format": "json"}).get("entities", {}).get(entity, {})
+            if "missing" in record:  # Wikidata has no item with this QID
+                return []
             return [(entity, record.get("labels", {}).get("en", {}).get("value", entity),
                      record.get("descriptions", {}).get("en", {}).get("value", ""))]
         hits = get_json(API, {"action": "wbsearchentities", "search": entity, "language": "en", "uselang": "en",
