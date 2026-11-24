@@ -408,6 +408,25 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn(payload["result"]["instance"], (before, small))
 
+    def test_an_oversized_result_fails_only_its_call(self):
+        worker = self.start(self.catalog("talker", "sleepy"))
+        first, results = worker.current, {}
+
+        def call(name, value):
+            results[name] = worker.execute(name, {"value": value}, tool_call_id=name)
+        threads = [threading.Thread(target=call, args=("sleepy", "2")),
+                   threading.Thread(target=call, args=("talker", str(worker_module.MAX_MESSAGE_BYTES + 1)))]
+        for thread in threads:
+            thread.start()
+            time.sleep(0.5)
+        for thread in threads:
+            thread.join(60)
+        payload, status = results["talker"]
+        self.assertEqual((status, payload["error"]["message"]),
+                         (500, "the result of talker is larger than the 32 MiB limit"))
+        self.assertEqual((results["sleepy"][1], results["sleepy"][0]["result"]["slept"]), (200, 2.0))
+        self.assertIs(worker.current, first)  # the same worker goes on
+
     def test_a_worker_whose_router_is_gone_exits_and_removes_its_copy(self):
         worker = self.start(self.catalog("probe"))
         process, home = worker.current.process, worker.current.home

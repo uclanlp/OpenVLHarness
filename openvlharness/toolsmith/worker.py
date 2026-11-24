@@ -57,7 +57,7 @@ LOAD_SECONDS = 120
 CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP timeout
 EXIT_SECONDS = 5
 RETIRE_SECONDS = 10  # how long the other calls of a worker retired by a timeout may still run
-MAX_MESSAGE_BYTES = 256 << 20
+MAX_MESSAGE_BYTES = 32 << 20  # a message from the worker; its JSON takes many times that once parsed
 MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 # Settings that name a file or directory, and lists of directories, the worker resolves like the router.
@@ -115,16 +115,26 @@ def worker_environment(granted=()):
     return environment
 
 
+class MessageTooLarge(ValueError):
+    """A message from the worker longer than MAX_MESSAGE_BYTES."""
+
+
 class _Channel:
-    """Newline-delimited JSON messages over a pair of pipes."""
+    """Newline-delimited JSON messages over a pair of pipes; limit bounds the length of a received message."""
 
     def __init__(self, reader, writer, *, limit=None):
         self.reader, self.writer, self.limit = reader, writer, limit
         self.lock = threading.Lock()
 
     def send(self, message, **options):
-        """Write one message; options go to json.dumps."""
+        """Write one message; options go to json.dumps.
+
+        Raises:
+            MessageTooLarge: The message is longer than MAX_MESSAGE_BYTES, which the router would refuse.
+        """
         line = json.dumps(message, **options).encode("ascii") + b"\n"
+        if len(line) > MAX_MESSAGE_BYTES:
+            raise MessageTooLarge(f"the message is larger than the {MAX_MESSAGE_BYTES >> 20} MiB limit")
         with self.lock:
             self.writer.write(line)
             self.writer.flush()
@@ -802,6 +812,10 @@ def _run(tools, message, channel):
                      argument_error=isinstance(exc, ToolArgumentError))
     try:
         channel.send(reply)
+    except MessageTooLarge:  # this call fails; the worker and its other calls go on
+        channel.send({"type": "result", "id": message["id"], "ok": False, "exception_type": "MessageTooLarge",
+                      "message": f"the result of {message['tool']} is larger than the {MAX_MESSAGE_BYTES >> 20} MiB "
+                                 "limit", "argument_error": False})
     except (TypeError, ValueError) as exc:
         channel.send({"type": "result", "id": message["id"], "ok": False, "message": f"the result is not JSON: {exc}",
                       "exception_type": type(exc).__name__, "argument_error": False})
@@ -835,8 +849,12 @@ def main(directory, limits):
     except Exception as exc:
         channel.send({"type": "ready", "error": {"type": type(exc).__name__, "message": _text(exc)}})
         os._exit(1)
-    channel.send({"type": "ready", "tools": [{"tool_name": tool.tool_name, "tool_description": tool.tool_description,
-                                              "input_schema": tool.input_schema} for tool in tools.values()]})
+    try:
+        channel.send({"type": "ready", "tools": [{"tool_name": tool.tool_name, "tool_description": tool.tool_description,
+                                                  "input_schema": tool.input_schema} for tool in tools.values()]})
+    except MessageTooLarge as exc:
+        channel.send({"type": "ready", "error": {"type": "ValueError", "message": f"the tool list: {exc}"}})
+        os._exit(1)
     while (message := channel.receive()) is not None:
         if message["type"] == "execute":
             threading.Thread(target=_run, args=(tools, message, channel), daemon=True).start()
