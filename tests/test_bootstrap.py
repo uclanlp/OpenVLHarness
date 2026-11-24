@@ -212,6 +212,13 @@ class BootstrapBoundaryTests(unittest.TestCase):
         prompt = Path(__file__).resolve().parents[1] / "openvlharness" / "prompts" / "toolsmith_system.txt"
         self.assertEqual(build_agent(config).system_prompt, prompt.read_text())
 
+    def test_prompt_bundle_must_name_a_packaged_bundle_when_given(self):
+        for bundle in (None, "", "missing_bundle", "../toolsmith", 3):
+            config = config_for("ocr")
+            config["agent"]["prompt_bundle"] = bundle
+            with self.subTest(bundle=bundle), self.assertRaisesRegex(ValueError, "not a packaged prompt bundle"):
+                load_agent_config(config)
+
     def test_coding_rejects_backbone_mismatch_and_nonlocal_executor(self):
         config = config_for("coding")
         config["services"]["tools"]["python_coding_agent"]["model_service"] = "auxiliary"

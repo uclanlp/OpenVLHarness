@@ -126,8 +126,9 @@ def load_agent_config(config, *, save_raw_trace=False):
     if type(agent.get("paired_sampling_seed", False)) is not bool:
         raise ValueError("agent.paired_sampling_seed must be boolean")
     bundle = agent.get("prompt_bundle")
-    if bundle is not None and not (isinstance(bundle, str) and re.fullmatch(r"\w+", bundle)
-                                   and files("openvlharness.prompts").joinpath(f"{bundle}_system.txt").is_file()):
+    # An explicit null is rejected too: callers read the key with a default that null would bypass.
+    if "prompt_bundle" in agent and not (isinstance(bundle, str) and re.fullmatch(r"\w+", bundle)
+                                         and files("openvlharness.prompts").joinpath(f"{bundle}_system.txt").is_file()):
         raise ValueError(f"agent.prompt_bundle {bundle!r} is not a packaged prompt bundle")
     caps = config["capabilities"]
     if set(caps) - {"registries", "tools"}:
