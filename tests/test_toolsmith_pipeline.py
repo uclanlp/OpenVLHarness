@@ -188,6 +188,29 @@ class PhaseTests(unittest.TestCase):
                                       "parameters": {"properties": {"image_id": {"type": "string"}}}}}
         self.assertEqual(describe_tools(base, {}).split(": ", 1)[0], "- Image_Search_Tool(image_base64)")
 
+    def test_tool_activity_reads_the_failures_the_runtime_records(self):
+        from openvlharness.toolsmith.pipeline.mining import _tool_activity
+
+        chat = [{"role": "assistant", "tool_calls": [{"function": {"name": "Text_Search_Tool"}},
+                                                     {"function": {"name": "Camera_Trajectory_Tool"}}]},
+                {"role": "tool", "content": "ok"},
+                {"role": "tool", "content": "tool_execution_error: Camera_Trajectory_Tool requires 2 images."},
+                {"role": "user", "content": "Tool `Text_Search_Tool` (tool_call_id=c1) returned:\nresult: ok"}]
+        self.assertEqual(_tool_activity(chat), (["Text_Search_Tool", "Camera_Trajectory_Tool"],
+                                                ["tool_execution_error: Camera_Trajectory_Tool requires 2 images."]))
+        responses = [{"type": "function_call", "call_id": "c1", "name": "Image_Search_Tool", "arguments": "{}"},
+                     {"type": "function_call_output", "call_id": "c1",
+                      "output": "invalid_tool_arguments: Unsupported task arguments: query."},
+                     {"type": "function_call", "call_id": "c2", "name": "OCR_Tool", "arguments": "{}"},
+                     {"type": "function_call_output", "call_id": "c2", "output": [
+                         {"type": "input_text", "text": "Tool `OCR_Tool` (tool_call_id=c2) returned: text"}]}]
+        self.assertEqual(_tool_activity(responses), (["Image_Search_Tool", "OCR_Tool"],
+                                                     ["invalid_tool_arguments: Unsupported task arguments: query."]))
+        envelope = [{"role": "tool", "content": '{"ok": false, "error": {"message": "no results"}}'}]
+        self.assertEqual(_tool_activity(envelope), ([], ["no results"]))
+        failures = [{"role": "tool", "content": f"tool_execution_error: failure {n}"} for n in range(5)]
+        self.assertEqual(_tool_activity(failures)[1], [f"tool_execution_error: failure {n}" for n in (2, 3, 4)])
+
     def test_self_critique_labels_and_reasons_are_parsed(self):
         class Analyst:
             def generate(self, request, system_prompt=None, max_tokens=None):

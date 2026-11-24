@@ -69,13 +69,32 @@ def failures(directory):
                   image=isinstance(image, str) and bool(image.strip(" []'\"")), tried_tools=tools, errors=errors)
 
 
+# A failed call reaches the model as "<error code>: <message>" (models.failure_text).
+FAILURE = re.compile(r"[a-z][a-z0-9]*(?:_[a-z0-9]+)+: \S.*", re.DOTALL)
+
+
 def _tool_activity(messages):
-    """Return the called tool names and the last three tool error messages of a trajectory."""
+    """Return the called tool names and the last three tool error messages of a trajectory.
+
+    Chat Completions trajectories record calls in assistant tool_calls and each
+    result in a tool message ("ok", or the failure text); Responses trajectories
+    use function_call and function_call_output items. A JSON execute envelope with
+    "ok": false in any message also counts.
+    """
     tools, errors = [], []
     for message in messages:
+        if not isinstance(message, dict):
+            continue
         for call in message.get("tool_calls") or []:
             tools.append((call.get("function") or {}).get("name") or call.get("name"))
-        content = message.get("content")
+        if message.get("type") == "function_call":
+            tools.append(message.get("name"))
+        result = (message.get("content") if message.get("role") == "tool" else
+                  message.get("output") if message.get("type") == "function_call_output" else None)
+        if isinstance(result, str) and FAILURE.fullmatch(result.strip()):
+            errors.append(result.strip()[:200])
+            continue
+        content = message.get("content", message.get("output"))
         text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
         if '"ok": false' in text:
             errors.extend(re.findall(r'"message": "([^"]{1,200})', text))
