@@ -43,6 +43,19 @@ class ExecuteRequest(BaseModel):
     args: dict = Field(default_factory=dict)
 
 
+# Only resolved task data crosses the router boundary; endpoints come from deployment config,
+# and images arrive as base64 so callers cannot make tools open router-host files.
+RUNTIME_FIELDS = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
+                  "box_threshold", "text_threshold", "num_results", "gl", "hl", "image_path", "image_paths"}
+
+
+def check_task_arguments(args):
+    """Raise ToolArgumentError when task arguments carry runtime or service fields."""
+    forbidden = RUNTIME_FIELDS & set(args)
+    if forbidden:
+        raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
+
+
 def redact(value):
     """Copy nested settings, masking keys that indicate credentials or secrets."""
     if isinstance(value, dict):
@@ -189,17 +202,9 @@ def create_app(config, *, implementations=None):
         tool, backend, service = registry[request.tool_name]
         args = dict(request.args)
         try:
-            # Only resolved task data crosses this boundary; endpoints come from deployment config,
-            # and images arrive as base64 so callers cannot make tools open router-host files.
-            forbidden = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
-                         "box_threshold", "text_threshold", "num_results", "gl", "hl",
-                         "image_path", "image_paths"} & set(args)
-            if forbidden:
-                raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
+            check_task_arguments(args)
             if backend in RAW_BACKENDS:
                 args["server_url"] = service["server_url"]
-            if backend == "toolsmith":
-                return tool.execute(request.tool_name, args, tool_call_id=request.tool_call_id)
             result = tool.execute(**args)
             extra = {}
             if isinstance(result, ServiceResult):
@@ -213,6 +218,17 @@ def create_app(config, *, implementations=None):
             return _build_error_payload(request.tool_name, request.tool_call_id, "tool_execution_error",
                 str(exc), {"exception_type": type(exc).__name__}), status
 
+    async def generated(request):
+        """Run a generated tool in the worker, awaiting it without holding a thread-pool worker."""
+        args = dict(request.args)
+        try:
+            check_task_arguments(args)
+            return await worker.execute_async(request.tool_name, args, tool_call_id=request.tool_call_id)
+        except Exception as exc:
+            status = 400 if isinstance(exc, ToolArgumentError) else 500
+            return _build_error_payload(request.tool_name, request.tool_call_id, "tool_execution_error",
+                str(exc), {"exception_type": type(exc).__name__}), status
+
     @app.post("/execute")
     async def call(request: ExecuteRequest):
         """Dispatch an HTTP tool request under its shared backend concurrency limit."""
@@ -221,7 +237,10 @@ def create_app(config, *, implementations=None):
                 request.tool_call_id, "tool_not_found", f"Tool not found: {request.tool_name}"))
         backend = registry[request.tool_name][1]
         group = BACKEND_GROUPS.get(backend)
-        if group:
+        if backend == "toolsmith":
+            # Calls the generated tool makes come back here and need thread-pool workers of their own.
+            payload, code = await generated(request)
+        elif group:
             # Acquire before occupying a threadpool worker, including shared depth/camera capacity.
             async with semaphores[group]:
                 active[group] += 1

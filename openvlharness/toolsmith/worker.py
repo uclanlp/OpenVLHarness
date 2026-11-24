@@ -17,6 +17,7 @@ calls finish.
 
 The router starts the worker as: python -m openvlharness.toolsmith.worker CATALOG LIMITS
 """
+import asyncio
 import atexit
 import concurrent.futures
 import itertools
@@ -126,6 +127,11 @@ def _valid_call(message):
     """Return whether a call_tool message from the worker names a tool, arguments and a call ID."""
     return (type(message.get("id")) is int and isinstance(message.get("tool"), str)
             and isinstance(message.get("args"), dict) and isinstance(message.get("tool_call_id"), str))
+
+
+def _failure(tool_name, tool_call_id, message, kind):
+    """Return the 500 envelope for a call the worker could not complete."""
+    return _build_error_payload(tool_name, tool_call_id, "tool_execution_error", message, {"exception_type": kind}), 500
 
 
 def _exit_reason(returncode):
@@ -334,30 +340,30 @@ class CatalogWorker:
 
     def execute(self, tool_name, args, *, tool_call_id):
         """Run one call in the worker and return the router envelope and its HTTP status."""
-        def failure(message, kind):
-            return _build_error_payload(tool_name, tool_call_id, "tool_execution_error", message,
-                                        {"exception_type": kind}), 500
-
         try:
-            worker = self._worker()
-            request, answer = worker.submit(tool_name, args)
+            worker, request, answer = self._submit(tool_name, args)
         except (ValueError, RuntimeError, OSError) as exc:
-            return failure(f"the generated-tool worker is unavailable: {exc}", "WorkerError")
+            return _failure(tool_name, tool_call_id, f"the generated-tool worker is unavailable: {exc}", "WorkerError")
         try:
             outcome = answer.result(timeout=self.timeout)
         except concurrent.futures.TimeoutError:
-            if worker.abandon(request):
-                self._retire(worker)
-                return failure(f"{tool_name} did not finish within {self.timeout:g} seconds", "TimeoutError")
-            outcome = answer.result()
-        if "failure" in outcome:
-            return failure(f"the generated-tool worker stopped while {tool_name} was running: {outcome['failure']}",
-                           "WorkerError")
-        if outcome["ok"]:
-            return _build_success_payload(tool_name, tool_call_id, outcome["result"], outcome["meta"]), 200
-        return (_build_error_payload(tool_name, tool_call_id, "tool_execution_error", outcome["message"],
-                                     {"exception_type": outcome["exception_type"]}),
-                400 if outcome["argument_error"] else 500)
+            outcome = None
+        return self._finish(worker, request, answer, outcome, tool_name, tool_call_id)
+
+    async def execute_async(self, tool_name, args, *, tool_call_id):
+        """Run one call like execute, awaiting the answer on the event loop instead of in a thread.
+
+        The router uses this, so a generated tool waiting for the calls it makes back
+        into the router holds none of the thread-pool workers those calls need.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            worker, request, answer = await loop.run_in_executor(None, self._submit, tool_name, args)
+        except (ValueError, RuntimeError, OSError) as exc:
+            return _failure(tool_name, tool_call_id, f"the generated-tool worker is unavailable: {exc}", "WorkerError")
+        # asyncio.wait, unlike wait_for, does not cancel the future the worker's reader resolves.
+        done, _ = await asyncio.wait({asyncio.wrap_future(answer)}, timeout=self.timeout)
+        return self._finish(worker, request, answer, answer.result() if done else None, tool_name, tool_call_id)
 
     def close(self):
         """Stop every worker; later calls fail."""
@@ -368,6 +374,29 @@ class CatalogWorker:
             worker.kill()
         for worker in workers:
             worker.reader.join(timeout=5)
+
+    def _submit(self, tool_name, args):
+        """Send one call to the worker taking new calls; return the worker, the call ID and its answer."""
+        worker = self._worker()
+        request, answer = worker.submit(tool_name, args)
+        return worker, request, answer
+
+    def _finish(self, worker, request, answer, outcome, tool_name, tool_call_id):
+        """Turn the worker's answer into the router envelope; outcome None means the time limit passed."""
+        if outcome is None:
+            if worker.abandon(request):
+                self._retire(worker)
+                return _failure(tool_name, tool_call_id, f"{tool_name} did not finish within {self.timeout:g} seconds",
+                                "TimeoutError")
+            outcome = answer.result()
+        if "failure" in outcome:
+            return _failure(tool_name, tool_call_id, "the generated-tool worker stopped while "
+                            f"{tool_name} was running: {outcome['failure']}", "WorkerError")
+        if outcome["ok"]:
+            return _build_success_payload(tool_name, tool_call_id, outcome["result"], outcome["meta"]), 200
+        return (_build_error_payload(tool_name, tool_call_id, "tool_execution_error", outcome["message"],
+                                     {"exception_type": outcome["exception_type"]}),
+                400 if outcome["argument_error"] else 500)
 
     def _start(self):
         """Start a worker and wait until it has loaded the catalog."""

@@ -351,6 +351,44 @@ class RouterTests(unittest.TestCase):
         pid = http.post("/execute", json={"tool_name": "worker_pid", "tool_call_id": "call-3"}).json()["result"]
         self.assertNotEqual(pid, os.getpid())
 
+    def test_waiting_generated_tools_leave_the_thread_pool_to_their_nested_calls(self):
+        pytest.importorskip("fastapi", reason="router tests need the server extra")
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        import anyio
+        from fastapi.testclient import TestClient
+
+        from openvlharness.services.server import create_app
+
+        class Lens:
+            def execute(self, image_base64):
+                time.sleep(0.2)
+                return {"text": "Robin visual matches"}
+
+        with tempfile.TemporaryDirectory() as directory:
+            write_tool(directory, "bird_egg_lookup", "Bird egg facts")
+            app = create_app(config(catalog=directory, worker={"timeout_seconds": 20}),
+                             implementations={"serper_image_search": Lens()})
+        worker = app.state.registry["bird_egg_lookup"][0]
+        self.addCleanup(worker.close)
+        with TestClient(app) as http:
+            # One thread-pool worker: each generated call's nested Image_Search_Tool call needs it.
+            http.portal.call(lambda: setattr(anyio.to_thread.current_default_thread_limiter(), "total_tokens", 1))
+
+            class InProcessClient:
+                def execute(self, tool_name, args, *, tool_call_id):
+                    return http.post("/execute", json={"tool_name": tool_name, "args": args,
+                                                       "tool_call_id": tool_call_id}).json()
+            worker.client = InProcessClient()
+            started = time.monotonic()
+            with ThreadPoolExecutor(4) as pool:
+                responses = list(pool.map(lambda n: http.post("/execute", json={
+                    "tool_name": "bird_egg_lookup", "tool_call_id": f"call-{n}", "args": {"image_base64": IMAGE}}).json(),
+                    range(4)))
+        self.assertEqual([(r["ok"], r["result"]) for r in responses], [(True, {"top": "Robin"})] * 4)
+        self.assertLess(time.monotonic() - started, 15)
+
     def test_generated_tools_cannot_shadow_router_tools(self):
         pytest.importorskip("fastapi", reason="router tests need the server extra")
         from openvlharness.services.server import create_app
