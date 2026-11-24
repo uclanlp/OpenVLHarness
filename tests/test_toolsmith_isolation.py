@@ -104,6 +104,25 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
+    def test_an_overlay_path_takes_writes_in_a_private_layer(self):
+        script = ("import json, os, sys\ncache = sys.argv[1]\nseen = [open(os.path.join(cache, 'config.json')).read()]\n"
+                  "open(os.path.join(cache, 'config.json'), 'w').write('changed')\n"
+                  "open(os.path.join(cache, 'planted.py'), 'w').write('print(1)')\n"
+                  "seen += [open(os.path.join(cache, 'config.json')).read(), sorted(os.listdir(cache)),"
+                  " os.path.exists('/.layers')]\nprint(json.dumps(seen))\n")
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+            cache = Path(home, "hf_home")
+            cache.mkdir()
+            (cache / "config.json").write_text("host")
+            spec = {"root": root, "read": isolation.system_paths(), "overlay": [str(cache)], "tmp": ["/tmp"],
+                    "cwd": "/tmp", "network": False}
+            done = subprocess.run(isolation.command(spec, [sys.executable, "-c", script, str(cache)]),
+                                  capture_output=True, text=True, timeout=60,
+                                  env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(json.loads(done.stdout), ["host", "changed", ["config.json", "planted.py"], False])
+            self.assertEqual(((cache / "config.json").read_text(), sorted(os.listdir(cache))), ("host", ["config.json"]))
+
     def test_temporary_file_systems_are_capped(self):
         # tmpfs memory is outside the address-space limit, so each mount has its own size and file cap.
         self.assertEqual(self.confined(network=False)["tmpfs"], ["ok", {
@@ -199,6 +218,31 @@ class WorkerIsolationTests(unittest.TestCase):
                     self.assertEqual(seen["processes"], ["ok", [1, 2]])
                     self.assertEqual(seen["token"], ["ok", ""])
                     self.assertEqual(seen["connect"][0], "ok" if network else "blocked")
+
+
+    def test_tools_never_write_the_host_model_caches(self):
+        writer = TOOL.replace("class Snoop", "class Writer").replace('"snoop"', '"cache_writer"').replace(
+            "    def execute(self, secret=\"\", port=0, token=\"\", router=0):",
+            "    def execute(self, path=\"\"):\n"
+            "        try:\n            open(path, \"w\").write(\"poisoned\")\n        except OSError as exc:\n"
+            "            return type(exc).__name__\n        return open(path).read()\n\n"
+            "    def unused(self, secret=\"\", port=0, token=\"\", router=0):")
+        with tempfile.TemporaryDirectory() as home:
+            catalog, cache = Path(home, "catalog"), Path(home, "hf_home")
+            catalog.mkdir()
+            (catalog / "cache_writer.py").write_text(writer)
+            (cache / "hub").mkdir(parents=True)
+            (cache / "hub" / "config.json").write_text("host")
+            for write_files, expected in ((True, "poisoned"), (False, "OSError")):
+                with self.subTest(write_files=write_files), patch.dict(os.environ, {"HF_HOME": str(cache)}):
+                    worker = CatalogWorker(catalog, client=FakeClient(), write_files=write_files)
+                    try:
+                        result = worker.execute("cache_writer", {"path": str(cache / "hub" / "config.json")},
+                                                tool_call_id="call-1")[0]["result"]
+                    finally:
+                        worker.close()
+                    self.assertIn(expected, result)
+                    self.assertEqual((cache / "hub" / "config.json").read_text(), "host")
 
 
 class FailClosedTests(unittest.TestCase):

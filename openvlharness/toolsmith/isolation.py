@@ -8,10 +8,12 @@ its uid and gid. In the new namespaces a small init (PID 1) runs the command as 
 on a fresh root filesystem built in SPEC's root directory: read-only bind mounts of
 the read paths, writable bind mounts of the write paths, private tmpfs directories of at
 most 1 GiB each, a fresh /proc that shows only the namespace's processes, and a /dev
-holding null, zero, full, random and urandom. The host filesystem is detached, the command starts without
-capabilities and cannot gain privileges, and everything in the namespace dies with the
-launcher. SPEC is JSON with root, read, write, mask (paths hidden inside read paths),
-tmp, cwd, network and cleanup (a directory the launcher removes when the command ends).
+holding null, zero, full, random and urandom. An overlay path is the host directory, read-only, under a
+private writable layer of at most 1 GiB that disappears with the namespace. The host
+filesystem is detached, the command starts without capabilities and cannot gain
+privileges, and everything in the namespace dies with the launcher. SPEC is JSON with
+root, read, write, overlay, mask (paths hidden inside read paths), tmp, cwd, network and
+cleanup (a directory the launcher removes when the command ends).
 """
 import ctypes
 import json
@@ -112,6 +114,22 @@ def _read_only(libc, target):
                 raise
 
 
+def _overlay(libc, root, path, layers):
+    """Mount path read-only under a writable layer kept in layers; fall back to a read-only bind."""
+    if any(character in path for character in ",:\\"):  # not expressible in overlay mount options
+        _bind(libc, root, path, writable=False)
+        return
+    upper = os.path.join(layers, str(len(os.listdir(layers))))
+    os.makedirs(os.path.join(upper, "upper"))
+    os.makedirs(os.path.join(upper, "work"))
+    options = f"lowerdir={path},upperdir={upper}/upper,workdir={upper}/work,userxattr"
+    try:
+        _mount(libc, "overlay", _target(root, path, directory=True), "overlay", MS_NOSUID | MS_NODEV, options)
+    except OSError as exc:
+        print(f"isolation: {path} is mounted read-only ({exc})", file=sys.stderr)
+        _bind(libc, root, path, writable=False)
+
+
 def _build_root(libc, spec):
     """Assemble the new root in spec["root"] and pivot into it."""
     root = os.path.realpath(spec["root"])
@@ -119,12 +137,24 @@ def _build_root(libc, spec):
     _mount(libc, "tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, f"mode=0755,{SKELETON}")
     entries = [(path, "read") for path in spec.get("read", [])] + [(path, "write") for path in spec.get("write", [])]
     entries += [(path, "tmp") for path in spec.get("tmp", [])]
+    entries += [(path, "overlay") for path in spec.get("overlay", []) if os.path.isdir(path)]
+    layers = None
+    if any(kind == "overlay" for _, kind in entries):
+        # The writable layers live on their own tmpfs, detached once the overlays hold it.
+        layers = os.path.join(root, ".layers")
+        os.mkdir(layers)
+        _mount(libc, "tmpfs", layers, "tmpfs", MS_NOSUID | MS_NODEV, f"mode=0700,{TMPFS}")
     for path, kind in sorted(entries, key=lambda entry: (entry[0].rstrip("/").count("/"), entry[0])):
         if kind == "tmp":
             _mount(libc, "tmpfs", _target(root, path, directory=True), "tmpfs", MS_NOSUID | MS_NODEV,
                    f"mode=1777,{TMPFS}")
+        elif kind == "overlay":
+            _overlay(libc, root, path, layers)
         elif os.path.lexists(path):
             _bind(libc, root, path, writable=kind == "write")
+    if layers:
+        _check(libc.umount2(os.fsencode(layers), MNT_DETACH), "detach the overlay layers")
+        os.rmdir(layers)
     for path in spec.get("mask", []):
         if os.path.isdir(root + path):
             _mount(libc, "tmpfs", root + path, "tmpfs", MS_NOSUID | MS_NODEV | MS_RDONLY, "mode=0755")

@@ -113,8 +113,11 @@ settings from `/etc` read-only, and has a private `/tmp`, home directory and `/d
 at most 1 GiB each, held in memory; a file that a granted variable names, such as a key
 file, is readable too. It cannot see the router's other files (the repository, other home directories,
 credential files such as `~/.aws/credentials`) or any process outside its namespace, and
-Hugging Face token files are hidden. `write_files` makes the caches and the local
-image-upload directory writable, and `worker.network: false` removes network access as
+Hugging Face token files are hidden. The host's model caches are never writable: with
+`write_files`, writes and downloads into them land in a private in-memory layer of at
+most 1 GiB that is discarded when the worker stops (download models on the host
+beforehand), and the local image-upload directory, which the image host serves, is
+writable. `worker.network: false` removes network access as
 well. With network access the worker shares the host's network, including services that
 listen on loopback, among them the router itself: a tool can call any router tool over
 HTTP, including those `call_tool` refuses, such as the local Python executor, which is

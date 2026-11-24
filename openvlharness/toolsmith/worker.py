@@ -7,8 +7,9 @@ without credential-like variables, unless toolsmith.worker.environment grants th
 starts in a private directory, and runs with its address space capped and, unless
 toolsmith.worker.write_files is set, without file writes. With toolsmith.worker.isolation
 (the default) it runs confined by Linux namespaces (see isolation): it sees only the
-interpreter, the packages, the catalog copy and the model caches, read-only, and none of
-the router's other files or processes. With network access it shares the host's network,
+interpreter, the packages, the catalog copy and the model caches, read-only (with
+write_files, the caches take writes in a private layer), and none of the router's other
+files or processes. With network access it shares the host's network,
 loopback included, so it can reach local services, the router among them;
 toolsmith.worker.network: false removes its network access.
 
@@ -489,6 +490,9 @@ class CatalogWorker:
                   environment.get("HUGGINGFACE_HUB_CACHE"), environment.get("TRANSFORMERS_CACHE"),
                   environment.get("TORCH_HOME") or expand("~/.cache/torch")]
         caches = list(dict.fromkeys(path for path in caches if path and os.path.isdir(path)))
+        masks = [os.path.join(cache, name) for cache in caches for name in ("token", "stored_tokens")]
+        # A cache inside another is covered by the outer mount.
+        caches = [path for path in caches if not any(path.startswith(other.rstrip("/") + "/") for other in caches)]
         package_root = os.path.realpath(PACKAGE_ROOT)
         read = system_paths() + [str(home / "catalog")]
         read += [entry for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
@@ -497,9 +501,10 @@ class CatalogWorker:
         read += [environment[name] for name in ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
                                                 *sorted(self.granted))
                  if environment.get(name) and os.path.isabs(environment[name]) and os.path.exists(environment[name])]
-        write = []
+        write, overlay = [], []
         if self.limits["file_bytes"] is None:
-            write += caches
+            # The host's caches stay read-only; writes and downloads go to the worker's private layer.
+            overlay = caches
             if environment.get("IMAGE_UPLOAD_PROVIDER", "").lower() == "local":
                 # The local image host serves this directory, so uploads must land in the host's copy.
                 uploads = environment.get("IMAGE_UPLOAD_LOCAL_DIR") or os.path.join(tempfile.gettempdir(),
@@ -509,9 +514,8 @@ class CatalogWorker:
         else:
             read += caches
         temporary = ["/tmp", "/var/tmp", expand("~")] + ([environment["TMPDIR"]] if environment.get("TMPDIR") else [])
-        return {"root": str(home / "root"), "read": read, "write": write, "tmp": temporary,
-                "mask": [os.path.join(cache, name) for cache in caches for name in ("token", "stored_tokens")]
-                + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home)}
+        return {"root": str(home / "root"), "read": read, "write": write, "overlay": overlay, "tmp": temporary,
+                "mask": masks + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home)}
 
     def _submit(self, tool_name, args):
         """Send one call to the worker taking new calls; return the worker, the call ID and its answer."""
