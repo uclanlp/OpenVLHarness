@@ -222,7 +222,7 @@ where the table names a model.
 | `toolsmith.worker.memory_gib` | positive number | `128` | not set | Address-space limit of the worker process, in GiB. Enforced on Linux; other platforms (macOS rejects the limit) run the worker without it and the router warns. |
 | `toolsmith.worker.write_files` | boolean | `false` | not set; ToolSmith preset `true` | Lets generated tools write files, as local image uploads, model downloads and PyTorch (temporary files) do. Otherwise the worker cannot write to files. |
 | `toolsmith.worker.isolation` | boolean | `true` | not set | Runs the worker in Linux user, mount, PID and IPC namespaces: it sees the interpreter, the packages, the catalog copy and the model caches read-only, a private `/tmp`, home directory and `/dev/shm` of at most 1 GiB each, and no other host files or processes. Needs unprivileged user namespaces; without them the router does not start unless this is `false`. |
-| `toolsmith.worker.network` | boolean | `true` | not set | With isolation, `false` gives the worker no network access. |
+| `toolsmith.worker.network` | boolean | `true` | not set | With isolation, `false` gives the worker no network access; `call_tool` still works. With `true` the worker shares the host's network, loopback services such as the tool router included. |
 
 Each selected backend needs a `services.tools.<backend>` mapping. The model
 generation options (`max_tokens` through `return_token_ids`) apply to

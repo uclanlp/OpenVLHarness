@@ -8,8 +8,9 @@ starts in a private directory, and runs with its address space capped and, unles
 toolsmith.worker.write_files is set, without file writes. With toolsmith.worker.isolation
 (the default) it runs confined by Linux namespaces (see isolation): it sees only the
 interpreter, the packages, the catalog copy and the model caches, read-only, and none of
-the router's other files or processes; toolsmith.worker.network: false also removes its
-network access.
+the router's other files or processes. With network access it shares the host's network,
+loopback included, so it can reach local services, the router among them;
+toolsmith.worker.network: false removes its network access.
 
 A generated tool reaches other tools only through call_tool, which the worker passes
 to the router process: calls to the other generated tools and to the base tools in

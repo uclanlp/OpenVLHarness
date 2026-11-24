@@ -115,8 +115,12 @@ file, is readable too. It cannot see the router's other files (the repository, o
 credential files such as `~/.aws/credentials`) or any process outside its namespace, and
 Hugging Face token files are hidden. `write_files` makes the caches and the local
 image-upload directory writable, and `worker.network: false` removes network access as
-well. On a host without unprivileged user namespaces the router refuses to start the
-worker unless `worker.isolation` is false.
+well. With network access the worker shares the host's network, including services that
+listen on loopback, among them the router itself: a tool can call any router tool over
+HTTP, including those `call_tool` refuses, such as the local Python executor, which is
+not a sandbox. Most packaged and research-catalog tools query web services directly and
+need network access; `call_tool` works without it. On a host without unprivileged user
+namespaces the router refuses to start the worker unless `worker.isolation` is false.
 
 The agent and the pipeline read the tools' names, descriptions and schemas from a
 short-lived worker started the same way, so catalog code does not run in the evaluator or
