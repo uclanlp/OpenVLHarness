@@ -287,7 +287,7 @@ def _check_router_catalog(agent_config):
     from openvlharness.toolsmith.catalog import catalog_fingerprint
 
     expected = catalog_fingerprint(agent_config["toolsmith"].get("catalog"))
-    base_url = agent_config["services"]["client"]["base_url"]
+    base_url = agent_config["services"]["client"]["base_url"].rstrip("/")  # as ToolClient joins it
     try:
         response = _requests.get(f"{base_url}/env", timeout=30)
         response.raise_for_status()
@@ -295,6 +295,9 @@ def _check_router_catalog(agent_config):
     except Exception as exc:
         sys.exit(f"error: cannot read which ToolSmith catalog the tool router at {base_url} serves "
                  f"({type(exc).__name__}); start the router with this configuration first.")
+    if served is None:
+        sys.exit(f"error: the tool router at {base_url} serves no ToolSmith catalog; start it with this "
+                 "configuration, whose toolsmith section it needs.")
     if served != expected:
         sys.exit(f"error: the tool router at {base_url} serves ToolSmith catalog {served}, but this run's catalog "
                  f"is {expected}. Restart the router so it loads the catalog this run uses.")

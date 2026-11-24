@@ -339,9 +339,11 @@ def test_inference_starts_only_when_the_router_serves_the_run_catalog(tmp_path, 
     monkeypatch.setattr(requests, "get", lambda url, timeout: answers.append(url) or Reply(served))
     served = {"toolsmith": {"catalog_sha256": catalog_fingerprint(catalog)}}
     cli._check_router_catalog(config)
-    assert answers == ["http://localhost:8101/env"]
+    config["services"]["client"]["base_url"] += "/"  # ToolClient accepts a trailing slash
+    cli._check_router_catalog(config)
+    assert answers == ["http://localhost:8101/env"] * 2
     for served, message in (({"toolsmith": {"catalog_sha256": "0" * 64}}, "serves ToolSmith catalog 0000"),
-                            ({"config": {}}, "serves ToolSmith catalog None"),
+                            ({"config": {}}, "serves no ToolSmith catalog"),
                             (requests.ConnectionError("refused"), "cannot read which ToolSmith catalog")):
         with pytest.raises(SystemExit, match=message):
             cli._check_router_catalog(config)
