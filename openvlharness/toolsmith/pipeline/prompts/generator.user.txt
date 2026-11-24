@@ -1,0 +1,12 @@
+Failed subtask:
+  query: {question}
+
+Expected answer shape (from classifier):
+  answer_type:   {answer_type}
+  answer_length: {answer_length}
+  extract_hint:  {extraction_hint}
+{image_note}
+Failure reason: {reason}
+Tools already tried: {tried_tools}
+
+Design a single new tool that would have made this subtask succeed, then return the JSON.

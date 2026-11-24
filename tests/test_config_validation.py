@@ -39,6 +39,8 @@ CASES = [
     (put(["agent", "max_iterations"], 0), "max_iterations must be a positive integer"),
     (put(["agent", "max_iterations"], True), "max_iterations must be a positive integer"),
     (put(["agent", "paired_sampling_seed"], "yes"), "paired_sampling_seed must be boolean"),
+    (put(["agent", "prompt_bundle"], "missing"), "not a packaged prompt bundle"),
+    (put(["agent", "prompt_bundle"], "../prompts/v8_instruct"), "not a packaged prompt bundle"),
     (put(["agent", "model_service"], "missing"), "agent.model_service must name an entry"),
     (put(["capabilities", "fallback"], True), "Unknown capability options"),
     (put(["capabilities", "registries"], ["extensions"]), "registries must include paper"),

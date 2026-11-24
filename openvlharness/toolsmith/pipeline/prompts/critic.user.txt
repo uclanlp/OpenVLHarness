@@ -1,0 +1,9 @@
+Original failing query: {question}
+
+Tool name: {name}
+Tool description: {description}
+Input schema: {schema}
+
+```python
+{code}
+```

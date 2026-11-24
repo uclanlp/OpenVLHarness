@@ -24,6 +24,7 @@ import argparse
 from pathlib import Path
 import yaml
 from openvlharness import bootstrap
+from openvlharness.toolsmith.errors import ToolSmithStartError
 from evaluation_kit import dataset as datasets
 from evaluation_kit.smp import *
 from evaluation_kit import infer_image_job
@@ -196,6 +197,7 @@ def _prepare_evaluation_run(args, logger):
         predictions = _saved_prediction_files(path, manifest, args.data, args.sample_filter)
         return str(path), manifest, *_saved_evaluation_identity(manifest), predictions
     selector = parse_yaml_mapping(args.config, label="Agent metadata filter") if args.config else None
+    catalog = _selected_catalog(selector, args.config)
     candidates = []
     for manifest_path in Path(args.work_dir).glob("*/*/*/run_manifest.json"):
         try:
@@ -207,7 +209,9 @@ def _prepare_evaluation_run(args, logger):
                 saved_service = config.get("agent", {}).get("model_service")
                 saved_alias = config.get("services", {}).get("models", {}).get(saved_service, {}).get("alias")
                 if (manifest.get("agent_config_version") != selector.get("agent_config_version")
-                        or config.get("agent_name") != selector.get("agent_name") or saved_alias != alias):
+                        or config.get("agent_name") != selector.get("agent_name") or saved_alias != alias
+                        or _saved_evaluation_identity(manifest)[1] != bootstrap.agent_class_name(selector)
+                        or manifest.get("toolsmith_catalog_sha256") != catalog):
                     continue
             identity = _saved_evaluation_identity(manifest)
             predictions = _saved_prediction_files(manifest_path.parent, manifest, args.data, args.sample_filter)
@@ -221,6 +225,25 @@ def _prepare_evaluation_run(args, logger):
         raise ValueError("Saved runs contain multiple model/agent identities; select one with --run-dir")
     _, root, manifest, identity, predictions = max(candidates, key=lambda item: (item[0], item[1]))
     return root, manifest, *identity, predictions
+
+
+def _selected_catalog(selector, source):
+    """Return the catalog digest a ToolSmith selector's runs must have recorded, or None for other selectors.
+
+    Exits with an error when the selector's catalog, read from source, is not a directory.
+    """
+    if not selector or "toolsmith" not in selector:
+        return None
+    from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+    catalog = (selector["toolsmith"] or {}).get("catalog")
+    path = os.path.expandvars(catalog) if isinstance(catalog, str) else catalog
+    try:
+        return catalog_fingerprint(path)
+    except (TypeError, ValueError):
+        unset = " (it names an environment variable that is not set)" if isinstance(path, str) and "$" in path else ""
+        sys.exit(f"error: toolsmith.catalog {catalog!r} in {source} is not a directory{unset}. Point it at the "
+                 "catalog the runs used, or select a run with --run-dir.")
 
 
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
@@ -271,6 +294,52 @@ def _prepare_run_root(pred_root, manifest, logger):
     _snapshot_tool_env(pred_root, logger, agent_config=manifest.get("config_snapshot_redacted", {}).get("agent"))
 
     logger.info(f"Initialized new run root: {pred_root}")
+
+
+def _check_router_catalog(agent_config, expected=None):
+    """Exit unless the tool router serves the ToolSmith catalog this run uses; return the router's digest.
+
+    The router runs the snapshot it loaded at startup, which differs from the files on disk
+    once a catalog is edited in place. When the configured catalog (toolsmith.catalog, or
+    the packaged one) is readable here, the router must serve exactly its files. When it is
+    not (missing, mistyped or unreadable), the evaluator stops, unless
+    toolsmith.trust_router_catalog is set: then the router's snapshot is trusted alone,
+    which is logged. expected, when given, is
+    the digest of the snapshot the agent's tools came from, which must be the router's too.
+    """
+    import requests as _requests
+    from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+    base_url = agent_config["services"]["client"]["base_url"].rstrip("/")  # as ToolClient joins it
+    try:
+        response = _requests.get(f"{base_url}/env", timeout=30)
+        response.raise_for_status()
+        served = (response.json().get("toolsmith") or {}).get("catalog_sha256")
+    except Exception as exc:
+        sys.exit(f"error: cannot read which ToolSmith catalog the tool router at {base_url} serves "
+                 f"({type(exc).__name__}); start the router with this configuration first.")
+    if served is None:
+        sys.exit(f"error: the tool router at {base_url} serves no ToolSmith catalog; start it with this "
+                 "configuration, whose toolsmith section it needs.")
+    catalog = agent_config["toolsmith"].get("catalog")
+    path = os.path.expandvars(catalog) if isinstance(catalog, str) else catalog
+    if expected is None:
+        try:
+            expected = catalog_fingerprint(path)
+        except (TypeError, ValueError, OSError) as exc:  # missing, not a directory, or unreadable
+            if not agent_config["toolsmith"].get("trust_router_catalog", False):
+                sys.exit(f"error: the ToolSmith catalog {path!r} is not readable here ({type(exc).__name__}), so the "
+                         f"evaluator cannot check that the tool router at {base_url} serves it. Fix "
+                         "toolsmith.catalog, or set toolsmith.trust_router_catalog: true to run on the router's "
+                         "catalog.")
+            get_logger("RUN").warning("The ToolSmith catalog %r is not readable here; as toolsmith."
+                                      "trust_router_catalog asks, the run uses the catalog the tool router at %s "
+                                      "serves (%s)", catalog, base_url, served)
+            return served
+    if served != expected:
+        sys.exit(f"error: the tool router at {base_url} serves ToolSmith catalog {served}, but this run's catalog "
+                 f"is {expected}. Restart the router so it loads the catalog this run uses.")
+    return served
 
 
 def _check_datasets(names):
@@ -448,7 +517,17 @@ def main(argv=None):
             sys.exit(f"error: {exc}")
         if args.mode == "all":
             _check_judge(args.data, judge_kwargs)
-        agent = bootstrap.build_agent(agent_config)
+        # Cheap checks first, before the agent loads its encoder: the router serves the configured catalog.
+        served_catalog = _check_router_catalog(agent_config) if "toolsmith" in agent_config else None
+        try:
+            agent = bootstrap.build_agent(agent_config)
+        except ToolSmithStartError as exc:  # its catalog, worker or encoder; other errors keep their traceback
+            sys.exit(f"error: {exc}")
+        # One catalog snapshot for the run: the one the agent's tools came from must be the router's, and is the
+        # one the run identity records, so a tool admitted meanwhile cannot make them disagree.
+        catalog_sha256 = getattr(agent, "catalog_sha256", None)
+        if served_catalog is not None and catalog_sha256 != served_catalog:
+            _check_router_catalog(agent_config, catalog_sha256)
         model_name = agent.model.split('/')[-1]
         agent_class = agent.__class__.__name__
 
@@ -472,6 +551,7 @@ def main(argv=None):
                 judge_config=judge_config,
                 config_path=args.config,
                 judge_config_path=args.judge_config,
+                toolsmith_catalog_sha256=catalog_sha256,
             )
             run_manifest_path = os.path.join(pred_root, "run_manifest.json")
             if not os.path.exists(run_manifest_path):
@@ -492,6 +572,7 @@ def main(argv=None):
                 judge_config=judge_config,
                 config_path=args.config,
                 judge_config_path=args.judge_config,
+                toolsmith_catalog_sha256=catalog_sha256,
             )
             pred_root = _find_resumable_run_dir(
                 parent_dir, agent_config_version, judge_config_version,
@@ -508,6 +589,7 @@ def main(argv=None):
                 judge_config=judge_config,
                 config_path=args.config,
                 judge_config_path=args.judge_config,
+                toolsmith_catalog_sha256=catalog_sha256,
             )
             logger.info(f"Resuming existing run: {pred_root}")
         else:
@@ -521,6 +603,7 @@ def main(argv=None):
                 judge_config=judge_config,
                 config_path=args.config,
                 judge_config_path=args.judge_config,
+                toolsmith_catalog_sha256=catalog_sha256,
             )
             try:
                 _prepare_run_root(pred_root, run_manifest, logger)

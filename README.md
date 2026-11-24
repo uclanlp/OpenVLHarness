@@ -35,7 +35,7 @@
 <a id="news"></a>
 ## 📰 News
 
-- **2026-11-24:** [ToolSmith](https://threesr.github.io/toolsmith/), an automatic tool-generation framework for multimodal search agents built upon OpenVLHarness, is released. Welcome to try it out!
+- **2026-11-24:** [ToolSmith](toolsmith/), an automatic tool-generation framework for multimodal search agents built upon OpenVLHarness, is released. Welcome to try it out!
 - **2026-11-13:** We will give a [talk on OpenVLHarness](https://mp.weixin.qq.com/s/Y0SOJ3esuFWU0GnR2p6q5w) on Friday, November 13, 2026, 6–7 PM PST. [Register here](https://t.bilibili.com/1268243648604012563).
 - **2026-10-24:** Listed on [Hugging Face Trending Papers](https://huggingface.co/papers/trending) and featured by [Hugging Papers](https://x.com/HuggingPapers/status/2114027064751685782) on X.
 - **2026-10-20:** [Featured by AK on X](https://x.com/_akhaliq/status/2112566784343876081).
@@ -586,6 +586,13 @@ translate its response to the capability's expected fields, and register the
 backend as described below. Endpoints and credentials belong in deployment
 configuration or the service environment; public tool arguments describe the task.
 
+### Generate tools with ToolSmith
+
+[ToolSmith](toolsmith/README.md) grows a catalog of new tools
+from the agent's failed trajectories and offers each question the generated tools most
+relevant to it. Add a `toolsmith` section to a preset, as in
+[qwen3_8b_toolsmith.yaml](configs/agent/qwen3_8b_toolsmith.yaml).
+
 ### Add a capability or backend
 
 New capability names and backends require source registration before they can be
@@ -636,9 +643,11 @@ openvlharness/          the harness (installed as the openvlharness package)
   services/             model profiles, tool client and tool router
     tools/              tool backends (SAM 3, OCR, depth, search, Python executor, ...)
   prompts/              system prompts
+  toolsmith/            generated tools, per-question tool retrieval and the tool-generation pipeline
   bootstrap.py          builds an agent from a YAML config
 evaluation_kit/         benchmark loaders, judges and the runner (openvlharness-eval)
-configs/                paper agent presets and judge settings
+configs/                paper agent presets, judge and ToolSmith settings
+toolsmith/              ToolSmith guide
 examples/               example agent configurations
 docs/                   model, runtime and validation notes
 tests/                  harness tests; tests/evaluation/ needs the eval extra
@@ -658,6 +667,7 @@ harness the same way any other application would.
 | [Model services](docs/models.md) | Presets, registered models, Qwen serving, GPT and Kimi connections, per-role settings, raw trace export |
 | [Tool services](openvlharness/services/tools/README.md) | GPU workers, router deployment, search credentials, backend guides |
 | [Runtime design](docs/runtime.md) | Agent loop, configuration, memory, capability interfaces |
+| [ToolSmith](toolsmith/README.md) | Generated-tool catalogs, per-question retrieval, the tool-generation pipeline |
 | [Your model in the live demo](docs/demo_endpoint.md) | Serve a model with vLLM and get the Base URL and Model name for the demo's OpenAI-compatible option |
 | [Benchmarks and judges](evaluation_kit/dataset/README.md) | Benchmark loaders, metrics, judge configuration, `score_mode` |
 | [Release validation](docs/validation.md) | Regression coverage and live validation evidence |
