@@ -418,27 +418,28 @@ class WorkerTests(unittest.TestCase):
         payload, _ = worker.execute("caller", {"value": "Text_Search_Tool"}, tool_call_id="call-3")
         self.assertEqual(payload["result"], {"exception": "ReadTimeout: router timed out"})
 
-    def test_an_oversized_or_malformed_message_stops_only_that_worker(self):
+    def test_a_message_over_the_routers_limit_stops_only_that_worker(self):
+        # The router's own check, for a worker that does not keep to the limit it was given.
         worker = self.start(self.catalog("talker", "probe"))
         before = worker.execute("probe", {}, tool_call_id="call-1")[0]["result"]["instance"]
-        with patch.object(worker_module, "MAX_MESSAGE_BYTES", 4096):
-            worker._retire(worker.current)
-            small = worker.execute("probe", {}, tool_call_id="call-2")[0]["result"]["instance"]
+        worker.current.channel.limit = 4096  # from the read after the one already waiting
+        self.assertEqual(worker.execute("probe", {}, tool_call_id="call-2")[1], 200)
         payload, status = worker.execute("talker", {"value": "100000"}, tool_call_id="call-3")
         self.assertEqual(status, 500)
         self.assertIn("invalid message", payload["error"]["message"])
         payload, status = worker.execute("probe", {}, tool_call_id="call-4")
         self.assertEqual(status, 200)
-        self.assertNotIn(payload["result"]["instance"], (before, small))
+        self.assertNotEqual(payload["result"]["instance"], before)
 
     def test_an_oversized_result_fails_only_its_call(self):
-        worker = self.start(self.catalog("talker", "sleepy"))
+        with patch.object(worker_module, "MAX_MESSAGE_BYTES", 1 << 20):  # the router passes its limit on
+            worker = self.start(self.catalog("talker", "sleepy"))
         first, results = worker.current, {}
 
         def call(name, value):
             results[name] = worker.execute(name, {"value": value}, tool_call_id=name)
         threads = [threading.Thread(target=call, args=("sleepy", "2")),
-                   threading.Thread(target=call, args=("talker", str(worker_module.MAX_MESSAGE_BYTES + 1)))]
+                   threading.Thread(target=call, args=("talker", str(2 << 20)))]
         for thread in threads:
             thread.start()
             time.sleep(0.5)
@@ -446,7 +447,7 @@ class WorkerTests(unittest.TestCase):
             thread.join(60)
         payload, status = results["talker"]
         self.assertEqual((status, payload["error"]["message"]),
-                         (500, "the result of talker is larger than the 32 MiB limit"))
+                         (500, "the result of talker is larger than the 1 MiB limit"))
         self.assertEqual((results["sleepy"][1], results["sleepy"][0]["result"]["slept"]), (200, 2.0))
         self.assertIs(worker.current, first)  # the same worker goes on
 
@@ -529,12 +530,14 @@ class WorkerTests(unittest.TestCase):
         self.addCleanup(worker.close)
         parent = None if ISOLATION else os.getpid()  # an unconfined worker watches the router itself
         self.assertEqual((worker.timeout, worker.limits, worker.refused),
-                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": None, "parent": parent},
+                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": None, "message_bytes": 32 << 20,
+                                 "parent": parent},
                           {"Depth_Estimation_Tool"}))
         config["toolsmith"]["worker"] = {"isolation": ISOLATION, "timeout_seconds": 42}
         with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
             worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
         self.addCleanup(worker.close)
         self.assertEqual((worker.timeout, worker.limits),
-                         (42, {"memory_bytes": 128 << 30, "file_bytes": 0, "parent": parent}))
+                         (42, {"memory_bytes": 128 << 30, "file_bytes": 0, "message_bytes": 32 << 20,
+                               "parent": parent}))
         self.assertTrue(any("may time out and retry" in line for line in logs.output))

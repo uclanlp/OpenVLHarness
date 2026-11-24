@@ -122,25 +122,33 @@ def worker_environment(granted=()):
 
 
 class MessageTooLarge(ValueError):
-    """A message from the worker longer than MAX_MESSAGE_BYTES."""
+    """A message from the worker longer than the router accepts."""
+
+
+def _size(count):
+    """Describe a byte count, in MiB when it is whole MiB."""
+    return f"{count >> 20} MiB" if count and not count % (1 << 20) else f"{count} bytes"
 
 
 class _Channel:
-    """Newline-delimited JSON messages over a pair of pipes; limit bounds the length of a received message."""
+    """Newline-delimited JSON messages over a pair of pipes.
 
-    def __init__(self, reader, writer, *, limit=None):
-        self.reader, self.writer, self.limit = reader, writer, limit
+    limit bounds the length of a received message, send_limit that of a sent one.
+    """
+
+    def __init__(self, reader, writer, *, limit=None, send_limit=None):
+        self.reader, self.writer, self.limit, self.send_limit = reader, writer, limit, send_limit
         self.lock = threading.Lock()
 
     def send(self, message, **options):
         """Write one message; options go to json.dumps.
 
         Raises:
-            MessageTooLarge: The message is longer than MAX_MESSAGE_BYTES, which the router would refuse.
+            MessageTooLarge: The message is longer than send_limit, which the router would refuse.
         """
         line = json.dumps(message, **options).encode("ascii") + b"\n"
-        if len(line) > MAX_MESSAGE_BYTES:
-            raise MessageTooLarge(f"the message is larger than the {MAX_MESSAGE_BYTES >> 20} MiB limit")
+        if self.send_limit and len(line) > self.send_limit:
+            raise MessageTooLarge(f"the message is larger than the {_size(self.send_limit)} limit")
         with self.lock:
             self.writer.write(line)
             self.writer.flush()
@@ -299,7 +307,7 @@ class _Worker:
             shutil.rmtree(self.home, ignore_errors=True)
             raise
         threading.Thread(target=_copy_to_stderr, args=(self.process.stderr, self.process.pid), daemon=True).start()
-        self.channel = _Channel(self.process.stdout, None, limit=MAX_MESSAGE_BYTES)
+        self.channel = _Channel(self.process.stdout, None, limit=limits["message_bytes"])
         # One thread writes to the worker, so a worker that stops reading blocks no caller.
         self.outbox = queue.SimpleQueue()
         threading.Thread(target=self._write, daemon=True).start()
@@ -493,7 +501,9 @@ class CatalogWorker:
         self.client = client
         self.refused = set(base_tools) - set(CALLABLE_BASE_TOOLS)
         self.timeout = timeout_seconds
-        self.limits = {"memory_bytes": int(memory_gib * (1 << 30)), "file_bytes": None if write_files else 0}
+        # The router tells the worker its message limit, so the two never disagree.
+        self.limits = {"memory_bytes": int(memory_gib * (1 << 30)), "file_bytes": None if write_files else 0,
+                       "message_bytes": MAX_MESSAGE_BYTES}
         if not memory_limit_enforced():
             self.limits["memory_bytes"] = None
             logger.warning("%s does not enforce address-space limits: the generated-tool worker runs without "
@@ -840,7 +850,7 @@ def _run(tools, message, channel):
         channel.send(reply)
     except MessageTooLarge:  # this call fails; the worker and its other calls go on
         channel.send({"type": "result", "id": message["id"], "ok": False, "exception_type": "MessageTooLarge",
-                      "message": f"the result of {message['tool']} is larger than the {MAX_MESSAGE_BYTES >> 20} MiB "
+                      "message": f"the result of {message['tool']} is larger than the {_size(channel.send_limit)} "
                                  "limit", "argument_error": False})
     except (TypeError, ValueError) as exc:
         channel.send({"type": "result", "id": message["id"], "ok": False, "message": f"the result is not JSON: {exc}",
@@ -866,6 +876,7 @@ def main(directory, limits):
     os.dup2(2, 1)
     limits = json.loads(limits)
     _die_with(limits.pop("parent", None))
+    channel.send_limit = limits.pop("message_bytes", MAX_MESSAGE_BYTES)
     _prefer_oom_kill()
     limit_resources(**limits)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
