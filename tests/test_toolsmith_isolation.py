@@ -269,6 +269,23 @@ class WorkerIsolationTests(unittest.TestCase):
 
 
 class FailClosedTests(unittest.TestCase):
+    @needs_isolation
+    def test_a_namespace_that_cannot_refuse_nested_ones_is_not_used(self):
+        # As if the kernel kept user.max_user_namespaces read-only inside the namespace.
+        code = ("import builtins, sys\nopen_ = builtins.open\n"
+                "def refusing(path, *args, **kwargs):\n"
+                "    if str(path).endswith('max_user_namespaces'):\n"
+                "        raise PermissionError(13, 'Permission denied')\n"
+                "    return open_(path, *args, **kwargs)\n"
+                "builtins.open = refusing\nfrom openvlharness.toolsmith import isolation\n"
+                "with __import__('tempfile').TemporaryDirectory(prefix='openvlharness-') as root:\n"
+                "    isolation.launch({'root': root, 'read': isolation.system_paths(network=False), 'tmp': ['/tmp'],"
+                " 'network': False}, [sys.executable, '-c', 'print(\"confined\")'])\n")
+        done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
+                              env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+        self.assertEqual((done.returncode, done.stdout), (isolation.SETUP_FAILED, ""))
+        self.assertIn("cannot refuse nested user namespaces", done.stderr)
+
     def test_root_callers_are_refused(self):
         with patch.object(isolation, "_probe", None), patch.object(isolation.os, "getuid", return_value=0):
             confinable, reason = isolation.available()

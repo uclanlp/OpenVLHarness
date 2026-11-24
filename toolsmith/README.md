@@ -137,7 +137,8 @@ not a sandbox. It can also reach the host's abstract UNIX sockets, and `/proc/ne
 the host's connections. Without network access it cannot resolve names either, as the
 resolver's socket is not mounted. Most packaged and research-catalog tools query web services directly and
 need network access; `call_tool` works without it. On a host without unprivileged user
-namespaces the router refuses to start the worker unless `worker.isolation` is false.
+namespaces, or one where the namespace cannot refuse nested ones, the router refuses to
+start the worker unless `worker.isolation` is false.
 
 The agent and the pipeline read the tools' names, descriptions and schemas from a
 short-lived worker started the same way, so catalog code does not run in the evaluator or

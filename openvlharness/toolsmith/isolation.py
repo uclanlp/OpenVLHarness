@@ -262,14 +262,18 @@ def _limit_namespace():
     """Refuse nested user namespaces and cap the namespace's processes, while it still holds capabilities.
 
     A nested user namespace would give the command capabilities again, to mount an
-    uncapped tmpfs or look under a mask. The process cap needs per-namespace counting
-    (Linux 5.14); earlier kernels count every process of the uid.
+    uncapped tmpfs or look under a mask, so a kernel that does not let the namespace
+    refuse them fails the launch like any other setup step. The process cap needs
+    per-namespace counting (Linux 5.14); earlier kernels count every process of the uid.
+
+    Raises:
+        OSError: user.max_user_namespaces cannot be set to 0 in the namespace.
     """
     try:
         with open("/proc/sys/user/max_user_namespaces", "w") as stream:
             stream.write("0")
     except OSError as exc:
-        print(f"isolation: nested user namespaces stay allowed ({exc})", file=sys.stderr)
+        raise OSError(exc.errno, f"cannot refuse nested user namespaces ({exc.strerror})") from exc
     if tuple(int(part) for part in re.findall(r"\d+", platform.release())[:2]) >= (5, 14):
         resource.setrlimit(resource.RLIMIT_NPROC, (PROCESSES, PROCESSES))
 
