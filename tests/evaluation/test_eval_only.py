@@ -174,6 +174,24 @@ def test_eval_discovery_picks_only_runs_of_the_configured_catalog(tmp_path, no_i
     assert root == str(roots["run_1"])
 
 
+@pytest.mark.parametrize("catalog,message", [
+    ("${UNSET_CATALOG_DIR}", "is not a directory (it names an environment variable that is not set)"),
+    ("/nonexistent/catalog", "is not a directory. Point it at the catalog the runs used")])
+def test_eval_discovery_explains_a_toolsmith_catalog_it_cannot_read(tmp_path, no_inference, catalog, message):
+    from evaluation_kit import cli as module
+    saved_run(tmp_path, "run_1")
+    selector = {"agent_name": "MainAgent", "agent_config_version": "paper_v1", "agent": {"model_service": "main"},
+                "services": {"models": {"main": {"alias": "removed-profile"}}}, "toolsmith": {"catalog": catalog}}
+    (tmp_path / "toolsmith.yaml").write_text(yaml.safe_dump(selector))
+    args = SimpleNamespace(run_dir=None, config=str(tmp_path / "toolsmith.yaml"), work_dir=str(tmp_path),
+                           data=["ToyEval"], sample_filter="all")
+    with patch.dict(os.environ, {"UNSET_CATALOG_DIR": ""}), pytest.raises(SystemExit) as stop:
+        os.environ.pop("UNSET_CATALOG_DIR")
+        module._prepare_evaluation_run(args, SimpleNamespace(debug=lambda *args: None))
+    assert str(stop.value).startswith(f"error: toolsmith.catalog {catalog!r} in {args.config}")
+    assert message in str(stop.value)
+
+
 def test_explicit_eval_run_requires_requested_prediction_files(tmp_path, no_inference):
     from evaluation_kit import cli as module
     root, manifest = saved_run(tmp_path)

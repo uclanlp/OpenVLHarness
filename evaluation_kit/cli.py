@@ -199,7 +199,7 @@ def _prepare_evaluation_run(args, logger):
         predictions = _saved_prediction_files(path, manifest, args.data, args.sample_filter)
         return str(path), manifest, *_saved_evaluation_identity(manifest), predictions
     selector = parse_yaml_mapping(args.config, label="Agent metadata filter") if args.config else None
-    catalog = _selected_catalog(selector)
+    catalog = _selected_catalog(selector, args.config)
     candidates = []
     for manifest_path in Path(args.work_dir).glob("*/*/*/run_manifest.json"):
         try:
@@ -229,14 +229,23 @@ def _prepare_evaluation_run(args, logger):
     return root, manifest, *identity, predictions
 
 
-def _selected_catalog(selector):
-    """Return the catalog digest a ToolSmith selector's runs must have recorded, or None for other selectors."""
+def _selected_catalog(selector, source):
+    """Return the catalog digest a ToolSmith selector's runs must have recorded, or None for other selectors.
+
+    Exits with an error when the selector's catalog, read from source, is not a directory.
+    """
     if not selector or "toolsmith" not in selector:
         return None
     from openvlharness.toolsmith.catalog import catalog_fingerprint
 
     catalog = (selector["toolsmith"] or {}).get("catalog")
-    return catalog_fingerprint(os.path.expandvars(catalog) if isinstance(catalog, str) else catalog)
+    path = os.path.expandvars(catalog) if isinstance(catalog, str) else catalog
+    try:
+        return catalog_fingerprint(path)
+    except (TypeError, ValueError):
+        unset = " (it names an environment variable that is not set)" if isinstance(path, str) and "$" in path else ""
+        sys.exit(f"error: toolsmith.catalog {catalog!r} in {source} is not a directory{unset}. Point it at the "
+                 "catalog the runs used, or select a run with --run-dir.")
 
 
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
