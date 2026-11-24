@@ -321,7 +321,7 @@ def build_agent(config):
     arguments = (adapter, build_capabilities(config), memory_factory(config["memory"]), system, prefix)
     settings = {"max_iterations": options.get("max_iterations", 15), "tool_choice": options.get("tool_choice", "auto"),
                 "paired_sampling_seed": options.get("paired_sampling_seed", False)}
-    if "toolsmith" in config:
+    if agent_class_name(config) == "ToolSmithAgent":  # the class run manifests record
         from .toolsmith.agent import ToolSmithAgent
         return ToolSmithAgent(*arguments, toolsmith=config["toolsmith"],
                               client_config=config["services"]["client"], **settings)
