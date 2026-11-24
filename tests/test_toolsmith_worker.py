@@ -71,6 +71,20 @@ BODIES = {
         except Exception as exc:
             return {"exception": f"{type(exc).__name__}: {exc}"}""",
     "talker": """        return "x" * int(value)""",
+    "fanout": """        import threading
+        results = [None] * int(value)
+
+        def call(index):
+            try:
+                results[index] = ["ok", self.call_tool("Text_Search_Tool", query=str(index))]
+            except ToolCallError as exc:
+                results[index] = ["refused", str(exc)]
+        threads = [threading.Thread(target=call, args=(index,)) for index in range(int(value))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return results""",
     "chatty": """        print("chatty " * 20000, flush=True)
         import warnings
         warnings.warn("chatty warning")
@@ -127,6 +141,21 @@ class WorkerTests(unittest.TestCase):
         worker = CatalogWorker(directory, **options)
         self.addCleanup(worker.close)
         return worker
+
+    def test_the_router_runs_a_bounded_number_of_calls_from_generated_tools_at_once(self):
+        class SlowClient(FakeClient):
+            def execute(self, tool_name, args, *, tool_call_id):
+                time.sleep(2)  # the three calls overlap well within this
+                return super().execute(tool_name, args, tool_call_id=tool_call_id)
+
+        worker = self.start(self.catalog("fanout"), client=SlowClient(result="found"))
+        with patch.object(worker_module, "MAX_FORWARDED", 2):
+            payload, status = worker.execute("fanout", {"value": "3"}, tool_call_id="call-1")
+        self.assertEqual(status, 200)
+        self.assertEqual(sorted(outcome for outcome, _ in payload["result"]), ["ok", "ok", "refused"])
+        self.assertIn(["refused", "Text_Search_Tool: more than 2 calls from generated tools are running"],
+                      payload["result"])
+        self.assertEqual(worker.current.forwarding, 0)  # every admitted call released its place
 
     def test_tool_prints_reach_a_router_log_file_without_file_writes(self):
         # The router's stderr is often a log file; the worker, which cannot write files, still prints there.

@@ -52,6 +52,7 @@ LOAD_SECONDS = 120
 CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP timeout
 EXIT_SECONDS = 5
 MAX_MESSAGE_BYTES = 256 << 20
+MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 # Settings that name a file or directory, and lists of directories, the worker resolves like the router.
 PATH_SETTINGS = {"SERPER_API_KEY_FILE", "GOOGLE_APPLICATION_CREDENTIALS", "IMAGE_UPLOAD_LOCAL_DIR", "HF_HOME",
@@ -226,6 +227,7 @@ class _Worker:
         self.retiring = self.stopped = False
         self.reason = None
         self.tools = []
+        self.forwarding = 0
         self.reader = threading.Thread(target=self._read, name=f"toolsmith-worker-{self.process.pid}", daemon=True)
         self.reader.start()
 
@@ -284,6 +286,14 @@ class _Worker:
                 except OSError:
                     pass
 
+    def _forward(self, message):
+        """Run one call_tool through the router, counting it while it runs."""
+        try:
+            self.owner._forward(self, message)
+        finally:
+            with self.lock:
+                self.forwarding -= 1
+
     def _read(self):
         """Handle the worker's messages until it stops, then fail the calls still waiting."""
         reason = None
@@ -339,7 +349,15 @@ class _Worker:
         elif kind == "call":
             if not _valid_call(message):
                 raise ValueError("malformed call")
-            threading.Thread(target=self.owner._forward, args=(self, message), daemon=True).start()
+            with self.lock:
+                admitted = self.forwarding < MAX_FORWARDED
+                self.forwarding += admitted
+            if admitted:
+                threading.Thread(target=self._forward, args=(message,), daemon=True).start()
+            else:
+                self.send({"type": "reply", "id": message["id"], "payload": _build_error_payload(
+                    message["tool"], message["tool_call_id"], "too_many_calls",
+                    f"more than {MAX_FORWARDED} calls from generated tools are running")})
         else:
             raise ValueError(f"unexpected message type {kind!r}")
 
