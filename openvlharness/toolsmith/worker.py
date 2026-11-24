@@ -41,7 +41,7 @@ from types import SimpleNamespace
 from ..contracts import ServiceResult
 from ..services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
 from ..services.tools.base import ToolArgumentError
-from .catalog import DEFAULT_CATALOG, catalog_modules, fingerprint_files, load_catalog
+from .catalog import DEFAULT_CATALOG, catalog_modules, fingerprint_files, load_catalog, valid_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -548,8 +548,8 @@ class CatalogWorker:
         error = ready.get("error")
         tools = ready.get("tools")
         if error is None and not (isinstance(tools, list) and all(
-                isinstance(tool, dict) and isinstance(tool.get("tool_name"), str) for tool in tools)):
-            error = {"type": "RuntimeError", "message": "the worker reported no tool list"}
+                isinstance(tool, dict) and valid_metadata(tool) for tool in tools)):
+            error = {"type": "RuntimeError", "message": "the worker reported no valid tool list"}
         if error is None and self.tools is not None and [tool["tool_name"] for tool in tools] != list(self.tools):
             error = {"type": "RuntimeError", "message": "a restarted worker loaded different tools"}
         if error is not None:

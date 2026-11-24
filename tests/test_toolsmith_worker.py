@@ -157,6 +157,12 @@ class WorkerTests(unittest.TestCase):
                       payload["result"])
         self.assertEqual(worker.current.forwarding, 0)  # every admitted call released its place
 
+    def test_a_tool_list_with_malformed_metadata_is_refused(self):
+        directory = self.catalog("probe")
+        with patch.object(worker_module, "valid_metadata", lambda tool: False):
+            with self.assertRaisesRegex(RuntimeError, "the worker reported no valid tool list"):
+                self.start(directory)
+
     def test_tool_prints_reach_a_router_log_file_without_file_writes(self):
         # The router's stderr is often a log file; the worker, which cannot write files, still prints there.
         directory = self.catalog("chatty")

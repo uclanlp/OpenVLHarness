@@ -39,6 +39,16 @@ def catalog_fingerprint(directory=None):
     return fingerprint_files((path.name, path.read_bytes()) for path in catalog_modules(directory))
 
 
+def valid_metadata(tool):
+    """Return whether a tool's name and description are strings and its input schema a mapping.
+
+    tool is a GeneratedTool, or the mapping a worker reports for one.
+    """
+    field = tool.get if isinstance(tool, dict) else lambda name: getattr(tool, name, None)
+    return (isinstance(field("tool_name"), str) and isinstance(field("tool_description"), str)
+            and isinstance(field("input_schema"), dict))
+
+
 def load_catalog(directory=None, *, client=None):
     """Import every tool module in a catalog directory and instantiate its tool.
 
@@ -53,7 +63,8 @@ def load_catalog(directory=None, *, client=None):
 
     Raises:
         ValueError: The directory is missing, a module does not define exactly one
-            tool, or two tools share a name.
+            tool, a tool's name or description is not a string or its input schema
+            not a mapping, or two tools share a name.
     """
     tools = {}
     for path in catalog_modules(directory):
@@ -65,6 +76,8 @@ def load_catalog(directory=None, *, client=None):
         if len(classes) != 1:
             raise ValueError(f"{path} must define exactly one GeneratedTool subclass")
         tool = classes[0]()
+        if not valid_metadata(tool):
+            raise ValueError(f"{path}: tool_name and tool_description must be strings and input_schema a mapping")
         if tool.tool_name in tools:
             raise ValueError(f"Duplicate generated tool name {tool.tool_name!r} in {path}")
         tool.client = client

@@ -109,6 +109,8 @@ class GateTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertIn(expected, run_once(tool(body=body), 30, isolation=ISOLATION)[1])
         self.assertEqual(run_once(tool(body="while True: pass"), 2, isolation=ISOLATION)[1], "execution exceeded 2 seconds")
+        listed = tool(description="Rivers").replace('tool_description="Rivers"', 'tool_description=["Rivers"]')
+        self.assertIn("tool_description must be strings", run_once(listed, 30, isolation=ISOLATION)[1])
         nullable = tool().replace('{"type": "string"}', '{"type": ["string", "null"]}')
         self.assertEqual(run_once(nullable, 30, isolation=ISOLATION)[0]["input_schema"]["properties"]["river"]["type"], ["string", "null"])
 

@@ -162,6 +162,12 @@ class CatalogTests(unittest.TestCase):
             Path(directory, "b_lookup.py").write_text(Path(directory, "a_lookup.py").read_text())
             with self.assertRaisesRegex(ValueError, "Duplicate generated tool name 'a_lookup'"):
                 load_catalog(directory)
+        with tempfile.TemporaryDirectory() as directory:
+            write_tool(directory, "a_lookup", "first")
+            path = Path(directory, "a_lookup.py")
+            path.write_text(path.read_text().replace('tool_description="first"', 'tool_description=["first"]'))
+            with self.assertRaisesRegex(ValueError, "tool_description must be strings and input_schema a mapping"):
+                load_catalog(directory)
 
     def test_packaged_catalog_loads(self):
         tools = load_catalog()
