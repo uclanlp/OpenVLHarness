@@ -40,7 +40,10 @@ class MediaCatalog(GeneratedTool):
         try:
             return self.music(title.strip()) if media_type == "music" else self.tmdb(title.strip(), media_type)
         except (requests.RequestException, ValueError) as exc:
-            return {"found": False, "error": f"{media_type} lookup failed: {exc}"}
+            # Request errors quote the URL, whose query holds TMDB_API_KEY; report the status or kind only.
+            response = getattr(exc, "response", None)
+            reason = f"HTTP {response.status_code}" if response is not None else type(exc).__name__
+            return {"found": False, "error": f"{media_type} lookup failed: {reason}"}
 
     @staticmethod
     def music(title):

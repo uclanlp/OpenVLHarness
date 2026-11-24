@@ -185,6 +185,25 @@ class PackagedToolBehaviourTests(unittest.TestCase):
                          {"property": "place of birth", "values": ["Lyon"], "score": 2, "hint_token_count": 2,
                           "confidence": 1.0})
 
+    def test_media_catalog_errors_do_not_reveal_the_tmdb_key(self):
+        import requests
+
+        tool = self.tools["media_catalog"]
+
+        def unauthorized(url, params=None, **kwargs):
+            response = requests.Response()
+            response.status_code, response.reason = 401, "Unauthorized"
+            response.url = requests.Request("GET", url, params=params).prepare().url
+            return response
+        stub = types.SimpleNamespace(get=unauthorized, RequestException=requests.RequestException)
+        with patch.dict(os.environ, {"TMDB_API_KEY": "tmdb-secret-123"}), \
+                patch.dict(tool.execute.__globals__, {"requests": stub}):
+            result = tool.execute(title="Heat", media_type="film")
+        self.assertEqual(result, {"found": False, "error": "film lookup failed: HTTP 401"})
+        with patch.dict(tool.execute.__globals__, {"get_json": lambda url, params: (_ for _ in ()).throw(
+                requests.ConnectionError(f"Max retries exceeded with url: {url}?api_key=tmdb-secret-123"))}):
+            self.assertNotIn("tmdb-secret-123", json.dumps(tool.execute(title="Heat", media_type="music")))
+
 class RetrievalAndAgentTests(unittest.TestCase):
     def make_agent(self, directory, responses, top_k=1):
         requests = []
