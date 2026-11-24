@@ -254,6 +254,29 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("chatty " * 20000, log.read_text())
         self.assertIn("chatty warning", log.read_text())
 
+    def test_what_a_worker_prints_is_bounded_and_without_control_characters(self):
+        directory = self.catalog("chatty")
+        log = Path(directory, "router.log")
+        script = ("import json, sys\nfrom openvlharness.toolsmith import worker as module\n"
+                  "module.STDERR_BYTES = 1 << 16\n"
+                  "worker = module.CatalogWorker(sys.argv[1], client=None, isolation=sys.argv[2] == '1', "
+                  "report_environment=False)\n"
+                  "print(json.dumps(worker.execute('chatty', {}, tool_call_id='call-1')), file=sys.__stdout__)\n"
+                  "worker.close()\n")
+        tool = Path(directory, "chatty.py")
+        tool.write_text(tool.read_text().replace('print("chatty " * 20000, flush=True)',
+                                                 'print("\\x1b]0;title\\x07\\x1b[2J" + "chatty " * 20000, flush=True)'))
+        with open(log, "w") as stream:
+            done = subprocess.run([sys.executable, "-c", script, directory, "1" if ISOLATION else "0"],
+                                  stdout=subprocess.PIPE, stderr=stream, text=True, timeout=120,
+                                  env={**os.environ, "PYTHONPATH": str(worker_module.PACKAGE_ROOT)})
+        self.assertEqual(json.loads(done.stdout)[0]["result"], "printed")
+        text = log.read_text()
+        self.assertNotIn("\x1b", text)
+        self.assertIn("]0;title[2Jchatty chatty", text)
+        self.assertIn("output past 65536 bytes dropped]", text)  # the limit this test sets
+        self.assertLess(len(text.encode()), (1 << 16) + 4096)
+
     def test_tools_run_outside_the_router_and_return_the_in_process_envelopes(self):
         directory = self.catalog("probe", "mixed", "fails", "bad_args")
         worker = self.start(directory)

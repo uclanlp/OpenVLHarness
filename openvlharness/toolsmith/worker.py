@@ -27,12 +27,14 @@ The router starts the worker as: python -m openvlharness.toolsmith.worker CATALO
 """
 import asyncio
 import atexit
+import codecs
 import concurrent.futures
 import itertools
 import json
 import logging
 import os
 import queue
+import re
 import resource
 import shutil
 import signal
@@ -58,6 +60,8 @@ CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP ti
 EXIT_SECONDS = 5
 RETIRE_SECONDS = 10  # how long the other calls of a worker retired by a timeout may still run
 MAX_MESSAGE_BYTES = 32 << 20  # a message from the worker; its JSON takes many times that once parsed
+STDERR_BYTES = 8 << 20  # what one worker's tools may print to the router's stderr
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # control characters but tab and newline
 MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 # Settings that name a file or directory, and lists of directories, the worker resolves like the router.
@@ -240,16 +244,27 @@ def _die_with(parent):
         os._exit(1)
 
 
-def _copy_to_stderr(stream):
-    """Copy a worker's stderr (what its tools print) to the router's stderr until the worker ends."""
+def _copy_to_stderr(stream, pid):
+    """Copy a worker's stderr (what its tools print) to the router's stderr until the worker ends.
+
+    Control characters other than tab and newline are dropped, so escape sequences cannot
+    rewrite the log or the terminal, and after STDERR_BYTES the rest is drained, not copied.
+    """
+    decoder, copied = codecs.getincrementaldecoder("utf-8")("replace"), 0
     with stream:
         while chunk := stream.read1(1 << 16):
-            view = memoryview(chunk)
+            if copied >= STDERR_BYTES:
+                continue  # keep draining so the worker never blocks on a full pipe
+            data = CONTROL.sub("", decoder.decode(chunk)).encode()[:STDERR_BYTES - copied]
+            copied += len(data)
+            if copied >= STDERR_BYTES:
+                data += f"\n[ToolSmith worker {pid}: output past {STDERR_BYTES} bytes dropped]\n".encode()
+            view = memoryview(data)
             try:
                 while view:
                     view = view[os.write(2, view):]
             except OSError:
-                pass  # the router's stderr is gone; keep draining so the worker never blocks on a full pipe
+                pass  # the router's stderr is gone
 
 
 class _WorkerGone(RuntimeError):
@@ -281,7 +296,7 @@ class _Worker:
         except BaseException:
             shutil.rmtree(self.home, ignore_errors=True)
             raise
-        threading.Thread(target=_copy_to_stderr, args=(self.process.stderr,), daemon=True).start()
+        threading.Thread(target=_copy_to_stderr, args=(self.process.stderr, self.process.pid), daemon=True).start()
         self.channel = _Channel(self.process.stdout, None, limit=MAX_MESSAGE_BYTES)
         # One thread writes to the worker, so a worker that stops reading blocks no caller.
         self.outbox = queue.SimpleQueue()
@@ -850,8 +865,9 @@ def main(directory, limits):
         channel.send({"type": "ready", "error": {"type": type(exc).__name__, "message": _text(exc)}})
         os._exit(1)
     try:
-        channel.send({"type": "ready", "tools": [{"tool_name": tool.tool_name, "tool_description": tool.tool_description,
-                                                  "input_schema": tool.input_schema} for tool in tools.values()]})
+        channel.send({"type": "ready", "tools": [{
+            "tool_name": tool.tool_name, "tool_description": tool.tool_description, "input_schema": tool.input_schema}
+            for tool in tools.values()]})
     except MessageTooLarge as exc:
         channel.send({"type": "ready", "error": {"type": "ValueError", "message": f"the tool list: {exc}"}})
         os._exit(1)
