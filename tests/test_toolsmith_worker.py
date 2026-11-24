@@ -305,8 +305,10 @@ class WorkerTests(unittest.TestCase):
         worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools={"OCR_Tool", "Depth_Estimation_Tool"})
         self.addCleanup(worker.close)
         self.assertEqual((worker.timeout, worker.limits, worker.refused),
-                         (42, {"memory_bytes": 2 << 30, "file_bytes": None}, {"Depth_Estimation_Tool"}))
-        config["toolsmith"]["worker"] = {"isolation": ISOLATION}
-        worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
+                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": None}, {"Depth_Estimation_Tool"}))
+        config["toolsmith"]["worker"] = {"isolation": ISOLATION, "timeout_seconds": 42}
+        with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
+            worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
         self.addCleanup(worker.close)
         self.assertEqual((worker.timeout, worker.limits), (42, {"memory_bytes": 128 << 30, "file_bytes": 0}))
+        self.assertTrue(any("may time out and retry" in line for line in logs.output))

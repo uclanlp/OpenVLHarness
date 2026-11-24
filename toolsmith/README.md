@@ -78,7 +78,7 @@ toolsmith:
   encoder: BAAI/bge-m3
   worker:                   # optional; the process that runs the generated tools
     environment: [TMDB_API_KEY]  # credential-like variables the tools may read
-    timeout_seconds: 600    # per call; default services.client.timeout_seconds
+    timeout_seconds: 540    # per call; default 90% of services.client.timeout_seconds
     memory_gib: 128         # address-space limit (enforced on Linux)
     write_files: false      # true for image uploads, model downloads and PyTorch
     isolation: true         # confine the worker with Linux namespaces

@@ -58,6 +58,22 @@ class WorkerPid(GeneratedTool):
 '''
 
 
+SLEEPY_TOOL = '''
+import time
+
+from openvlharness.toolsmith import GeneratedTool
+
+
+class Sleepy(GeneratedTool):
+    def __init__(self):
+        super().__init__(tool_name="sleepy", tool_description="sleeps", input_schema={"type": "object"})
+
+    def execute(self):
+        time.sleep(30)
+        return "awake"
+'''
+
+
 def write_tool(directory, name, description, cls=None):
     cls = cls or "".join(part.title() for part in name.split("_"))
     Path(directory, f"{name}.py").write_text(TOOL.format(cls=cls, name=name, description=description))
@@ -395,6 +411,46 @@ class RouterTests(unittest.TestCase):
                     range(4)))
         self.assertEqual([(r["ok"], r["result"]) for r in responses], [(True, {"top": "Robin"})] * 4)
         self.assertLess(time.monotonic() - started, 15)
+
+    def test_a_worker_timeout_reaches_the_http_client_before_its_own_deadline(self):
+        uvicorn = pytest.importorskip("uvicorn", reason="router tests need the server extra")
+        import socket
+        import threading
+        import time
+
+        from openvlharness.services.client import ToolClient
+        from openvlharness.services.server import create_app
+
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "sleepy.py").write_text(SLEEPY_TOOL)
+            settings = config(catalog=directory, worker={"isolation": ISOLATION})
+            settings["services"]["client"] = {"base_url": f"http://127.0.0.1:{port}", "timeout_seconds": 2, "retry": 8}
+            app = create_app(settings, implementations={"serper_image_search": object()})
+        worker = app.state.registry["sleepy"][0]
+        self.addCleanup(worker.close)
+        dispatched, execute = [], worker.execute_async
+
+        async def counted(*args, **kwargs):
+            dispatched.append(args[0])
+            return await execute(*args, **kwargs)
+        worker.execute_async = counted
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 10)
+        self.addCleanup(setattr, server, "should_exit", True)
+        deadline = time.monotonic() + 30
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        started = time.monotonic()
+        payload = ToolClient(f"http://127.0.0.1:{port}", timeout_seconds=2, retry=8).execute(
+            "sleepy", {}, tool_call_id="call-1")
+        self.assertEqual((payload["ok"], payload["error"]["detail"]["exception_type"]), (False, "TimeoutError"))
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertEqual(dispatched, ["sleepy"])
 
     def test_generated_tools_cannot_shadow_router_tools(self):
         pytest.importorskip("fastapi", reason="router tests need the server extra")

@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 CALLABLE_BASE_TOOLS = ("Text_Search_Tool", "Image_Search_Tool", "Webpage_Visit_Tool", "OCR_Tool", "Zoom_In_Tool")
 MEMORY_GIB = 128
 LOAD_SECONDS = 120
+CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP timeout
 EXIT_SECONDS = 5
 MAX_MESSAGE_BYTES = 256 << 20
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -377,7 +378,14 @@ class CatalogWorker:
         """Build the worker for an agent-system configuration with a toolsmith section."""
         toolsmith = config["toolsmith"]
         settings = toolsmith.get("worker") or {}
-        timeout = settings.get("timeout_seconds", config["services"]["client"].get("timeout_seconds", 600))
+        client_timeout = config["services"]["client"].get("timeout_seconds", 600)
+        # The worker deadline starts after dispatch; ending it earlier than the agent's HTTP read timeout
+        # lets the structured timeout arrive before the client gives up and retries the call.
+        timeout = settings.get("timeout_seconds", round(CLIENT_SHARE * client_timeout, 3))
+        if timeout >= client_timeout:
+            logger.warning("toolsmith.worker.timeout_seconds (%s) is not below services.client.timeout_seconds (%s): "
+                           "the agent may time out and retry a generated tool before its error arrives.",
+                           timeout, client_timeout)
         return cls(toolsmith.get("catalog"), client=client, base_tools=base_tools,
                    environment=settings.get("environment", ()), timeout_seconds=timeout,
                    memory_gib=settings.get("memory_gib", MEMORY_GIB), write_files=settings.get("write_files", False),
