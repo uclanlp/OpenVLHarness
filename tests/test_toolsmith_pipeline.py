@@ -112,6 +112,17 @@ class GateTests(unittest.TestCase):
         nullable = tool().replace('{"type": "string"}', '{"type": ["string", "null"]}')
         self.assertEqual(run_once(nullable, 30, isolation=ISOLATION)[0]["input_schema"]["properties"]["river"]["type"], ["string", "null"])
 
+    def test_gate_one_keeps_only_the_end_of_a_chatty_candidates_output(self):
+        from openvlharness.toolsmith.pipeline import verification
+
+        chatty = tool(body='print("x" * 2_000_000)\n        print("y" * 2_000_000)\n        return {"river": river}')
+        with patch.object(verification, "OUTPUT_BYTES", 1 << 16):
+            self.assertEqual(run_once(chatty, 60, isolation=ISOLATION)[0]["tool_name"], "river_length_lookup")
+            endless = tool(body='while True:\n            print("x" * 100_000)')
+            self.assertEqual(run_once(endless, 3, isolation=ISOLATION)[1], "execution exceeded 3 seconds")
+        with patch.object(verification, "OUTPUT_BYTES", 64):  # shorter than the metadata line itself
+            self.assertIn("no metadata line within its last 64 bytes", run_once(tool(), 30, isolation=ISOLATION)[1])
+
     def test_dummy_arguments_cover_required_parameters_and_images(self):
         arguments = dummy_arguments({"properties": {"image_id": {"type": "string"}, "year": {"type": "integer"},
                                                     "labels": {"type": "array"}, "note": {"type": "string"}},

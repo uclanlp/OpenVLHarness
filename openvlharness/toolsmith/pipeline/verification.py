@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 from .prompts import prompt
@@ -23,6 +24,16 @@ INTROSPECTION = {"gi_frame", "gi_code", "gi_yieldfrom", "cr_frame", "cr_code", "
 # A dunder name as a string, or a str.format field that walks into dunders or frames.
 HIDDEN_ACCESS = re.compile(r"^__\w+__$|\{[^{}]*(?:__|\.(?:gi|cr|ag|f|tb|co)_)[^{}]*\}")
 AXES = ("parametric_usage", "description_abstractness", "edge_case_handling", "task_alignment")
+# How much of each output stream Gate 1 keeps: the end, which holds the error or the metadata line.
+OUTPUT_BYTES = 1 << 20
+
+
+def _tail(stream, kept, limit):
+    """Read a pipe to its end, keeping only its last limit bytes in kept."""
+    with stream:
+        while chunk := stream.read1(1 << 16):
+            kept += chunk
+            del kept[:-limit]
 
 
 def scan(source):
@@ -108,15 +119,30 @@ def run_once(source, timeout, *, isolation=True):
 
             argv = command({"root": root, "read": system_paths() + [directory], "mask": python_masks(),
                             "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "network": False}, argv)
+        # Output is drained as it comes and only its end is kept, so a chatty candidate cannot fill memory.
+        process = subprocess.Popen(argv, cwd=directory, env=environment, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+        stdout, stderr = bytearray(), bytearray()
+        readers = [threading.Thread(target=_tail, args=(stream, kept, OUTPUT_BYTES), daemon=True)
+                   for stream, kept in ((process.stdout, stdout), (process.stderr, stderr))]
+        for reader in readers:
+            reader.start()
         try:
-            done = subprocess.run(argv, cwd=directory, env=environment, capture_output=True, text=True,
-                                  timeout=timeout, check=False)
+            returncode = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
             return None, f"execution exceeded {timeout} seconds"
-    if done.returncode:
-        lines = done.stderr.strip().splitlines()
-        return None, f"execution failed: {lines[-1] if lines else f'exit status {done.returncode}'}"
-    return json.loads(done.stdout.strip().splitlines()[-1]), None
+        finally:
+            for reader in readers:
+                reader.join(5)
+    if returncode:
+        lines = stderr.decode("utf-8", "replace").strip().splitlines()
+        return None, f"execution failed: {lines[-1] if lines else f'exit status {returncode}'}"
+    try:
+        return json.loads(stdout.decode("utf-8", "replace").strip().splitlines()[-1]), None
+    except (IndexError, ValueError):
+        return None, f"execution printed no metadata line within its last {OUTPUT_BYTES} bytes of output"
 
 
 def review(critic, question, metadata, source, *, mean, minimum):
