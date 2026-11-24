@@ -5,6 +5,7 @@
 <p align="center">
   <a href="https://threesr.github.io/toolsmith/"><img src="https://img.shields.io/badge/Project-Homepage-2653c1.svg?style=for-the-badge" height="25" alt="Project homepage"></a>
   <a href="https://aclanthology.org/2026.findings-emnlp.1699/"><img src="https://img.shields.io/badge/Findings-EMNLP%202026-b31b1b.svg?style=for-the-badge" height="25" alt="Findings of EMNLP 2026"></a>
+  <a href="https://huggingface.co/datasets/uclanlp/ToolSmith-Datasets"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Data-Training%20pools-ffc107.svg?style=for-the-badge" height="25" alt="ToolSmith training pools on Hugging Face"></a>
 </p>
 
 ToolSmith grows the toolbox of a multimodal search agent from the agent's own failures.
@@ -83,9 +84,13 @@ read `TMDB_API_KEY`), `image_similarity` and `species_id`, which other tools bui
 
 ## Grow a catalog
 
-1. Evaluate the baseline preset with an LLM judge on a training pool of your own; the
-   paper used FVQA train (3,312 questions), InfoSeek val (3,000) and EncyclopedicVQA val
-   (2,862). Keep evaluation data out of the pool.
+1. Evaluate the baseline preset with an LLM judge on a training pool. The paper's pool,
+   FVQA train (3,312 questions), InfoSeek val (3,000) and EncyclopedicVQA val (2,862), is
+   on Hugging Face as [uclanlp/ToolSmith-Datasets](https://huggingface.co/datasets/uclanlp/ToolSmith-Datasets)
+   (splits `FVQA_train`, `Infoseek_GDM_val`, `EncyclopedicVQA_val`, fetched on first use
+   like the evaluation splits). Evaluation uses the splits in
+   [uclanlp/OpenVLHarness-Evaluation-Datasets](https://huggingface.co/datasets/uclanlp/OpenVLHarness-Evaluation-Datasets).
+   Keep evaluation data out of the pool.
 2. Copy the packaged catalog to a directory, copy the ToolSmith preset and set its
    `toolsmith.catalog` to that directory.
 3. Point `agent` in [configs/toolsmith/pipeline.yaml](../configs/toolsmith/pipeline.yaml)

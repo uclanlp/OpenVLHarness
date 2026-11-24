@@ -27,6 +27,13 @@ import zipfile
 logger = logging.getLogger(__name__)
 
 HF_REPO_ID = 'uclanlp/OpenVLHarness-Evaluation-Datasets'
+# ToolSmith's training pools live in their own repo, in the same layout.
+TOOLSMITH_HF_REPO_ID = 'uclanlp/ToolSmith-Datasets'
+HF_SPLIT_REPO = {
+    'FVQA_train': TOOLSMITH_HF_REPO_ID,
+    'Infoseek_GDM_val': TOOLSMITH_HF_REPO_ID,
+    'EncyclopedicVQA_val': TOOLSMITH_HF_REPO_ID,
+}
 
 # split name -> images/<folder>.zip (the split's img_root_map folder)
 HF_SPLITS = {
@@ -64,6 +71,10 @@ HF_SPLITS = {
     'SimpleVQA': 'SimpleVQA',
     'SimpleVQA_300': 'SimpleVQA',
     'WorldVQA_300': 'WorldVQA',
+    # ToolSmith training pools (HF_SPLIT_REPO), not evaluation data
+    'FVQA_train': 'FVQA',
+    'Infoseek_GDM_val': 'Infoseek_GDM',
+    'EncyclopedicVQA_val': 'EncyclopedicVQA',
 }
 
 # MD5 of each hosted TSV (printed by build_hf_release).
@@ -95,21 +106,25 @@ HF_DATASET_MD5 = {
     'SimpleVQA': '87a55db6b42507a80f11e8e1c84c190f',
     'SimpleVQA_300': '198c569fd852a95cb0fd830cf6e9d650',
     'WorldVQA_300': 'adaf33776d1b16f77782032d989a2a36',
+    'FVQA_train': '444fffc846304585e66c43abe8e91a10',
+    'Infoseek_GDM_val': '36e0894d004c03967043bb4519b5e31e',
+    'EncyclopedicVQA_val': '0a12a677116eb2fc873e05261111f5a5',
 }
 
 
 def hf_tsv_url(dataset):
-    return f'https://huggingface.co/datasets/{HF_REPO_ID}/resolve/main/{dataset}.tsv'
+    repo_id = HF_SPLIT_REPO.get(dataset, HF_REPO_ID)
+    return f'https://huggingface.co/datasets/{repo_id}/resolve/main/{dataset}.tsv'
 
 
-def _download_and_unpack(filename, dest_dir):
+def _download_and_unpack(filename, dest_dir, repo_id=HF_REPO_ID):
     from filelock import FileLock
     from huggingface_hub import hf_hub_download
 
     os.makedirs(dest_dir, exist_ok=True)
     with FileLock(osp.join(dest_dir, f'.{osp.basename(filename)}.lock')):
-        logger.info('Downloading %s from %s', filename, HF_REPO_ID)
-        zip_path = hf_hub_download(HF_REPO_ID, filename, repo_type='dataset')
+        logger.info('Downloading %s from %s', filename, repo_id)
+        zip_path = hf_hub_download(repo_id, filename, repo_type='dataset')
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(dest_dir)
 
@@ -123,7 +138,7 @@ def ensure_hf_images(dataset, img_root, image_paths):
     if not missing:
         return
     logger.info('%s: %d images missing under %s', dataset, len(missing), img_root)
-    _download_and_unpack(f'images/{folder}.zip', osp.dirname(img_root))
+    _download_and_unpack(f'images/{folder}.zip', osp.dirname(img_root), HF_SPLIT_REPO.get(dataset, HF_REPO_ID))
     still = [p for p in missing if not osp.exists(osp.join(img_root, p))]
     if still:
         raise FileNotFoundError(
