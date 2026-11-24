@@ -485,6 +485,18 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual(sum(counts.values()), 1)  # the same source, decided again
                 self.assertEqual(self.pipeline().run([self.rollout]), {})
 
+    def test_decisions_are_redone_after_their_settings_or_tool_change(self):
+        self.config["critic_mean"] = 4.5  # the stub critic's mean is 4.0
+        self.assertEqual(self.pipeline().run([self.rollout]), {"rejected": 1})
+        self.assertEqual(self.pipeline().run([self.rollout]), {})  # same settings: reused
+        self.config["critic_mean"] = 3.0
+        self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})
+        (self.catalog / "river_length_lookup.py").unlink()  # the admitted tool is gone: grown again
+        self.assertEqual(self.pipeline().run([self.rollout]), {"admitted": 1})
+        self.assertEqual(self.pipeline().run([self.rollout]), {})
+        self.config["models"]["critic"] = {**self.config["models"]["critic"], "temperature": 0.7}
+        self.assertEqual(sum(self.pipeline().run([self.rollout]).values()), 1)  # another critic: decided again
+
     def test_admission_takes_the_metadata_of_a_load_not_what_the_candidate_prints(self):
         (self.catalog / "phrase_translator.py").write_text(tool(name="phrase_translator",
                                                                 description="Translate a phrase into French."))

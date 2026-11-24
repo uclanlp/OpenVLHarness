@@ -32,6 +32,8 @@ SETTINGS = {"encoder": "BAAI/bge-m3", "clusters": 500, "reuse_threshold": 0.40, 
             "isolation": True}
 # Model entry fields that only say how to reach the model, not which model answers or how.
 CONNECTION = {"base", "key", "timeout", "retry"}
+DECISION_SETTINGS = ("reuse_threshold", "retries", "timeout_seconds", "critic_mean", "critic_min", "dedup_threshold",
+                     "isolation")
 
 
 class Pipeline:
@@ -82,6 +84,11 @@ class Pipeline:
                              **{name: tool.tool_description for name, tool in tools.items()}}
         self.models = {role: AuxiliaryModel(config["models"][role]) for role in ("generator", "critic", "analyst")}
         self.analyst = {key: value for key, value in config["models"]["analyst"].items() if key not in CONNECTION}
+        # What a decision depends on besides its gap: how the three models answer, and the gates' settings.
+        self.decision_settings = hashlib.sha256(json.dumps({
+            "models": {role: {key: value for key, value in config["models"][role].items() if key not in CONNECTION}
+                       for role in ("generator", "critic", "analyst")},
+            **{key: self.settings[key] for key in DECISION_SETTINGS}}, sort_keys=True).encode()).hexdigest()
         self.generator = Generator(self.models["generator"], self.models["analyst"], describe_tools(base, tools))
         self.work_dir = Path(work_dir)
         self.lock = threading.Lock()
@@ -131,8 +138,9 @@ class Pipeline:
         A gap whose model or network calls fail stays undecided and counts as
         failed; rerunning the pipeline retries it. rebuild_gaps mines the rollouts
         again instead of reusing gaps.jsonl. A decision is reused only for a gap
-        with the same inputs (the digest decisions record), so a gap that changed
-        under the same source is decided again.
+        with the same inputs and the same models and gate settings (the digests
+        decisions record), and only while the tool it admitted, reused or matched
+        is still in the catalog; any other gap is decided again.
 
         Raises:
             ValueError: The gaps cannot be mined or reused (see gaps).
@@ -140,8 +148,9 @@ class Pipeline:
         record = self.work_dir / "decisions.jsonl"
         decided = set()
         if record.exists():
-            decided = {(entry["source"], entry.get("gap_sha256"))
-                       for entry in map(json.loads, record.read_text().splitlines())}
+            entries = map(json.loads, record.read_text().splitlines())
+            decided = {(entry["source"], entry.get("gap_sha256")) for entry in entries
+                       if entry.get("settings_sha256") == self.decision_settings and self.holds(entry)}
         pending = [gap for gap in self.gaps(rollouts, rebuild=rebuild_gaps)
                    if (gap.source, _gap_digest(gap)) not in decided]
         with ThreadPoolExecutor(self.settings["workers"]) as pool:
@@ -241,10 +250,20 @@ class Pipeline:
             self.descriptions[name] = metadata["tool_description"]
         return {"decision": "admitted", "tool": name, "scores": scores}
 
+    def holds(self, entry):
+        """Whether a recorded decision still describes the catalog: the tool it admitted, reused or matched exists."""
+        if entry.get("decision") in {"admitted", "reused"}:
+            return entry.get("tool") in self.descriptions
+        if entry.get("decision") == "duplicate":
+            if "file" in entry:
+                return (self.catalog / entry["file"]).exists()
+            return entry.get("match") in self.descriptions
+        return True
+
     def decide(self, gap, result):
-        """Append one decision, with the digest of the gap it decides, to decisions.jsonl and return it."""
-        line = json.dumps({"source": gap.source, "question": gap.question, "gap_sha256": _gap_digest(gap), **result},
-                          ensure_ascii=False)
+        """Append one decision, with the digests of its gap and settings, to decisions.jsonl and return it."""
+        line = json.dumps({"source": gap.source, "question": gap.question, "gap_sha256": _gap_digest(gap),
+                           "settings_sha256": self.decision_settings, **result}, ensure_ascii=False)
         with self.lock, open(self.work_dir / "decisions.jsonl", "a") as stream:
             stream.write(line + "\n")
         return result
