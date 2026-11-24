@@ -52,6 +52,11 @@ CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP ti
 EXIT_SECONDS = 5
 MAX_MESSAGE_BYTES = 256 << 20
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+# Settings that name a file or directory, and lists of directories, the worker resolves like the router.
+PATH_SETTINGS = {"SERPER_API_KEY_FILE", "GOOGLE_APPLICATION_CREDENTIALS", "IMAGE_UPLOAD_LOCAL_DIR", "HF_HOME",
+                 "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE", "TORCH_HOME", "XDG_CACHE_HOME",
+                 "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "TMPDIR"}
+PATH_LISTS = {"PYTHONPATH", "LD_LIBRARY_PATH"}
 HOME_PREFIX = "openvlharness-toolsmith-"
 
 
@@ -82,13 +87,21 @@ def worker_environment(granted=()):
     A name looks like a credential under the local Python executor's rule (KEY, TOKEN,
     SECRET, PASSWORD or CREDENTIAL, or an AWS_ or GOOGLE_APPLICATION prefix). The
     package the router runs comes first on PYTHONPATH, so the worker imports the same code.
+    Relative paths in path settings, path lists and granted variables are resolved
+    against the router's working directory, since the worker starts elsewhere.
     """
     from ..services.tools.python_executor_local.executor import _SECRET_ENV
 
     granted = set(granted)
     environment = {name: value for name, value in os.environ.items()
                    if name in granted or not _SECRET_ENV.search(name)}
-    environment["PYTHONPATH"] = os.pathsep.join(filter(None, (str(PACKAGE_ROOT), os.environ.get("PYTHONPATH"))))
+    for name, value in environment.items():
+        if name in PATH_LISTS:
+            environment[name] = os.pathsep.join(os.path.abspath(entry) if entry else entry
+                                                for entry in value.split(os.pathsep))
+        elif value and not os.path.isabs(value) and (name in PATH_SETTINGS or name in granted and os.path.exists(value)):
+            environment[name] = os.path.abspath(value)
+    environment["PYTHONPATH"] = os.pathsep.join(filter(None, (str(PACKAGE_ROOT), environment.get("PYTHONPATH"))))
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     return environment
 

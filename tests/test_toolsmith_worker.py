@@ -162,6 +162,32 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(environment, {"SERVICE_API_KEY": None, "GRANTED_TOKEN": "granted",
                                        "TOOLSMITH_LEGACY_MAY_INPUTS": "1", "PLAIN_SETTING": "kept"})
 
+    def test_relative_path_settings_resolve_against_the_router_directory(self):
+        router = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(router, ignore_errors=True))
+        Path(router, "keys").mkdir()
+        Path(router, "keys", "serper.txt").write_text("a key")
+        Path(router, "legacy").mkdir()
+        Path(router, "legacy", "legacy_helper.py").write_text("VALUE = 'imported from a relative PYTHONPATH'\n")
+        directory = self.catalog()
+        write_tool(directory, "paths", '''        import legacy_helper
+        names = ("SERPER_API_KEY_FILE", "IMAGE_UPLOAD_LOCAL_DIR", "HF_HOME")
+        return {"env": {name: os.environ.get(name) for name in names}, "helper": legacy_helper.VALUE,
+                "key": open(os.environ["SERPER_API_KEY_FILE"]).read()}''')
+        here = os.getcwd()
+        os.chdir(router)
+        self.addCleanup(os.chdir, here)
+        settings = {"SERPER_API_KEY_FILE": "keys/serper.txt", "IMAGE_UPLOAD_LOCAL_DIR": "uploads",
+                    "HF_HOME": "hf_home", "PYTHONPATH": "legacy"}
+        with patch.dict(os.environ, settings):
+            worker = self.start(directory, environment=["SERPER_API_KEY_FILE"])
+        os.chdir(here)
+        result = worker.execute("paths", {}, tool_call_id="call-1")[0]["result"]
+        self.assertEqual(result, {"env": {"SERPER_API_KEY_FILE": os.path.join(router, "keys", "serper.txt"),
+                                          "IMAGE_UPLOAD_LOCAL_DIR": os.path.join(router, "uploads"),
+                                          "HF_HOME": os.path.join(router, "hf_home")},
+                                  "helper": "imported from a relative PYTHONPATH", "key": "a key"})
+
     def test_file_writes_and_memory_are_limited(self):
         directory = self.catalog("writer", "hog", "probe")
         worker = self.start(directory, memory_gib=1)
