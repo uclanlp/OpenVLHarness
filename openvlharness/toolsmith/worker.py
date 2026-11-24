@@ -691,19 +691,19 @@ def legacy_switches():
                   if name.startswith("TOOLSMITH_LEGACY_") and value not in ("", "0"))
 
 
-def catalog_tools(directory=None, *, settings=None):
+def catalog_tools(directory=None, *, settings=None, legacy=True):
     """Return each catalog tool's name, description and input schema without running catalog code here.
 
     A worker (confined as settings, a toolsmith.worker mapping, say) loads the catalog,
-    reports its tools and stops. With a TOOLSMITH_LEGACY_* switch set, the catalog is
-    imported in this process instead, as before: research shims behind those switches
-    patch the agent when a catalog module imports them. That path runs catalog code with
-    this process's privileges and logs a warning.
+    reports its tools and stops. With a TOOLSMITH_LEGACY_* switch set and legacy true,
+    the catalog is imported in this process instead, as before: research shims behind
+    those switches patch the agent when a catalog module imports them. That path runs
+    catalog code with this process's privileges and logs a warning.
 
     Returns:
         A mapping of tool names to objects with tool_name, tool_description and input_schema.
     """
-    switches = legacy_switches()
+    switches = legacy_switches() if legacy else []
     if switches:
         logger.warning("%s set: importing the ToolSmith catalog in this process, with its privileges (research "
                        "path).", ", ".join(switches))

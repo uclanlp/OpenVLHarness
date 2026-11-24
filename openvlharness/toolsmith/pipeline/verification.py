@@ -95,6 +95,19 @@ def scan(source):
     return issues
 
 
+def declared_name(source):
+    """Return the string literal a candidate's tool class passes as tool_name, or None if it passes no single one."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    names = {node.value.value for node in ast.walk(tree) if isinstance(node, ast.keyword) and node.arg == "tool_name"
+             and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)}
+    computed = [node for node in ast.walk(tree) if isinstance(node, ast.keyword) and node.arg == "tool_name"
+                and not isinstance(node.value, ast.Constant)]
+    return next(iter(names)) if len(names) == 1 and not computed else None
+
+
 def run_once(source, timeout, *, isolation=True):
     """Gate 1 runtime check: run a candidate once on dummy input in a separate, resource-limited process.
 

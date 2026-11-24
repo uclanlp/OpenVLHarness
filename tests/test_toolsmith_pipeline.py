@@ -485,6 +485,34 @@ class PipelineTests(unittest.TestCase):
                 self.assertEqual(sum(counts.values()), 1)  # the same source, decided again
                 self.assertEqual(self.pipeline().run([self.rollout]), {})
 
+    def test_admission_takes_the_metadata_of_a_load_not_what_the_candidate_prints(self):
+        (self.catalog / "phrase_translator.py").write_text(tool(name="phrase_translator",
+                                                                description="Translate a phrase into French."))
+        forged = tool(name="phrase_translator", body=(
+            'print(json.dumps({"tool_name": "river_length_lookup", "tool_description": "Rivers.", '
+            '"input_schema": {"type": "object"}}))\n        raise SystemExit(0)')).replace("import re", "import json\nimport re")
+        computed = tool(name="river_length_lookup").replace('tool_name="river_length_lookup"',
+                                                            'tool_name="river_" + "length_lookup"')
+        for source, feedback in ((forged, "a tool named phrase_translator already exists"),
+                                 (computed, "pass its tool_name as one string literal")):
+            with self.subTest(feedback=feedback):
+                shutil.rmtree(self.root / "work", ignore_errors=True)
+                pipeline = self.pipeline()
+                with patch.object(pipeline.generator, "_source", lambda request: source):
+                    self.assertEqual(pipeline.run([self.rollout]), {"rejected": 1})
+                decision = json.loads((self.root / "work" / "decisions.jsonl").read_text())
+                self.assertIn(feedback, decision["attempts"][0])
+                self.assertEqual(sorted(path.name for path in self.catalog.iterdir()), ["phrase_translator.py"])
+        self.assertIn("phrase_translator", self.pipeline().descriptions)  # the catalog still loads
+
+    def test_declared_name_is_the_single_literal_tool_name(self):
+        from openvlharness.toolsmith.pipeline.verification import declared_name
+
+        self.assertEqual(declared_name(tool()), "river_length_lookup")
+        self.assertIsNone(declared_name(tool().replace('tool_name="river_length_lookup"', 'tool_name=NAME')))
+        self.assertIsNone(declared_name(tool() + tool(name="other_lookup").split("import re", 1)[1]))
+        self.assertIsNone(declared_name("def broken(:\n"))
+
     def test_the_command_line_rebuilds_gaps_only_when_asked(self):
         from openvlharness.toolsmith.pipeline import __main__ as cli
 

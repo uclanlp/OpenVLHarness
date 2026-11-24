@@ -33,7 +33,9 @@ through it.
    under a ten-second budget, with every tool call answering with a failure. The process
    runs in Linux namespaces with no network, and sees only the interpreter, the
    packages and the candidate, read-only. The scan only narrows what a candidate can
-   express; the namespaces are what keep it from the host. Gate 2 is
+   express; the namespaces are what keep it from the host. The name, description and
+   schema the gates and the catalog use come from loading the candidate in a confined
+   worker, as the router will, and the name must be a string literal that no tool uses yet. Gate 2 is
    an LLM critic that scores parametric usage,
    description abstractness, edge-case handling and task alignment. A rejected
    candidate is revised with the gate's feedback. A tool that passes both gates is

@@ -11,6 +11,7 @@ import math
 import os
 import re
 import sys
+import tempfile
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -22,7 +23,7 @@ from ..worker import catalog_tools, memory_limit_enforced
 from .generation import Generator, describe_tools
 from .mining import Gap, evidence_digest, judged_predictions, mine
 from .reuse import closest
-from .verification import review, run_once, scan
+from .verification import declared_name, review, run_once, scan
 
 logger = logging.getLogger(__name__)
 
@@ -178,9 +179,15 @@ class Pipeline:
         issues = scan(source)
         metadata = None
         if not issues:
-            metadata, issue = run_once(source, self.settings["timeout_seconds"], isolation=self.settings["isolation"])
+            _, issue = run_once(source, self.settings["timeout_seconds"], isolation=self.settings["isolation"])
             issues = [issue] if issue else []
-        if metadata and not re.fullmatch(r"[a-z][a-z0-9_]*", metadata["tool_name"]):
+        if not issues:
+            # What Gate 1's run prints, the candidate can print too: take the metadata from a load instead.
+            metadata, issue = self.loaded(source)
+            issues = [issue] if issue else []
+        if metadata and declared_name(source) != metadata["tool_name"]:
+            issues = [f"the tool registers {metadata['tool_name']!r}; pass its tool_name as one string literal"]
+        elif metadata and not re.fullmatch(r"[a-z][a-z0-9_]*", metadata["tool_name"]):
             issues = [f"tool_name {metadata['tool_name']!r} must be snake_case"]
         elif metadata and (metadata["tool_name"] in self.descriptions
                            or os.path.lexists(self.catalog / f"{metadata['tool_name']}.py")):
@@ -193,6 +200,21 @@ class Pipeline:
         if not passed:
             return {"feedback": "Gate 2: " + critique}
         return self.admit(metadata, source, scores)
+
+    def loaded(self, source):
+        """Load a candidate as the router will, in a confined worker, and return its metadata, or an issue."""
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "candidate.py").write_text(source)
+            try:
+                tools = catalog_tools(directory, legacy=False, settings={
+                    "isolation": self.settings["isolation"], "network": False, "write_files": False, "memory_gib": 2})
+            except (ValueError, RuntimeError) as exc:
+                return None, f"loading the tool failed: {exc}"
+        if len(tools) != 1:
+            return None, "the module registers no tool the agent can offer"
+        tool = next(iter(tools.values()))
+        return {"tool_name": tool.tool_name, "tool_description": tool.tool_description,
+                "input_schema": tool.input_schema}, None
 
     def admit(self, metadata, source, scores):
         """Admit a verified candidate unless its description nearly duplicates an existing tool.
