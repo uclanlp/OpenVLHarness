@@ -312,3 +312,37 @@ def test_identity_without_toolsmith_is_unchanged():
     assert "toolsmith_catalog_sha256" not in manifest
     assert manifest["matching_policy"]["agent"] == "full_config_and_resolved_model_profiles_without_sensitive_fields"
 
+
+def test_inference_starts_only_when_the_router_serves_the_run_catalog(tmp_path, monkeypatch):
+    import requests
+
+    from evaluation_kit import cli
+    from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    (catalog / "lookup.py").write_text(_module("lookup"))
+    config = _toolsmith_cfg(catalog)
+    answers = []
+
+    class Reply:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            if isinstance(self.body, Exception):
+                raise self.body
+
+        def json(self):
+            return self.body
+
+    monkeypatch.setattr(requests, "get", lambda url, timeout: answers.append(url) or Reply(served))
+    served = {"toolsmith": {"catalog_sha256": catalog_fingerprint(catalog)}}
+    cli._check_router_catalog(config)
+    assert answers == ["http://localhost:8101/env"]
+    for served, message in (({"toolsmith": {"catalog_sha256": "0" * 64}}, "serves ToolSmith catalog 0000"),
+                            ({"config": {}}, "serves ToolSmith catalog None"),
+                            (requests.ConnectionError("refused"), "cannot read which ToolSmith catalog")):
+        with pytest.raises(SystemExit, match=message):
+            cli._check_router_catalog(config)
+

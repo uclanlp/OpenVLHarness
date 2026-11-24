@@ -40,7 +40,7 @@ from pathlib import Path
 from ..contracts import ServiceResult
 from ..services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
 from ..services.tools.base import ToolArgumentError
-from .catalog import DEFAULT_CATALOG, catalog_modules, load_catalog
+from .catalog import DEFAULT_CATALOG, catalog_modules, fingerprint_files, load_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +352,7 @@ class CatalogWorker:
         """
         self.directory = Path(directory or DEFAULT_CATALOG)
         self.files = {path.name: path.read_bytes() for path in catalog_modules(self.directory)}
+        self.fingerprint = fingerprint_files(self.files.items())  # what evaluations check the router serves
         self.client = client
         self.refused = set(base_tools) - set(CALLABLE_BASE_TOOLS)
         self.timeout = timeout_seconds

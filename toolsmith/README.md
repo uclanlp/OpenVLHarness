@@ -88,7 +88,9 @@ toolsmith:
 The router loads every tool in the catalog. The agent embeds the tool descriptions once
 and, for each question, adds the `top_k` generated tools closest to the question text.
 Results are recorded under the `toolsmithagent` run directory. The run identity includes a
-hash of the catalog's module files, so a run resumes only with the catalog it started with.
+hash of the catalog's module files, so a run resumes only with the catalog it started with,
+and inference starts only when the router reports the same hash for the catalog it loaded
+at startup; restart the router after editing the catalog.
 
 The router never imports the generated tools. When it starts, it copies the catalog and
 runs the copy in a separate worker process. The worker starts in a private directory and

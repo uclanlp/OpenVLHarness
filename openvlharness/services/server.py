@@ -181,11 +181,15 @@ def create_app(config, *, implementations=None):
 
     @app.get("/env")
     async def environment():
-        """Return redacted service settings and fixed search/extraction policy."""
-        return {"config": redact(settings), "scope": "configured services; credentials redacted",
-                "search": {"summarize": True, "multimodal": True, "num_results": 10,
-                           "keep_k": 3, "max_tokens": 4096, "thinking": False},
-                "webpage": {"max_urls": 5, "max_tokens": 16384}}
+        """Return redacted service settings, fixed search/extraction policy and the served ToolSmith catalog."""
+        reported = {"config": redact(settings), "scope": "configured services; credentials redacted",
+                    "search": {"summarize": True, "multimodal": True, "num_results": 10,
+                               "keep_k": 3, "max_tokens": 4096, "thinking": False},
+                    "webpage": {"max_urls": 5, "max_tokens": 16384}}
+        if worker is not None:
+            # The digest of the catalog snapshot the worker runs, which evaluations compare with their own.
+            reported["toolsmith"] = {"catalog_sha256": worker.fingerprint}
+        return reported
 
     @app.get("/backend-status")
     async def status():

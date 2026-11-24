@@ -277,6 +277,29 @@ def _prepare_run_root(pred_root, manifest, logger):
     logger.info(f"Initialized new run root: {pred_root}")
 
 
+def _check_router_catalog(agent_config):
+    """Exit unless the tool router serves the ToolSmith catalog this run's identity records.
+
+    The router runs the catalog snapshot it loaded at startup, which differs from the
+    files on disk once a catalog is edited in place.
+    """
+    import requests as _requests
+    from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+    expected = catalog_fingerprint(agent_config["toolsmith"].get("catalog"))
+    base_url = agent_config["services"]["client"]["base_url"]
+    try:
+        response = _requests.get(f"{base_url}/env", timeout=30)
+        response.raise_for_status()
+        served = (response.json().get("toolsmith") or {}).get("catalog_sha256")
+    except Exception as exc:
+        sys.exit(f"error: cannot read which ToolSmith catalog the tool router at {base_url} serves "
+                 f"({type(exc).__name__}); start the router with this configuration first.")
+    if served != expected:
+        sys.exit(f"error: the tool router at {base_url} serves ToolSmith catalog {served}, but this run's catalog "
+                 f"is {expected}. Restart the router so it loads the catalog this run uses.")
+
+
 def _check_datasets(names):
     """Exit unless LMUData is set and each name is registered or has a custom $LMUData/<name>.tsv."""
     lmu_root = os.environ.get("LMUData")
@@ -452,6 +475,8 @@ def main(argv=None):
             sys.exit(f"error: {exc}")
         if args.mode == "all":
             _check_judge(args.data, judge_kwargs)
+        if "toolsmith" in agent_config:
+            _check_router_catalog(agent_config)
         agent = bootstrap.build_agent(agent_config)
         model_name = agent.model.split('/')[-1]
         agent_class = agent.__class__.__name__

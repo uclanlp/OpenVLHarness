@@ -452,6 +452,24 @@ class RouterTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(dispatched, ["sleepy"])
 
+    def test_the_router_reports_the_digest_of_the_catalog_it_serves(self):
+        pytest.importorskip("fastapi", reason="router tests need the server extra")
+        from fastapi.testclient import TestClient
+
+        from openvlharness.services.server import create_app
+        from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+        with tempfile.TemporaryDirectory() as directory:
+            write_tool(directory, "bird_egg_lookup", "Bird egg facts")
+            started = catalog_fingerprint(directory)
+            app = create_app(config(catalog=directory, worker={"isolation": ISOLATION}),
+                             implementations={"serper_image_search": object()})
+            self.addCleanup(app.state.registry["bird_egg_lookup"][0].close)
+            write_tool(directory, "bird_egg_lookup", "Bird egg facts, edited on disk")
+            self.assertNotEqual(catalog_fingerprint(directory), started)
+            reported = TestClient(app).get("/env").json()["toolsmith"]
+        self.assertEqual(reported, {"catalog_sha256": started})
+
     def test_generated_tools_cannot_shadow_router_tools(self):
         pytest.importorskip("fastapi", reason="router tests need the server extra")
         from openvlharness.services.server import create_app

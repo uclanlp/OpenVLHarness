@@ -22,16 +22,21 @@ def catalog_modules(directory=None):
     return [path for path in sorted(directory.glob("*.py")) if not path.name.startswith("_")]
 
 
+def fingerprint_files(files):
+    """Return a SHA-256 over (file name, contents) pairs, in the order given."""
+    digest = hashlib.sha256()
+    for name, data in files:
+        digest.update(os.fsencode(name) + b"\0" + hashlib.sha256(data).digest())
+    return digest.hexdigest()
+
+
 def catalog_fingerprint(directory=None):
     """Return a SHA-256 over the file names and contents of the modules load_catalog imports.
 
     Raises:
         ValueError: The directory is missing.
     """
-    digest = hashlib.sha256()
-    for path in catalog_modules(directory):
-        digest.update(os.fsencode(path.name) + b"\0" + hashlib.sha256(path.read_bytes()).digest())
-    return digest.hexdigest()
+    return fingerprint_files((path.name, path.read_bytes()) for path in catalog_modules(directory))
 
 
 def load_catalog(directory=None, *, client=None):
