@@ -13,7 +13,6 @@ from starlette.concurrency import run_in_threadpool
 
 from ..bootstrap import load_agent_config, build_capabilities, RAW_BACKENDS
 from ..contracts import ServiceResult
-from ..toolsmith.worker import CatalogWorker
 from . import degradation
 from .client import ToolClient
 from .models import ModelAdapter, AuxiliaryModel
@@ -142,6 +141,9 @@ def create_app(config, *, implementations=None):
         registry[cap.concrete_name] = (tool, cap.backend, service)
     worker = None
     if "toolsmith" in config:
+        # Only ToolSmith routers load the worker module, which needs POSIX resource limits.
+        from ..toolsmith.worker import CatalogWorker
+
         # Generated tools run in a separate worker process; calls they make come back through this router.
         worker = CatalogWorker.from_config(config, client=ToolClient(**settings["client"]), base_tools=set(registry))
         shadowed = sorted(set(worker.tools) & set(registry))

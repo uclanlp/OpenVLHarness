@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -45,6 +46,7 @@ class {cls}(GeneratedTool):
 
 PID_TOOL = '''
 import os
+import subprocess
 
 from openvlharness.toolsmith import GeneratedTool
 
@@ -495,6 +497,15 @@ class RouterTests(unittest.TestCase):
         self.assertEqual((payload["ok"], payload["error"]["detail"]["exception_type"]), (False, "TimeoutError"))
         self.assertLess(time.monotonic() - started, 4)
         self.assertEqual(dispatched, ["sleepy"])
+
+    def test_a_router_without_toolsmith_does_not_load_the_worker(self):
+        pytest.importorskip("fastapi", reason="router tests need the server extra")
+        # The worker needs the POSIX resource module; other routers must import where it is missing.
+        probe = ("import sys; import openvlharness.services.server; "
+                 "print('openvlharness.toolsmith.worker' in sys.modules)")
+        done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120,
+                              cwd=Path(__file__).resolve().parents[1])
+        self.assertEqual(done.stdout.strip(), "False", done.stderr)
 
     def test_the_router_reports_the_digest_of_the_catalog_it_serves(self):
         pytest.importorskip("fastapi", reason="router tests need the server extra")
