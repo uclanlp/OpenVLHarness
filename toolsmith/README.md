@@ -109,9 +109,9 @@ credentials that the packaged `visual_matches` (Serper Lens and the image upload
 With `worker.isolation` (the default) the worker runs in Linux user, mount, PID and IPC
 namespaces, under the router's uid and without root. It sees the interpreter, the Python
 packages, the catalog copy, the model caches and the resolver, certificate and time-zone
-settings from `/etc` read-only, and has a private `/tmp` and
-home directory; a file that a granted variable names, such as a key file, is readable
-too. It cannot see the router's other files (the repository, other home directories,
+settings from `/etc` read-only, and has a private `/tmp`, home directory and `/dev/shm` of
+at most 1 GiB each, held in memory; a file that a granted variable names, such as a key
+file, is readable too. It cannot see the router's other files (the repository, other home directories,
 credential files such as `~/.aws/credentials`) or any process outside its namespace, and
 Hugging Face token files are hidden. `write_files` makes the caches and the local
 image-upload directory writable, and `worker.network: false` removes network access as

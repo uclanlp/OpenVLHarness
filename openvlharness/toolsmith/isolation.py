@@ -6,9 +6,9 @@ Without root, the launcher creates user, mount, PID and IPC namespaces, and a ne
 namespace with no interfaces up unless SPEC allows network access. The caller keeps
 its uid and gid. In the new namespaces a small init (PID 1) runs the command as PID 2
 on a fresh root filesystem built in SPEC's root directory: read-only bind mounts of
-the read paths, writable bind mounts of the write paths, private tmpfs directories, a
-fresh /proc that shows only the namespace's processes, and a /dev holding null, zero,
-full, random and urandom. The host filesystem is detached, the command starts without
+the read paths, writable bind mounts of the write paths, private tmpfs directories of at
+most 1 GiB each, a fresh /proc that shows only the namespace's processes, and a /dev
+holding null, zero, full, random and urandom. The host filesystem is detached, the command starts without
 capabilities and cannot gain privileges, and everything in the namespace dies with the
 launcher. SPEC is JSON with root, read, write, mask (paths hidden inside read paths),
 tmp, cwd, network and cleanup (a directory the launcher removes when the command ends).
@@ -36,6 +36,10 @@ ETC = ("resolv.conf", "hosts", "nsswitch.conf", "host.conf", "gai.conf", "servic
        "ca-certificates", "ca-certificates.conf", "pki", "ld.so.cache", "ld.so.conf", "ld.so.conf.d", "localtime",
        "timezone", "mime.types")
 SETUP_FAILED = 125
+# Caps of the tmpfs mounts, whose memory the address-space limit does not count: each private
+# temporary directory and /dev/shm, and the root and /dev, which hold only mount points and devices.
+TMPFS = "size=1g,nr_inodes=65536"
+SKELETON = "size=16m,nr_inodes=65536"
 # statvfs flags of a mount that a read-only remount inside a user namespace must keep.
 LOCKED = tuple((getattr(os, name), flag) for name, flag in (
     ("ST_NOSUID", MS_NOSUID), ("ST_NODEV", MS_NODEV), ("ST_NOEXEC", MS_NOEXEC), ("ST_NOATIME", MS_NOATIME),
@@ -112,12 +116,13 @@ def _build_root(libc, spec):
     """Assemble the new root in spec["root"] and pivot into it."""
     root = os.path.realpath(spec["root"])
     _mount(libc, None, "/", None, MS_REC | MS_PRIVATE)
-    _mount(libc, "tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, "mode=0755")
+    _mount(libc, "tmpfs", root, "tmpfs", MS_NOSUID | MS_NODEV, f"mode=0755,{SKELETON}")
     entries = [(path, "read") for path in spec.get("read", [])] + [(path, "write") for path in spec.get("write", [])]
     entries += [(path, "tmp") for path in spec.get("tmp", [])]
     for path, kind in sorted(entries, key=lambda entry: (entry[0].rstrip("/").count("/"), entry[0])):
         if kind == "tmp":
-            _mount(libc, "tmpfs", _target(root, path, directory=True), "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777")
+            _mount(libc, "tmpfs", _target(root, path, directory=True), "tmpfs", MS_NOSUID | MS_NODEV,
+                   f"mode=1777,{TMPFS}")
         elif os.path.lexists(path):
             _bind(libc, root, path, writable=kind == "write")
     for path in spec.get("mask", []):
@@ -127,10 +132,11 @@ def _build_root(libc, spec):
             _mount(libc, "/dev/null", root + path, None, MS_BIND)
     _mount(libc, "proc", _target(root, "/proc", directory=True), "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC)
     dev = _target(root, "/dev", directory=True)
-    _mount(libc, "tmpfs", dev, "tmpfs", MS_NOSUID | MS_NOEXEC, "mode=0755")
+    _mount(libc, "tmpfs", dev, "tmpfs", MS_NOSUID | MS_NOEXEC, f"mode=0755,{SKELETON}")
     for name in DEVICES:
         _mount(libc, f"/dev/{name}", _target(root, f"/dev/{name}", directory=False), None, MS_BIND)
-    _mount(libc, "tmpfs", _target(root, "/dev/shm", directory=True), "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777")
+    _mount(libc, "tmpfs", _target(root, "/dev/shm", directory=True), "tmpfs", MS_NOSUID | MS_NODEV,
+           f"mode=1777,{TMPFS}")
     for name, link in (("fd", "/proc/self/fd"), ("stdin", "/proc/self/fd/0"), ("stdout", "/proc/self/fd/1"),
                        ("stderr", "/proc/self/fd/2")):
         os.symlink(link, f"{dev}/{name}")

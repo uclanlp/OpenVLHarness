@@ -36,6 +36,8 @@ attempt("uid", os.getuid)
 attempt("capabilities", lambda: [line.split()[1] for line in open("/proc/self/status") if line.startswith("CapEff")][0])
 attempt("etc", lambda: sorted(os.listdir("/etc")))
 attempt("opt", lambda: os.listdir("/opt"))
+attempt("tmpfs", lambda: {path: [os.statvfs(path).f_blocks * os.statvfs(path).f_frsize, os.statvfs(path).f_files]
+                          for path in ("/tmp", "/dev/shm", "/dev", "/")})
 print(json.dumps(seen))
 '''
 
@@ -101,6 +103,11 @@ class LauncherTests(unittest.TestCase):
                                   env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
+
+    def test_temporary_file_systems_are_capped(self):
+        # tmpfs memory is outside the address-space limit, so each mount has its own size and file cap.
+        self.assertEqual(self.confined(network=False)["tmpfs"], ["ok", {
+            "/tmp": [1 << 30, 65536], "/dev/shm": [1 << 30, 65536], "/dev": [16 << 20, 65536], "/": [16 << 20, 65536]}])
 
     def test_a_confined_process_sees_only_what_it_is_given(self):
         seen = self.confined(network=False)
