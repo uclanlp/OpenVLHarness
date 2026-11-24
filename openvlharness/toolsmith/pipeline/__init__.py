@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ...bootstrap import build_capabilities, load_agent_config
 from ...services.models import AuxiliaryModel
+from ...services.tools.base import RUNTIME_FIELDS
 from ..worker import catalog_tools, memory_limit_enforced
 from .generation import Generator, describe_tools
 from .mining import Gap, evidence_digest, judged_predictions, mine
@@ -208,7 +209,11 @@ class Pipeline:
             # What Gate 1's run prints, the candidate can print too: take the metadata from a load instead.
             metadata, issue = self.loaded(source)
             issues = [issue] if issue else []
-        if metadata and declared_name(source) != metadata["tool_name"]:
+        reserved = sorted(RUNTIME_FIELDS & set((metadata or {}).get("input_schema", {}).get("properties", {})))
+        if reserved:
+            # The router refuses these as task arguments, so such a tool could never be called.
+            issues = [f"input_schema declares {', '.join(reserved)}, which the router reserves; use other names"]
+        elif metadata and declared_name(source) != metadata["tool_name"]:
             issues = [f"the tool registers {metadata['tool_name']!r}; pass its tool_name as one string literal"]
         elif metadata and not re.fullmatch(r"[a-z][a-z0-9_]*", metadata["tool_name"]):
             issues = [f"tool_name {metadata['tool_name']!r} must be snake_case"]

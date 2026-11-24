@@ -530,8 +530,10 @@ class PipelineTests(unittest.TestCase):
             '"input_schema": {"type": "object"}}))\n        raise SystemExit(0)')).replace("import re", "import json\nimport re")
         computed = tool(name="river_length_lookup").replace('tool_name="river_length_lookup"',
                                                             'tool_name="river_" + "length_lookup"')
+        reserved = tool().replace('"properties": {"river"', '"properties": {"num_results": {"type": "integer"}, "river"')
         for source, feedback in ((forged, "a tool named phrase_translator already exists"),
-                                 (computed, "pass its tool_name as one string literal")):
+                                 (computed, "pass its tool_name as one string literal"),
+                                 (reserved, "declares num_results, which the router reserves")):
             with self.subTest(feedback=feedback):
                 shutil.rmtree(self.root / "work", ignore_errors=True)
                 pipeline = self.pipeline()

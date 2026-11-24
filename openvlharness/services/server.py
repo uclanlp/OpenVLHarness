@@ -16,7 +16,7 @@ from ..contracts import ServiceResult
 from . import degradation
 from .client import ToolClient
 from .models import ModelAdapter, AuxiliaryModel
-from .tools.base import ToolArgumentError
+from .tools.base import RUNTIME_FIELDS, ToolArgumentError
 from .envelope import _normalize_result_payload, _build_error_payload, _build_success_payload
 
 logger = logging.getLogger(__name__)
@@ -40,12 +40,6 @@ class ExecuteRequest(BaseModel):
     tool_name: str
     tool_call_id: str
     args: dict = Field(default_factory=dict)
-
-
-# Only resolved task data crosses the router boundary; endpoints come from deployment config,
-# and images arrive as base64 so callers cannot make tools open router-host files.
-RUNTIME_FIELDS = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
-                  "box_threshold", "text_threshold", "num_results", "gl", "hl", "image_path", "image_paths"}
 
 
 def check_task_arguments(args):
