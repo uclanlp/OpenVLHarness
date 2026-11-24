@@ -81,10 +81,13 @@ class MediaCatalog(GeneratedTool):
         results = get_json(f"{TMDB}/search/{endpoint}", {"api_key": key, "query": title}).get("results") or []
         if not results:
             return {"found": False}
+        # As for music, an exact title or name wins over the first hit of the search.
+        hit = next((result for result in results
+                    if (result.get("title") or result.get("name") or "").lower() == title.lower()), results[0])
         params = {"api_key": key}
         if media_type != "person":
             params["append_to_response"] = "alternative_titles"
-        record = get_json(f"{TMDB}/{endpoint}/{results[0]['id']}", params)
+        record = get_json(f"{TMDB}/{endpoint}/{hit['id']}", params)
         if media_type == "person":
             names = record.get("also_known_as") or []
             return {"found": True, "media_type": "person", "source": "tmdb", "id": record.get("id"),

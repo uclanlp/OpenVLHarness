@@ -259,6 +259,21 @@ class PackagedToolBehaviourTests(unittest.TestCase):
                 requests.ConnectionError(f"Max retries exceeded with url: {url}?api_key=tmdb-secret-123"))}):
             self.assertNotIn("tmdb-secret-123", json.dumps(tool.execute(title="Heat", media_type="music")))
 
+    def test_media_catalog_prefers_an_exact_tmdb_title_to_the_first_hit(self):
+        tool = self.tools["media_catalog"]
+        hits = [{"id": 1, "title": "Dune: Part Two"}, {"id": 2, "title": "Dune"}]
+        fetched = []
+
+        def get_json(url, params):
+            if "/search/" in url:
+                return {"results": hits}
+            fetched.append(url.rsplit("/", 1)[1])
+            return {"id": int(fetched[-1]), "title": {"1": "Dune: Part Two", "2": "Dune"}[fetched[-1]]}
+        with patch.dict(os.environ, {"TMDB_API_KEY": "key"}), patch.dict(tool.execute.__globals__, {"get_json": get_json}):
+            self.assertEqual(tool.execute(title="dune", media_type="film")["canonical_title"], "Dune")
+            self.assertEqual(tool.execute(title="Dune 2", media_type="film")["canonical_title"], "Dune: Part Two")
+        self.assertEqual(fetched, ["2", "1"])
+
     def test_media_catalog_prefers_an_exact_release_to_a_fuzzy_artist(self):
         tool = self.tools["media_catalog"]
         searches = {"artist": [{"name": "Thriller Kids", "id": "a1"}], "release": [{"title": "Thriller", "id": "r1"}]}
