@@ -65,7 +65,10 @@ def run_once(source, timeout):
         (None, issue) when the run fails, times out or returns non-JSON data.
     """
     package = Path(__file__).resolve().parents[3]
-    environment = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(package), "PYTHONDONTWRITEBYTECODE": "1"}
+    # One BLAS thread: the thread pools numpy and scikit-learn start on import would otherwise
+    # reserve more than the 2 GiB address-space cap on many-core hosts.
+    environment = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(package), "PYTHONDONTWRITEBYTECODE": "1",
+                   "OPENBLAS_NUM_THREADS": "1", "OMP_NUM_THREADS": "1"}
     with tempfile.TemporaryDirectory() as directory:
         Path(directory, "candidate.py").write_text(source)
         try:
