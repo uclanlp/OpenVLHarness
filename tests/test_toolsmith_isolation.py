@@ -34,6 +34,8 @@ attempt("write prefix", lambda: open(os.path.join(sys.prefix, "isolation-test"),
 attempt("connect", lambda: socket.create_connection(("127.0.0.1", int(sys.argv[3])), timeout=5).close())
 attempt("uid", os.getuid)
 attempt("capabilities", lambda: [line.split()[1] for line in open("/proc/self/status") if line.startswith("CapEff")][0])
+attempt("etc", lambda: sorted(os.listdir("/etc")))
+attempt("opt", lambda: os.listdir("/opt"))
 print(json.dumps(seen))
 '''
 
@@ -109,6 +111,8 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(seen["connect"][0], "blocked")
         self.assertEqual(seen["uid"], ["ok", os.getuid()])
         self.assertEqual(seen["capabilities"], ["ok", "0000000000000000"])
+        self.assertEqual(seen["etc"], ["ok", sorted(name for name in isolation.ETC if os.path.lexists(f"/etc/{name}"))])
+        self.assertEqual(seen["opt"], ["blocked", "FileNotFoundError"])
 
     def test_network_access_is_opt_in(self):
         self.assertEqual(self.confined(network=True)["connect"], ["ok", None])

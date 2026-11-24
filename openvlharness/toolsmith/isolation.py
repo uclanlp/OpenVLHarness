@@ -30,6 +30,11 @@ MNT_DETACH = 2
 PR_SET_PDEATHSIG, PR_SET_NO_NEW_PRIVS = 1, 38
 PIVOT_ROOT = {"x86_64": 155, "aarch64": 41}
 DEVICES = ("null", "zero", "full", "random", "urandom")
+# What Python, OpenSSL and the resolver read from /etc: name resolution, certificates, the dynamic
+# linker cache, the time zone and MIME types. Nothing else under /etc (or /opt) is mounted.
+ETC = ("resolv.conf", "hosts", "nsswitch.conf", "host.conf", "gai.conf", "services", "protocols", "ssl",
+       "ca-certificates", "ca-certificates.conf", "pki", "ld.so.cache", "ld.so.conf", "ld.so.conf.d", "localtime",
+       "timezone", "mime.types")
 SETUP_FAILED = 125
 # statvfs flags of a mount that a read-only remount inside a user namespace must keep.
 LOCKED = tuple((getattr(os, name), flag) for name, flag in (
@@ -263,8 +268,8 @@ def system_paths():
     """Host paths every confined Python process reads: system directories, the interpreter and this package."""
     from .worker import PACKAGE_ROOT
 
-    paths = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/sys",
-             "/run/systemd/resolve", sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix,
+    paths = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/sys", "/run/systemd/resolve",
+             *(f"/etc/{name}" for name in ETC), sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix,
              os.path.dirname(os.path.realpath(sys.executable)), str(PACKAGE_ROOT / "openvlharness")]
     package_root = os.path.realpath(PACKAGE_ROOT)
     for entry in sys.path + os.environ.get("LD_LIBRARY_PATH", "").split(os.pathsep):
