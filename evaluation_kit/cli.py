@@ -199,6 +199,7 @@ def _prepare_evaluation_run(args, logger):
         predictions = _saved_prediction_files(path, manifest, args.data, args.sample_filter)
         return str(path), manifest, *_saved_evaluation_identity(manifest), predictions
     selector = parse_yaml_mapping(args.config, label="Agent metadata filter") if args.config else None
+    catalog = _selected_catalog(selector)
     candidates = []
     for manifest_path in Path(args.work_dir).glob("*/*/*/run_manifest.json"):
         try:
@@ -211,7 +212,8 @@ def _prepare_evaluation_run(args, logger):
                 saved_alias = config.get("services", {}).get("models", {}).get(saved_service, {}).get("alias")
                 if (manifest.get("agent_config_version") != selector.get("agent_config_version")
                         or config.get("agent_name") != selector.get("agent_name") or saved_alias != alias
-                        or _saved_evaluation_identity(manifest)[1] != bootstrap.agent_class_name(selector)):
+                        or _saved_evaluation_identity(manifest)[1] != bootstrap.agent_class_name(selector)
+                        or manifest.get("toolsmith_catalog_sha256") != catalog):
                     continue
             identity = _saved_evaluation_identity(manifest)
             predictions = _saved_prediction_files(manifest_path.parent, manifest, args.data, args.sample_filter)
@@ -225,6 +227,16 @@ def _prepare_evaluation_run(args, logger):
         raise ValueError("Saved runs contain multiple model/agent identities; select one with --run-dir")
     _, root, manifest, identity, predictions = max(candidates, key=lambda item: (item[0], item[1]))
     return root, manifest, *identity, predictions
+
+
+def _selected_catalog(selector):
+    """Return the catalog digest a ToolSmith selector's runs must have recorded, or None for other selectors."""
+    if not selector or "toolsmith" not in selector:
+        return None
+    from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+    catalog = (selector["toolsmith"] or {}).get("catalog")
+    return catalog_fingerprint(os.path.expandvars(catalog) if isinstance(catalog, str) else catalog)
 
 
 def _snapshot_tool_env(pred_root, logger, agent_config=None):
