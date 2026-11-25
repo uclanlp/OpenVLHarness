@@ -1,11 +1,13 @@
-"""Confine a command with Linux namespaces: it sees only the paths it needs, read-only, and optionally no network.
+"""Confine a command with Linux namespaces: it sees only the paths it needs, read-only, and no host network.
 
 Usage: python -m openvlharness.toolsmith.isolation SPEC -- COMMAND [ARGUMENT...]
 
 Without root, the launcher creates user, mount, PID and IPC namespaces, and a network
-namespace with no interfaces up unless SPEC allows network access. The caller keeps
-its uid and gid. In the new namespaces a small init (PID 1) runs the command as PID 2
-on a fresh root filesystem built in SPEC's root directory: read-only bind mounts of
+namespace of the command's own with only loopback up: no host interface, service,
+abstract socket or connection list reaches it. Network access, where the caller grants
+it, is a UNIX socket the caller mounts (see proxy). The caller keeps its uid and gid.
+In the new namespaces a small init (PID 1) runs the command as PID 2 on a fresh root
+filesystem built in SPEC's root directory: read-only bind mounts of
 the read paths, writable bind mounts of the write paths, private tmpfs directories of at
 most 1 GiB each, a fresh /proc that shows only the namespace's processes, and a /dev
 holding null, zero, full, random and urandom. An overlay path is the host directory, read-only, under a
@@ -20,7 +22,7 @@ memory of all the processes and of the private tmpfs mounts, and checks their CP
 between calls. Those limits stop runaway tools; they are not hard limits against code
 written to evade them, which needs a container or cgroup around the router. SPEC is JSON with
 root, read, write, overlay, layer_bytes, mask (paths hidden inside read paths), tmp, cwd,
-network, cleanup (a directory the launcher removes when the command ends) and parent (the
+cleanup (a directory the launcher removes when the command ends) and parent (the
 PID of the caller, whose end kills the launcher and so the namespace).
 """
 import ctypes
@@ -39,6 +41,7 @@ MS_RDONLY, MS_NOSUID, MS_NODEV, MS_NOEXEC, MS_REMOUNT = 0x1, 0x2, 0x4, 0x8, 0x20
 MS_NOATIME, MS_NODIRATIME, MS_BIND, MS_REC, MS_PRIVATE, MS_RELATIME = 0x400, 0x800, 0x1000, 0x4000, 0x40000, 0x200000
 MNT_DETACH = 2
 PR_SET_PDEATHSIG, PR_SET_NO_NEW_PRIVS = 1, 38
+SIOCGIFFLAGS, SIOCSIFFLAGS, IFF_UP = 0x8913, 0x8914, 0x1
 PIVOT_ROOT = {"x86_64": 155, "aarch64": 41}
 DEVICES = ("null", "zero", "full", "random", "urandom")
 # What Python, OpenSSL and the resolver read from /etc: name resolution, certificates, the dynamic
@@ -224,12 +227,12 @@ def launch(spec, command):
             os._exit(SETUP_FAILED)
     # The child makes its own mount namespace below: pivot_root moves the root of every process
     # in a mount namespace, and the launcher keeps the host view to clean up afterwards.
-    flags = CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWIPC | (0 if spec.get("network") else CLONE_NEWNET)
     try:
-        _check(libc.unshare(flags), "unshare")
+        _check(libc.unshare(CLONE_NEWUSER | CLONE_NEWPID | CLONE_NEWIPC | CLONE_NEWNET), "unshare")
         for name, value in (("setgroups", "deny"), ("uid_map", f"{uid} {uid} 1"), ("gid_map", f"{gid} {gid} 1")):
             with open(f"/proc/self/{name}", "w") as stream:
                 stream.write(value)
+        _loopback_up()
     except OSError as exc:
         print(f"isolation: {exc}", file=sys.stderr)
         os._exit(SETUP_FAILED)
@@ -273,6 +276,18 @@ def launch(spec, command):
         signal.signal(os.WTERMSIG(status), signal.SIG_DFL)
         os.kill(os.getpid(), os.WTERMSIG(status))
     os._exit(os.WEXITSTATUS(status) if os.WIFEXITED(status) else SETUP_FAILED)
+
+
+def _loopback_up():
+    """Bring up lo in the new network namespace, while the launcher holds capabilities there."""
+    import fcntl
+    import socket
+    import struct
+
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        request = struct.pack("16sH22x", b"lo", 0)  # struct ifreq: the name, then ifr_flags
+        flags = struct.unpack("16sH22x", fcntl.ioctl(sock.fileno(), SIOCGIFFLAGS, request))[1]
+        fcntl.ioctl(sock.fileno(), SIOCSIFFLAGS, struct.pack("16sH22x", b"lo", flags | IFF_UP))
 
 
 def _limit_namespace():
@@ -361,7 +376,7 @@ def available():
             import tempfile
 
             with tempfile.TemporaryDirectory(prefix="openvlharness-probe-") as root:
-                spec = {"root": root, "read": system_paths(network=False), "tmp": ["/tmp"], "network": False,
+                spec = {"root": root, "read": system_paths(), "tmp": ["/tmp"],
                         "parent": os.getpid()}
                 try:
                     done = subprocess.run(command(spec, [sys.executable, "-c", "pass"]), capture_output=True,
@@ -380,16 +395,15 @@ def probe_environment():
     return {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
 
 
-def system_paths(*, network=True):
+def system_paths():
     """Host paths every confined Python process reads: system directories, the interpreter and this package.
 
-    Without network, the systemd-resolved directory is left out: its socket resolves
-    names, and file-system sockets ignore network namespaces.
+    The systemd-resolved directory is left out: its socket resolves names whatever the
+    network namespace, and a confined worker's names are resolved by the proxy.
     """
     from .worker import PACKAGE_ROOT
 
     paths = ["/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/sys",
-             *(["/run/systemd/resolve"] if network else []),
              *(f"/etc/{name}" for name in ETC), sys.prefix, sys.base_prefix, sys.exec_prefix, sys.base_exec_prefix,
              os.path.dirname(os.path.realpath(sys.executable)), str(PACKAGE_ROOT / "openvlharness")]
     package_root = os.path.realpath(PACKAGE_ROOT)

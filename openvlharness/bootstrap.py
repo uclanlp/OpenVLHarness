@@ -1,6 +1,7 @@
 """Load the agent-system configuration and wire explicit runtime dependencies."""
 import copy
 import importlib
+import ipaddress
 import math
 import os
 import re
@@ -67,6 +68,15 @@ def expand_environment(config, *, label, source="", hint="", guide="the README q
     return config
 
 
+def _is_network(text):
+    """Whether text names an IP network (an address is a network of one)."""
+    try:
+        ipaddress.ip_network(text, strict=False)
+    except ValueError:
+        return False
+    return True
+
+
 def load_agent_config(config, *, save_raw_trace=False, stand_in=None):
     """Load, expand and validate an agent-system configuration.
 
@@ -123,9 +133,11 @@ def load_agent_config(config, *, save_raw_trace=False, stand_in=None):
             raise ValueError("toolsmith.encoder must name a sentence-transformers model")
         worker = toolsmith.get("worker", {})
         if not isinstance(worker, dict) or set(worker) - {"environment", "timeout_seconds", "memory_gib",
-                                                          "cache_layer_gib", "write_files", "isolation", "network"}:
+                                                          "cache_layer_gib", "write_files", "isolation", "network",
+                                                          "network_ports", "deny_networks"}:
             raise ValueError("toolsmith.worker must be a mapping with optional environment, timeout_seconds, "
-                             "memory_gib, cache_layer_gib, write_files, isolation and network")
+                             "memory_gib, cache_layer_gib, write_files, isolation, network, network_ports and "
+                             "deny_networks")
         names = worker.get("environment", [])
         if not isinstance(names, list) or not all(
                 isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in names):
@@ -137,6 +149,14 @@ def load_agent_config(config, *, save_raw_trace=False, stand_in=None):
         for key in ("write_files", "isolation", "network"):
             if type(worker.get(key, False)) is not bool:
                 raise ValueError(f"toolsmith.worker.{key} must be true or false")
+        ports = worker.get("network_ports", [80])
+        if not (isinstance(ports, list) and ports and all(type(port) is int and 0 < port < 65536 for port in ports)):
+            raise ValueError("toolsmith.worker.network_ports must list one or more ports from 1 to 65535")
+        networks = worker.get("deny_networks", [])
+        if not isinstance(networks, list) or not all(isinstance(network, str) and _is_network(network)
+                                                     for network in networks):
+            raise ValueError("toolsmith.worker.deny_networks must list networks in CIDR notation, such as "
+                             "203.0.113.0/24 or 2001:db8::/32")
     memory_factory(config["memory"])()
     agent = config["agent"]
     if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed",

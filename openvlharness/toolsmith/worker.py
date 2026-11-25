@@ -12,9 +12,11 @@ in a window with no call in flight. With toolsmith.worker.isolation
 (the default) it runs confined by Linux namespaces (see isolation): it sees only the
 interpreter, the packages, the catalog copy and the model caches, read-only (with
 write_files, the caches take writes in a private layer), and none of the router's other
-files or processes. With network access it shares the host's network,
-loopback included, so it can reach local services, the router among them;
-toolsmith.worker.network: false removes its network access.
+files or processes. It has a network namespace of its own with only loopback; with
+toolsmith.worker.network (the default) its HTTP and HTTPS clients reach the ports in
+toolsmith.worker.network_ports through the router's outbound proxy (see proxy), which
+refuses this host, its local networks, private addresses and toolsmith.worker.deny_networks,
+and toolsmith.worker.network: false leaves it no network at all.
 
 A generated tool reaches other tools only through call_tool, which the worker passes
 to the router process: calls to the other generated tools and to the base tools in
@@ -59,6 +61,7 @@ from ..services.envelope import _build_error_payload, _build_success_payload, _n
 from ..services.tools.base import ToolArgumentError
 from .catalog import DEFAULT_CATALOG, catalog_modules, fingerprint_files, load_catalog, tool_problem
 from .errors import CatalogLoadError, WorkerStartError, brief, describe
+from .proxy import PORTS as NETWORK_PORTS
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +92,7 @@ IDLE_CPU_WINDOW_SECONDS = 10
 IDLE_CPU_SECONDS = 2
 IDLE_SETTLE_SECONDS = 1
 MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
+OPEN_FILES = 4096  # file descriptors of each worker process
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 # Settings that name a file or directory, and lists of directories, the worker resolves like the router.
 PATH_SETTINGS = {"SERPER_API_KEY_FILE", "GOOGLE_APPLICATION_CREDENTIALS", "IMAGE_UPLOAD_LOCAL_DIR", "HF_HOME",
@@ -1096,8 +1100,8 @@ class CatalogWorker:
     """Serve the generated tools of a catalog from a worker process; the router's handle on them."""
 
     def __init__(self, directory=None, *, client, base_tools=(), environment=(), timeout_seconds=600,
-                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True, report_environment=True,
-                 cache_layer_gib=CACHE_LAYER_GIB):
+                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True, network_ports=NETWORK_PORTS,
+                 deny_networks=(), report_environment=True, cache_layer_gib=CACHE_LAYER_GIB):
         """Copy the catalog, start the first worker and read the tools it loaded.
 
         Args:
@@ -1114,15 +1118,17 @@ class CatalogWorker:
                 each file it writes is capped at memory_gib.
             isolation: Confine the worker with Linux namespaces; without it, generated
                 tools can read every file the router can.
-            network: Let a confined worker use the network.
+            network: Let a confined worker use the network, through the outbound proxy.
+            network_ports: The destination ports the proxy serves.
+            deny_networks: Networks (CIDR strings) the proxy refuses besides this host's own.
             report_environment: Warn about the credential-like variables the worker does not inherit.
             cache_layer_gib: With write_files and isolation, the size in GiB of the private
                 in-memory layer that takes writes to the model caches.
 
         Raises:
             CatalogLoadError: The catalog cannot be loaded (a ValueError).
-            WorkerStartError: The worker does not start, or isolation is requested on a
-                host that does not allow it (a RuntimeError).
+            WorkerStartError: The worker or its outbound proxy does not start, or isolation
+                is requested on a host that does not allow it (a RuntimeError).
         """
         self.directory = Path(directory or DEFAULT_CATALOG)
         self.files = {path.name: path.read_bytes() for path in catalog_modules(self.directory)}
@@ -1145,6 +1151,11 @@ class CatalogWorker:
             logger.warning("%s does not enforce address-space limits: the generated-tool worker runs without "
                            "toolsmith.worker.memory_gib.", sys.platform)
         self.environment = worker_environment(environment)
+        withheld = sorted(set(os.environ) - set(self.environment))
+        if isolation:
+            # The router's proxies are unreachable from the sandbox, and their URLs can hold passwords.
+            self.environment = {name: value for name, value in self.environment.items()
+                                if not name.lower().endswith("_proxy")}
         if isolation and not network:
             # Without a network, Hugging Face libraries load cached models at once instead of retrying the Hub.
             self.environment.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
@@ -1152,6 +1163,7 @@ class CatalogWorker:
         self.isolation, self.network = isolation, network
         # A confined worker dies with its launcher's namespace; an unconfined one watches the router itself.
         self.limits["parent"] = None if isolation else os.getpid()
+        self.proxy = None
         if isolation:
             from .isolation import available
 
@@ -1160,10 +1172,18 @@ class CatalogWorker:
                 raise WorkerStartError(f"Generated tools run confined by Linux user namespaces, which this host does "
                                        f"not allow ({reason}). Set toolsmith.worker.isolation: false to run them "
                                        "without it.")
+            if network:
+                from .proxy import OutboundProxy
+
+                # The confined worker's only way out: a socket in a directory only the router's user can open.
+                try:
+                    self.proxy = OutboundProxy(ports=network_ports, deny=deny_networks)
+                except (OSError, RuntimeError) as exc:  # no socket directory or socket, or no thread for it
+                    raise WorkerStartError(f"the ToolSmith outbound proxy cannot start: {exc}") from exc
+                self.limits["proxy"] = self.proxy.path
         else:
             logger.warning("toolsmith.worker.isolation is off: generated tools can read every file the router can "
                            "read and reach the network.")
-        withheld = sorted(set(os.environ) - set(self.environment))
         if withheld and report_environment:
             logger.warning("Generated tools run without these router environment variables: %s. Grant any they "
                            "read with toolsmith.worker.environment.", ", ".join(withheld))
@@ -1173,7 +1193,11 @@ class CatalogWorker:
         self.nested = {}  # tool_call_id -> count of the call_tool calls to generated tools now forwarded
         self.closed = False
         self.tools = self.current = None
-        self.current = self._start()
+        try:
+            self.current = self._start()
+        except BaseException:
+            self.close()  # and its outbound proxy
+            raise
         self.tools = {tool["tool_name"]: tool for tool in self.current.tools}
         atexit.register(self.close)
 
@@ -1194,7 +1218,9 @@ class CatalogWorker:
                    environment=settings.get("environment", ()), timeout_seconds=timeout,
                    memory_gib=settings.get("memory_gib", MEMORY_GIB), write_files=settings.get("write_files", False),
                    isolation=settings.get("isolation", True), network=settings.get("network", True),
-                   cache_layer_gib=settings.get("cache_layer_gib", CACHE_LAYER_GIB))
+                   cache_layer_gib=settings.get("cache_layer_gib", CACHE_LAYER_GIB),
+                   network_ports=settings.get("network_ports", NETWORK_PORTS),
+                   deny_networks=settings.get("deny_networks", ()))
 
     def execute(self, tool_name, args, *, tool_call_id):
         """Run one call in the worker and return the router envelope and its HTTP status."""
@@ -1224,7 +1250,7 @@ class CatalogWorker:
         return self._finish(worker, request, answer, answer.result() if done else None, tool_name, tool_call_id)
 
     def close(self):
-        """Stop every worker; later calls fail."""
+        """Stop every worker and the outbound proxy; later calls fail."""
         atexit.unregister(self.close)  # the exit hook would keep a closed router, and its catalog bytes, alive
         with self.lock:
             self.closed = True
@@ -1233,6 +1259,8 @@ class CatalogWorker:
             worker.kill()
         for worker in workers:
             worker.reader.join(timeout=5)
+        if self.proxy is not None:
+            self.proxy.close()
 
     def confinement(self, home):
         """The isolation spec of a worker whose private directory is home."""
@@ -1249,7 +1277,9 @@ class CatalogWorker:
         # A cache inside another is covered by the outer mount.
         caches = [path for path in caches if not any(path.startswith(other.rstrip("/") + "/") for other in caches)]
         package_root = os.path.realpath(PACKAGE_ROOT)
-        read = system_paths(network=self.network) + [str(home / "catalog")]
+        read = system_paths() + [str(home / "catalog")]
+        if self.proxy is not None:
+            read.append(os.path.dirname(self.proxy.path))  # connecting to a socket needs no write access
         read += [entry for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
                  if entry and os.path.isdir(entry) and os.path.realpath(entry) != package_root]
         # Certificate bundles, and files that granted variables name (a key file, service-account credentials).
@@ -1270,7 +1300,7 @@ class CatalogWorker:
             read += caches
         temporary = ["/tmp", "/var/tmp", expand("~")] + ([environment["TMPDIR"]] if environment.get("TMPDIR") else [])
         return {"root": str(home / "root"), "read": read, "write": write, "overlay": overlay, "tmp": temporary,
-                "mask": masks + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home),
+                "mask": masks + python_masks(), "cwd": str(home), "cleanup": str(home),
                 "parent": os.getpid(), "layer_bytes": int(self.cache_layer_gib * (1 << 30))}
 
     def _submit(self, tool_name, args, tool_call_id=None):
@@ -1424,9 +1454,10 @@ def catalog_snapshot(directory=None, *, settings=None):
     """Return each catalog tool's name, description and input schema without running catalog code here.
 
     A worker (confined as settings, a toolsmith.worker mapping, say) loads the catalog,
-    reports its tools and stops. Reading metadata needs no network, so a confined worker
-    gets none, as Gate 1 runs do, and reaches no network service while catalog code runs
-    at import. Without isolation it shares the host's network.
+    reports its tools and stops. Reading metadata needs no network, so the worker gets no
+    outbound proxy, as Gate 1 runs do: confined, it has no network and reaches no network
+    service while catalog code runs at import. Without isolation it shares the host's
+    network.
 
     Returns:
         (tools, fingerprint): a mapping of tool names to objects with tool_name,
@@ -1539,6 +1570,19 @@ def _run(tools, message, channel):
                       "exception_type": type(exc).__name__, "argument_error": False})
 
 
+def _use_outbound_proxy(path):
+    """Send the tools' HTTP and HTTPS traffic to the router's outbound proxy at path, before the catalog loads."""
+    from .proxy import forward
+
+    url = f"http://127.0.0.1:{forward(path)}"
+    for name in [name for name in os.environ if name.lower().endswith("_proxy")]:  # no other proxy is reachable
+        del os.environ[name]
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ[name] = url
+    for name in ("NO_PROXY", "no_proxy"):  # the sandbox's own loopback, where a tool may start a server
+        os.environ[name] = "localhost,127.0.0.1,::1"
+
+
 def _prefer_oom_kill():
     """Ask Linux to stop the worker before other processes when memory runs out; elsewhere do nothing."""
     try:
@@ -1559,9 +1603,15 @@ def main(directory, limits):
     limits = json.loads(limits)
     _die_with(limits.pop("parent", None))
     channel.send_limit = limits.pop("message_bytes", MAX_MESSAGE_BYTES)
+    proxy = limits.pop("proxy", None)
+    if proxy:
+        _use_outbound_proxy(proxy)
     _prefer_oom_kill()
     limit_resources(**limits)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    files = OPEN_FILES if hard == resource.RLIM_INFINITY else min(OPEN_FILES, hard)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (files, files))
     router = _Router(channel)
     try:
         tools = load_catalog(directory, client=router)

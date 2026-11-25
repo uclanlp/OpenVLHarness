@@ -146,8 +146,8 @@ def run_once(source, timeout, *, isolation=True):
         if isolation:
             from ..isolation import command, private_mounts, python_masks, system_paths
 
-            spec = {"root": root, "read": system_paths(network=False) + [directory], "mask": python_masks(),
-                    "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "network": False, "parent": os.getpid()}
+            spec = {"root": root, "read": system_paths() + [directory], "mask": python_masks(),
+                    "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "parent": os.getpid()}
             argv, mounts = command(spec, argv), private_mounts(spec)
         # Output is drained as it comes and only its end is kept, so a chatty candidate cannot fill memory.
         # A session of its own, so stopping the run stops what it started too.

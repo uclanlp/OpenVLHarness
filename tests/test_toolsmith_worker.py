@@ -355,20 +355,22 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(started[0].execute("echo", {"value": "abc"}, tool_call_id="call-1")[1], 200)
 
     def test_workers_die_with_the_router(self):
-        # A killed router cannot remove its worker's private directory: here it is made in one the test removes.
-        script = ("import sys, tempfile, threading, time\nfrom openvlharness.toolsmith.worker import CatalogWorker\n"
-                  "tempfile.tempdir = sys.argv[3]\n"
+        # A killed router cannot remove its worker's private directory or its outbound proxy's socket directory:
+        # here both are made in one the test removes.
+        script = ("import sys, tempfile, threading, time\nfrom openvlharness.toolsmith import proxy\n"
+                  "from openvlharness.toolsmith.worker import CatalogWorker\n"
+                  "tempfile.tempdir = proxy.SOCKET_BASE = sys.argv[3]\n"
                   "worker = CatalogWorker(sys.argv[1], client=None, isolation=sys.argv[2] == '1', "
                   "report_environment=False)\nprint(worker.current.process.pid, flush=True)\n"
                   "threading.Thread(target=worker.execute, args=('spinner', {}), kwargs={'tool_call_id': 'c'}, "
                   "daemon=True).start()\ntime.sleep(600)\n")
         directory = self.catalog("spinner")
-        homes = tempfile.TemporaryDirectory()
-        self.addCleanup(homes.cleanup)
+        leftovers = tempfile.TemporaryDirectory(dir="/tmp")  # short enough for the socket's path
+        self.addCleanup(leftovers.cleanup)
         for confined in sorted({False, ISOLATION}):
             with self.subTest(isolation=confined):
                 router = subprocess.Popen([sys.executable, "-c", script, directory, "1" if confined else "0",
-                                           homes.name], stdout=subprocess.PIPE, text=True,
+                                           leftovers.name], stdout=subprocess.PIPE, text=True,
                                           env={**os.environ, "PYTHONPATH": str(worker_module.PACKAGE_ROOT)})
                 child = int(router.stdout.readline())
                 time.sleep(2)
@@ -689,9 +691,12 @@ class WorkerTests(unittest.TestCase):
             def __init__(self, *args, **kwargs):
                 built.append(kwargs["network"])
                 super().__init__(*args, **kwargs)
-        with patch.object(worker_module, "CatalogWorker", Recording):
+        from openvlharness.toolsmith import proxy
+
+        with patch.object(worker_module, "CatalogWorker", Recording), \
+                patch.object(proxy, "OutboundProxy", side_effect=AssertionError("a metadata worker started a proxy")):
             tools = worker_module.catalog_tools(directory, settings={"isolation": ISOLATION, "network": True})
-        self.assertEqual(built, [False])  # the agent's and the pipeline's reads of tool descriptions
+        self.assertEqual(built, [False])  # the agent's and the pipeline's reads of tool descriptions, with no proxy
         # Only a confined worker is really without network; then cached models load without retrying the Hub.
         offline = "1 1" if ISOLATION else "None None"
         self.assertEqual(tools["seen"].tool_description, offline)
@@ -709,6 +714,16 @@ class WorkerTests(unittest.TestCase):
             "    def execute(self, word=''):\n        return word\n")
         tools = worker_module.catalog_tools(directory, settings={"isolation": ISOLATION})
         self.assertEqual(tools["read_only"].input_schema["required"], ["word"])
+
+    @pytest.mark.skipif(not ISOLATION, reason="only a confined worker has an outbound proxy")
+    def test_an_outbound_proxy_that_cannot_start_is_a_worker_start_error(self):
+        from openvlharness.toolsmith import proxy
+        from openvlharness.toolsmith.errors import WorkerStartError
+
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(proxy, "SOCKET_BASE", os.path.join(directory, "missing")), \
+                self.assertRaisesRegex(WorkerStartError, r"^the ToolSmith outbound proxy cannot start: .*No such file"):
+            CatalogWorker(self.catalog("echo"), client=FakeClient(), isolation=True, network=True)
 
     def test_platforms_without_address_space_limits_run_the_worker_without_one(self):
         with patch.object(worker_module.sys, "platform", "darwin"), patch.object(worker_module.resource,
@@ -1126,22 +1141,29 @@ class WorkerTests(unittest.TestCase):
         directory = self.catalog("probe")
         config = {"toolsmith": {"catalog": directory, "worker": {"environment": ["GRANTED_TOKEN"], "memory_gib": 2,
                                                                  "write_files": True, "isolation": ISOLATION,
-                                                                 "cache_layer_gib": 0.25}},
+                                                                 "cache_layer_gib": 0.25,
+                                                                 "network_ports": [443, 8443],
+                                                                 "deny_networks": ["203.0.113.0/24"]}},
                   "services": {"client": {"base_url": "http://router.invalid", "timeout_seconds": 42}}}
         worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools={"OCR_Tool", "Depth_Estimation_Tool"})
         self.addCleanup(worker.close)
         parent = None if ISOLATION else os.getpid()  # an unconfined worker watches the router itself
+        # A confined, networked worker also gets the socket of the router's outbound proxy.
+        proxy = {"proxy": worker.proxy.path} if ISOLATION else {}
         self.assertEqual((worker.timeout, worker.limits, worker.refused, worker.memory_limit),
                          (37.8, {"memory_bytes": 2 << 30, "file_bytes": 2 << 30, "message_bytes": 32 << 20,
-                                 "parent": parent},
+                                 "parent": parent, **proxy},
                           {"Depth_Estimation_Tool"}, 2 << 30))
         self.assertEqual(worker.confinement(Path(directory, "home"))["layer_bytes"], 1 << 28)
-        config["toolsmith"]["worker"] = {"isolation": ISOLATION, "timeout_seconds": 42}
+        if ISOLATION:
+            self.assertEqual((worker.proxy.ports, [str(network) for network in worker.proxy.deny]),
+                             ({443, 8443}, ["203.0.113.0/24"]))
+        config["toolsmith"]["worker"] = {"isolation": ISOLATION, "timeout_seconds": 42, "network": False}
         with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
             worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
         self.addCleanup(worker.close)
-        self.assertEqual((worker.timeout, worker.limits, worker.memory_limit),
+        self.assertEqual((worker.timeout, worker.limits, worker.memory_limit, worker.proxy),
                          (42, {"memory_bytes": 128 << 30, "file_bytes": 0, "message_bytes": 32 << 20,
-                               "parent": parent}, 128 << 30))
+                               "parent": parent}, 128 << 30, None))
         self.assertEqual(worker.confinement(Path(directory, "home"))["layer_bytes"], 1 << 30)
         self.assertTrue(any("may time out and retry" in line for line in logs.output))

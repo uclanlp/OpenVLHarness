@@ -840,7 +840,8 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(loaded["toolsmith"]["top_k"], 10)
         with tempfile.TemporaryDirectory() as directory:
             worker = {"environment": ["SERPER_API_KEY"], "timeout_seconds": 30, "memory_gib": 16, "write_files": True,
-                      "isolation": True, "network": False, "cache_layer_gib": 0.5}
+                      "isolation": True, "network": False, "cache_layer_gib": 0.5, "network_ports": [443, 8443],
+                      "deny_networks": ["203.0.113.0/24", "2001:db8::/32", "198.51.100.7"]}
             self.assertEqual(load_agent_config(config(catalog=directory, worker=worker))["toolsmith"]["worker"], worker)
         for bad, message in (({"top_k": 0}, "positive integer"), ({"top_k": "10"}, "positive integer"),
                              ({"router": "tfidf"}, "optional catalog, top_k, encoder, worker and trust_router_catalog"),
@@ -861,7 +862,16 @@ class ConfigurationTests(unittest.TestCase):
                              ({"worker": {"cache_layer_gib": "2"}}, "cache_layer_gib must be a positive number"),
                              ({"worker": {"write_files": "yes"}}, "write_files must be true or false"),
                              ({"worker": {"isolation": "on"}}, "isolation must be true or false"),
-                             ({"worker": {"network": None}}, "network must be true or false")):
+                             ({"worker": {"network": None}}, "network must be true or false"),
+                             ({"worker": {"network_ports": []}}, "network_ports must list one or more ports"),
+                             ({"worker": {"network_ports": 443}}, "network_ports must list one or more ports"),
+                             ({"worker": {"network_ports": [0]}}, "network_ports must list one or more ports"),
+                             ({"worker": {"network_ports": [True]}}, "network_ports must list one or more ports"),
+                             ({"worker": {"network_ports": ["443"]}}, "network_ports must list one or more ports"),
+                             ({"worker": {"deny_networks": "10.0.0.0/8"}}, "deny_networks must list networks"),
+                             ({"worker": {"deny_networks": ["not a network"]}}, "deny_networks must list networks"),
+                             ({"worker": {"deny_networks": ["203.0.113.0/33"]}}, "deny_networks must list networks"),
+                             ({"worker": {"deny_networks": [None]}}, "deny_networks must list networks")):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
                 load_agent_config(config(**bad))
         broken = config()
