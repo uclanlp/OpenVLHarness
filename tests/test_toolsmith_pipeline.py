@@ -5,6 +5,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -172,6 +173,45 @@ class GateTests(unittest.TestCase):
         metadata, issue = run_once(source, 30, isolation=ISOLATION)
         self.assertEqual((issue, metadata["input_schema"]["required"],
                           metadata["input_schema"]["properties"]["river"]["type"]), (None, ["river"], ["integer", "null"]))
+
+    def test_gate_one_stops_a_candidate_whose_processes_together_hold_too_much_memory(self):
+        from openvlharness.toolsmith.pipeline import verification
+
+        # Three children of 100 MiB, each far under the per-process cap; the total is lowered to 256 MiB.
+        body = ("import os\n        children = []\n        for _ in range(3):\n"
+                "            read, write = os.pipe()\n            pid = os.fork()\n            if pid == 0:\n"
+                "                block = bytearray(100 << 20)\n                for offset in range(0, len(block), 4096):\n"
+                "                    block[offset] = 1\n                os.write(write, b'x')\n"
+                "                __import__('time').sleep(20)\n                os._exit(0)\n"
+                "            os.close(write)\n            os.read(read, 1)\n            children.append(pid)\n"
+                "        __import__('time').sleep(20)\n        return river")
+        started = time.monotonic()
+        with patch.object(verification, "MEMORY_BYTES", 256 << 20):
+            issue = run_once(tool(body=body), 60, isolation=ISOLATION)[1]
+        self.assertRegex(issue, r"^execution used [\d.]+ GiB of memory in all its processes, more than 0\.25 GiB$")
+        self.assertLess(time.monotonic() - started, 15)
+
+    def test_an_interrupted_gate_one_run_is_killed(self):
+        import subprocess
+
+        from openvlharness.toolsmith.pipeline import verification
+
+        # The run has a session of its own, so the terminal's Ctrl-C reaches only the pipeline.
+        started, real = [], subprocess.Popen
+
+        def recording(*args, **kwargs):
+            started.append(real(*args, **kwargs))
+            return started[-1]
+
+        def interrupted(process, timeout, meter):
+            time.sleep(1)
+            raise KeyboardInterrupt
+        self.addCleanup(lambda: [process.kill() for process in started if process.returncode is None])
+        with patch.object(subprocess, "Popen", recording), patch.object(verification, "_wait", interrupted), \
+                self.assertRaises(KeyboardInterrupt):
+            run_once(tool(body="__import__('time').sleep(60)\n        return river"), 60, isolation=ISOLATION)
+        self.assertEqual(len(started), 1)
+        self.assertIsNotNone(started[0].returncode)  # killed and reaped, not left running
 
     def test_gate_one_keeps_only_the_end_of_a_chatty_candidates_output(self):
         from openvlharness.toolsmith.pipeline import verification

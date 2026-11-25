@@ -1,8 +1,11 @@
 """Generated tools run in a separate, resource-limited worker process, offline."""
 import copy
+import ctypes
 import json
 import os
+import platform
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -11,8 +14,10 @@ import time
 import unittest
 import unittest.mock
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import requests
 
 from openvlharness.services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
@@ -93,6 +98,115 @@ BODIES = {
         import warnings
         warnings.warn("chatty warning")
         return "printed\"""",
+    # Three children, each holding a share of the per-process cap; with 0.6 they hold 1.8 times it together.
+    "forker": """        import resource
+        size = int(resource.getrlimit(resource.RLIMIT_AS)[0] * float(value))
+        children = []
+        for _ in range(3):
+            read, write = os.pipe()
+            pid = os.fork()
+            if pid == 0:
+                block = bytearray(size)
+                for offset in range(0, size, 4096):
+                    block[offset] = 1
+                os.write(write, b"x")
+                time.sleep(60)
+                os._exit(0)
+            os.close(write)
+            os.read(read, 1)
+            children.append(pid)
+        time.sleep(2)  # all three hold their memory for four of the watchdog's samples
+        for pid in children:
+            os.kill(pid, 9)
+            os.waitpid(pid, 0)
+        return "held\"""",
+    "burner": """        import threading
+
+        def spin():
+            while True:
+                pass
+        threading.Thread(target=spin, daemon=True).start()  # left running after the call returns
+        return "started\"""",
+    "shouter": """        sys.stderr.write("q" * 102400)
+        sys.stderr.flush()
+        os._exit(3)""",
+    "flooder": """        import gc
+        channel = next(item for item in gc.get_objects() if type(item).__name__ == "_Channel")
+        channel.send({"type": "result", "id": "q" * (1 << 20), "ok": True, "result": None, "meta": {}})
+        time.sleep(5)
+        return "sent\"""",
+    "napper": """        time.sleep(float(value))
+        return "rested\"""",
+    "sneaky": """        import threading
+
+        def spin():
+            while True:
+                pass
+
+        def keep_busy():  # a call to another generated tool always in flight
+            while True:
+                try:
+                    self.call_tool("napper", value="1")
+                except Exception:
+                    time.sleep(0.1)
+        threading.Thread(target=spin, daemon=True).start()
+        threading.Thread(target=keep_busy, daemon=True).start()
+        return "started\"""",
+    "filler": """        for index in range(int(value)):  # files no process maps, in the sandbox's tmpfs
+            with open(f"/tmp/fill-{index}", "wb") as stream:
+                stream.write(b"\\1" * (200 << 20))
+        time.sleep(5)
+        return "filled\"""",
+    "memfd_writer": """        fd = os.memfd_create("held")
+        chunk, written = b"\\1" * (16 << 20), 0
+        try:
+            while written < int(value):
+                written += os.write(fd, chunk)
+        except OSError as exc:
+            return f"{type(exc).__name__}: {exc.strerror}"
+        finally:
+            os.close(fd)
+        return "written\"""",
+    # A file in the sandbox's /tmp that the tool maps (value MiB), and a child holding more (extra MiB).
+    "mapper": """        import mmap
+        size, extra = (int(part) << 20 for part in value.split(":"))
+        with open("/tmp/mapped.bin", "wb") as stream:
+            for _ in range(size >> 24):
+                stream.write(b"\\1" * (16 << 20))
+        with open("/tmp/mapped.bin", "rb") as stream:
+            view = mmap.mmap(stream.fileno(), 0, prot=mmap.PROT_READ)
+        touched = sum(view[offset] for offset in range(0, size, 4096))  # every page is mapped
+        child = 0
+        if extra:
+            read, write = os.pipe()
+            child = os.fork()
+            if child == 0:
+                view.close()  # the child's own address space holds only what it allocates
+                block = bytearray(extra)
+                for offset in range(0, extra, 4096):
+                    block[offset] = 1
+                os.write(write, b"x")
+                time.sleep(60)
+                os._exit(0)
+            os.close(write)
+            os.read(read, 1)
+        time.sleep(3)
+        if child:
+            os.kill(child, 9)
+            os.waitpid(child, 0)
+        view.close()
+        os.unlink("/tmp/mapped.bin")
+        return f"mapped {touched}\"""",
+    # Holds value GiB and runs a short command over and over: each is vforked, sharing that memory until it execs.
+    "spawner": """        import subprocess
+        block = bytearray(int(float(value) * (1 << 30)))
+        for offset in range(0, len(block), 4096):
+            block[offset] = 1
+        start, runs = time.monotonic(), 0
+        while time.monotonic() - start < 4:
+            subprocess.run(["true"], check=True)
+            runs += 1
+        return runs""",
 }
 
 
@@ -616,6 +730,384 @@ class WorkerTests(unittest.TestCase):
             self.start(directory)
         self.assertEqual([name for name in os.listdir(temporary) if name.startswith(worker_module.HOME_PREFIX)], [])
 
+    def test_the_memory_limit_holds_for_all_the_processes_of_a_worker(self):
+        # Each child stays under the per-process address-space cap; together they pass memory_gib.
+        worker = self.start(self.catalog("forker", "echo"), memory_gib=1)
+        self.assertEqual(worker.execute("forker", {"value": "0.1"}, tool_call_id="call-1")[0]["result"], "held")
+        first, started = worker.current, time.monotonic()
+        with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
+            payload, status = worker.execute("forker", {"value": "0.6"}, tool_call_id="call-2")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertEqual((status, payload["error"]["detail"]["exception_type"]), (500, "MemoryLimitExceeded"), payload)
+        self.assertRegex(payload["error"]["message"],
+                         r"^the generated-tool worker stopped while forker was running: its processes and in-memory "
+                         r"files used [\d.]+ GiB of memory together, more than toolsmith\.worker\.memory_gib allows \(1\.00 GiB\)$")
+        self.assertTrue(any("stopping it" in line for line in logs.output))
+        self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-3"),
+                         (_build_success_payload("echo", "call-3", 2, {}), 200))
+        self.assertIsNot(worker.current, first)
+        self.assertIsNotNone(first.process.poll())
+
+    def test_a_protocol_error_repeats_little_of_what_the_worker_sent(self):
+        worker = self.start(self.catalog("flooder", "echo"))
+        with self.assertLogs("openvlharness.toolsmith.worker", "ERROR") as logs:
+            payload, status = worker.execute("flooder", {}, tool_call_id="call-1")
+        self.assertEqual(status, 500)
+        self.assertLess(len(payload["error"]["message"]), 600, payload["error"]["message"][:300])
+        self.assertIn("more characters", payload["error"]["message"])
+        self.assertLess(max(len(line) for line in logs.output), 600)
+        self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-2")[1], 200)
+
+    def test_the_idle_cpu_rule_does_not_stop_a_worker_whose_call_came_in_meanwhile(self):
+        original, deciding = worker_module._Worker._exceed, threading.Event()
+
+        def delayed(self, reason, kind):  # the router's other threads run between the check and the kill
+            deciding.set()
+            time.sleep(1)
+            return original(self, reason, kind)
+        with patch.multiple(worker_module, IDLE_CPU_WINDOW_SECONDS=2, IDLE_CPU_SECONDS=0.5, IDLE_SETTLE_SECONDS=0.5), \
+                patch.object(worker_module._Worker, "_exceed", delayed):
+            worker = self.start(self.catalog("burner", "sleepy"))
+            self.assertEqual(worker.execute("burner", {}, tool_call_id="call-1")[1], 200)
+            self.assertTrue(deciding.wait(15))
+            payload, status = worker.execute("sleepy", {"value": "2"}, tool_call_id="call-2")
+        self.assertEqual(status, 200, payload)
+
+    def test_calls_a_tool_makes_to_generated_tools_do_not_keep_its_worker_busy(self):
+        class Loopback(FakeClient):  # the router runs a call_tool to a generated tool on the same CatalogWorker
+            worker = None
+
+            def execute(self, tool_name, args, *, tool_call_id):
+                return self.worker.execute(tool_name, args, tool_call_id=tool_call_id)[0]
+        client = Loopback()
+        with patch.multiple(worker_module, IDLE_CPU_WINDOW_SECONDS=2, IDLE_CPU_SECONDS=0.5, IDLE_SETTLE_SECONDS=0.5):
+            worker = self.start(self.catalog("sneaky", "napper"), client=client)
+            client.worker = worker
+            first = worker.current
+            with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
+                self.assertEqual(worker.execute("sneaky", {}, tool_call_id="call-1")[1], 200)
+                returned = time.monotonic()
+                while first.process.poll() is None and time.monotonic() - returned < 20:
+                    time.sleep(0.1)
+        self.assertIsNotNone(first.process.poll())
+        self.assertTrue(any("with no call in flight" in line for line in logs.output), logs.output)
+
+    def test_the_watchdog_samples_a_slow_tree_less_often(self):
+        samples = []
+        real = worker_module.tree_usage
+
+        def slow(root, parent, **options):
+            samples.append(time.monotonic())
+            time.sleep(0.2)  # as a tree of thousands of processes takes
+            return real(root, parent, **options)
+        with patch.object(worker_module, "tree_usage", slow):
+            worker = self.start(self.catalog("echo"))
+            time.sleep(5)
+            worker.close()
+        gaps = [later - earlier for earlier, later in zip(samples, samples[1:])]
+        self.assertGreater(min(gaps[1:]), 0.2 * worker_module.WATCH_BACKOFF)
+
+    def test_the_watchdogs_wait_after_a_slow_sample_is_capped(self):
+        # A sample reported as 100 seconds long (a tree of any size) must not leave the worker unmeasured for 1000.
+        waits, clock = [], iter(range(0, 10000, 100))
+
+        def wait(seconds):
+            waits.append(seconds)
+            return len(waits) > 3
+        worker = SimpleNamespace(ended=SimpleNamespace(wait=wait), meter=SimpleNamespace(measure=lambda: (0, 0.0)),
+                                 owner=SimpleNamespace(memory_limit=None), lock=threading.Lock(), started=0,
+                                 ready=SimpleNamespace(done=lambda: False))
+        with patch.object(worker_module, "time", SimpleNamespace(monotonic=lambda: next(clock))):
+            worker_module._Worker._watch(worker)
+        self.assertEqual(waits, [worker_module.WATCH_SECONDS] + [worker_module.WATCH_MAX_SECONDS] * 3)
+        self.assertLessEqual(worker_module.WATCH_MAX_SECONDS, 5)
+
+    @pytest.mark.skipif(not ISOLATION, reason="the sandbox's own file systems exist only with isolation")
+    def test_files_in_the_sandboxs_memory_backed_file_systems_count_toward_the_memory_limit(self):
+        # Three files of 200 MiB in /tmp: no process maps them, and each is under the file-size cap.
+        worker = self.start(self.catalog("filler", "echo"), memory_gib=0.5, write_files=True)
+        with self.assertLogs("openvlharness.toolsmith.worker", "WARNING"):
+            payload, status = worker.execute("filler", {"value": "3"}, tool_call_id="call-1")
+        self.assertEqual((status, payload["error"]["detail"]["exception_type"]), (500, "MemoryLimitExceeded"), payload)
+        self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-2")[1], 200)
+
+    @pytest.mark.skipif(not ISOLATION, reason="the sandbox's own file systems exist only with isolation")
+    def test_a_tmpfs_file_a_tool_maps_counts_once(self):
+        # 240 MiB in the sandbox's /tmp, mapped: in the file system's use and in the tool's Pss, counted once.
+        worker = self.start(self.catalog("mapper"), memory_gib=0.5, write_files=True)
+        payload, status = worker.execute("mapper", {"value": "240:0"}, tool_call_id="call-1")
+        self.assertEqual((status, payload["result"]), (200, "mapped 61440"), payload)
+        # It still counts: with a child holding 300 MiB more, the worker is past 0.5 GiB and stopped.
+        with self.assertLogs("openvlharness.toolsmith.worker", "WARNING"):
+            payload, status = worker.execute("mapper", {"value": "240:300"}, tool_call_id="call-2")
+        self.assertEqual((status, payload["error"]["detail"]["exception_type"]), (500, "MemoryLimitExceeded"), payload)
+
+    def test_a_tool_that_runs_commands_while_holding_most_of_its_memory_is_not_stopped(self):
+        # Each command is vforked: until it execs, the child uses the tool's memory, which counts once.
+        worker = self.start(self.catalog("spawner"), memory_gib=0.5)
+        payload, status = worker.execute("spawner", {"value": "0.28"}, tool_call_id="call-1")
+        self.assertEqual(status, 200, payload)
+        self.assertGreater(payload["result"], 100)
+
+    @pytest.mark.skipif(platform.machine() not in ("x86_64", "aarch64") or not os.path.isdir("/proc/self/task"),
+                        reason="clone() with a C callback, as glibc on Linux has it")
+    def test_a_child_that_shares_its_parents_memory_counts_once(self):
+        # A thread waits in clone(CLONE_VM | CLONE_VFORK) while the child sleeps in this process's memory, as
+        # vfork() and posix_spawn() leave a child until it execs.
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.clone.restype = ctypes.c_int
+        libc.clone.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        stack = ctypes.create_string_buffer(1 << 16)
+        me, before = os.getpid(), set(worker_module._child_pids(os.getpid()))
+        alone = worker_module.tree_usage(me, os.getppid())[0]
+        started = {}
+
+        def spawn():
+            started["pid"] = libc.clone(ctypes.cast(libc.sleep, ctypes.c_void_p), ctypes.addressof(stack) + len(stack)
+                                        - 256, 0x100 | 0x4000 | signal.SIGCHLD, 3)  # CLONE_VM | CLONE_VFORK
+        thread = threading.Thread(target=spawn, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 2
+        while not set(worker_module._child_pids(me)) - before and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(set(worker_module._child_pids(me)) - before, "the child did not start")
+        measured = {"kcmp": worker_module.tree_usage(me, os.getppid())[0]}
+        with patch.object(worker_module, "_same_memory", return_value=None):  # where kcmp is refused
+            measured["heuristic"] = worker_module.tree_usage(me, os.getppid())[0]
+        with patch.object(worker_module, "_shares_parent_memory", return_value=False):  # not told apart
+            measured["unchecked"] = worker_module.tree_usage(me, os.getppid())[0]
+        thread.join(10)
+        os.waitpid(started["pid"], 0)
+        self.assertLess(measured["kcmp"], 1.5 * alone, measured)
+        self.assertLess(measured["heuristic"], 1.5 * alone, measured)
+        self.assertGreater(measured["unchecked"], 1.5 * alone, measured)  # the child does share this memory
+
+    @pytest.mark.skipif(platform.machine() not in ("x86_64", "aarch64") or not os.path.isdir("/proc/self/task"),
+                        reason="clone() with a C callback, as glibc on Linux has it")
+    def test_where_kcmp_cannot_tell_a_forked_child_is_not_taken_for_a_vforked_one(self):
+        # A thread waits in vfork while a forked child, with the same code and stack addresses, holds memory
+        # of its own: past VFORK_SECONDS, that child counts.
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.clone.restype = ctypes.c_int
+        libc.clone.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        stack = ctypes.create_string_buffer(1 << 16)
+        me, started = os.getpid(), {}
+
+        def spawn():
+            started["pid"] = libc.clone(ctypes.cast(libc.sleep, ctypes.c_void_p), ctypes.addressof(stack) + len(stack)
+                                        - 256, 0x100 | 0x4000 | signal.SIGCHLD, 4)  # CLONE_VM | CLONE_VFORK
+        thread = threading.Thread(target=spawn, daemon=True)
+        thread.start()
+        read, write = os.pipe()
+        child = os.fork()
+        if child == 0:
+            block = bytearray(64 << 20)
+            for offset in range(0, len(block), 4096):
+                block[offset] = 1
+            os.write(write, b"x")
+            time.sleep(30)
+            os._exit(0)
+        self.addCleanup(lambda: (os.kill(child, signal.SIGKILL), os.waitpid(child, 0)))
+        os.close(write)
+        os.read(read, 1)
+        time.sleep(worker_module.VFORK_SECONDS + 0.5)
+        with patch.object(worker_module, "_same_memory", return_value=None):  # where kcmp is refused
+            shares = worker_module._shares_parent_memory(me, child)
+            counted = worker_module.tree_usage(child, me)[0] if not shares else 0
+        thread.join(10)
+        os.waitpid(started["pid"], 0)
+        self.assertFalse(shares)
+        self.assertGreater(counted, 60 << 20)
+
+    @pytest.mark.skipif(platform.machine() != "x86_64" or not os.path.isdir("/proc/self/task"),
+                        reason="SYS_exit's number, on Linux")
+    def test_a_process_whose_main_thread_has_exited_still_counts(self):
+        holder = ("import ctypes, mmap, threading, time\n"
+                  "def hold():\n"
+                  "    block = mmap.mmap(-1, 96 << 20, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS)\n"
+                  "    for offset in range(0, 96 << 20, 4096):\n        block[offset] = 1\n"
+                  "    shared = mmap.mmap(-1, 32 << 20)\n"
+                  "    for offset in range(0, 32 << 20, 4096):\n        shared[offset] = 1\n"
+                  "    print('held', flush=True)\n    time.sleep(60)\n"
+                  "threading.Thread(target=hold).start()\nctypes.CDLL(None).syscall(60, 0)\n")
+        process = subprocess.Popen([sys.executable, "-c", holder], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (process.kill(), process.wait(), process.stdout.close()))
+        self.assertEqual(process.stdout.readline(), "held\n")
+        with open(f"/proc/{process.pid}/stat") as stream:
+            self.assertEqual(stream.read().rsplit(")", 1)[1].split()[0], "Z")
+        self.assertGreater(worker_module.tree_usage(process.pid, os.getpid())[0], 120 << 20)
+        self.assertNotEqual(worker_module._live_task(process.pid), process.pid)
+        shmem = worker_module._process_usage(process.pid)[3]
+        self.assertGreaterEqual(shmem, 32 << 20)  # shared anonymous memory is no file of a sandbox
+        self.assertLess(worker_module._file_shmem(process.pid, shmem, worker_module._not_sandbox_shmem()), 8 << 20)
+        # Two processes without a main thread do not pass for one address space.
+        other = subprocess.Popen([sys.executable, "-c", holder], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (other.kill(), other.wait(), other.stdout.close()))
+        self.assertEqual(other.stdout.readline(), "held\n")
+        self.assertFalse(worker_module._shares_parent_memory(process.pid, other.pid))
+        real_open = open
+
+        def without_rollup(path, *args, **kwargs):  # as before Linux 4.14
+            if str(path).endswith("smaps_rollup"):
+                raise FileNotFoundError(2, "No such file or directory")
+            return real_open(path, *args, **kwargs)
+        with patch.object(worker_module, "open", without_rollup, create=True), \
+                patch.object(worker_module.os.path, "exists", lambda path: False):
+            self.assertGreater(worker_module.tree_usage(process.pid, os.getpid())[0], 120 << 20)
+
+    @pytest.mark.skipif(platform.machine() != "x86_64" or not os.path.isdir("/proc/self/task"),
+                        reason="SYS_exit's number, on Linux")
+    def test_a_process_whose_threads_each_live_briefly_still_counts(self):
+        # Its main thread has exited, and each thread starts the next and ends at once.
+        churn = ("import _thread, ctypes, mmap, sys, threading, time\n"
+                 "size = 64 << 20\nblock = mmap.mmap(-1, size, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS)\n"
+                 "for offset in range(0, size, 4096):\n    block[offset] = 1\n"
+                 "def step():\n    _thread.start_new_thread(step, ())\n    until = time.time() + float(sys.argv[1])\n"
+                 "    while time.time() < until:\n        pass\n"
+                 "threading.Thread(target=step).start()\nprint('held', flush=True)\nctypes.CDLL(None).syscall(60, 0)\n")
+        for life in ("0", "0.0005", "0.005"):
+            with self.subTest(life=life):
+                process = subprocess.Popen([sys.executable, "-c", churn, life], stdout=subprocess.PIPE, text=True)
+                try:
+                    self.assertEqual(process.stdout.readline(), "held\n")
+                    time.sleep(0.3)
+                    meter = worker_module.TreeMeter(process.pid)
+                    samples = [meter.measure()[0] >> 20 for _ in range(50)]
+                finally:
+                    process.kill()
+                    process.wait()
+                    process.stdout.close()
+                self.assertGreater(min(samples), 60, samples)
+
+    def test_the_last_memory_read_stands_in_for_a_process_that_shows_none(self):
+        me, last = os.getpid(), {}
+        read = worker_module._process_usage(me, last=last)[1]
+        with patch.object(worker_module, "_read_memory", side_effect=worker_module._NoTask("churn")):
+            self.assertEqual(worker_module._process_usage(me, last=last)[1], read)
+            last[me] = (b"1", *last[me][1:])  # another process that had this PID
+            self.assertEqual(worker_module._process_usage(me, last=last)[1], 0)
+        last[1 << 30] = (b"1", 5, None)
+        worker_module.tree_usage(me, os.getppid(), last=last)
+        self.assertNotIn(1 << 30, last)
+
+    def test_the_sandboxs_own_file_systems_are_decided_once(self):
+        meter, asked = worker_module.TreeMeter(os.getpid(), [["/"]]), []
+        meter.init = os.getpid()
+        real = os.stat
+        with patch.object(worker_module.os, "stat", lambda path, **kw: "host" if path == "/" else real(path, **kw)), \
+                patch.object(meter, "_own", lambda group: asked.append(group) or []):
+            self.assertEqual([meter.private_bytes(), meter.private_bytes()], [0, 0])
+        self.assertEqual(asked, [["/"]])
+
+    def test_where_proc_hides_their_addresses_a_child_is_not_taken_for_a_vforked_one(self):
+        # For a process the router may not trace, /proc shows the code and stack addresses as 1, 1 and 0.
+        boot = int(time.clock_gettime(time.CLOCK_BOOTTIME) * os.sysconf("SC_CLK_TCK"))
+        fields = ["S"] + ["0"] * 49
+        fields[19], fields[23:26] = str(boot), ["1", "1", "0"]
+        hidden, waiting = f"7 (tool) {' '.join(fields)}\n".encode(), f"7 (tool) D {' '.join(fields[1:])}\n".encode()
+        real_open, real_listdir = open, os.listdir
+
+        def fake_open(path, *args, **kwargs):
+            if str(path).startswith(("/proc/70001/", "/proc/70002/")):
+                return __import__("io").BytesIO(waiting if "/task/" in str(path) else hidden)
+            return real_open(path, *args, **kwargs)
+
+        def fake_listdir(path):
+            return ["70001"] if str(path) == "/proc/70001/task" else real_listdir(path)
+        with patch.object(worker_module, "open", fake_open, create=True), \
+                patch.object(worker_module.os, "listdir", fake_listdir):
+            self.assertFalse(worker_module._waiting_on_vfork(70001, 70002))
+            fields[23:26] = ["4194304", "4202496", "140735000000000"]  # addresses it may read: the heuristic holds
+            hidden = f"7 (tool) {' '.join(fields)}\n".encode()
+            self.assertTrue(worker_module._waiting_on_vfork(70001, 70002))
+
+    @pytest.mark.skipif(not os.access("/dev/shm", os.W_OK), reason="no writable /dev/shm here")
+    def test_a_host_tmpfs_file_a_process_maps_is_not_taken_for_a_sandbox_file(self):
+        # A sandbox maps the host's files read-only; one on a host tmpfs is not in the sandbox's file systems,
+        # which the meter counts itself, so it must not come off the processes' memory.
+        import mmap
+
+        with tempfile.NamedTemporaryFile(dir="/dev/shm", prefix="openvlharness-test-") as stream:
+            stream.write(b"\1" * (32 << 20))
+            stream.flush()
+            view = mmap.mmap(stream.fileno(), 0, prot=mmap.PROT_READ)
+            try:
+                self.assertEqual(sum(view[offset] for offset in range(0, 32 << 20, 4096)), 8192)
+                memory, _, mapped = worker_module.tree_usage(os.getpid(), os.getppid(), mapped_files=True)
+            finally:
+                view.close()
+        self.assertGreater(memory, 32 << 20)
+        self.assertLess(mapped, 8 << 20)
+
+    def test_with_file_writes_no_file_outgrows_the_memory_limit(self):
+        # A memfd holds memory no process's address space shows; the file-size cap bounds each one.
+        worker = self.start(self.catalog("memfd_writer"), memory_gib=0.25, write_files=True)
+        self.assertEqual(worker.limits["file_bytes"], 1 << 28)
+        small = worker.execute("memfd_writer", {"value": str(1 << 20)}, tool_call_id="call-1")[0]["result"]
+        large = worker.execute("memfd_writer", {"value": str(300 << 20)}, tool_call_id="call-2")[0]["result"]
+        self.assertEqual((small, large), ("written", "OSError: File too large"))
+
+    def test_tree_usage_counts_a_process_and_its_descendants(self):
+        holder = ("import time\nblock = bytearray(64 << 20)\nfor offset in range(0, len(block), 4096):\n"
+                  "    block[offset] = 1\nprint('held', flush=True)\ntime.sleep(60)\n")
+        starter = ("import subprocess, sys, time\nchild = subprocess.Popen([sys.executable, '-c', sys.argv[1]])\n"
+                   "print(child.pid, flush=True)\ntime.sleep(60)\n")
+        parent = subprocess.Popen([sys.executable, "-c", starter, holder], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(parent.wait)
+        self.addCleanup(parent.kill)
+        child = int(parent.stdout.readline())
+        self.addCleanup(lambda: subprocess.run(["kill", "-9", str(child)], stderr=subprocess.DEVNULL))
+        self.assertEqual(parent.stdout.readline().strip(), "held")  # the child's 64 MiB are touched
+        for files in (True, False):  # each thread's children file, or a scan of /proc where the kernel has none
+            with self.subTest(children_files=files), patch.object(worker_module, "_has_children_files", files):
+                memory, cpu, _ = worker_module.tree_usage(parent.pid, os.getpid())
+                self.assertGreater(memory, 64 << 20)
+                self.assertGreater(cpu, 0)
+        self.assertIsNone(worker_module.tree_usage(parent.pid, parent.pid))  # its parent is not the one given
+
+    def test_work_left_running_after_a_call_stops_the_worker_within_about_one_window(self):
+        # The thresholds are module constants; small ones keep the test short.
+        worker = self.start(self.catalog("burner", "echo"))
+        with patch.multiple(worker_module, IDLE_CPU_WINDOW_SECONDS=2, IDLE_CPU_SECONDS=0.5, IDLE_SETTLE_SECONDS=0.5):
+            first = worker.current
+            self.assertEqual(worker.execute("echo", {"value": "a"}, tool_call_id="call-1")[1], 200)
+            time.sleep(4)  # two quiet windows: an idle worker stays
+            self.assertIsNone(first.process.poll())
+            self.assertIs(worker.current, first)
+            with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
+                self.assertEqual(worker.execute("burner", {}, tool_call_id="call-2")[1], 200)
+                returned = time.monotonic()
+                while first.process.poll() is None and time.monotonic() - returned < 15:
+                    time.sleep(0.1)
+            self.assertIsNotNone(first.process.poll())
+            self.assertLess(time.monotonic() - returned, 0.5 + 2 + 1.5)  # settling, one window, two samples
+            self.assertTrue(any("CPU-seconds in 2 seconds with no call in flight" in line for line in logs.output),
+                            logs.output)
+            self.assertEqual(worker.execute("echo", {"value": "ab"}, tool_call_id="call-3"),
+                             (_build_success_payload("echo", "call-3", 2, {}), 200))
+            self.assertIsNot(worker.current, first)
+
+    def test_tool_output_is_bounded_across_the_workers_of_a_router(self):
+        # Each worker prints 100 KiB and crashes, so every call has a new worker with its own per-worker budget.
+        directory = self.catalog("shouter")
+        log = Path(directory, "router.log")
+        script = ("import json, sys, time\nfrom openvlharness.toolsmith import worker as module\n"
+                  "module.STDERR_BYTES, module.STDERR_TOTAL_BYTES = 64 << 10, 160 << 10\n"
+                  "worker = module.CatalogWorker(sys.argv[1], client=None, isolation=sys.argv[2] == '1', "
+                  "report_environment=False)\n"
+                  "statuses = [worker.execute('shouter', {}, tool_call_id=f'call-{index}')[1] for index in range(4)]\n"
+                  "time.sleep(2)\nprint(json.dumps(statuses), file=sys.__stdout__)\nworker.close()\n")
+        with open(log, "w") as stream:
+            done = subprocess.run([sys.executable, "-c", script, directory, "1" if ISOLATION else "0"],
+                                  stdout=subprocess.PIPE, stderr=stream, text=True, timeout=180,
+                                  env={**os.environ, "PYTHONPATH": str(worker_module.PACKAGE_ROOT)})
+        self.assertEqual(json.loads(done.stdout), [500] * 4)
+        text = log.read_text()
+        self.assertEqual(text.count("q"), 160 << 10)
+        self.assertEqual(text.count("output past 65536 bytes dropped]"), 2)  # the first two workers
+        self.assertEqual(text.count(f"generated tools printed {160 << 10} bytes; what they print from now on is "
+                                    "dropped]"), 1)
+
     def test_caches_follow_xdg_cache_home(self):
         with tempfile.TemporaryDirectory() as xdg:
             for name in ("huggingface", "torch"):
@@ -626,27 +1118,30 @@ class WorkerTests(unittest.TestCase):
                                      "TORCH_HOME"}}
             with patch.dict(os.environ, {**clean, "XDG_CACHE_HOME": xdg}, clear=True):
                 worker = self.start(self.catalog("probe"), write_files=True)
-                spec = worker.confinement(Path(tempfile.mkdtemp()))
+                spec = worker.confinement(Path(xdg, "home"))  # the spec only names the home directory
             self.assertEqual(spec["overlay"], [os.path.join(xdg, "huggingface"), os.path.join(xdg, "torch")])
             self.assertIn(os.path.join(xdg, "huggingface", "token"), spec["mask"])
 
     def test_configuration_settings_reach_the_worker(self):
         directory = self.catalog("probe")
         config = {"toolsmith": {"catalog": directory, "worker": {"environment": ["GRANTED_TOKEN"], "memory_gib": 2,
-                                                                 "write_files": True, "isolation": ISOLATION}},
+                                                                 "write_files": True, "isolation": ISOLATION,
+                                                                 "cache_layer_gib": 0.25}},
                   "services": {"client": {"base_url": "http://router.invalid", "timeout_seconds": 42}}}
         worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools={"OCR_Tool", "Depth_Estimation_Tool"})
         self.addCleanup(worker.close)
         parent = None if ISOLATION else os.getpid()  # an unconfined worker watches the router itself
-        self.assertEqual((worker.timeout, worker.limits, worker.refused),
-                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": None, "message_bytes": 32 << 20,
+        self.assertEqual((worker.timeout, worker.limits, worker.refused, worker.memory_limit),
+                         (37.8, {"memory_bytes": 2 << 30, "file_bytes": 2 << 30, "message_bytes": 32 << 20,
                                  "parent": parent},
-                          {"Depth_Estimation_Tool"}))
+                          {"Depth_Estimation_Tool"}, 2 << 30))
+        self.assertEqual(worker.confinement(Path(directory, "home"))["layer_bytes"], 1 << 28)
         config["toolsmith"]["worker"] = {"isolation": ISOLATION, "timeout_seconds": 42}
         with self.assertLogs("openvlharness.toolsmith.worker", "WARNING") as logs:
             worker = CatalogWorker.from_config(config, client=FakeClient(), base_tools=set())
         self.addCleanup(worker.close)
-        self.assertEqual((worker.timeout, worker.limits),
+        self.assertEqual((worker.timeout, worker.limits, worker.memory_limit),
                          (42, {"memory_bytes": 128 << 30, "file_bytes": 0, "message_bytes": 32 << 20,
-                               "parent": parent}))
+                               "parent": parent}, 128 << 30))
+        self.assertEqual(worker.confinement(Path(directory, "home"))["layer_bytes"], 1 << 30)
         self.assertTrue(any("may time out and retry" in line for line in logs.output))

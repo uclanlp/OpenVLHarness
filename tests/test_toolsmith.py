@@ -840,7 +840,7 @@ class ConfigurationTests(unittest.TestCase):
             self.assertEqual(loaded["toolsmith"]["top_k"], 10)
         with tempfile.TemporaryDirectory() as directory:
             worker = {"environment": ["SERPER_API_KEY"], "timeout_seconds": 30, "memory_gib": 16, "write_files": True,
-                      "isolation": True, "network": False}
+                      "isolation": True, "network": False, "cache_layer_gib": 0.5}
             self.assertEqual(load_agent_config(config(catalog=directory, worker=worker))["toolsmith"]["worker"], worker)
         for bad, message in (({"top_k": 0}, "positive integer"), ({"top_k": "10"}, "positive integer"),
                              ({"router": "tfidf"}, "optional catalog, top_k, encoder, worker and trust_router_catalog"),
@@ -855,6 +855,10 @@ class ConfigurationTests(unittest.TestCase):
                              ({"worker": {"environment": ["SERPER API KEY"]}}, "list environment variable names"),
                              ({"worker": {"timeout_seconds": 0}}, "timeout_seconds must be a positive number"),
                              ({"worker": {"memory_gib": float("inf")}}, "memory_gib must be a positive number"),
+                             ({"worker": {"cache_layer_gib": 0}}, "cache_layer_gib must be a positive number"),
+                             ({"worker": {"cache_layer_gib": True}}, "cache_layer_gib must be a positive number"),
+                             ({"worker": {"cache_layer_gib": None}}, "cache_layer_gib must be a positive number"),
+                             ({"worker": {"cache_layer_gib": "2"}}, "cache_layer_gib must be a positive number"),
                              ({"worker": {"write_files": "yes"}}, "write_files must be true or false"),
                              ({"worker": {"isolation": "on"}}, "isolation must be true or false"),
                              ({"worker": {"network": None}}, "network must be true or false")):

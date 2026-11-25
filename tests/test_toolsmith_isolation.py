@@ -131,6 +131,28 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(json.loads(done.stdout), ["host", "changed", ["config.json", "planted.py"], False])
             self.assertEqual(((cache / "config.json").read_text(), sorted(os.listdir(cache))), ("host", ["config.json"]))
 
+    def test_the_overlay_layer_has_the_size_the_spec_gives(self):
+        script = ("import json, os, sys\ncache = sys.argv[1]\nstat = os.statvfs(cache)\noutcome = []\n"
+                  "for megabytes in (8, 24):\n    try:\n"
+                  "        with open(os.path.join(cache, f'{megabytes}.bin'), 'wb') as stream:\n"
+                  "            stream.write(b'0' * (megabytes << 20))\n        outcome.append('written')\n"
+                  "    except OSError as exc:\n        outcome.append(exc.strerror)\n"
+                  "print(json.dumps([stat.f_blocks * stat.f_frsize, outcome]))\n")
+        for layer_bytes, expected in ((16 << 20, [16 << 20, ["written", "No space left on device"]]),
+                                      (None, [isolation.LAYER_BYTES, ["written", "written"]])):
+            with self.subTest(layer_bytes=layer_bytes), tempfile.TemporaryDirectory() as home, \
+                    tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+                cache = Path(home, "hf_home")
+                cache.mkdir()
+                spec = {"root": root, "read": isolation.system_paths(), "overlay": [str(cache)], "tmp": ["/tmp"],
+                        "cwd": "/tmp", "network": False, **({"layer_bytes": layer_bytes} if layer_bytes else {})}
+                done = subprocess.run(isolation.command(spec, [sys.executable, "-c", script, str(cache)]),
+                                      capture_output=True, text=True, timeout=60,
+                                      env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(json.loads(done.stdout), expected)
+                self.assertEqual(os.listdir(cache), [])
+
     def test_without_network_the_resolver_socket_is_not_mounted(self):
         # A file-system socket reaches systemd-resolved whatever the network namespace.
         host = os.path.exists("/run/systemd/resolve")
@@ -271,7 +293,8 @@ class WorkerIsolationTests(unittest.TestCase):
 class FailClosedTests(unittest.TestCase):
     @needs_isolation
     def test_a_namespace_that_cannot_refuse_nested_ones_is_not_used(self):
-        # As if the kernel kept user.max_user_namespaces read-only inside the namespace.
+        # As if the kernel kept user.max_user_namespaces read-only inside the namespace. launch() ends the
+        # process with os._exit, so the launcher, not the with, removes the root (cleanup).
         code = ("import builtins, sys\nopen_ = builtins.open\n"
                 "def refusing(path, *args, **kwargs):\n"
                 "    if str(path).endswith('max_user_namespaces'):\n"
@@ -280,7 +303,7 @@ class FailClosedTests(unittest.TestCase):
                 "builtins.open = refusing\nfrom openvlharness.toolsmith import isolation\n"
                 "with __import__('tempfile').TemporaryDirectory(prefix='openvlharness-') as root:\n"
                 "    isolation.launch({'root': root, 'read': isolation.system_paths(network=False), 'tmp': ['/tmp'],"
-                " 'network': False}, [sys.executable, '-c', 'print(\"confined\")'])\n")
+                " 'network': False, 'cleanup': root}, [sys.executable, '-c', 'print(\"confined\")'])\n")
         done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
                               env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
         self.assertEqual((done.returncode, done.stdout), (isolation.SETUP_FAILED, ""))
@@ -313,3 +336,116 @@ class FailClosedTests(unittest.TestCase):
         self.assertFalse(confinable)
         self.assertIn("needs Linux", reason)
         self.assertEqual(isolation.available(), (CONFINABLE, REASON))  # the cached result is back
+
+
+class OverlayFallbackTests(unittest.TestCase):
+    """The meter counts the sandbox's own file systems, never the host's behind a bind of a cache."""
+
+    def private_bytes(self, caches, patch_overlay=""):
+        from openvlharness.toolsmith.worker import TreeMeter
+
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+            overlay = [os.path.join(home, name) for name in caches]
+            for path in overlay:
+                os.mkdir(path)
+                # What the host's file system holds at least, however empty it was.
+                Path(path, "weights.bin").write_bytes(b"\1" * (64 << 20))
+            spec = {"root": root, "read": isolation.system_paths(), "tmp": ["/tmp"], "overlay": overlay, "cwd": "/tmp",
+                    "parent": os.getpid()}
+            script = ("import os, sys, time\n"
+                      f"for path in {overlay!r}:\n"
+                      "    try:\n        open(os.path.join(path, 'blob'), 'wb').write(b'0' * (8 << 20))\n"
+                      "    except OSError:\n        pass\n"
+                      "print('ready', flush=True)\ntime.sleep(30)\n")
+            code = ("import json, sys\nfrom openvlharness.toolsmith import isolation\n" + patch_overlay
+                    + "isolation.launch(json.loads(sys.argv[1]), sys.argv[2:])\n")
+            argv = [sys.executable, "-c", code, json.dumps(spec), sys.executable, "-c", script]
+            process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                       env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+            try:
+                self.assertEqual(process.stdout.readline(), "ready\n")
+                return TreeMeter(process.pid, isolation.private_mounts(spec)).private_bytes()
+            finally:
+                process.kill()
+                process.wait()
+                process.stdout.close()
+
+    FAIL = ("real = isolation._mount\n"
+            "def refuse(libc, source, target, fstype, *rest):\n"
+            "    if fstype == 'overlay' and FAILS(str(target)):\n"
+            "        raise OSError(22, 'Invalid argument')\n"
+            "    return real(libc, source, target, fstype, *rest)\n"
+            "isolation._mount = refuse\n")
+
+    @needs_isolation
+    def test_a_cache_that_is_bound_read_only_counts_nothing(self):
+        for name, caches, code in (("a comma in its path", ["hf,home"], ""),
+                                   ("a failed mount", ["hf_home"], self.FAIL.replace("FAILS", "bool"))):
+            with self.subTest(name):
+                self.assertLess(self.private_bytes(caches, code), 8 << 20)
+
+    @needs_isolation
+    def test_the_layer_counts_once_even_when_the_first_overlay_failed(self):
+        both = self.private_bytes(["hf_home", "torch"])
+        self.assertTrue(16 << 20 <= both < 24 << 20, both)
+        second = self.private_bytes(["hf_home", "torch"], self.FAIL.replace("FAILS(", "(lambda path: 'hf_home' in path)("))
+        self.assertTrue(8 << 20 <= second < 16 << 20, second)
+
+
+class SysVTests(unittest.TestCase):
+    @needs_isolation
+    @unittest.skipIf(isolation._release() < isolation.IPC_SYSCTL_KERNEL if sys.platform == "linux" else True,
+                     "a user namespace cannot set SysV limits before Linux 5.19")
+    @unittest.skipUnless(os.path.exists("/proc/sys/kernel/shmmni"), "a kernel without SysV IPC")
+    def test_the_sandbox_gets_no_shared_memory_segment(self):
+        code = ("import ctypes\nlibc = ctypes.CDLL(None, use_errno=True)\n"
+                "print(libc.shmget(0, 4096, 0o1600), ctypes.get_errno())\n")
+        with tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+            spec = {"root": root, "read": isolation.system_paths(), "tmp": ["/tmp"], "cwd": "/tmp"}
+            done = subprocess.run(isolation.command(spec, [sys.executable, "-c", code]), capture_output=True, text=True,
+                                  timeout=60, check=False,
+                                  env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.split()[0], "-1", done.stdout)
+
+
+class SysVLimitTests(unittest.TestCase):
+    """Which sysctls the launcher writes, and which failures end the launch (the kernel is mocked)."""
+
+    def run_limits(self, release, refused):
+        written = {}
+
+        def fake_open(path, mode="r"):
+            if str(path).startswith("/proc/sys/kernel/") and refused:
+                raise PermissionError(13, "Permission denied") if refused is True else refused
+
+            class Sink:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def write(self, value):
+                    written[str(path)] = value
+            return Sink()
+        with patch("builtins.open", fake_open), patch.object(isolation, "_release", lambda: release), \
+                patch.object(isolation.resource, "setrlimit"):
+            isolation._limit_namespace()
+        return written
+
+    def test_every_sysv_limit_is_written_to_its_sysctl(self):
+        written = self.run_limits((6, 8), refused=False)
+        self.assertEqual({name: written[f"/proc/sys/{name}"] for name in isolation.IPC_LIMITS}, isolation.IPC_LIMITS)
+        self.assertEqual(written["/proc/sys/user/max_user_namespaces"], "0")
+
+    def test_a_kernel_that_allows_the_limits_but_refuses_them_fails_the_launch(self):
+        with self.assertRaisesRegex(OSError, "cannot refuse SysV IPC"):
+            self.run_limits((6, 8), refused=True)
+
+    def test_a_kernel_without_sysv_ipc_has_nothing_to_refuse(self):
+        missing = FileNotFoundError(2, "No such file or directory")  # CONFIG_SYSVIPC=n: no kernel/shm* sysctls
+        self.assertEqual(self.run_limits((6, 8), refused=missing), {"/proc/sys/user/max_user_namespaces": "0"})
+
+    def test_older_kernels_keep_the_hosts_limits(self):
+        self.assertEqual(self.run_limits((5, 15), refused=True), {"/proc/sys/user/max_user_namespaces": "0"})

@@ -9,14 +9,19 @@ on a fresh root filesystem built in SPEC's root directory: read-only bind mounts
 the read paths, writable bind mounts of the write paths, private tmpfs directories of at
 most 1 GiB each, a fresh /proc that shows only the namespace's processes, and a /dev
 holding null, zero, full, random and urandom. An overlay path is the host directory, read-only, under a
-private writable layer of at most 1 GiB that disappears with the namespace. The host
+private writable layer that disappears with the namespace (all overlays share one, of
+layer_bytes, 1 GiB by default). The host
 filesystem is detached, the command starts without capabilities, cannot gain privileges
 or create nested user namespaces, runs at most PROCESSES processes and threads (Linux
-5.14 and later), and everything in the namespace dies with the launcher. Memory is
-capped per process only (see worker.limit_resources), and CPU not at all. SPEC is JSON with
-root, read, write, overlay, mask (paths hidden inside read paths), tmp, cwd, network,
-cleanup (a directory the launcher removes when the command ends) and parent (the PID of
-the caller, whose end kills the launcher and so the namespace).
+5.14 and later), has no SysV shared memory, message queues or semaphores (Linux 5.19 and
+later, see IPC_LIMITS), and everything in the namespace dies with the launcher. Here memory
+is capped per process only (see worker.limit_resources); the router's watchdog adds up the
+memory of all the processes and of the private tmpfs mounts, and checks their CPU time
+between calls. Those limits stop runaway tools; they are not hard limits against code
+written to evade them, which needs a container or cgroup around the router. SPEC is JSON with
+root, read, write, overlay, layer_bytes, mask (paths hidden inside read paths), tmp, cwd,
+network, cleanup (a directory the launcher removes when the command ends) and parent (the
+PID of the caller, whose end kills the launcher and so the namespace).
 """
 import ctypes
 import json
@@ -48,11 +53,18 @@ PROCESSES = 4096
 # temporary directory and /dev/shm, and the root and /dev, which hold only mount points and devices.
 TMPFS = "size=1g,nr_inodes=65536"
 SKELETON = "size=16m,nr_inodes=65536"
+LAYER_BYTES = 1 << 30  # the overlays' shared writable layer, unless SPEC's layer_bytes says otherwise
 # statvfs flags of a mount that a read-only remount inside a user namespace must keep.
 LOCKED = tuple((getattr(os, name), flag) for name, flag in (
     ("ST_NOSUID", MS_NOSUID), ("ST_NODEV", MS_NODEV), ("ST_NOEXEC", MS_NOEXEC), ("ST_NOATIME", MS_NOATIME),
     ("ST_NODIRATIME", MS_NODIRATIME), ("ST_RELATIME", MS_RELATIME)) if hasattr(os, name))
 _probe = None
+# SysV IPC limits of the command's own IPC namespace: no shared memory segments, message queues
+# or semaphore sets, whose memory no process's address space counts. Linux lets a user namespace
+# set them from 5.19 (IPC_SYSCTL_KERNEL); earlier kernels keep the host's defaults there.
+IPC_LIMITS = {"kernel/shmmni": "0", "kernel/shmmax": "0", "kernel/shmall": "0", "kernel/msgmni": "0",
+              "kernel/sem": "0 0 0 0"}
+IPC_SYSCTL_KERNEL = (5, 19)
 
 
 def _libc():
@@ -153,7 +165,8 @@ def _build_root(libc, spec):
         # The writable layers live on their own tmpfs, detached once the overlays hold it.
         layers = os.path.join(root, ".layers")
         os.mkdir(layers)
-        _mount(libc, "tmpfs", layers, "tmpfs", MS_NOSUID | MS_NODEV, f"mode=0700,{TMPFS}")
+        size = int(spec.get("layer_bytes") or LAYER_BYTES)
+        _mount(libc, "tmpfs", layers, "tmpfs", MS_NOSUID | MS_NODEV, f"mode=0700,size={size},nr_inodes=65536")
     for path, kind in sorted(entries, key=lambda entry: (entry[0].rstrip("/").count("/"), entry[0])):
         if kind == "tmp":
             _mount(libc, "tmpfs", _target(root, path, directory=True), "tmpfs", MS_NOSUID | MS_NODEV,
@@ -263,23 +276,43 @@ def launch(spec, command):
 
 
 def _limit_namespace():
-    """Refuse nested user namespaces and cap the namespace's processes, while it still holds capabilities.
+    """Refuse nested user namespaces and SysV IPC, and cap the namespace's processes, while it holds capabilities.
 
     A nested user namespace would give the command capabilities again, to mount an
     uncapped tmpfs or look under a mask, so a kernel that does not let the namespace
-    refuse them fails the launch like any other setup step. The process cap needs
+    refuse them fails the launch like any other setup step. SysV shared memory holds
+    memory that no process maps (see IPC_LIMITS); a kernel that lets the namespace set
+    the limits (5.19 and later) and refuses fails the launch too, while one built without
+    SysV IPC (no such sysctl) has nothing to refuse. The process cap needs
     per-namespace counting (Linux 5.14); earlier kernels count every process of the uid.
 
     Raises:
-        OSError: user.max_user_namespaces cannot be set to 0 in the namespace.
+        OSError: user.max_user_namespaces cannot be set to 0 in the namespace, or the
+            IPC limits cannot be set on a kernel that allows it.
     """
     try:
         with open("/proc/sys/user/max_user_namespaces", "w") as stream:
             stream.write("0")
     except OSError as exc:
         raise OSError(exc.errno, f"cannot refuse nested user namespaces ({exc.strerror})") from exc
-    if tuple(int(part) for part in re.findall(r"\d+", platform.release())[:2]) >= (5, 14):
+    release = _release()
+    for name, value in IPC_LIMITS.items():
+        try:
+            with open(f"/proc/sys/{name}", "w") as stream:
+                stream.write(value)
+        except FileNotFoundError:
+            continue  # a kernel without SysV IPC (CONFIG_SYSVIPC) has nothing to refuse
+        except OSError as exc:
+            if release >= IPC_SYSCTL_KERNEL:
+                raise OSError(exc.errno, f"cannot refuse SysV IPC: {name} ({exc.strerror})") from exc
+            break  # the kernel keeps them read-only here
+    if release >= (5, 14):
         resource.setrlimit(resource.RLIMIT_NPROC, (PROCESSES, PROCESSES))
+
+
+def _release():
+    """The running kernel's (major, minor) version."""
+    return tuple(int(part) for part in re.findall(r"\d+", platform.release())[:2])
 
 
 def _init(command, reported):
@@ -299,6 +332,16 @@ def _init(command, reported):
         if pid == process:
             os.write(reported, str(status).encode())
             os._exit(0)
+
+
+def private_mounts(spec):
+    """Groups of paths inside the sandbox SPEC builds, one group for each of its memory-backed file systems.
+
+    They are the private tmpfs directories, /dev/shm, /dev and the root, and the overlays as
+    one group, since any of them that was mounted shows the writable layer they share.
+    """
+    single = [*spec.get("tmp", ()), "/dev/shm", "/dev", "/"]
+    return [[path] for path in single] + [list(spec.get("overlay", ()))]
 
 
 def command(spec, argv):

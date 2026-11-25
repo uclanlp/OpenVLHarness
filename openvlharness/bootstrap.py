@@ -123,14 +123,14 @@ def load_agent_config(config, *, save_raw_trace=False, stand_in=None):
             raise ValueError("toolsmith.encoder must name a sentence-transformers model")
         worker = toolsmith.get("worker", {})
         if not isinstance(worker, dict) or set(worker) - {"environment", "timeout_seconds", "memory_gib",
-                                                          "write_files", "isolation", "network"}:
+                                                          "cache_layer_gib", "write_files", "isolation", "network"}:
             raise ValueError("toolsmith.worker must be a mapping with optional environment, timeout_seconds, "
-                             "memory_gib, write_files, isolation and network")
+                             "memory_gib, cache_layer_gib, write_files, isolation and network")
         names = worker.get("environment", [])
         if not isinstance(names, list) or not all(
                 isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in names):
             raise ValueError("toolsmith.worker.environment must list environment variable names")
-        for key in ("timeout_seconds", "memory_gib"):
+        for key in ("timeout_seconds", "memory_gib", "cache_layer_gib"):
             value = worker.get(key, 1)
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"toolsmith.worker.{key} must be a positive number")

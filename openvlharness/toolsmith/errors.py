@@ -22,6 +22,12 @@ class EncoderError(ToolSmithStartError, RuntimeError):
     """The sentence encoder cannot be loaded; the message says what to change."""
 
 
+def brief(text, limit=200):
+    """text, as str() gives it, cut to limit characters: text a tool or a worker chose stays short in a message."""
+    text = str(text)
+    return text if len(text) <= limit else text[:limit] + f"... ({len(text) - limit} more characters)"
+
+
 def describe(exc, limit=2000):
     """Name an exception and its message, cut to limit characters; for any exception, also one that cannot be printed."""
     try:
@@ -33,6 +39,5 @@ def describe(exc, limit=2000):
         text = str(exc)
     except Exception:
         text = "<unprintable message>"
-    if len(text) > limit:
-        text = text[:limit] + f"... ({len(text) - limit} more characters)"
+    text = brief(text, limit)
     return f"{kind}: {text}" if text else kind
