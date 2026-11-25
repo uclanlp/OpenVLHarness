@@ -420,6 +420,12 @@ class EntityPropertyLookup(GeneratedTool):
   `Text_Search_Tool`, `Image_Search_Tool`, `Webpage_Visit_Tool`, `OCR_Tool` and
   `Zoom_In_Tool`, through the router. It returns that tool's result and raises
   `ToolCallError` when the tool fails. The router refuses calls to its other tools.
+- A tool reaches the web through the router's outbound proxy: use a client that reads
+  `HTTP_PROXY` and `HTTPS_PROXY`, such as `requests`, `httpx` or `urllib.request` (aiohttp
+  only with `trust_env=True`), on ports 80 and 443 by default (`worker.network_ports`). In
+  a confined worker, raw sockets and names a tool resolves itself reach nothing, and the
+  proxy refuses other ports and every service on the router's host or its local networks (see
+  [Running generated tools safely](#running-generated-tools-safely)).
 - The schema must be a valid Draft 7 JSON Schema without the keywords that can make
   argument validation fetch documents or take exponential time: references (`$ref`, `$id`,
   `$schema`, `$anchor`) and regular expressions (`pattern`, `patternProperties`; check
@@ -468,10 +474,13 @@ toolsmith:
   worker:
     environment: [TMDB_API_KEY]  # credential-like variables the tools may read; default []
     timeout_seconds: 540       # per call; default 90% of services.client.timeout_seconds
-    memory_gib: 128            # address space of each worker process, in GiB (Linux)
+    memory_gib: 128            # memory of all the worker's processes together, in GiB (Linux)
     write_files: false         # true lets tools write files
+    cache_layer_gib: 1         # with write_files: room for writes into the model caches, in GiB
     isolation: true            # confine the worker with Linux namespaces
-    network: true              # false takes the network away from a confined worker
+    network: true              # HTTP and HTTPS through the router's proxy; false: no network
+    network_ports: [80, 443]   # destination ports the proxy serves
+    deny_networks: []          # networks the proxy refuses too, such as 192.0.2.0/24
 ```
 
 The worker inherits the router's environment except variables whose names contain `KEY`,
@@ -536,55 +545,142 @@ pipeline's worker is confined by the pipeline's own `isolation` setting instead 
 - inherits the router's environment without credential-like variables, unless
   `worker.environment` grants them;
 - runs each call under a time limit. A call that raises returns a tool error and the
-  worker carries on; only a call past the limit, a crash or a message that breaks the
-  worker protocol (one over the size limit, or one the router cannot read) makes the
-  router start a new worker for later calls;
+  worker carries on; only a call past the limit, a crash, a stop for using too much
+  memory or CPU (see **Memory and CPU** below) or a message that breaks the worker
+  protocol (one over the size limit, or one the router cannot read) makes the router start
+  a new worker for later calls;
 - reaches only the other catalog tools and five base tools through `call_tool`:
   `Text_Search_Tool`, `Image_Search_Tool`, `Webpage_Visit_Tool`, `OCR_Tool` and
   `Zoom_In_Tool`;
-- cannot write files unless `write_files` is set; with `isolation`, even then the host's
-  model caches stay read-only, and writes to them go to a private in-memory layer of at
-  most 1 GiB;
-- with `isolation` (the default), runs in Linux user, mount, PID and IPC namespaces under
-  your user, without root. It sees, read-only, the interpreter, every directory on the
-  router's `sys.path` and `PYTHONPATH` (the Python packages, and whatever else those
-  directories hold), the catalog copy, the model caches, the files that granted variables
-  name (such as a `*_FILE` key file or service-account credentials), certificate bundles,
-  a few settings from `/etc`, and the host's `/sys`. With `write_files` and the local image
-  host (`IMAGE_UPLOAD_PROVIDER=local`) it can also write the upload directory, which that
-  host serves. It has private temporary directories of at most 1 GiB each, and sees no
-  other host files and no other processes. It cannot create nested user namespaces, and
-  on Linux 5.14 and later it runs at most 4,096 processes and threads.
+- cannot write files unless `write_files` is set, and then no file may grow past
+  `worker.memory_gib`. With `isolation`, even then the host's model caches stay
+  read-only: writes to them go to a private in-memory layer of `worker.cache_layer_gib`
+  (1 GiB by default), discarded with the worker;
+- prints to the router's stderr without control characters, up to 8 MiB from each worker
+  and 64 MiB from all the workers of a router; the router's log says when it drops the
+  rest;
+- with `isolation` (the default), runs in Linux user, mount, PID, IPC and network
+  namespaces under your user, without root. It sees, read-only, the interpreter, every
+  directory on the router's `sys.path` and `PYTHONPATH` (the Python packages, and whatever
+  else those directories hold), the catalog copy, the model caches, the files that granted
+  variables name (such as a `*_FILE` key file or service-account credentials), certificate
+  bundles, a few settings from `/etc`, and the host's `/sys`. With `write_files` and the
+  local image host (`IMAGE_UPLOAD_PROVIDER=local`) it can also write the upload directory,
+  which that host serves. It has private temporary directories of at most 1 GiB each, and
+  sees no other host files and no other processes. It cannot create nested user
+  namespaces; on Linux 5.14 and later it runs at most 4,096 processes and threads, and on
+  Linux 5.19 and later it has no SysV shared memory, message queues or semaphores.
+
+**Network.** A confined worker has a network namespace of its own with only loopback: no
+interface, port or abstract UNIX socket of the host reaches it, and `/proc/net` lists only
+its own connections (`/sys/class/net` still lists the host's interfaces, read-only). With
+`worker.network: true` (the default), its HTTP and HTTPS clients go through an outbound
+proxy in the router: `HTTP_PROXY` and `HTTPS_PROXY` point at a relay on the worker's
+loopback, and `NO_PROXY` keeps `localhost`, `127.0.0.1` and `::1` inside the sandbox. The
+proxy serves `http://` requests and HTTPS tunnels (CONNECT) to the ports in
+`worker.network_ports`, 80 and 443 by default, one request per connection. It resolves
+each name on the router's host and refuses, with the same answer for all, a name that does
+not resolve and one that resolves to a loopback, private, link-local, shared, multicast or
+reserved address (or an IPv6 address that embeds one), to an address of the host, or to
+an address in a network the host reaches without a gateway (its LANs, even with public
+addresses) or in `worker.deny_networks`. It then connects to an address it checked. This
+keeps tools from the services on this host that the proxy can tell are its own, such as the
+router with its local Python executor (which is not a sandbox), other routers or model
+servers, and from those on the host's LANs; public services elsewhere stay reachable. The
+proxy does not recognize a public address that leads back to the host or its network (1:1
+NAT or hairpin NAT), networks that only a policy routing table reaches, a site's own NAT64
+prefix, or the public addresses at which cloud platforms serve their machines, except
+Azure's 168.63.129.16, which it refuses. List those in `worker.deny_networks`, and on a
+campus or corporate network whose hosts have public addresses its networks, such as
+`192.0.2.0/24` and `2001:db8::/32`. The routes of a VPN interface count as networks without
+a gateway: with a split tunnel that sends public ranges through such a route, the proxy
+refuses public hosts in them, unless the route covers more than a /8 (IPv4) or /16 (IPv6).
+
+The proxy reads request heads strictly (CRLF line ends, no other control characters, no
+folded lines, a body only with `Content-Length`) and gives each head 30 seconds and
+64 KiB; a connection that moves nothing for two minutes is closed within four. All the
+generated tools of a router share 256 open connections: past them, new ones get 503, so a
+tool that holds many open keeps the others off the network meanwhile. A worker process
+opens at most 4,096 files and sockets. If the router has its own `HTTP_PROXY` or
+`HTTPS_PROXY` (or, without them, `ALL_PROXY`), the outbound proxy reaches each checked
+address through a CONNECT tunnel from that proxy. It must be an `http://` proxy (not
+`https://` or SOCKS) that allows CONNECT to the ports in `worker.network_ports` (port 80
+too, for `http://` requests) and to IP addresses: it is asked for the checked address,
+never for a name, so a proxy that allows destinations by name refuses the tunnels. Names
+are still resolved on the router's host, so where only that proxy can resolve public
+names, generated tools get no network. The worker gets none of the router's proxy
+variables. Tools that open raw sockets, resolve names themselves or use clients that
+ignore `HTTP_PROXY` and `HTTPS_PROXY` (aiohttp without `trust_env`, a bare urllib3
+`PoolManager`) get no network; the packaged tools use `requests` and Hugging Face
+libraries, which use the proxy.
+
+`worker.network: false` leaves the worker no network at all; `call_tool` still works. A
+confined worker without network also gets `HF_HUB_OFFLINE=1` and
+`TRANSFORMERS_OFFLINE=1`, so models already in the cache load at once instead of after
+the Hub requests time out. The same holds when the tools' metadata is read
+(`catalog_snapshot`): with isolation the catalog loads with no network and Hugging Face
+offline, so a module that downloads a model it does not find in the cache at import fails
+there. Download such models on the host first.
+
+**Memory and CPU.** On Linux the router measures each worker's processes every 0.5
+seconds: their proportional set size (memory that processes share is split among them),
+plus what the sandbox's own memory-backed file systems hold (its `/tmp`, home directory,
+`/dev/shm` and the cache layer). When the total passes `worker.memory_gib`, the router
+stops the worker: its calls in flight fail with a `MemoryLimitExceeded` error, and the
+next call starts a new worker. A file in those file systems that a tool also maps counts
+once, and so does the memory a child shares with its parent after `vfork` or
+`posix_spawn`, until it execs. Where `smaps_rollup` is missing (Linux before 4.14), the
+router sums resident set sizes instead, which count memory that processes share after
+`fork` once in each of them. Each process's address space is capped at
+`worker.memory_gib` as well. Between calls, a worker whose processes use more than 2
+CPU-seconds in 10 seconds with no call in flight, as a thread or process that a tool left
+running does, is stopped the same way (`CPULimitExceeded`); calls that the worker's own
+tools make through `call_tool` do not count as calls in flight. A call's CPU time is
+bounded only by `worker.timeout_seconds`, so one call can use every core of the host for
+that long. Measuring a worker with thousands of processes takes long (about a second for
+2,000), and the next measurement then waits ten times as long, about a tenth of a core,
+but at most 5 seconds. So for very large process trees the interval between measurements
+can reach 5 seconds plus the measurement itself, and the router spends a larger share of a
+core on them.
 
 **Gate 1** checks the source for dynamic execution and file access, then runs the
-candidate once with no file writes, 2 GiB of address space and the `timeout_seconds`
-budget. With the pipeline's `isolation` (the default), it runs in the same kind of
-namespaces, with no network. The static check only narrows
+candidate once with no file writes and the `timeout_seconds` budget. Each of its processes
+has 2 GiB of address space, and the run is stopped when its processes together hold more
+than 2 GiB, measured as for the worker. With the pipeline's `isolation` (the default), it
+runs in the same kind of namespaces, with no network at all. The static check only narrows
 what a candidate can express; the namespaces are what keep it from the host.
 
 **What the worker does not confine:**
 
-- **The network.** With `worker.network: true` (the default), the worker shares the
-  host's network. A tool can reach any service the host can, including services that
-  listen on the host's loopback: the router itself, and through it every router tool,
-  among them the local Python executor, which is not a sandbox. It can also reach the
-  host's abstract UNIX sockets, and `/proc/net` lists the host's connections. Set
-  `worker.network: false` when the tools do not need the web; `call_tool` still works.
-  A confined worker without network also gets `HF_HUB_OFFLINE=1` and
-  `TRANSFORMERS_OFFLINE=1`, so models already in the cache load at once instead of after
-  the Hub requests time out.
-- **Memory and CPU.** The address-space limit applies to each process, so a tool that
-  starts child processes gets the limit in each, and memory in its temporary directories
-  is counted separately. CPU time is not limited.
+- **What a tool sends out.** With `worker.network: true`, a tool can send what it reads
+  (its arguments, images and the credentials it is granted) to any public address on the
+  allowed ports. Set `worker.network: false` when the tools do not need the web.
+- **Code written to evade the limits.** The memory and CPU rules stop runaway tools: a
+  memory blow-up, work left running after a call, a flood of output. Between two
+  measurements, a spike can reach the address-space cap in each of the worker's processes.
+  Among the memory that is not counted are shared memory (memfd or shared anonymous) whose
+  pages no process currently has mapped in (with `write_files`, each memfd file is capped at
+  `worker.memory_gib`), SysV shared memory that a tool holds detached before Linux 5.19,
+  what the kernel holds for a tool, such as data queued in its sockets and pipes, and files
+  it writes to the host's upload directory (with `write_files` and the local image host).
+  Where `kcmp` is refused, a forked child less than a second old, whose parent has a thread
+  waiting on a `vfork`, can pass for a vforked one: it is not counted, and lowers its
+  parent's share of the pages they share. A process whose main thread has exited and whose
+  other threads never live long enough to be read counts its last known memory, or nothing
+  when it was never read. Children whose parent ignores SIGCHLD take their CPU time with
+  them. This list is not complete.
 - **Other secrets.** The environment filter goes by name. Secrets under other names, such
   as `DATABASE_URL` or a password in a proxy URL, reach the worker; keep them out of the
   router's environment.
-- **Without isolation**, none of the file, process and network confinement applies: the
-  workers that read tool descriptions and Gate 1 share the host's network too.
+- **Without isolation**, none of the file, process and network confinement applies. A
+  tool reaches every service the host can, the router's HTTP API among them (calls that
+  arrive through it keep the worker from ever looking idle), and processes that detach
+  from the worker escape the memory count and outlive it. The workers that read tool
+  descriptions and Gate 1 share the host's network too.
 
 For catalogs you do not trust, run the router and the pipeline in a container or a
 virtual machine that holds only the files, credentials and network access they need,
-and set limits on its memory and CPU there.
+and set hard limits on its memory and CPU there.
 
 ## The packaged catalog
 
@@ -681,6 +777,42 @@ check fails. An administrator can choose one of:
   file in `/etc/sysctl.d/` to keep it after a reboot).
 - **Use a container or a virtual machine** for the router and the pipeline, set
   `worker.isolation: false` and `isolation: false`, and rely on it.
+
+**A tool gets no network: "Temporary failure in name resolution", "Network is unreachable"
+or "Connection refused".** In a confined worker, only HTTP and HTTPS clients that read
+`HTTP_PROXY` and `HTTPS_PROXY` reach the network, through the router's outbound proxy, and
+only with `worker.network: true`. Use `requests`, `httpx` or `urllib.request` in the tool,
+or aiohttp with `trust_env=True`.
+
+**"Tunnel connection failed: 403 Forbidden", or a 403 answer from the proxy.** The outbound
+proxy refused the destination. Its answer says why: "port N is not allowed
+(toolsmith.worker.network_ports: ...)" for a port that `worker.network_ports` does not
+list, or "HOST does not resolve to an address the proxy may reach: ..." for a name that
+does not resolve on the router's host, or that resolves to a private, loopback or
+link-local address, an address of the host, one on its local networks (a range that a VPN
+interface's route covers counts as one) or one in `worker.deny_networks`. These names all get the same answer, so that a tool cannot learn
+which names your network knows; with the `openvlharness.toolsmith.proxy` logger at DEBUG,
+the router logs which it was. HTTPS clients show only the status line.
+
+**"Tunnel connection failed: 502 Bad Gateway".** The outbound proxy could not reach the
+destination ("cannot connect to HOST:PORT"), or the router's own `HTTP_PROXY`,
+`HTTPS_PROXY` or `ALL_PROXY` refused the tunnel to it ("the router's proxy refused a tunnel
+to HOST:PORT (403)") or is not an `http://` proxy. Many proxies, Squid among them by
+default, allow CONNECT only to port 443, so `http://` requests fail through them: allow
+CONNECT to port 80, and to IP addresses, there. A 503 means that 256 connections of the
+router's generated tools are already open, or that the router cannot read the host's
+networks.
+
+**`MemoryLimitExceeded`: "its processes and in-memory files used ... of memory together".**
+The worker's processes, with what its `/tmp`, home directory, `/dev/shm` and cache layer
+hold, used more than `worker.memory_gib`. The router stopped the worker, its calls in
+flight failed, and the next call starts a new worker. Raise `worker.memory_gib`, or have
+the tool hold less, for example by deleting its temporary files when it is done with them.
+
+**The router logs "a tool left work running after its call returned".** A thread or process
+that a tool started kept using CPU with no call in flight (more than 2 CPU-seconds in 10
+seconds), and the router stopped the worker (`CPULimitExceeded`); the next call starts a
+new one. Stop background threads and child processes before `execute` returns.
 
 **A tool fails for lack of a credential.** At startup, the router logs "Generated tools run
 without these router environment variables: ...". Add the variables your tools read to

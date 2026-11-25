@@ -1,8 +1,10 @@
 """Gate 1 sandbox: load one candidate, run it once on dummy input and print its metadata.
 
 Usage: python -m openvlharness.toolsmith.pipeline.sandbox DIRECTORY
-The process cannot write files, is capped at 2 GiB of address space, and every
-tool the candidate calls answers with a failure, so the run reaches no service.
+The process cannot write files, each of its processes is capped at MEMORY_BYTES of
+address space (Gate 1 stops the run when they use more memory than that together, see
+verification.run_once), and every tool the candidate calls answers with a failure, so
+the run reaches no service.
 """
 import json
 import os
@@ -11,6 +13,8 @@ import sys
 from ..catalog import json_schema, load_catalog
 from ..errors import CatalogLoadError
 from ..worker import limit_resources
+
+MEMORY_BYTES = 2 << 30  # Gate 1's memory: each process's address space, and all of the run's processes together
 
 IMAGE = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 VALUES = {"string": "test", "integer": 1, "number": 1.0, "boolean": False, "array": [], "object": {}}
@@ -53,7 +57,7 @@ def _exits(exc):
 
 def main(directory):
     """Run the directory's single tool once and print its name, description and input schema."""
-    limit_resources(memory_bytes=2 << 30, file_bytes=0)
+    limit_resources(memory_bytes=MEMORY_BYTES, file_bytes=0)
     try:
         tools = load_catalog(directory, client=Unavailable(), strict=True)
     except CatalogLoadError as exc:

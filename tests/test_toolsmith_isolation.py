@@ -1,6 +1,7 @@
 """Linux-namespace confinement of Gate 1 runs and of the generated-tool worker, offline."""
 import json
 import os
+import resource
 import socket
 import subprocess
 import sys
@@ -44,6 +45,15 @@ def nested():
 attempt("nested user namespace", nested)
 attempt("process cap", lambda: __import__("resource").getrlimit(__import__("resource").RLIMIT_NPROC)[0])
 attempt("resolver", lambda: os.path.exists("/run/systemd/resolve"))
+def own_loopback():
+    server = socket.create_server(("127.0.0.1", 0))
+    with server, socket.create_connection(server.getsockname(), timeout=5) as client:
+        connection, _ = server.accept()
+        with connection:
+            client.sendall(b"echo")
+            return connection.recv(4).decode()
+attempt("own loopback", own_loopback)
+attempt("interfaces", lambda: sorted(name for _, name in socket.if_nameindex()))
 attempt("tmpfs", lambda: {path: [os.statvfs(path).f_blocks * os.statvfs(path).f_frsize, os.statvfs(path).f_files]
                           for path in ("/tmp", "/dev/shm", "/dev", "/")})
 print(json.dumps(seen))
@@ -60,20 +70,61 @@ class Snoop(GeneratedTool):
     def __init__(self):
         super().__init__(tool_name="snoop", tool_description="snoop", input_schema={"type": "object"})
 
-    def execute(self, secret="", port=0, token="", router=0):
-        seen = {}
+    def execute(self, secret="", port=0, token="", router=0, abstract="", web=0):
+        import resource
+
+        import requests
+
+        def abstract_socket():
+            with socket.socket(socket.AF_UNIX) as sock:
+                sock.settimeout(5)
+                sock.connect("\\0" + abstract)
+
+        def through_proxy():  # NO_PROXY keeps 127.0.0.1 in the sandbox, so the proxy is named here
+            response = requests.get(f"http://127.0.0.1:{web}/page", proxies={"http": os.environ["HTTP_PROXY"]},
+                                    timeout=10)
+            return [response.status_code, response.text.strip()]
+
+        def initial_proxies():  # the environment the worker started with, which /proc keeps
+            environ = open("/proc/self/environ", "rb").read().split(b"\\0")
+            return sorted(item.split(b"=")[0].decode() for item in environ if b"_proxy=" in item.lower())
+        seen = {"proxy": os.environ.get("HTTPS_PROXY"), "no proxy": os.environ.get("NO_PROXY")}
         for name, action in (("secret", lambda: open(secret).read()),
                              ("granted file", lambda: open(os.environ["SERVICE_KEY_FILE"]).read()),
                              ("router environ", lambda: open(f"/proc/{router}/environ").read()[:4]),
                              ("processes", lambda: sorted(int(p) for p in os.listdir("/proc") if p.isdigit())),
                              ("token", lambda: open(token).read()),
-                             ("connect", lambda: socket.create_connection(("127.0.0.1", port), timeout=5).close())):
+                             ("connect", lambda: socket.create_connection(("127.0.0.1", port), timeout=5).close()),
+                             ("abstract", abstract_socket),
+                             ("host connection listed", lambda: any(f":{port:04X} " in line for line in open("/proc/net/tcp"))),
+                             ("web", through_proxy),
+                             ("initial proxies", initial_proxies),
+                             ("open files", lambda: resource.getrlimit(resource.RLIMIT_NOFILE))):
             try:
                 seen[name] = ["ok", action()]
             except Exception as exc:
                 seen[name] = ["blocked", type(exc).__name__]
         return seen
 '''
+
+
+def web_server():
+    """Serve "served <path>" over HTTP on a loopback port of the host, in a thread; return the server."""
+    import http.server
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = f"served {self.path}".encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def listener():
@@ -97,15 +148,14 @@ class FakeClient:
 
 @needs_isolation
 class LauncherTests(unittest.TestCase):
-    def confined(self, *, network):
+    def confined(self):
         server = listener()
         self.addCleanup(server.close)
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
             secret, script = Path(home, "secret.txt"), Path(home, "probe.py")
             secret.write_text("a key")
             script.write_text(PROBE)
-            spec = {"root": root, "read": isolation.system_paths(network=network) + [str(script)], "tmp": ["/tmp"],
-                    "cwd": "/tmp", "network": network}
+            spec = {"root": root, "read": isolation.system_paths() + [str(script)], "tmp": ["/tmp"], "cwd": "/tmp"}
             argv = [sys.executable, str(script), str(secret), str(os.getpid()), str(server.getsockname()[1])]
             done = subprocess.run(isolation.command(spec, argv), capture_output=True, text=True, timeout=60,
                                   env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
@@ -123,7 +173,7 @@ class LauncherTests(unittest.TestCase):
             cache.mkdir()
             (cache / "config.json").write_text("host")
             spec = {"root": root, "read": isolation.system_paths(), "overlay": [str(cache)], "tmp": ["/tmp"],
-                    "cwd": "/tmp", "network": False}
+                    "cwd": "/tmp"}
             done = subprocess.run(isolation.command(spec, [sys.executable, "-c", script, str(cache)]),
                                   capture_output=True, text=True, timeout=60,
                                   env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
@@ -131,16 +181,36 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(json.loads(done.stdout), ["host", "changed", ["config.json", "planted.py"], False])
             self.assertEqual(((cache / "config.json").read_text(), sorted(os.listdir(cache))), ("host", ["config.json"]))
 
-    def test_without_network_the_resolver_socket_is_not_mounted(self):
+    def test_the_overlay_layer_has_the_size_the_spec_gives(self):
+        script = ("import json, os, sys\ncache = sys.argv[1]\nstat = os.statvfs(cache)\noutcome = []\n"
+                  "for megabytes in (8, 24):\n    try:\n"
+                  "        with open(os.path.join(cache, f'{megabytes}.bin'), 'wb') as stream:\n"
+                  "            stream.write(b'0' * (megabytes << 20))\n        outcome.append('written')\n"
+                  "    except OSError as exc:\n        outcome.append(exc.strerror)\n"
+                  "print(json.dumps([stat.f_blocks * stat.f_frsize, outcome]))\n")
+        for layer_bytes, expected in ((16 << 20, [16 << 20, ["written", "No space left on device"]]),
+                                      (None, [isolation.LAYER_BYTES, ["written", "written"]])):
+            with self.subTest(layer_bytes=layer_bytes), tempfile.TemporaryDirectory() as home, \
+                    tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+                cache = Path(home, "hf_home")
+                cache.mkdir()
+                spec = {"root": root, "read": isolation.system_paths(), "overlay": [str(cache)], "tmp": ["/tmp"],
+                        "cwd": "/tmp", **({"layer_bytes": layer_bytes} if layer_bytes else {})}
+                done = subprocess.run(isolation.command(spec, [sys.executable, "-c", script, str(cache)]),
+                                      capture_output=True, text=True, timeout=60,
+                                      env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(json.loads(done.stdout), expected)
+                self.assertEqual(os.listdir(cache), [])
+
+    def test_the_resolver_socket_is_never_mounted(self):
         # A file-system socket reaches systemd-resolved whatever the network namespace.
-        host = os.path.exists("/run/systemd/resolve")
-        self.assertEqual((self.confined(network=True)["resolver"], self.confined(network=False)["resolver"]),
-                         (["ok", host], ["ok", False]))
-        self.assertNotIn("/run/systemd/resolve", isolation.system_paths(network=False))
+        self.assertEqual(self.confined()["resolver"], ["ok", False])
+        self.assertNotIn("/run/systemd/resolve", isolation.system_paths())
 
     def test_nested_namespaces_are_refused_and_processes_capped(self):
         # A nested user namespace would bring back capabilities: to mount an uncapped tmpfs, or look under a mask.
-        seen = self.confined(network=False)
+        seen = self.confined()
         self.assertEqual(seen["nested user namespace"], ["blocked", "OSError"])
         release = tuple(int(part) for part in __import__("re").findall(r"\d+", __import__("platform").release())[:2])
         if release >= (5, 14):
@@ -148,11 +218,11 @@ class LauncherTests(unittest.TestCase):
 
     def test_temporary_file_systems_are_capped(self):
         # tmpfs memory is outside the address-space limit, so each mount has its own size and file cap.
-        self.assertEqual(self.confined(network=False)["tmpfs"], ["ok", {
+        self.assertEqual(self.confined()["tmpfs"], ["ok", {
             "/tmp": [1 << 30, 65536], "/dev/shm": [1 << 30, 65536], "/dev": [16 << 20, 65536], "/": [16 << 20, 65536]}])
 
     def test_a_confined_process_sees_only_what_it_is_given(self):
-        seen = self.confined(network=False)
+        seen = self.confined()
         self.assertEqual(seen["secret"], ["blocked", "FileNotFoundError"])
         self.assertEqual((seen["processes"], seen["pid"]), (["ok", [1, 2]], ["ok", 2]))  # the init and the command
         self.assertEqual(seen["caller environ"][0], "blocked")
@@ -163,8 +233,11 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(seen["etc"], ["ok", sorted(name for name in isolation.ETC if os.path.lexists(f"/etc/{name}"))])
         self.assertEqual(seen["opt"], ["blocked", "FileNotFoundError"])
 
-    def test_network_access_is_opt_in(self):
-        self.assertEqual(self.confined(network=True)["connect"], ["ok", None])
+    def test_the_command_has_a_network_namespace_of_its_own_with_loopback_up(self):
+        seen = self.confined()
+        self.assertEqual(seen["connect"], ["blocked", "ConnectionRefusedError"])  # nothing of the host's loopback
+        self.assertEqual(seen["own loopback"], ["ok", "echo"])
+        self.assertEqual(seen["interfaces"], ["ok", ["lo"]])
 
     def test_the_exit_status_and_signals_of_the_command_come_back(self):
         with tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
@@ -207,14 +280,22 @@ class Snoop(GeneratedTool):
             connect = self.SOURCE.format(body='return __builtins__["__import__"]("socket").create_connection('
                                               f'("127.0.0.1", {server.getsockname()[1]}), timeout=5) and "connected"')
             self.assertIsNone(run_once(connect, 30, isolation=False)[1])
-            self.assertIn("Network is unreachable", run_once(connect, 30)[1])
+            self.assertIn("Connection refused", run_once(connect, 30)[1])  # its own loopback, not the host's
 
 
 @needs_isolation
 class WorkerIsolationTests(unittest.TestCase):
-    def test_generated_tools_see_neither_host_files_nor_the_router_but_keep_the_network(self):
+    def test_generated_tools_reach_neither_host_files_nor_host_network_but_go_out_through_the_proxy(self):
+        from openvlharness.toolsmith import proxy
+
         server = listener()
         self.addCleanup(server.close)
+        abstract = socket.socket(socket.AF_UNIX)
+        abstract.bind(f"\0openvlharness-test-{os.getpid()}")
+        abstract.listen(4)
+        self.addCleanup(abstract.close)
+        web = web_server()
+        self.addCleanup(web.shutdown)
         with tempfile.TemporaryDirectory() as home:
             catalog, cache = Path(home, "catalog"), Path(home, "hf_home")
             catalog.mkdir()
@@ -225,14 +306,21 @@ class WorkerIsolationTests(unittest.TestCase):
             secret.write_text("a key")
             granted.write_text("granted key")
             arguments = {"secret": str(secret), "port": server.getsockname()[1], "token": str(cache / "token"),
-                         "router": os.getpid()}
+                         "router": os.getpid(), "abstract": f"openvlharness-test-{os.getpid()}",
+                         "web": web.server_port}
+            # The router's own proxy, with a password: the worker gets neither it nor NO_PROXY.
+            router_proxy = "http://router-user:router-pass@proxy.invalid:3128"
             for network in (True, False):
-                with self.subTest(network=network), patch.dict(os.environ, {"HF_HOME": str(cache),
-                                                                            "SERVICE_KEY_FILE": str(granted)}):
+                with self.subTest(network=network), patch.dict(os.environ, {
+                        "HF_HOME": str(cache), "SERVICE_KEY_FILE": str(granted), "HTTPS_PROXY": router_proxy}):
                     worker = CatalogWorker(catalog, client=FakeClient(), network=network,
-                                           environment=["SERVICE_KEY_FILE"])
+                                           network_ports=[web.server_port], environment=["SERVICE_KEY_FILE"])
+                    socket_directory = os.path.dirname(worker.proxy.path) if network else None
                     try:
                         seen = worker.execute("snoop", arguments, tool_call_id="call-1")[0]["result"]
+                        # The test's own server stands in for the internet: only the destination check moves.
+                        with patch.object(proxy, "destination_refused", lambda addresses: None):
+                            allowed = worker.execute("snoop", arguments, tool_call_id="call-2")[0]["result"]
                     finally:
                         worker.close()
                     self.assertEqual(seen["secret"], ["blocked", "FileNotFoundError"])
@@ -240,16 +328,42 @@ class WorkerIsolationTests(unittest.TestCase):
                     self.assertEqual(seen["router environ"][0], "blocked")
                     self.assertEqual(seen["processes"], ["ok", [1, 2]])
                     self.assertEqual(seen["token"], ["ok", ""])
-                    self.assertEqual(seen["connect"][0], "ok" if network else "blocked")
+                    self.assertEqual(seen["connect"], ["blocked", "ConnectionRefusedError"])
+                    self.assertEqual(seen["abstract"], ["blocked", "ConnectionRefusedError"])
+                    self.assertEqual(seen["host connection listed"], ["ok", False])
+                    self.assertEqual(seen["initial proxies"], ["ok", []])
+                    hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]  # the worker's cap is below the router's
+                    files = 4096 if hard == resource.RLIM_INFINITY else min(4096, hard)
+                    self.assertEqual(seen["open files"], ["ok", [files, files]])
+                    if network:
+                        self.assertTrue(seen["proxy"].startswith("http://127.0.0.1:"))
+                        self.assertEqual(seen["no proxy"], "localhost,127.0.0.1,::1")
+                        self.assertEqual(seen["web"], ["ok", [403, f"127.0.0.1 {proxy.REFUSED}"]])
+                        self.assertEqual(allowed["web"], ["ok", [200, "served /page"]])
+                        self.assertFalse(os.path.exists(socket_directory))
+                    else:
+                        self.assertEqual((seen["web"][0], allowed["web"][0]), ("blocked", "blocked"))
+                        self.assertIsNone(worker.proxy)
+
+    def test_a_worker_that_does_not_start_leaves_no_proxy_behind(self):
+        from openvlharness.toolsmith import proxy
+
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory(dir="/tmp") as base:
+            catalog = Path(home, "catalog")
+            catalog.mkdir()
+            (catalog / "broken.py").write_text("raise ValueError('this catalog does not load')\n")
+            with patch.object(proxy, "SOCKET_BASE", base), self.assertRaisesRegex(ValueError, "does not load"):
+                CatalogWorker(catalog, client=FakeClient())
+            self.assertEqual(os.listdir(base), [])
 
 
     def test_tools_never_write_the_host_model_caches(self):
         writer = TOOL.replace("class Snoop", "class Writer").replace('"snoop"', '"cache_writer"').replace(
-            "    def execute(self, secret=\"\", port=0, token=\"\", router=0):",
+            "    def execute(self, secret=\"\", port=0, token=\"\", router=0, abstract=\"\", web=0):",
             "    def execute(self, path=\"\"):\n"
             "        try:\n            open(path, \"w\").write(\"poisoned\")\n        except OSError as exc:\n"
             "            return type(exc).__name__\n        return open(path).read()\n\n"
-            "    def unused(self, secret=\"\", port=0, token=\"\", router=0):")
+            "    def unused(self, secret=\"\", port=0, token=\"\", router=0, abstract=\"\", web=0):")
         with tempfile.TemporaryDirectory() as home:
             catalog, cache = Path(home, "catalog"), Path(home, "hf_home")
             catalog.mkdir()
@@ -271,7 +385,8 @@ class WorkerIsolationTests(unittest.TestCase):
 class FailClosedTests(unittest.TestCase):
     @needs_isolation
     def test_a_namespace_that_cannot_refuse_nested_ones_is_not_used(self):
-        # As if the kernel kept user.max_user_namespaces read-only inside the namespace.
+        # As if the kernel kept user.max_user_namespaces read-only inside the namespace. launch() ends the
+        # process with os._exit, so the launcher, not the with, removes the root (cleanup).
         code = ("import builtins, sys\nopen_ = builtins.open\n"
                 "def refusing(path, *args, **kwargs):\n"
                 "    if str(path).endswith('max_user_namespaces'):\n"
@@ -279,8 +394,8 @@ class FailClosedTests(unittest.TestCase):
                 "    return open_(path, *args, **kwargs)\n"
                 "builtins.open = refusing\nfrom openvlharness.toolsmith import isolation\n"
                 "with __import__('tempfile').TemporaryDirectory(prefix='openvlharness-') as root:\n"
-                "    isolation.launch({'root': root, 'read': isolation.system_paths(network=False), 'tmp': ['/tmp'],"
-                " 'network': False}, [sys.executable, '-c', 'print(\"confined\")'])\n")
+                "    isolation.launch({'root': root, 'read': isolation.system_paths(), 'tmp': ['/tmp'],"
+                "'cleanup': root}, [sys.executable, '-c', 'print(\"confined\")'])\n")
         done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
                               env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
         self.assertEqual((done.returncode, done.stdout), (isolation.SETUP_FAILED, ""))
@@ -313,3 +428,116 @@ class FailClosedTests(unittest.TestCase):
         self.assertFalse(confinable)
         self.assertIn("needs Linux", reason)
         self.assertEqual(isolation.available(), (CONFINABLE, REASON))  # the cached result is back
+
+
+class OverlayFallbackTests(unittest.TestCase):
+    """The meter counts the sandbox's own file systems, never the host's behind a bind of a cache."""
+
+    def private_bytes(self, caches, patch_overlay=""):
+        from openvlharness.toolsmith.worker import TreeMeter
+
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+            overlay = [os.path.join(home, name) for name in caches]
+            for path in overlay:
+                os.mkdir(path)
+                # What the host's file system holds at least, however empty it was.
+                Path(path, "weights.bin").write_bytes(b"\1" * (64 << 20))
+            spec = {"root": root, "read": isolation.system_paths(), "tmp": ["/tmp"], "overlay": overlay, "cwd": "/tmp",
+                    "parent": os.getpid()}
+            script = ("import os, sys, time\n"
+                      f"for path in {overlay!r}:\n"
+                      "    try:\n        open(os.path.join(path, 'blob'), 'wb').write(b'0' * (8 << 20))\n"
+                      "    except OSError:\n        pass\n"
+                      "print('ready', flush=True)\ntime.sleep(30)\n")
+            code = ("import json, sys\nfrom openvlharness.toolsmith import isolation\n" + patch_overlay
+                    + "isolation.launch(json.loads(sys.argv[1]), sys.argv[2:])\n")
+            argv = [sys.executable, "-c", code, json.dumps(spec), sys.executable, "-c", script]
+            process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                       env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+            try:
+                self.assertEqual(process.stdout.readline(), "ready\n")
+                return TreeMeter(process.pid, isolation.private_mounts(spec)).private_bytes()
+            finally:
+                process.kill()
+                process.wait()
+                process.stdout.close()
+
+    FAIL = ("real = isolation._mount\n"
+            "def refuse(libc, source, target, fstype, *rest):\n"
+            "    if fstype == 'overlay' and FAILS(str(target)):\n"
+            "        raise OSError(22, 'Invalid argument')\n"
+            "    return real(libc, source, target, fstype, *rest)\n"
+            "isolation._mount = refuse\n")
+
+    @needs_isolation
+    def test_a_cache_that_is_bound_read_only_counts_nothing(self):
+        for name, caches, code in (("a comma in its path", ["hf,home"], ""),
+                                   ("a failed mount", ["hf_home"], self.FAIL.replace("FAILS", "bool"))):
+            with self.subTest(name):
+                self.assertLess(self.private_bytes(caches, code), 8 << 20)
+
+    @needs_isolation
+    def test_the_layer_counts_once_even_when_the_first_overlay_failed(self):
+        both = self.private_bytes(["hf_home", "torch"])
+        self.assertTrue(16 << 20 <= both < 24 << 20, both)
+        second = self.private_bytes(["hf_home", "torch"], self.FAIL.replace("FAILS(", "(lambda path: 'hf_home' in path)("))
+        self.assertTrue(8 << 20 <= second < 16 << 20, second)
+
+
+class SysVTests(unittest.TestCase):
+    @needs_isolation
+    @unittest.skipIf(isolation._release() < isolation.IPC_SYSCTL_KERNEL if sys.platform == "linux" else True,
+                     "a user namespace cannot set SysV limits before Linux 5.19")
+    @unittest.skipUnless(os.path.exists("/proc/sys/kernel/shmmni"), "a kernel without SysV IPC")
+    def test_the_sandbox_gets_no_shared_memory_segment(self):
+        code = ("import ctypes\nlibc = ctypes.CDLL(None, use_errno=True)\n"
+                "print(libc.shmget(0, 4096, 0o1600), ctypes.get_errno())\n")
+        with tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
+            spec = {"root": root, "read": isolation.system_paths(), "tmp": ["/tmp"], "cwd": "/tmp"}
+            done = subprocess.run(isolation.command(spec, [sys.executable, "-c", code]), capture_output=True, text=True,
+                                  timeout=60, check=False,
+                                  env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(PACKAGE_ROOT)})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.split()[0], "-1", done.stdout)
+
+
+class SysVLimitTests(unittest.TestCase):
+    """Which sysctls the launcher writes, and which failures end the launch (the kernel is mocked)."""
+
+    def run_limits(self, release, refused):
+        written = {}
+
+        def fake_open(path, mode="r"):
+            if str(path).startswith("/proc/sys/kernel/") and refused:
+                raise PermissionError(13, "Permission denied") if refused is True else refused
+
+            class Sink:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def write(self, value):
+                    written[str(path)] = value
+            return Sink()
+        with patch("builtins.open", fake_open), patch.object(isolation, "_release", lambda: release), \
+                patch.object(isolation.resource, "setrlimit"):
+            isolation._limit_namespace()
+        return written
+
+    def test_every_sysv_limit_is_written_to_its_sysctl(self):
+        written = self.run_limits((6, 8), refused=False)
+        self.assertEqual({name: written[f"/proc/sys/{name}"] for name in isolation.IPC_LIMITS}, isolation.IPC_LIMITS)
+        self.assertEqual(written["/proc/sys/user/max_user_namespaces"], "0")
+
+    def test_a_kernel_that_allows_the_limits_but_refuses_them_fails_the_launch(self):
+        with self.assertRaisesRegex(OSError, "cannot refuse SysV IPC"):
+            self.run_limits((6, 8), refused=True)
+
+    def test_a_kernel_without_sysv_ipc_has_nothing_to_refuse(self):
+        missing = FileNotFoundError(2, "No such file or directory")  # CONFIG_SYSVIPC=n: no kernel/shm* sysctls
+        self.assertEqual(self.run_limits((6, 8), refused=missing), {"/proc/sys/user/max_user_namespaces": "0"})
+
+    def test_older_kernels_keep_the_hosts_limits(self):
+        self.assertEqual(self.run_limits((5, 15), refused=True), {"/proc/sys/user/max_user_namespaces": "0"})

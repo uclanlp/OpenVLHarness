@@ -10,7 +10,7 @@ from pathlib import Path
 from jsonschema import Draft7Validator
 from jsonschema.exceptions import SchemaError
 
-from .errors import CatalogLoadError, describe
+from .errors import CatalogLoadError, brief, describe
 from .tool import GeneratedTool
 
 logger = logging.getLogger(__name__)
@@ -107,11 +107,11 @@ def tool_problem(tool):
                     "make argument validation fetch documents or take exponential time")
         Draft7Validator.check_schema(schema)
         if schema.get("type") not in ("object", ["object"]):
-            found = f"it has {_brief(json.dumps(schema['type']), 60)}" if "type" in schema else "it has none"
+            found = f"it has {brief(json.dumps(schema['type']), 60)}" if "type" in schema else "it has none"
             return ('input_schema must have "type": "object", since the router passes the arguments to execute() '
                     f"as named arguments ({found})")
     except SchemaError as exc:
-        return f"input_schema is not a valid JSON Schema: {_brief(exc.message)}"
+        return f"input_schema is not a valid JSON Schema: {brief(exc.message)}"
     except RecursionError:
         return "input_schema is nested too deeply"
     except Exception as exc:  # a value the checker itself cannot handle
@@ -122,11 +122,6 @@ def tool_problem(tool):
 def json_schema(schema):
     """The input schema as the agent and the validator use it: tuples become the lists JSON carries."""
     return _as_json(schema)
-
-
-def _brief(text, limit=200):
-    """text, cut to limit characters."""
-    return text if len(text) <= limit else text[:limit] + f"... ({len(text) - limit} more characters)"
 
 
 def _as_json(value):
@@ -207,6 +202,6 @@ def load_catalog(directory=None, *, client=None, strict=False):
             logger.warning("ToolSmith catalog: skipping %s: %s", path.name, problem)
             continue
         if tool.tool_name in tools:
-            raise CatalogLoadError(f"Duplicate generated tool name {tool.tool_name!r} in {path}")
+            raise CatalogLoadError(f"Duplicate generated tool name {brief(repr(tool.tool_name))} in {path}")
         tools[tool.tool_name] = tool
     return tools

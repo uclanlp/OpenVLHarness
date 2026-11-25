@@ -4,13 +4,17 @@ import importlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
+from ..worker import WATCH_SECONDS, TreeMeter
 from .prompts import prompt
+from .sandbox import MEMORY_BYTES
 
 MODULES = {"re", "json", "datetime"}
 # A candidate reaches an allowed module's public API only, not the modules it imports (json.codecs, re.enum).
@@ -115,7 +119,10 @@ def run_once(source, timeout, *, isolation=True):
     Every tool the candidate calls answers with a failure, so the check is cheap
     and reaches no service. With isolation (see openvlharness.toolsmith.isolation)
     the process has no network and sees only the interpreter, the packages and the
-    candidate, read-only.
+    candidate, read-only. Each of its processes has MEMORY_BYTES of address space, and
+    on Linux the run is measured every WATCH_SECONDS like a router's worker (see
+    worker.TreeMeter) and stopped once its processes, and with isolation its private
+    file systems, hold more than MEMORY_BYTES together.
 
     Args:
         source: Candidate module source.
@@ -124,7 +131,8 @@ def run_once(source, timeout, *, isolation=True):
 
     Returns:
         (metadata, None) with the tool's name, description and input schema, or
-        (None, issue) when the run fails, times out or returns non-JSON data.
+        (None, issue) when the run fails, times out, uses too much memory or returns
+        non-JSON data.
     """
     package = Path(__file__).resolve().parents[3]
     # One BLAS thread: the thread pools numpy and scikit-learn start on import would otherwise
@@ -134,29 +142,39 @@ def run_once(source, timeout, *, isolation=True):
     with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory(prefix="openvlharness-") as root:
         Path(directory, "candidate.py").write_text(source)
         argv = [sys.executable, "-m", "openvlharness.toolsmith.pipeline.sandbox", directory]
+        mounts = []
         if isolation:
-            from ..isolation import command, python_masks, system_paths
+            from ..isolation import command, private_mounts, python_masks, system_paths
 
-            argv = command({"root": root, "read": system_paths(network=False) + [directory], "mask": python_masks(),
-                            "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "network": False, "parent": os.getpid()},
-                           argv)
+            spec = {"root": root, "read": system_paths() + [directory], "mask": python_masks(),
+                    "tmp": ["/tmp", "/var/tmp"], "cwd": "/tmp", "parent": os.getpid()}
+            argv, mounts = command(spec, argv), private_mounts(spec)
         # Output is drained as it comes and only its end is kept, so a chatty candidate cannot fill memory.
+        # A session of its own, so stopping the run stops what it started too.
         process = subprocess.Popen(argv, cwd=directory, env=environment, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE)
+                                   stderr=subprocess.PIPE, start_new_session=True)
         stdout, stderr = bytearray(), bytearray()
         readers = [threading.Thread(target=_tail, args=(stream, kept, OUTPUT_BYTES), daemon=True)
                    for stream, kept in ((process.stdout, stdout), (process.stderr, stderr))]
         for reader in readers:
             reader.start()
+        meter = TreeMeter(process.pid, mounts) if os.path.isdir(f"/proc/{process.pid}") else None
         try:
-            returncode = process.wait(timeout=timeout)
+            returncode, used = _wait(process, timeout, meter)
         except subprocess.TimeoutExpired:
-            process.kill()
+            _kill(process)
             process.wait()
             return None, f"execution exceeded {timeout} seconds"
+        except BaseException:  # Ctrl-C, say, which no longer reaches the run in its own session
+            _kill(process)
+            process.wait()
+            raise
         finally:
             for reader in readers:
                 reader.join(5)
+    if used is not None:
+        return None, (f"execution used {used / (1 << 30):.2f} GiB of memory in all its processes, more than "
+                      f"{MEMORY_BYTES / (1 << 30):g} GiB")
     if returncode:
         lines = stderr.decode("utf-8", "replace").strip().splitlines()
         return None, f"execution failed: {lines[-1] if lines else f'exit status {returncode}'}"
@@ -165,6 +183,41 @@ def run_once(source, timeout, *, isolation=True):
         return json.loads(stdout.decode("utf-8", "replace").strip().split("\n")[-1]), None
     except (IndexError, ValueError):
         return None, f"execution printed no metadata line within its last {OUTPUT_BYTES} bytes of output"
+
+
+def _wait(process, timeout, meter):
+    """Wait for process for timeout seconds, measuring it with meter every WATCH_SECONDS.
+
+    Returns:
+        (exit status, None), or (exit status, bytes used) when the run's memory passed
+        MEMORY_BYTES and the process was killed.
+
+    Raises:
+        subprocess.TimeoutExpired: The process did not end in time; it still runs.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return process.wait(timeout=max(0, min(WATCH_SECONDS, deadline - time.monotonic()))), None
+        except subprocess.TimeoutExpired:
+            if time.monotonic() >= deadline:
+                raise
+        usage = meter.measure() if meter else None
+        if usage and usage[0] > MEMORY_BYTES:
+            _kill(process)
+            return process.wait(), usage[0]
+
+
+def _kill(process):
+    """Kill a Gate 1 run and the processes of its session."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        process.kill()
+    except OSError:
+        pass
 
 
 def review(critic, question, metadata, source, *, mean, minimum, max_tokens=12800):

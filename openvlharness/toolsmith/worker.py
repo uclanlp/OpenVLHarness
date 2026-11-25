@@ -5,23 +5,28 @@ them. The worker process loads a private copy of the catalog, taken when the rou
 started, and runs each call in its own thread. It inherits the router's environment
 without credential-like variables, unless toolsmith.worker.environment grants them,
 starts in a private directory, and runs with its address space capped and, unless
-toolsmith.worker.write_files is set, without file writes. With toolsmith.worker.isolation
+toolsmith.worker.write_files is set, without file writes. On Linux a watchdog in the router
+measures the worker's processes every WATCH_SECONDS and stops the worker when they use more
+memory together than toolsmith.worker.memory_gib, or burn more than IDLE_CPU_SECONDS of CPU
+in a window with no call in flight. With toolsmith.worker.isolation
 (the default) it runs confined by Linux namespaces (see isolation): it sees only the
 interpreter, the packages, the catalog copy and the model caches, read-only (with
 write_files, the caches take writes in a private layer), and none of the router's other
-files or processes. With network access it shares the host's network,
-loopback included, so it can reach local services, the router among them;
-toolsmith.worker.network: false removes its network access.
+files or processes. It has a network namespace of its own with only loopback; with
+toolsmith.worker.network (the default) its HTTP and HTTPS clients reach the ports in
+toolsmith.worker.network_ports through the router's outbound proxy (see proxy), which
+refuses this host, its local networks, private addresses and toolsmith.worker.deny_networks,
+and toolsmith.worker.network: false leaves it no network at all.
 
 A generated tool reaches other tools only through call_tool, which the worker passes
 to the router process: calls to the other generated tools and to the base tools in
 CALLABLE_BASE_TOOLS go through the router, and calls to the other router
 tools are refused. A call that fails, crashes the worker or runs past the time limit
-returns an error envelope. Only a crash, a call past the limit or a message that breaks
-the protocol (one past the size limit, or one the router cannot read) makes the router
-start a new worker for later calls: a worker with a call past the limit takes no new
-calls and is stopped once each of its other calls has finished or passed its own
-limit (RETIRE_GRACE_SECONDS later at the latest). A worker dies with the router: the
+returns an error envelope. Only a crash, a call past the limit, a stop by the watchdog or
+a message that breaks the protocol (one past the size limit, or one the router cannot
+read) makes the router start a new worker for later calls: a worker with a call past the
+limit takes no new calls and is stopped once each of its other calls has finished or
+passed its own limit (RETIRE_GRACE_SECONDS later at the latest). A worker dies with the router: the
 router starts every worker from one long-lived thread, and the worker (or, confined,
 its launcher) asks Linux to kill it when that parent ends.
 
@@ -31,10 +36,13 @@ import asyncio
 import atexit
 import codecs
 import concurrent.futures
+import ctypes
+import errno
 import itertools
 import json
 import logging
 import os
+import platform
 import queue
 import re
 import resource
@@ -52,7 +60,8 @@ from ..contracts import ServiceResult
 from ..services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
 from ..services.tools.base import ToolArgumentError
 from .catalog import DEFAULT_CATALOG, catalog_modules, fingerprint_files, load_catalog, tool_problem
-from .errors import CatalogLoadError, WorkerStartError, describe
+from .errors import CatalogLoadError, WorkerStartError, brief, describe
+from .proxy import PORTS as NETWORK_PORTS
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +74,25 @@ EXIT_SECONDS = 5
 RETIRE_GRACE_SECONDS = 5  # how long a retired worker outlives the deadline of its last call in flight
 MAX_MESSAGE_BYTES = 32 << 20  # a message from the worker; its JSON takes many times that once parsed
 STDERR_BYTES = 8 << 20  # what one worker's tools may print to the router's stderr
+STDERR_TOTAL_BYTES = 64 << 20  # what all the workers one CatalogWorker starts may print, together
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # control characters but tab and newline
+CACHE_LAYER_GIB = 1  # default size of the private layer that takes writes to the model caches
+WATCH_SECONDS = 0.5  # how often the router measures the processes of each worker
+# A sample of a large process tree takes long; the watchdog then waits this many times as long
+# before the next, about a tenth of a core per worker, but never more than WATCH_MAX_SECONDS: a tool
+# must not stretch the time it goes unmeasured by starting processes. Trees whose samples take more
+# than a tenth of that cost the router a larger share.
+WATCH_BACKOFF = 10
+WATCH_MAX_SECONDS = 5
+# Work a tool leaves running after its call returns: when no call has been in flight for a whole
+# window, the worker's processes may use at most IDLE_CPU_SECONDS of CPU time in it, or the worker
+# is stopped. A window starts IDLE_SETTLE_SECONDS after the last call ended, once the thread pools
+# of numerical libraries have stopped spinning.
+IDLE_CPU_WINDOW_SECONDS = 10
+IDLE_CPU_SECONDS = 2
+IDLE_SETTLE_SECONDS = 1
 MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
+OPEN_FILES = 4096  # file descriptors of each worker process
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 # Settings that name a file or directory, and lists of directories, the worker resolves like the router.
 PATH_SETTINGS = {"SERPER_API_KEY_FILE", "GOOGLE_APPLICATION_CREDENTIALS", "IMAGE_UPLOAD_LOCAL_DIR", "HF_HOME",
@@ -264,11 +290,29 @@ def _die_with(parent):
         os._exit(1)
 
 
-def _copy_to_stderr(stream, pid):
+class _OutputBudget:
+    """What the workers of one CatalogWorker, of every generation, may still print to the router's stderr."""
+
+    def __init__(self, total):
+        self.total, self.left, self.lock, self.exhausted = total, total, threading.Lock(), False
+
+    def take(self, wanted):
+        """Grant up to wanted bytes; return (granted, whether this request found the budget used up first)."""
+        with self.lock:
+            granted = min(wanted, self.left)
+            self.left -= granted
+            first = granted < wanted and not self.exhausted
+            self.exhausted = self.exhausted or granted < wanted
+            return granted, first
+
+
+def _copy_to_stderr(stream, pid, budget=None):
     """Copy a worker's stderr (what its tools print) to the router's stderr until the worker ends.
 
     Control characters other than tab and newline are dropped, so escape sequences cannot
-    rewrite the log or the terminal, and after STDERR_BYTES the rest is drained, not copied.
+    rewrite the log or the terminal. After STDERR_BYTES from this worker, or once the
+    workers of its CatalogWorker have printed STDERR_TOTAL_BYTES together (budget), the
+    rest is drained, not copied, and one line in the log says so.
     """
     decoder, copied = codecs.getincrementaldecoder("utf-8")("replace"), 0
     with stream:
@@ -277,7 +321,13 @@ def _copy_to_stderr(stream, pid):
                 continue  # keep draining so the worker never blocks on a full pipe
             data = CONTROL.sub("", decoder.decode(chunk)).encode()[:STDERR_BYTES - copied]
             copied += len(data)
-            if copied >= STDERR_BYTES:
+            granted, used_up = budget.take(len(data)) if budget else (len(data), False)
+            if used_up:
+                data = data[:granted] + (f"\n[ToolSmith: generated tools printed {budget.total} bytes; "
+                                         "what they print from now on is dropped]\n").encode()
+            elif granted < len(data):
+                data = data[:granted]  # the router-wide budget ran out before; its note is in the log
+            elif copied >= STDERR_BYTES:
                 data += f"\n[ToolSmith worker {pid}: output past {STDERR_BYTES} bytes dropped]\n".encode()
             view = memoryview(data)
             try:
@@ -285,6 +335,453 @@ def _copy_to_stderr(stream, pid):
                     view = view[os.write(2, view):]
             except OSError:
                 pass  # the router's stderr is gone
+
+
+_TICKS = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+_PAGE = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
+
+
+# A process whose shmem pages (tmpfs files it maps, memfd, SysV and shared anonymous memory) come
+# to less than this is not read in detail: a tmpfs file it maps may count twice, by this much at most.
+SHMEM_DETAIL_BYTES = 16 << 20
+_HEX = b"0123456789abcdef"
+KCMP_VM = 1
+# kcmp's system call number where it is known for sure; elsewhere the vfork heuristic stands in.
+_KCMP_SYSCALL = {"x86_64": 312, "amd64": 312, "aarch64": 272, "arm64": 272, "riscv64": 272}
+# Where kcmp cannot tell, a child counts as vforked (its memory as its parent's) only this young: a
+# vforked child execs within milliseconds, while a forked child that looks like one may hold memory of
+# its own for as long as it likes.
+VFORK_SECONDS = 1
+
+
+# How often the threads of a process whose main thread has exited are listed, and how many of them
+# are tried, until one lives long enough to be read.
+TASK_LISTINGS = 50
+TASKS_TRIED = 64
+
+
+class _NoTask(OSError):
+    """A process has threads, but none lived long enough to show its memory."""
+
+
+def _task_ids(pid):
+    """Yield IDs of threads that may show process pid's memory in /proc; nothing when it has none (a zombie).
+
+    The first is pid itself. When its main thread has exited while others run on, the kernel
+    shows the process's own entries as a zombie's, without memory, and other threads follow:
+    the newest first, as the likeliest to live on, from fresh listings while the process
+    still has any.
+
+    Raises:
+        OSError: The process is gone (_NoTask: not one of its threads served the caller).
+    """
+    for _ in range(TASK_LISTINGS):
+        with open(f"/proc/{pid}/stat", "rb") as stream:
+            fields = stream.read().rsplit(b")", 1)[1].split()
+        if fields[0] not in (b"Z", b"X", b"x"):
+            yield pid
+        elif int(fields[17]) <= 1:  # num_threads: nothing but the zombie
+            return
+        else:
+            yield from [task for task in sorted(map(int, os.listdir(f"/proc/{pid}/task")), reverse=True)
+                        if task != pid][:TASKS_TRIED]
+    raise _NoTask(f"no thread of process {pid} could be read")
+
+
+def _live_task(pid):
+    """Return the ID of a thread through which /proc shows the memory of process pid, or None when it has none.
+
+    Raises:
+        OSError, IndexError, ValueError: The process is gone, or none of its threads could be read.
+    """
+    for task in _task_ids(pid):
+        if task == pid:
+            return pid
+        try:
+            with open(f"/proc/{pid}/task/{task}/stat", "rb") as stream:
+                if stream.read().rsplit(b")", 1)[1].split()[0] not in (b"Z", b"X", b"x"):
+                    return task
+        except (FileNotFoundError, ProcessLookupError):
+            pass
+    return None
+
+
+def _read_memory(pid):
+    """Return (memory, shmem) of a process as _process_usage describes them, from a thread that shows them.
+
+    Raises:
+        OSError, IndexError, ValueError: The process is gone, or none of its threads could be read.
+    """
+    rollups = os.path.exists("/proc/self/smaps_rollup")
+    for task in _task_ids(pid):
+        path = f"/proc/{pid}/task/{task}"
+        try:
+            if rollups:
+                try:
+                    with open(f"{path}/smaps_rollup", "rb") as stream:
+                        rollup = dict(line.split()[:2] for line in stream if line.startswith((b"Pss:", b"Pss_Shmem:")))
+                    if b"Pss:" in rollup:
+                        shmem = int(rollup[b"Pss_Shmem:"]) * 1024 if b"Pss_Shmem:" in rollup else None
+                        return int(rollup[b"Pss:"]) * 1024, shmem
+                    continue
+                except (FileNotFoundError, ProcessLookupError):
+                    continue  # the thread has exited
+                except OSError:
+                    pass  # not readable to this process
+            with open(f"{path}/statm", "rb") as stream:
+                memory = int(stream.read().split()[1]) * _PAGE
+            if memory:  # an exited thread shows none
+                return memory, None
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return 0, None
+
+
+def _process_usage(pid, memory=True, last=None):
+    """Return (parent PID, memory in bytes, CPU seconds, shmem bytes) of one process, from /proc.
+
+    Memory is the proportional set size (shared pages split among the processes that map
+    them), and shmem bytes its part in shmem pages (files on a tmpfs, memfd, SysV and
+    shared anonymous memory), or None where smaps_rollup has no Pss_Shmem line (older
+    kernels). Where smaps_rollup is missing (Linux before 4.14), memory is the resident set
+    size, which counts a page that processes share after fork once in each of them. A
+    process whose main thread has exited is read through another thread. CPU time includes
+    that of the children the process has reaped. With memory false, only the parent and
+    the CPU time are read, and memory is 0. last keeps the memory read for each process
+    (by PID and start time), which stands in when none of a process's threads lives long
+    enough to be read.
+
+    Raises:
+        OSError, ValueError, IndexError: The process is gone or its files cannot be read.
+    """
+    with open(f"/proc/{pid}/stat", "rb") as stream:
+        fields = stream.read().rsplit(b")", 1)[1].split()
+    parent, ticks = int(fields[1]), sum(int(value) for value in fields[11:15])  # utime, stime, cutime, cstime
+    if not memory:
+        return parent, 0, ticks / _TICKS, None
+    last = {} if last is None else last
+    try:
+        last[pid] = (fields[19], *_read_memory(pid))  # fields[19]: the process's start
+    except _NoTask:
+        if last.get(pid, (None,))[0] != fields[19]:
+            last[pid] = (fields[19], 0, None)
+    _, memory, shmem = last[pid]
+    return parent, memory, ticks / _TICKS, shmem
+
+
+_internal = None
+
+
+def _internal_shmem():
+    """The (major, minor) device of the kernel's own shmem mount, or None where it cannot be told.
+
+    memfd files, SysV shared memory and shared anonymous mappings live there, not on any
+    tmpfs that was mounted; a memfd shows which device it is.
+    """
+    global _internal
+    if _internal is None:
+        try:
+            descriptor = os.memfd_create("toolsmith-meter")
+            try:
+                device = os.fstat(descriptor).st_dev
+            finally:
+                os.close(descriptor)
+            _internal = (os.major(device), os.minor(device))
+        except (AttributeError, OSError):
+            _internal = False
+    return _internal or None
+
+
+def _host_tmpfs():
+    """The (major, minor) devices of this process's own tmpfs mounts, or None where they cannot be read.
+
+    A sandbox sees the host's files only through bind mounts, which keep their devices; its
+    own tmpfs mounts are new file systems, never among these.
+    """
+    devices = set()
+    try:
+        with open("/proc/self/mountinfo", "rb") as stream:
+            for line in stream:
+                fields = line.split()
+                if fields[fields.index(b"-") + 1] in (b"tmpfs", b"devtmpfs"):
+                    major, minor = fields[2].split(b":")  # decimal here, hexadecimal in smaps
+                    devices.add((int(major), int(minor)))
+    except (OSError, ValueError, IndexError):
+        return None
+    return devices
+
+
+def _not_sandbox_shmem():
+    """The devices whose shmem pages are not files of a sandbox's own file systems, or None where unknown.
+
+    They are the kernel's own shmem mount (memfd, SysV, shared anonymous memory) and the
+    host's tmpfs mounts, whose files a sandbox may map read-only.
+    """
+    internal, host = _internal_shmem(), _host_tmpfs()
+    return None if internal is None or host is None else host | {internal}
+
+
+def _file_shmem(pid, shmem, excluded):
+    """Return the part of a process's shmem Pss that maps files of a sandbox's own tmpfs mounts.
+
+    That is all of it but the mappings on the devices in excluded (see _not_sandbox_shmem),
+    read from the smaps of a live thread; with excluded None, nothing is.
+    """
+    if excluded is None:
+        return 0
+    other, current = 0, False
+    try:
+        task = _live_task(pid)
+        if task is None:
+            return 0
+        with open(f"/proc/{pid}/task/{task}/smaps", "rb") as stream:
+            for line in stream:
+                if line[:1] in _HEX:  # a mapping's first line: addresses, permissions, offset, device, ...
+                    major, minor = line.split()[3].split(b":")
+                    current = (int(major, 16), int(minor, 16)) in excluded
+                elif current and line.startswith(b"Pss:"):
+                    other += int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return 0
+    return max(0, shmem - other)
+
+
+_libc_handle = None
+_kcmp_works = None  # False once the kernel, or a seccomp filter, refuses kcmp outright
+
+
+def _same_memory(first, second):
+    """Whether two processes share one address space (kcmp KCMP_VM), or None when this host will not tell."""
+    global _libc_handle, _kcmp_works
+    number = _KCMP_SYSCALL.get(platform.machine().lower())
+    if number is None or _kcmp_works is False:
+        return None
+    if _libc_handle is None:
+        _libc_handle = ctypes.CDLL(None, use_errno=True)
+    result = _libc_handle.syscall(number, first, second, KCMP_VM, 0, 0)
+    if result >= 0:
+        _kcmp_works = True
+        return result == 0
+    failure = ctypes.get_errno()
+    if failure == errno.ENOSYS or (failure == errno.EPERM and _kcmp_works is None):
+        _kcmp_works = False  # no kcmp in this kernel, or a filter that refuses it from the first call on
+    return None
+
+
+def _waiting_on_vfork(parent, child):
+    """Heuristic where kcmp cannot tell: child came from vfork or posix_spawn and has not exec'd yet.
+
+    Its calling thread waits, in state D, until the child execs or exits, and the child's
+    code and stack addresses are the parent's, which an exec changes. A forked child has
+    them too, beside a thread that waits on another vfork, so a child older than
+    VFORK_SECONDS is not taken for a vforked one. Neither is one whose addresses /proc
+    hides (as 1, 1 and 0, for a process this one may not trace).
+    """
+    try:
+        layout = []
+        for pid in (parent, child):
+            with open(f"/proc/{_live_task(pid)}/stat", "rb") as stream:
+                fields = stream.read().rsplit(b")", 1)[1].split()
+            layout.append(fields[23:26])  # startcode, endcode, startstack
+        if layout[0] != layout[1] or layout[1][2] == b"0":
+            return False
+        with open(f"/proc/{child}/stat", "rb") as stream:  # the process's start, not a later thread's
+            started = int(stream.read().rsplit(b")", 1)[1].split()[19]) / _TICKS
+        if time.clock_gettime(time.CLOCK_BOOTTIME) - started > VFORK_SECONDS:
+            return False
+        for task in os.listdir(f"/proc/{parent}/task"):
+            with open(f"/proc/{parent}/task/{task}/stat", "rb") as stream:
+                if stream.read().rsplit(b")", 1)[1].split()[0] == b"D":
+                    return True
+    except (OSError, ValueError, IndexError, AttributeError):  # AttributeError: no CLOCK_BOOTTIME
+        pass
+    return False
+
+
+def _task_lives(pid, task):
+    """Whether a thread of process pid has not exited."""
+    with open(f"/proc/{pid}/task/{task}/stat", "rb") as stream:
+        return stream.read().rsplit(b")", 1)[1].split()[0] not in (b"Z", b"X", b"x")
+
+
+def _shares_parent_memory(parent, child):
+    """Whether child still uses parent's address space, as a vforked child does until it execs."""
+    try:
+        tasks = [_live_task(parent), _live_task(child)]
+        if None in tasks:
+            return False
+        same = _same_memory(*tasks)
+        if same is None:
+            return _waiting_on_vfork(parent, child)
+        # Threads that have exited since have no memory, which compares as the same.
+        return same and all(_task_lives(pid, task) for pid, task in zip((parent, child), tasks))
+    except (OSError, IndexError, ValueError):
+        return False
+
+
+def _child_pids(pid):
+    """Return the PIDs of a process's children, from the children file of each of its threads."""
+    try:
+        tasks = os.listdir(f"/proc/{pid}/task")
+    except OSError:
+        return []
+    found = []
+    for task in tasks:
+        try:
+            with open(f"/proc/{pid}/task/{task}/children", "rb") as stream:
+                found += [int(child) for child in stream.read().split()]
+        except OSError:
+            pass
+    return found
+
+
+def _children_map():
+    """Map each PID to its children's PIDs, from one scan of /proc, for kernels without children files."""
+    children = {}
+    for entry in os.listdir("/proc"):
+        if entry.isdigit():
+            try:
+                with open(f"/proc/{entry}/stat", "rb") as stream:
+                    parent = int(stream.read().rsplit(b")", 1)[1].split()[1])
+            except (OSError, ValueError, IndexError):
+                continue
+            children.setdefault(parent, []).append(int(entry))
+    return children
+
+
+_has_children_files = None
+
+
+def _children_files():
+    """Whether this kernel lists a thread's children in /proc (CONFIG_PROC_CHILDREN); cached per process."""
+    global _has_children_files
+    if _has_children_files is None:
+        _has_children_files = os.path.exists(f"/proc/{os.getpid()}/task/{os.getpid()}/children")
+    return _has_children_files
+
+
+def tree_usage(root, parent, *, mapped_files=False, last=None):
+    """Return (memory in bytes, CPU seconds, mapped file bytes) of a process and all its descendants.
+
+    Returns None when the process is gone. A process is counted only while its parent is
+    the one the walk came from, so a PID reused by an unrelated process is not. A child
+    that still uses its parent's address space (after vfork or posix_spawn, until it
+    execs) adds its CPU time but not that memory again. With mapped_files, the third value
+    is how much of the memory is tmpfs files the processes map (see _file_shmem), which
+    a caller that counts those file systems itself takes off; otherwise it is 0. last is a
+    dictionary that _process_usage keeps between walks; processes no longer met leave it. Confined,
+    every process of the worker stays a descendant of its launcher (orphans are adopted
+    by the namespace's init); without isolation, a process that detaches from the worker's
+    tree is not counted.
+    """
+    memory = cpu = mapped = 0
+    excluded = False  # read once a process maps enough shmem (see _not_sandbox_shmem)
+    stack, seen = [(root, parent)], set()
+    scanned = None if _children_files() else _children_map()
+    while stack:
+        pid, expected = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        # Asked before the memory is read: a vforked child that execs meanwhile has its own by then.
+        own = pid == root or not _shares_parent_memory(expected, pid)
+        try:
+            actual, used, seconds, shmem = _process_usage(pid, memory=own, last=last)
+        except (OSError, ValueError, IndexError):
+            if pid == root:
+                return None
+            continue
+        if actual != expected:
+            if pid == root:
+                return None
+            continue
+        cpu, memory = cpu + seconds, memory + used
+        if mapped_files and shmem is not None and shmem >= SHMEM_DETAIL_BYTES:
+            if excluded is False:
+                excluded = _not_sandbox_shmem()
+            mapped += _file_shmem(pid, shmem, excluded)
+        children = _child_pids(pid) if scanned is None else scanned.get(pid, [])
+        stack += [(child, pid) for child in children]
+    for pid in set(last or ()) - seen:
+        del last[pid]
+    return memory, cpu, mapped
+
+
+class TreeMeter:
+    """Measure a process and its descendants, with what its sandbox's own memory-backed file systems hold.
+
+    mounts are groups of paths, inside the sandbox whose init is root's first child (see
+    isolation.private_mounts), each standing for one memory-backed file system: no process's
+    memory shows a file written there, so its use counts too, read through the init's root
+    once that is the sandbox's, at the group's first path that is not the host's own file
+    system (an overlay that could not be mounted is a bind of the host's directory), decided
+    when that root first appears. A file there that processes map is in both, and counts
+    once. Shared memory whose pages no process currently has mapped in, and memory that only
+    the kernel holds for a process, such as the data queued in its sockets and pipes, are
+    among what is not counted.
+    """
+
+    def __init__(self, root, mounts=()):
+        self.root, self.mounts, self.init = root, list(mounts), None
+        self.paths = None  # the sandbox's own file systems, once its root has appeared
+        self.last = {}  # see tree_usage
+
+    def measure(self):
+        """Return (memory in bytes, CPU seconds), or None once the root process is gone."""
+        private = self.private_bytes()
+        usage = tree_usage(self.root, os.getpid(), mapped_files=private > 0, last=self.last)
+        if usage is None:
+            return None
+        memory, cpu, mapped = usage
+        return memory - min(mapped, private) + private, cpu
+
+    def private_bytes(self):
+        """Bytes held in the sandbox's own memory-backed file systems; 0 without mounts or before the sandbox's root."""
+        if not self.mounts:
+            return 0
+        if self.init is None:
+            children = _child_pids(self.root) if _children_files() else _children_map().get(self.root)
+            if not children:
+                return 0
+            self.init = children[0]
+        try:
+            if os.stat(f"/proc/{self.init}/root") == os.stat("/"):
+                return 0  # not the sandbox's root (yet)
+        except OSError:
+            return 0
+        used, seen = 0, set()
+        if self.paths is None:
+            self.paths = [path for group in self.mounts for path in self._own(group)]
+        for path in self.paths:
+            try:
+                device = os.stat(f"/proc/{self.init}/root{path}").st_dev
+                stats = os.statvfs(f"/proc/{self.init}/root{path}")
+            except OSError:
+                continue
+            if device not in seen:  # a path that is part of another mount counts once
+                seen.add(device)
+                used += (stats.f_blocks - stats.f_bfree) * stats.f_frsize
+        return used
+
+    def _own(self, group):
+        """The first path of group, as a list, whose file system in the sandbox is not the host's at that path."""
+        for path in group:
+            try:
+                device = os.stat(f"/proc/{self.init}/root{path}").st_dev
+            except OSError:
+                continue
+            try:
+                if device == os.stat(path).st_dev:
+                    continue
+            except OSError:
+                pass  # the host has no such path
+            return [path]
+        return []
+
+
+def _gib(count):
+    """Describe a byte count in GiB."""
+    return f"{count / (1 << 30):.2f} GiB"
 
 
 class _WorkerGone(RuntimeError):
@@ -305,10 +802,13 @@ class _Worker:
             for name, data in files.items():
                 (self.catalog / name).write_bytes(data)
             argv = [sys.executable, "-m", "openvlharness.toolsmith.worker", str(self.catalog), json.dumps(limits)]
+            mounts = []  # the sandbox's own memory-backed file systems, which the watchdog counts
             if owner.isolation:
-                from .isolation import command
+                from .isolation import command, private_mounts
 
-                argv = command(owner.confinement(self.home), argv)
+                spec = owner.confinement(self.home)
+                mounts = private_mounts(spec)
+                argv = command(spec, argv)
             # stderr is a pipe the router copies to its own: a log file there would fall under the
             # worker's file-size limit, which drops prints and fails tools that flush them.
             self.process = _spawn(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -316,7 +816,9 @@ class _Worker:
         except BaseException:
             shutil.rmtree(self.home, ignore_errors=True)
             raise
-        threading.Thread(target=_copy_to_stderr, args=(self.process.stderr, self.process.pid), daemon=True).start()
+        threading.Thread(target=_copy_to_stderr, args=(self.process.stderr, self.process.pid, owner.stderr_budget),
+                         daemon=True).start()
+        self.meter = TreeMeter(self.process.pid, mounts)
         self.channel = _Channel(self.process.stdout, None, limit=limits["message_bytes"])
         # One thread writes to the worker, so a worker that stops reading blocks no caller.
         self.outbox = queue.SimpleQueue()
@@ -330,31 +832,59 @@ class _Worker:
         self.process_lock = threading.Lock()
         self.retiring = self.stopped = False
         self.reason = None
+        self.exceeded = None  # (reason, error kind) once the watchdog stopped the worker for a limit
+        self.started = 0  # calls submitted so far, which tells the watchdog that a call came and went
+        self.nested = set()  # calls in flight that this worker's own call_tool made (see CatalogWorker._forward)
+        self.checked = None  # self.started when the watchdog last found the worker idle
+        self.quiet_since = time.monotonic()  # when the last call in flight ended
         self.tools = []
         self.forwarding = 0
+        self.ended = threading.Event()  # set once the process has ended, which stops the watchdog
         self.reader = threading.Thread(target=self._read, name=f"toolsmith-worker-{self.process.pid}", daemon=True)
         self.reader.start()
+        if os.path.isdir(f"/proc/{self.process.pid}"):  # the watchdog reads /proc, which Linux has
+            threading.Thread(target=self._watch, name=f"toolsmith-watchdog-{self.process.pid}", daemon=True).start()
 
-    def submit(self, tool_name, args):
+    def submit(self, tool_name, args, *, nested=False):
         """Send one call and return its ID and the future of the worker's answer.
+
+        A nested call, one this worker's own tools made through call_tool, does not count
+        as work for the idle-CPU rule: otherwise a tool could keep the worker looking busy
+        by calling another generated tool in a loop.
 
         Raises:
             _WorkerGone: The worker has stopped.
         """
         with self.lock:
-            if self.stopped:
-                raise _WorkerGone(self.reason)
+            if self.stopped or self.exceeded:
+                raise _WorkerGone(self.reason or self.exceeded[0])
             request = next(self.ids)
             answer = self.calls[request] = concurrent.futures.Future()
             self.deadlines[request] = time.monotonic() + self.owner.timeout
+            if nested:
+                self.nested.add(request)
+            else:
+                self.started += 1
         try:
             self.send({"type": "execute", "id": request, "tool": tool_name, "args": args})
         except (TypeError, ValueError):
             with self.lock:
                 self.calls.pop(request, None)
                 self.deadlines.pop(request, None)
+                self._settle(request)
             raise
         return request, answer
+
+    def _busy(self):
+        """Whether a call other than a nested one is in flight; the caller holds self.lock."""
+        return any(request not in self.nested for request in self.calls)
+
+    def _settle(self, request):
+        """Note that request ended, and when the last call in flight ended; the caller holds self.lock."""
+        if request in self.nested:
+            self.nested.discard(request)
+        elif not self._busy():
+            self.quiet_since = time.monotonic()
 
     def send(self, message):
         """Queue a message for the worker; it is dropped if the worker has stopped.
@@ -380,6 +910,7 @@ class _Worker:
             if self.calls.pop(request, None) is None:
                 return False
             self.abandoned.add(request)
+            self._settle(request)
             return True
 
     def retire(self):
@@ -436,7 +967,7 @@ class _Worker:
                     break
                 self._handle(message)
         except Exception as exc:
-            reason = f"the worker sent an invalid message ({type(exc).__name__}: {_text(exc)})"
+            reason = f"the worker sent an invalid message ({type(exc).__name__}: {brief(_text(exc))})"
             logger.error("ToolSmith worker %s: %s", self.process.pid, reason)
         if reason is None:
             # The isolation launcher outlives the worker briefly while it cleans up; keep its exit status.
@@ -447,24 +978,90 @@ class _Worker:
         self.kill()
         with self.process_lock:
             returncode = self.process.wait()
+        self.ended.set()
         with self.lock:
             self.stopped = True
+            kind = "WorkerError"
+            if reason is None and self.exceeded:
+                reason, kind = self.exceeded  # the watchdog stopped it: say which limit it passed
             self.reason = reason or _exit_reason(returncode)
             calls, self.calls = self.calls, {}
             self.deadlines.clear()
             self.abandoned.clear()
+            self.nested.clear()
         for answer in calls.values():
-            answer.set_result({"failure": self.reason})
+            answer.set_result({"failure": self.reason, "kind": kind})
         if not self.ready.done():
             self.ready.set_result({"type": "ready", "error": {"type": "RuntimeError", "message": self.reason}})
         self.outbox.put(None)
         shutil.rmtree(self.home, ignore_errors=True)
         self.owner._stopped(self)
 
+    def _watch(self):
+        """Measure the worker's processes every WATCH_SECONDS and stop the worker past a limit.
+
+        The memory limit holds for the launcher and all its descendants together, with what
+        the sandbox's own memory-backed file systems hold (see TreeMeter); the CPU limit
+        applies only to a whole IDLE_CPU_WINDOW_SECONDS window with no call in flight but
+        nested ones, which catches threads or processes that a call left running. A sample
+        that takes long (thousands of processes) spaces out the next ones (WATCH_BACKOFF):
+        for very large trees the wait between samples reaches WATCH_MAX_SECONDS.
+        """
+        window, wait = None, WATCH_SECONDS
+        while not self.ended.wait(wait):
+            began = time.monotonic()
+            usage = self.meter.measure()
+            if usage is None:
+                continue  # the process has ended; the reader is about to notice
+            memory, cpu = usage
+            wait = min(WATCH_MAX_SECONDS, max(WATCH_SECONDS, WATCH_BACKOFF * (time.monotonic() - began)))
+            limit = self.owner.memory_limit
+            if limit and memory > limit:
+                self._exceed(f"its processes and in-memory files used {_gib(memory)} of memory together, more than "
+                             f"toolsmith.worker.memory_gib allows ({_gib(limit)})", "MemoryLimitExceeded")
+                return
+            now = time.monotonic()
+            with self.lock:
+                idle = self.ready.done() and not self._busy() and not self.retiring and not self.stopped
+                settled = idle and now - self.quiet_since >= IDLE_SETTLE_SECONDS
+                started = self.started
+            if not settled:
+                window = None
+            elif window is None or window[2] != started:  # a call came and went between two samples
+                window = (now, cpu, started)
+            elif now - window[0] >= IDLE_CPU_WINDOW_SECONDS:
+                used = cpu - window[1]
+                if used > IDLE_CPU_SECONDS:
+                    self.checked = started
+                    if self._exceed(f"its processes used {used:.1f} CPU-seconds in {IDLE_CPU_WINDOW_SECONDS:g} seconds "
+                                    f"with no call in flight, more than {IDLE_CPU_SECONDS:g}: a tool left work running "
+                                    "after its call returned", "CPULimitExceeded"):
+                        return
+                window = (now, cpu, started)
+
+    def _exceed(self, reason, kind):
+        """Stop a worker that passed a limit: its calls in flight fail with reason, and the next call starts another.
+
+        For the idle-CPU rule the worker must still be idle as the watchdog found it: a call
+        that came in since means the work may be its. Returns whether the worker is stopped.
+        """
+        with self.lock:
+            if self.stopped or self.exceeded:
+                return False
+            if kind == "CPULimitExceeded" and (self._busy() or self.started != self.checked):
+                return False
+            self.exceeded, self.retiring = (reason, kind), True
+        logger.warning("ToolSmith worker %s: %s; stopping it", self.process.pid, reason)
+        self.owner._replace(self)
+        self.kill()
+        return True
+
     def _handle(self, message):
         """Dispatch one message from the worker; a message that breaks the protocol raises ValueError."""
         kind = message.get("type") if isinstance(message, dict) else None
         if kind == "ready" and not self.ready.done():
+            with self.lock:
+                self.quiet_since = time.monotonic()  # loading the catalog is not idle work
             self.ready.set_result(message)
         elif kind == "result":
             if not _valid_result(message):
@@ -475,8 +1072,10 @@ class _Worker:
                 late = answer is None and message.get("id") in self.abandoned
                 self.abandoned.discard(message.get("id"))
                 idle = self.retiring and not self.calls
+                if answer is not None:
+                    self._settle(message.get("id"))
             if answer is None and not late:
-                raise ValueError(f"result for unknown call {message.get('id')!r}")
+                raise ValueError(f"result for unknown call {brief(repr(message.get('id')), 40)}")
             if answer is not None:
                 answer.set_result(message)
             if idle:
@@ -494,14 +1093,15 @@ class _Worker:
                     message["tool"], message["tool_call_id"], "too_many_calls",
                     f"more than {MAX_FORWARDED} calls from generated tools are running")})
         else:
-            raise ValueError(f"unexpected message type {kind!r}")
+            raise ValueError(f"unexpected message type {brief(repr(kind), 40)}")
 
 
 class CatalogWorker:
     """Serve the generated tools of a catalog from a worker process; the router's handle on them."""
 
     def __init__(self, directory=None, *, client, base_tools=(), environment=(), timeout_seconds=600,
-                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True, report_environment=True):
+                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True, network_ports=NETWORK_PORTS,
+                 deny_networks=(), report_environment=True, cache_layer_gib=CACHE_LAYER_GIB):
         """Copy the catalog, start the first worker and read the tools it loaded.
 
         Args:
@@ -510,17 +1110,25 @@ class CatalogWorker:
             base_tools: Names of the router's base tools.
             environment: Credential-like variables the worker may inherit.
             timeout_seconds: Wall-clock limit of one call.
-            memory_gib: Address-space limit of the worker process, in GiB.
-            write_files: Let the worker write files, for example a local image upload.
+            memory_gib: Memory limit of a worker's processes together, with its private
+                memory-backed file systems, in GiB, which a watchdog checks every
+                WATCH_SECONDS on Linux; each process's address space is capped at it as
+                well. It stops runaway tools, not code written to evade it.
+            write_files: Let the worker write files, for example a local image upload;
+                each file it writes is capped at memory_gib.
             isolation: Confine the worker with Linux namespaces; without it, generated
                 tools can read every file the router can.
-            network: Let a confined worker use the network.
+            network: Let a confined worker use the network, through the outbound proxy.
+            network_ports: The destination ports the proxy serves.
+            deny_networks: Networks (CIDR strings) the proxy refuses besides this host's own.
             report_environment: Warn about the credential-like variables the worker does not inherit.
+            cache_layer_gib: With write_files and isolation, the size in GiB of the private
+                in-memory layer that takes writes to the model caches.
 
         Raises:
             CatalogLoadError: The catalog cannot be loaded (a ValueError).
-            WorkerStartError: The worker does not start, or isolation is requested on a
-                host that does not allow it (a RuntimeError).
+            WorkerStartError: The worker or its outbound proxy does not start, or isolation
+                is requested on a host that does not allow it (a RuntimeError).
         """
         self.directory = Path(directory or DEFAULT_CATALOG)
         self.files = {path.name: path.read_bytes() for path in catalog_modules(self.directory)}
@@ -528,14 +1136,26 @@ class CatalogWorker:
         self.client = client
         self.refused = set(base_tools) - set(CALLABLE_BASE_TOOLS)
         self.timeout = timeout_seconds
+        self.memory_limit = int(memory_gib * (1 << 30))  # of all a worker's processes, which the watchdog checks
+        self.cache_layer_gib = cache_layer_gib
+        self.stderr_budget = _OutputBudget(STDERR_TOTAL_BYTES)  # shared by every worker this object starts
         # The router tells the worker its message limit, so the two never disagree.
-        self.limits = {"memory_bytes": int(memory_gib * (1 << 30)), "file_bytes": None if write_files else 0,
+        # With file writes, no one file (a memfd included, whose unmapped pages no process's memory shows) outgrows
+        # the memory limit; without them nothing can be written.
+        self.write_files = write_files
+        self.limits = {"memory_bytes": int(memory_gib * (1 << 30)),
+                       "file_bytes": int(memory_gib * (1 << 30)) if write_files else 0,
                        "message_bytes": MAX_MESSAGE_BYTES}
         if not memory_limit_enforced():
             self.limits["memory_bytes"] = None
             logger.warning("%s does not enforce address-space limits: the generated-tool worker runs without "
                            "toolsmith.worker.memory_gib.", sys.platform)
         self.environment = worker_environment(environment)
+        withheld = sorted(set(os.environ) - set(self.environment))
+        if isolation:
+            # The router's proxies are unreachable from the sandbox, and their URLs can hold passwords.
+            self.environment = {name: value for name, value in self.environment.items()
+                                if not name.lower().endswith("_proxy")}
         if isolation and not network:
             # Without a network, Hugging Face libraries load cached models at once instead of retrying the Hub.
             self.environment.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
@@ -543,6 +1163,7 @@ class CatalogWorker:
         self.isolation, self.network = isolation, network
         # A confined worker dies with its launcher's namespace; an unconfined one watches the router itself.
         self.limits["parent"] = None if isolation else os.getpid()
+        self.proxy = None
         if isolation:
             from .isolation import available
 
@@ -551,19 +1172,32 @@ class CatalogWorker:
                 raise WorkerStartError(f"Generated tools run confined by Linux user namespaces, which this host does "
                                        f"not allow ({reason}). Set toolsmith.worker.isolation: false to run them "
                                        "without it.")
+            if network:
+                from .proxy import OutboundProxy
+
+                # The confined worker's only way out: a socket in a directory only the router's user can open.
+                try:
+                    self.proxy = OutboundProxy(ports=network_ports, deny=deny_networks)
+                except (OSError, RuntimeError) as exc:  # no socket directory or socket, or no thread for it
+                    raise WorkerStartError(f"the ToolSmith outbound proxy cannot start: {exc}") from exc
+                self.limits["proxy"] = self.proxy.path
         else:
             logger.warning("toolsmith.worker.isolation is off: generated tools can read every file the router can "
                            "read and reach the network.")
-        withheld = sorted(set(os.environ) - set(self.environment))
         if withheld and report_environment:
             logger.warning("Generated tools run without these router environment variables: %s. Grant any they "
                            "read with toolsmith.worker.environment.", ", ".join(withheld))
         self.lock = threading.Lock()
         self.start_lock = threading.Lock()
         self.workers = set()
+        self.nested = {}  # tool_call_id -> count of the call_tool calls to generated tools now forwarded
         self.closed = False
         self.tools = self.current = None
-        self.current = self._start()
+        try:
+            self.current = self._start()
+        except BaseException:
+            self.close()  # and its outbound proxy
+            raise
         self.tools = {tool["tool_name"]: tool for tool in self.current.tools}
         atexit.register(self.close)
 
@@ -583,12 +1217,15 @@ class CatalogWorker:
         return cls(toolsmith.get("catalog"), client=client, base_tools=base_tools,
                    environment=settings.get("environment", ()), timeout_seconds=timeout,
                    memory_gib=settings.get("memory_gib", MEMORY_GIB), write_files=settings.get("write_files", False),
-                   isolation=settings.get("isolation", True), network=settings.get("network", True))
+                   isolation=settings.get("isolation", True), network=settings.get("network", True),
+                   cache_layer_gib=settings.get("cache_layer_gib", CACHE_LAYER_GIB),
+                   network_ports=settings.get("network_ports", NETWORK_PORTS),
+                   deny_networks=settings.get("deny_networks", ()))
 
     def execute(self, tool_name, args, *, tool_call_id):
         """Run one call in the worker and return the router envelope and its HTTP status."""
         try:
-            worker, request, answer = self._submit(tool_name, args)
+            worker, request, answer = self._submit(tool_name, args, tool_call_id)
         except (ValueError, RuntimeError, OSError) as exc:
             return _failure(tool_name, tool_call_id, f"the generated-tool worker is unavailable: {exc}", "WorkerError")
         try:
@@ -605,7 +1242,7 @@ class CatalogWorker:
         """
         loop = asyncio.get_running_loop()
         try:
-            worker, request, answer = await loop.run_in_executor(None, self._submit, tool_name, args)
+            worker, request, answer = await loop.run_in_executor(None, self._submit, tool_name, args, tool_call_id)
         except (ValueError, RuntimeError, OSError) as exc:
             return _failure(tool_name, tool_call_id, f"the generated-tool worker is unavailable: {exc}", "WorkerError")
         # asyncio.wait, unlike wait_for, does not cancel the future the worker's reader resolves.
@@ -613,7 +1250,7 @@ class CatalogWorker:
         return self._finish(worker, request, answer, answer.result() if done else None, tool_name, tool_call_id)
 
     def close(self):
-        """Stop every worker; later calls fail."""
+        """Stop every worker and the outbound proxy; later calls fail."""
         atexit.unregister(self.close)  # the exit hook would keep a closed router, and its catalog bytes, alive
         with self.lock:
             self.closed = True
@@ -622,6 +1259,8 @@ class CatalogWorker:
             worker.kill()
         for worker in workers:
             worker.reader.join(timeout=5)
+        if self.proxy is not None:
+            self.proxy.close()
 
     def confinement(self, home):
         """The isolation spec of a worker whose private directory is home."""
@@ -638,7 +1277,9 @@ class CatalogWorker:
         # A cache inside another is covered by the outer mount.
         caches = [path for path in caches if not any(path.startswith(other.rstrip("/") + "/") for other in caches)]
         package_root = os.path.realpath(PACKAGE_ROOT)
-        read = system_paths(network=self.network) + [str(home / "catalog")]
+        read = system_paths() + [str(home / "catalog")]
+        if self.proxy is not None:
+            read.append(os.path.dirname(self.proxy.path))  # connecting to a socket needs no write access
         read += [entry for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
                  if entry and os.path.isdir(entry) and os.path.realpath(entry) != package_root]
         # Certificate bundles, and files that granted variables name (a key file, service-account credentials).
@@ -646,7 +1287,7 @@ class CatalogWorker:
                                                 *sorted(self.granted))
                  if environment.get(name) and os.path.isabs(environment[name]) and os.path.exists(environment[name])]
         write, overlay = [], []
-        if self.limits["file_bytes"] is None:
+        if self.write_files:
             # The host's caches stay read-only; writes and downloads go to the worker's private layer.
             overlay = caches
             if environment.get("IMAGE_UPLOAD_PROVIDER", "").lower() == "local":
@@ -659,13 +1300,24 @@ class CatalogWorker:
             read += caches
         temporary = ["/tmp", "/var/tmp", expand("~")] + ([environment["TMPDIR"]] if environment.get("TMPDIR") else [])
         return {"root": str(home / "root"), "read": read, "write": write, "overlay": overlay, "tmp": temporary,
-                "mask": masks + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home),
-                "parent": os.getpid()}
+                "mask": masks + python_masks(), "cwd": str(home), "cleanup": str(home),
+                "parent": os.getpid(), "layer_bytes": int(self.cache_layer_gib * (1 << 30))}
 
-    def _submit(self, tool_name, args):
-        """Send one call to the worker taking new calls; return the worker, the call ID and its answer."""
+    def _submit(self, tool_name, args, tool_call_id=None):
+        """Send one call to the worker taking new calls; return the worker, the call ID and its answer.
+
+        A worker that stopped, or that the watchdog stopped, between being chosen and
+        taking the call is replaced once; the call was not sent to it. A call whose ID is
+        that of a call_tool a worker's tool is making now is nested (see _Worker.submit).
+        """
+        with self.lock:
+            nested = tool_call_id in self.nested
         worker = self._worker()
-        request, answer = worker.submit(tool_name, args)
+        try:
+            request, answer = worker.submit(tool_name, args, nested=nested)
+        except _WorkerGone:
+            worker = self._worker()
+            request, answer = worker.submit(tool_name, args, nested=nested)
         return worker, request, answer
 
     def _finish(self, worker, request, answer, outcome, tool_name, tool_call_id):
@@ -678,7 +1330,7 @@ class CatalogWorker:
             outcome = answer.result()
         if "failure" in outcome:
             return _failure(tool_name, tool_call_id, "the generated-tool worker stopped while "
-                            f"{tool_name} was running: {outcome['failure']}", "WorkerError")
+                            f"{tool_name} was running: {outcome['failure']}", outcome.get("kind", "WorkerError"))
         if outcome["ok"]:
             return _build_success_payload(tool_name, tool_call_id, outcome["result"], outcome["meta"]), 200
         return (_build_error_payload(tool_name, tool_call_id, "tool_execution_error", outcome["message"],
@@ -716,7 +1368,7 @@ class CatalogWorker:
             raise
         if error is not None:
             self._discard(worker)
-            message = str(error.get("message")).replace(str(worker.catalog), str(self.directory))
+            message = brief(str(error.get("message")).replace(str(worker.catalog), str(self.directory)), 2000)
             raise (CatalogLoadError if error.get("type") in ("CatalogLoadError", "ValueError") else
                    WorkerStartError)(message)
         worker.tools = tools
@@ -757,6 +1409,12 @@ class CatalogWorker:
             if self.current is worker:
                 self.current = None
 
+    def _replace(self, worker):
+        """Send no new calls to a worker the watchdog is stopping; the next call starts another."""
+        with self.lock:
+            if self.current is worker:
+                self.current = None
+
     def _forward(self, worker, message):
         """Answer one call_tool from the worker: run it through the router, unless the tool is refused."""
         name, call_id = message["tool"], message["tool_call_id"]
@@ -764,11 +1422,22 @@ class CatalogWorker:
             reply = {"payload": _build_error_payload(name, call_id, "tool_not_allowed",
                                                      f"Generated tools cannot call {name}")}
         else:
+            # A call to a generated tool comes back to this object as a nested call (see _submit).
+            generated = self.tools is not None and name in self.tools
+            if generated:
+                with self.lock:
+                    self.nested[call_id] = self.nested.get(call_id, 0) + 1
             try:
                 reply = {"payload": self.client.execute(name, message["args"], tool_call_id=call_id)}
             except Exception as exc:
                 reply = {"error": {"module": type(exc).__module__, "type": type(exc).__name__, "message": _text(exc),
                                    "status_code": getattr(exc, "status_code", None)}}
+            finally:
+                if generated:
+                    with self.lock:
+                        self.nested[call_id] -= 1
+                        if not self.nested[call_id]:
+                            del self.nested[call_id]
         try:
             worker.send({"type": "reply", "id": message["id"], **reply})
         except (TypeError, ValueError) as exc:
@@ -785,9 +1454,10 @@ def catalog_snapshot(directory=None, *, settings=None):
     """Return each catalog tool's name, description and input schema without running catalog code here.
 
     A worker (confined as settings, a toolsmith.worker mapping, say) loads the catalog,
-    reports its tools and stops. Reading metadata needs no network, so a confined worker
-    gets none, as Gate 1 runs do, and reaches no network service while catalog code runs
-    at import. Without isolation it shares the host's network.
+    reports its tools and stops. Reading metadata needs no network, so the worker gets no
+    outbound proxy, as Gate 1 runs do: confined, it has no network and reaches no network
+    service while catalog code runs at import. Without isolation it shares the host's
+    network.
 
     Returns:
         (tools, fingerprint): a mapping of tool names to objects with tool_name,
@@ -800,7 +1470,8 @@ def catalog_snapshot(directory=None, *, settings=None):
     worker = CatalogWorker(directory, client=_NoCalls(), environment=settings.get("environment", ()),
                            memory_gib=settings.get("memory_gib", MEMORY_GIB),
                            write_files=settings.get("write_files", False), isolation=settings.get("isolation", True),
-                           network=settings.get("network", True), report_environment=False)
+                           network=settings.get("network", True), report_environment=False,
+                           cache_layer_gib=settings.get("cache_layer_gib", CACHE_LAYER_GIB))
     try:
         return {name: SimpleNamespace(**metadata) for name, metadata in worker.tools.items()}, worker.fingerprint
     finally:
@@ -899,6 +1570,19 @@ def _run(tools, message, channel):
                       "exception_type": type(exc).__name__, "argument_error": False})
 
 
+def _use_outbound_proxy(path):
+    """Send the tools' HTTP and HTTPS traffic to the router's outbound proxy at path, before the catalog loads."""
+    from .proxy import forward
+
+    url = f"http://127.0.0.1:{forward(path)}"
+    for name in [name for name in os.environ if name.lower().endswith("_proxy")]:  # no other proxy is reachable
+        del os.environ[name]
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ[name] = url
+    for name in ("NO_PROXY", "no_proxy"):  # the sandbox's own loopback, where a tool may start a server
+        os.environ[name] = "localhost,127.0.0.1,::1"
+
+
 def _prefer_oom_kill():
     """Ask Linux to stop the worker before other processes when memory runs out; elsewhere do nothing."""
     try:
@@ -919,9 +1603,15 @@ def main(directory, limits):
     limits = json.loads(limits)
     _die_with(limits.pop("parent", None))
     channel.send_limit = limits.pop("message_bytes", MAX_MESSAGE_BYTES)
+    proxy = limits.pop("proxy", None)
+    if proxy:
+        _use_outbound_proxy(proxy)
     _prefer_oom_kill()
     limit_resources(**limits)
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    files = OPEN_FILES if hard == resource.RLIM_INFINITY else min(OPEN_FILES, hard)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (files, files))
     router = _Router(channel)
     try:
         tools = load_catalog(directory, client=router)
