@@ -16,22 +16,29 @@ open public issues for security problems.
   tool router runs the catalog in a separate worker process, the pipeline (and the agent
   when its router lists no catalog) start one to read tool descriptions (without network
   when isolation is on), and the pipeline's Gate 1 runs each candidate once before
-  admitting it. With isolation on (the default: `toolsmith.worker.isolation` for the
-  router and the agent, `isolation` in the pipeline configuration), these processes run
-  in Linux user, mount, PID and IPC namespaces under your user and see, read-only, the
-  interpreter, every directory on the router's `sys.path` and `PYTHONPATH`, the catalog,
-  the model caches, the files that granted variables name (a `*_FILE` key file, say),
-  certificate bundles, a few settings from `/etc` and the host's `/sys`; with
-  `write_files` and the local image host, the worker can also write the upload directory
-  that host serves. They see no other host files or processes. The worker gets no
-  credential-like environment variables that `toolsmith.worker.environment` does not
-  grant, and Gate 1 runs with no credentials, no file writes and, with isolation on, no
-  network. The router's worker shares the host's network unless
-  `toolsmith.worker.network` is false, so a tool can reach the router and other services
-  on the host's loopback. With isolation off, catalog code runs as your user, with your
-  files and network, in every one of these processes. Run catalogs you did not write or
-  review in a container or a virtual machine; see [Running generated tools
-  safely](toolsmith/README.md#running-generated-tools-safely).
+  admitting it. With isolation on (the
+  default: `toolsmith.worker.isolation` for the router and the agent, `isolation` in the
+  pipeline configuration), these processes run in Linux user, mount, PID, IPC and network
+  namespaces under your user and see, read-only, the interpreter, every directory on the
+  router's `sys.path` and `PYTHONPATH`, the catalog, the model caches, the files that
+  granted variables name (a `*_FILE` key file, say), certificate bundles, a few settings
+  from `/etc` and the host's `/sys`; with `write_files` and the local image host, the
+  worker can also write the upload directory that host serves. They see no other host
+  files or processes. The worker gets no credential-like environment variables that
+  `toolsmith.worker.environment` does not grant, and Gate 1 runs with no credentials, no
+  file writes and, with isolation on, no network. With isolation on, the router's worker
+  reaches the network only through the router's outbound proxy: HTTP and HTTPS to public
+  addresses, on ports 80 and 443 by default (`toolsmith.worker.network_ports`), and nothing
+  at all with `toolsmith.worker.network: false`. The proxy refuses what it recognizes as
+  the router's host and its local networks, and `toolsmith.worker.deny_networks`; list
+  there what it cannot recognize, such as NAT addresses of the host and cloud platform
+  addresses. With network, a tool can still send what it reads to any public address. The
+  router stops a worker whose processes together use more memory than
+  `toolsmith.worker.memory_gib`, or keep using CPU between calls; these limits stop
+  runaway tools, not code written to evade them. With isolation off, catalog code runs as
+  your user, with your files and network, in every one of these processes. Run catalogs
+  you did not write or review in a container or a virtual machine with hard memory and
+  CPU limits; see [Running generated tools safely](toolsmith/README.md#running-generated-tools-safely).
 - **Tool router and GPU workers.** These services are unauthenticated. The router
   binds to `127.0.0.1` by default (`services.server.host`), as do the SAM 3, OCR and
   Depth Anything 3 workers. Keep them on loopback or a private network: anyone who
