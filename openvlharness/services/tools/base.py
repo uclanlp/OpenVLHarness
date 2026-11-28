@@ -1,4 +1,10 @@
 """Shared metadata and execution interface for concrete tool backends."""
+# Only resolved task data crosses the router boundary; endpoints come from deployment config,
+# and images arrive as base64 so callers cannot make tools open router-host files.
+RUNTIME_FIELDS = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
+                  "box_threshold", "text_threshold", "num_results", "gl", "hl", "image_path", "image_paths"}
+
+
 class ToolArgumentError(ValueError):
     """Invalid task arguments supplied by the caller; the router reports HTTP 400."""
 

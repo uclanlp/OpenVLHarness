@@ -1,0 +1,6 @@
+Question: "{question}"
+
+Reply with EXACTLY this format (3 lines):
+ANSWER_TYPE: <COUNT|DATE|BOOLEAN|ENTITY_NAME|FACTUAL_LOOKUP|OTHER>
+ANSWER_LENGTH: <1-5_chars|short_phrase|full_sentence>
+EXTRACTION_HINT: <what to extract from search>

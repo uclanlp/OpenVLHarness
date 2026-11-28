@@ -518,6 +518,34 @@ class AuxiliaryModelTests(unittest.TestCase):
                 self.assertEqual(original, case["input"])
         self.sdk.responses.create.assert_not_called()
 
+    def test_a_reply_that_ran_out_of_tokens_or_holds_no_text_is_refused_on_request(self):
+        from openvlharness.services.models import IncompleteReply
+
+        chat = self.engine()
+        for body, message in (({"choices": [{"message": {"content": "LABEL: SEARCH"}, "finish_reason": "length"}]},
+                               r"stopped at its token limit \(length\); raise its max_tokens"),
+                              ({"choices": [{"message": {"content": "LABEL: SEA"}, "finish_reason": "content_filter"}]},
+                               r"^the provider's content filter stopped the reply \(content_filter\)$"),
+                              ({"choices": [{"message": {"content": "  "}, "finish_reason": "stop"}]}, "holds no text")):
+            self.sdk.chat.completions.create.return_value = SimpleNamespace(model_dump=lambda body=body: body)
+            with self.subTest(message=message):
+                self.assertEqual(chat.generate("q", max_tokens=8).strip(), body["choices"][0]["message"]["content"].strip())
+                with self.assertRaisesRegex(IncompleteReply, message):
+                    chat.generate("q", max_tokens=8, require_complete=True)
+        reasoning = self.engine(alias="gpt-5-2025-08-07", base="https://fixture.invalid/v1")
+        incomplete = {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"},
+                      "output": [{"type": "reasoning", "id": "rs_1", "summary": []}]}
+        self.sdk.responses.create.return_value = SimpleNamespace(model_dump=lambda: incomplete)
+        self.assertEqual(reasoning.generate("q", max_tokens=8), "")  # the default keeps returning what it holds
+        with self.assertRaisesRegex(IncompleteReply, r"stopped at its token limit \(max_output_tokens\); raise"):
+            reasoning.generate("q", max_tokens=8, require_complete=True)
+        for reason, message in (("content_filter", r"^the provider's content filter stopped the reply"),
+                                ("other_reason", r"^the reply is incomplete \(other_reason\)$")):
+            stopped = {**incomplete, "incomplete_details": {"reason": reason}}
+            self.sdk.responses.create.return_value = SimpleNamespace(model_dump=lambda stopped=stopped: stopped)
+            with self.subTest(reason=reason), self.assertRaisesRegex(IncompleteReply, message):
+                reasoning.generate("q", max_tokens=8, require_complete=True)  # not "raise max_tokens"
+
     def test_auxiliary_defaults_preserve_sdk_two_retries_and_five_second_connect_timeout(self):
         self.engine()
         config = self.constructor.call_args.kwargs
