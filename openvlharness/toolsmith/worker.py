@@ -1,0 +1,955 @@
+"""Run the generated tools of a catalog in a separate, resource-limited worker process.
+
+The tool router serves generated tools through a CatalogWorker and never imports
+them. The worker process loads a private copy of the catalog, taken when the router
+started, and runs each call in its own thread. It inherits the router's environment
+without credential-like variables, unless toolsmith.worker.environment grants them,
+starts in a private directory, and runs with its address space capped and, unless
+toolsmith.worker.write_files is set, without file writes. With toolsmith.worker.isolation
+(the default) it runs confined by Linux namespaces (see isolation): it sees only the
+interpreter, the packages, the catalog copy and the model caches, read-only (with
+write_files, the caches take writes in a private layer), and none of the router's other
+files or processes. With network access it shares the host's network,
+loopback included, so it can reach local services, the router among them;
+toolsmith.worker.network: false removes its network access.
+
+A generated tool reaches other tools only through call_tool, which the worker passes
+to the router process: calls to the other generated tools and to the base tools in
+CALLABLE_BASE_TOOLS go through the router, and calls to the other router
+tools are refused. A call that fails, crashes the worker or runs past the time limit
+returns an error envelope. Only a crash, a call past the limit or a message that breaks
+the protocol (one past the size limit, or one the router cannot read) makes the router
+start a new worker for later calls: a worker with a call past the limit takes no new
+calls and is stopped once each of its other calls has finished or passed its own
+limit (RETIRE_GRACE_SECONDS later at the latest). A worker dies with the router: the
+router starts every worker from one long-lived thread, and the worker (or, confined,
+its launcher) asks Linux to kill it when that parent ends.
+
+The router starts the worker as: python -m openvlharness.toolsmith.worker CATALOG LIMITS
+"""
+import asyncio
+import atexit
+import codecs
+import concurrent.futures
+import itertools
+import json
+import logging
+import os
+import queue
+import re
+import resource
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+from ..contracts import ServiceResult
+from ..services.envelope import _build_error_payload, _build_success_payload, _normalize_result_payload
+from ..services.tools.base import ToolArgumentError
+from .catalog import DEFAULT_CATALOG, catalog_modules, fingerprint_files, load_catalog, tool_problem
+from .errors import CatalogLoadError, WorkerStartError, describe
+
+logger = logging.getLogger(__name__)
+
+# The base tools the generator is told it may call (generation.BASE_RESULTS).
+CALLABLE_BASE_TOOLS = ("Text_Search_Tool", "Image_Search_Tool", "Webpage_Visit_Tool", "OCR_Tool", "Zoom_In_Tool")
+MEMORY_GIB = 128
+LOAD_SECONDS = 120
+CLIENT_SHARE = 0.9  # default worker deadline, as a share of the agent's HTTP timeout
+EXIT_SECONDS = 5
+RETIRE_GRACE_SECONDS = 5  # how long a retired worker outlives the deadline of its last call in flight
+MAX_MESSAGE_BYTES = 32 << 20  # a message from the worker; its JSON takes many times that once parsed
+STDERR_BYTES = 8 << 20  # what one worker's tools may print to the router's stderr
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # control characters but tab and newline
+MAX_FORWARDED = 256  # call_tool calls of one worker's tools the router runs at once; each holds a thread
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+# Settings that name a file or directory, and lists of directories, the worker resolves like the router.
+PATH_SETTINGS = {"SERPER_API_KEY_FILE", "GOOGLE_APPLICATION_CREDENTIALS", "IMAGE_UPLOAD_LOCAL_DIR", "HF_HOME",
+                 "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "TRANSFORMERS_CACHE", "TORCH_HOME", "XDG_CACHE_HOME",
+                 "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "TMPDIR"}
+PATH_LISTS = {"PYTHONPATH", "LD_LIBRARY_PATH"}
+HOME_PREFIX = "openvlharness-toolsmith-"
+
+
+def memory_limit_enforced():
+    """Whether this platform enforces an address-space limit; macOS rejects RLIMIT_AS outright."""
+    return sys.platform.startswith("linux")
+
+
+def limit_resources(*, memory_bytes=None, file_bytes=None):
+    """Cap the address space of the calling process and the size of the files it writes.
+
+    None leaves a limit unchanged; a cap never exceeds the current hard limit, and
+    the process cannot raise it again. The address-space cap applies only where
+    memory_limit_enforced().
+    """
+    if not memory_limit_enforced():
+        memory_bytes = None
+    for kind, value in ((resource.RLIMIT_AS, memory_bytes), (resource.RLIMIT_FSIZE, file_bytes)):
+        if value is not None:
+            hard = resource.getrlimit(kind)[1]
+            value = value if hard == resource.RLIM_INFINITY else min(value, hard)
+            resource.setrlimit(kind, (value, value))
+
+
+def worker_environment(granted=()):
+    """Return the router's environment without credential-like variables, except granted names.
+
+    A name looks like a credential under the local Python executor's rule (KEY, TOKEN,
+    SECRET, PASSWORD or CREDENTIAL, or an AWS_ or GOOGLE_APPLICATION prefix); the rule
+    goes by name only, so secrets under other names (DATABASE_URL, a password in a proxy
+    URL) are inherited. The
+    package the router runs comes first on PYTHONPATH, so the worker imports the same code.
+    Relative paths in path settings, path lists and granted variables are resolved
+    against the router's working directory, since the worker starts elsewhere.
+    """
+    from ..services.tools.python_executor_local.executor import _SECRET_ENV
+
+    granted = set(granted)
+    environment = {name: value for name, value in os.environ.items()
+                   if name in granted or not _SECRET_ENV.search(name)}
+    for name, value in environment.items():
+        if name in PATH_LISTS:
+            environment[name] = os.pathsep.join(os.path.abspath(entry) if entry else entry
+                                                for entry in value.split(os.pathsep))
+        elif value and not os.path.isabs(value) and (name in PATH_SETTINGS
+                                                     or name in granted and os.path.exists(value)):
+            environment[name] = os.path.abspath(value)
+    environment["PYTHONPATH"] = os.pathsep.join(filter(None, (str(PACKAGE_ROOT), environment.get("PYTHONPATH"))))
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
+
+
+class MessageTooLarge(ValueError):
+    """A message from the worker longer than the router accepts."""
+
+
+def _size(count):
+    """Describe a byte count, in MiB when it is whole MiB."""
+    return f"{count >> 20} MiB" if count and not count % (1 << 20) else f"{count} bytes"
+
+
+class _Channel:
+    """Newline-delimited JSON messages over a pair of pipes.
+
+    limit bounds the length of a received message, send_limit that of a sent one.
+    """
+
+    def __init__(self, reader, writer, *, limit=None, send_limit=None):
+        self.reader, self.writer, self.limit, self.send_limit = reader, writer, limit, send_limit
+        self.lock = threading.Lock()
+
+    def send(self, message, **options):
+        """Write one message; options go to json.dumps.
+
+        Raises:
+            MessageTooLarge: The message is longer than send_limit, which the router would refuse.
+        """
+        line = json.dumps(message, **options).encode("ascii") + b"\n"
+        if self.send_limit and len(line) > self.send_limit:
+            raise MessageTooLarge(f"the message is larger than the {_size(self.send_limit)} limit")
+        with self.lock:
+            self.writer.write(line)
+            self.writer.flush()
+
+    def receive(self):
+        """Return the next message, or None when the other side has closed the pipe.
+
+        Raises:
+            ValueError: The message is longer than the limit, cut off or not JSON.
+        """
+        line = self.reader.readline(self.limit + 1) if self.limit else self.reader.readline()
+        if not line:
+            return None
+        if not line.endswith(b"\n"):
+            raise ValueError("message longer than the limit or cut off")
+        return json.loads(line)
+
+
+def _text(exc):
+    """Return str(exc), or a placeholder when the exception cannot be printed."""
+    try:
+        return str(exc)
+    except Exception:
+        return f"<unprintable {type(exc).__name__}>"
+
+
+def _valid_result(message):
+    """Return whether a result message from the worker has the fields its outcome needs."""
+    if message.get("ok") is True:
+        return "result" in message and isinstance(message.get("meta"), dict)
+    return (message.get("ok") is False and isinstance(message.get("message"), str)
+            and isinstance(message.get("exception_type"), str) and isinstance(message.get("argument_error"), bool))
+
+
+def _valid_call(message):
+    """Return whether a call_tool message from the worker names a tool, arguments and a call ID."""
+    return (type(message.get("id")) is int and isinstance(message.get("tool"), str)
+            and isinstance(message.get("args"), dict) and isinstance(message.get("tool_call_id"), str))
+
+
+def _failure(tool_name, tool_call_id, message, kind):
+    """Return the 500 envelope for a call the worker could not complete."""
+    return _build_error_payload(tool_name, tool_call_id, "tool_execution_error", message, {"exception_type": kind}), 500
+
+
+def _exit_reason(returncode):
+    """Describe how a worker process ended."""
+    if returncode < 0:
+        try:
+            return f"the worker was stopped by {signal.Signals(-returncode).name}"
+        except ValueError:
+            return f"the worker was stopped by signal {-returncode}"
+    return f"the worker exited with status {returncode}"
+
+
+def _line(message):
+    """Encode one protocol message.
+
+    Raises:
+        TypeError, ValueError: The message cannot be sent as JSON.
+    """
+    return json.dumps(message).encode("ascii") + b"\n"
+
+
+_spawns = None
+_spawns_lock = threading.Lock()
+
+
+def _spawn(argv, **options):
+    """Start a process from one long-lived thread and return its Popen.
+
+    Linux sends the death signal a worker asks for when the thread that started it
+    ends, so every worker starts from a thread that lasts as long as the router.
+    """
+    global _spawns
+    with _spawns_lock:
+        if _spawns is None:
+            _spawns = queue.SimpleQueue()
+            threading.Thread(target=_serve_spawns, args=(_spawns,), name="toolsmith-spawner", daemon=True).start()
+        started = concurrent.futures.Future()
+        _spawns.put((started, argv, options))
+    return started.result()
+
+
+def _serve_spawns(requests):
+    """Start the processes _spawn asks for, forever."""
+    while True:
+        started, argv, options = requests.get()
+        try:
+            started.set_result(subprocess.Popen(argv, **options))
+        except BaseException as exc:
+            started.set_exception(exc)
+
+
+def _die_with(parent):
+    """Ask Linux to kill this process when parent, the process that started it, ends; exit if it already has."""
+    if parent is None or not sys.platform.startswith("linux"):
+        return
+    import ctypes
+
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
+    prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    if prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        # Never run unwatched: a worker the router's death would not stop could outlive it.
+        print(f"the ToolSmith worker cannot ask to die with the router: {os.strerror(ctypes.get_errno())}",
+              file=sys.stderr, flush=True)
+        os._exit(1)
+    if os.getppid() != parent:
+        os._exit(1)
+
+
+def _copy_to_stderr(stream, pid):
+    """Copy a worker's stderr (what its tools print) to the router's stderr until the worker ends.
+
+    Control characters other than tab and newline are dropped, so escape sequences cannot
+    rewrite the log or the terminal, and after STDERR_BYTES the rest is drained, not copied.
+    """
+    decoder, copied = codecs.getincrementaldecoder("utf-8")("replace"), 0
+    with stream:
+        while chunk := stream.read1(1 << 16):
+            if copied >= STDERR_BYTES:
+                continue  # keep draining so the worker never blocks on a full pipe
+            data = CONTROL.sub("", decoder.decode(chunk)).encode()[:STDERR_BYTES - copied]
+            copied += len(data)
+            if copied >= STDERR_BYTES:
+                data += f"\n[ToolSmith worker {pid}: output past {STDERR_BYTES} bytes dropped]\n".encode()
+            view = memoryview(data)
+            try:
+                while view:
+                    view = view[os.write(2, view):]
+            except OSError:
+                pass  # the router's stderr is gone
+
+
+class _WorkerGone(RuntimeError):
+    """The worker process has stopped and takes no calls."""
+
+
+class _Worker:
+    """One worker process: its pipes, the calls it is running and the thread that reads its messages."""
+
+    def __init__(self, owner, files, environment, limits):
+        """Write the catalog copy to a private directory and start the process."""
+        self.owner = owner
+        self.home = Path(tempfile.mkdtemp(prefix=HOME_PREFIX))
+        self.catalog = self.home / "catalog"
+        try:
+            self.catalog.mkdir()
+            (self.home / "root").mkdir()
+            for name, data in files.items():
+                (self.catalog / name).write_bytes(data)
+            argv = [sys.executable, "-m", "openvlharness.toolsmith.worker", str(self.catalog), json.dumps(limits)]
+            if owner.isolation:
+                from .isolation import command
+
+                argv = command(owner.confinement(self.home), argv)
+            # stderr is a pipe the router copies to its own: a log file there would fall under the
+            # worker's file-size limit, which drops prints and fails tools that flush them.
+            self.process = _spawn(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  cwd=self.home, env=environment, start_new_session=True)
+        except BaseException:
+            shutil.rmtree(self.home, ignore_errors=True)
+            raise
+        threading.Thread(target=_copy_to_stderr, args=(self.process.stderr, self.process.pid), daemon=True).start()
+        self.channel = _Channel(self.process.stdout, None, limit=limits["message_bytes"])
+        # One thread writes to the worker, so a worker that stops reading blocks no caller.
+        self.outbox = queue.SimpleQueue()
+        threading.Thread(target=self._write, daemon=True).start()
+        self.ready = concurrent.futures.Future()
+        self.calls = {}
+        self.deadlines = {}  # when each call in flight reaches its time limit (time.monotonic)
+        self.abandoned = set()
+        self.ids = itertools.count(1)
+        self.lock = threading.Lock()
+        self.process_lock = threading.Lock()
+        self.retiring = self.stopped = False
+        self.reason = None
+        self.tools = []
+        self.forwarding = 0
+        self.reader = threading.Thread(target=self._read, name=f"toolsmith-worker-{self.process.pid}", daemon=True)
+        self.reader.start()
+
+    def submit(self, tool_name, args):
+        """Send one call and return its ID and the future of the worker's answer.
+
+        Raises:
+            _WorkerGone: The worker has stopped.
+        """
+        with self.lock:
+            if self.stopped:
+                raise _WorkerGone(self.reason)
+            request = next(self.ids)
+            answer = self.calls[request] = concurrent.futures.Future()
+            self.deadlines[request] = time.monotonic() + self.owner.timeout
+        try:
+            self.send({"type": "execute", "id": request, "tool": tool_name, "args": args})
+        except (TypeError, ValueError):
+            with self.lock:
+                self.calls.pop(request, None)
+                self.deadlines.pop(request, None)
+            raise
+        return request, answer
+
+    def send(self, message):
+        """Queue a message for the worker; it is dropped if the worker has stopped.
+
+        Raises:
+            TypeError, ValueError: The message cannot be sent as JSON.
+        """
+        self.outbox.put(_line(message))
+
+    def _write(self):
+        """Write queued messages to the worker until it stops."""
+        while (line := self.outbox.get()) is not None:
+            try:
+                self.process.stdin.write(line)
+                self.process.stdin.flush()
+            except (OSError, ValueError):
+                return  # the worker has stopped; its calls fail when the reader sees it end
+
+    def abandon(self, request):
+        """Stop waiting for a call past its time limit; return False when its answer has already arrived."""
+        with self.lock:
+            self.deadlines.pop(request, None)
+            if self.calls.pop(request, None) is None:
+                return False
+            self.abandoned.add(request)
+            return True
+
+    def retire(self):
+        """Take no new calls; stop the process once each call in flight has finished or passed its deadline."""
+        with self.lock:
+            self.retiring = True
+        self._stop_when_done()
+
+    def _stop_when_done(self):
+        """Kill a retired worker now if it runs no call, else check again RETIRE_GRACE_SECONDS after the last deadline.
+
+        The calls past their deadline were abandoned by their callers, and each answer
+        or abandonment of the others kills an idle retired worker at once; the timer
+        only bounds a worker whose remaining calls neither answer nor time out.
+        """
+        with self.lock:
+            latest = max(self.deadlines.values(), default=None) if self.calls else None
+        wait = 0 if latest is None else latest + RETIRE_GRACE_SECONDS - time.monotonic()
+        if wait <= 0:
+            self.kill()
+        else:
+            timer = threading.Timer(wait, self._stop_when_done)
+            timer.daemon = True
+            timer.start()
+
+    def kill(self):
+        """Kill the process and anything it started, unless it has already been reaped."""
+        with self.process_lock:
+            if self.process.returncode is None:
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                try:
+                    self.process.kill()
+                except OSError:
+                    pass
+
+    def _forward(self, message):
+        """Run one call_tool through the router, counting it while it runs."""
+        try:
+            self.owner._forward(self, message)
+        finally:
+            with self.lock:
+                self.forwarding -= 1
+
+    def _read(self):
+        """Handle the worker's messages until it stops, then fail the calls still waiting."""
+        reason = None
+        try:
+            while True:
+                message = self.channel.receive()
+                if message is None:
+                    break
+                self._handle(message)
+        except Exception as exc:
+            reason = f"the worker sent an invalid message ({type(exc).__name__}: {_text(exc)})"
+            logger.error("ToolSmith worker %s: %s", self.process.pid, reason)
+        if reason is None:
+            # The isolation launcher outlives the worker briefly while it cleans up; keep its exit status.
+            try:
+                self.process.wait(timeout=EXIT_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+        self.kill()
+        with self.process_lock:
+            returncode = self.process.wait()
+        with self.lock:
+            self.stopped = True
+            self.reason = reason or _exit_reason(returncode)
+            calls, self.calls = self.calls, {}
+            self.deadlines.clear()
+            self.abandoned.clear()
+        for answer in calls.values():
+            answer.set_result({"failure": self.reason})
+        if not self.ready.done():
+            self.ready.set_result({"type": "ready", "error": {"type": "RuntimeError", "message": self.reason}})
+        self.outbox.put(None)
+        shutil.rmtree(self.home, ignore_errors=True)
+        self.owner._stopped(self)
+
+    def _handle(self, message):
+        """Dispatch one message from the worker; a message that breaks the protocol raises ValueError."""
+        kind = message.get("type") if isinstance(message, dict) else None
+        if kind == "ready" and not self.ready.done():
+            self.ready.set_result(message)
+        elif kind == "result":
+            if not _valid_result(message):
+                raise ValueError("malformed result")
+            with self.lock:
+                answer = self.calls.pop(message.get("id"), None)
+                self.deadlines.pop(message.get("id"), None)
+                late = answer is None and message.get("id") in self.abandoned
+                self.abandoned.discard(message.get("id"))
+                idle = self.retiring and not self.calls
+            if answer is None and not late:
+                raise ValueError(f"result for unknown call {message.get('id')!r}")
+            if answer is not None:
+                answer.set_result(message)
+            if idle:
+                self.kill()
+        elif kind == "call":
+            if not _valid_call(message):
+                raise ValueError("malformed call")
+            with self.lock:
+                admitted = self.forwarding < MAX_FORWARDED
+                self.forwarding += admitted
+            if admitted:
+                threading.Thread(target=self._forward, args=(message,), daemon=True).start()
+            else:
+                self.send({"type": "reply", "id": message["id"], "payload": _build_error_payload(
+                    message["tool"], message["tool_call_id"], "too_many_calls",
+                    f"more than {MAX_FORWARDED} calls from generated tools are running")})
+        else:
+            raise ValueError(f"unexpected message type {kind!r}")
+
+
+class CatalogWorker:
+    """Serve the generated tools of a catalog from a worker process; the router's handle on them."""
+
+    def __init__(self, directory=None, *, client, base_tools=(), environment=(), timeout_seconds=600,
+                 memory_gib=MEMORY_GIB, write_files=False, isolation=True, network=True, report_environment=True):
+        """Copy the catalog, start the first worker and read the tools it loaded.
+
+        Args:
+            directory: Catalog directory; defaults to the packaged catalog.
+            client: ToolClient for calls from generated tools; it reaches the router itself.
+            base_tools: Names of the router's base tools.
+            environment: Credential-like variables the worker may inherit.
+            timeout_seconds: Wall-clock limit of one call.
+            memory_gib: Address-space limit of the worker process, in GiB.
+            write_files: Let the worker write files, for example a local image upload.
+            isolation: Confine the worker with Linux namespaces; without it, generated
+                tools can read every file the router can.
+            network: Let a confined worker use the network.
+            report_environment: Warn about the credential-like variables the worker does not inherit.
+
+        Raises:
+            CatalogLoadError: The catalog cannot be loaded (a ValueError).
+            WorkerStartError: The worker does not start, or isolation is requested on a
+                host that does not allow it (a RuntimeError).
+        """
+        self.directory = Path(directory or DEFAULT_CATALOG)
+        self.files = {path.name: path.read_bytes() for path in catalog_modules(self.directory)}
+        self.fingerprint = fingerprint_files(self.files.items())  # what evaluations check the router serves
+        self.client = client
+        self.refused = set(base_tools) - set(CALLABLE_BASE_TOOLS)
+        self.timeout = timeout_seconds
+        # The router tells the worker its message limit, so the two never disagree.
+        self.limits = {"memory_bytes": int(memory_gib * (1 << 30)), "file_bytes": None if write_files else 0,
+                       "message_bytes": MAX_MESSAGE_BYTES}
+        if not memory_limit_enforced():
+            self.limits["memory_bytes"] = None
+            logger.warning("%s does not enforce address-space limits: the generated-tool worker runs without "
+                           "toolsmith.worker.memory_gib.", sys.platform)
+        self.environment = worker_environment(environment)
+        if isolation and not network:
+            # Without a network, Hugging Face libraries load cached models at once instead of retrying the Hub.
+            self.environment.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
+        self.granted = set(environment)
+        self.isolation, self.network = isolation, network
+        # A confined worker dies with its launcher's namespace; an unconfined one watches the router itself.
+        self.limits["parent"] = None if isolation else os.getpid()
+        if isolation:
+            from .isolation import available
+
+            confinable, reason = available()
+            if not confinable:
+                raise WorkerStartError(f"Generated tools run confined by Linux user namespaces, which this host does "
+                                       f"not allow ({reason}). Set toolsmith.worker.isolation: false to run them "
+                                       "without it.")
+        else:
+            logger.warning("toolsmith.worker.isolation is off: generated tools can read every file the router can "
+                           "read and reach the network.")
+        withheld = sorted(set(os.environ) - set(self.environment))
+        if withheld and report_environment:
+            logger.warning("Generated tools run without these router environment variables: %s. Grant any they "
+                           "read with toolsmith.worker.environment.", ", ".join(withheld))
+        self.lock = threading.Lock()
+        self.start_lock = threading.Lock()
+        self.workers = set()
+        self.closed = False
+        self.tools = self.current = None
+        self.current = self._start()
+        self.tools = {tool["tool_name"]: tool for tool in self.current.tools}
+        atexit.register(self.close)
+
+    @classmethod
+    def from_config(cls, config, *, client, base_tools):
+        """Build the worker for an agent-system configuration with a toolsmith section."""
+        toolsmith = config["toolsmith"]
+        settings = toolsmith.get("worker") or {}
+        client_timeout = config["services"]["client"].get("timeout_seconds", 600)
+        # The worker deadline starts after dispatch; ending it earlier than the agent's HTTP read timeout
+        # lets the structured timeout arrive before the client gives up and retries the call.
+        timeout = settings.get("timeout_seconds", round(CLIENT_SHARE * client_timeout, 3))
+        if timeout >= client_timeout:
+            logger.warning("toolsmith.worker.timeout_seconds (%s) is not below services.client.timeout_seconds (%s): "
+                           "the agent may time out and retry a generated tool before its error arrives.",
+                           timeout, client_timeout)
+        return cls(toolsmith.get("catalog"), client=client, base_tools=base_tools,
+                   environment=settings.get("environment", ()), timeout_seconds=timeout,
+                   memory_gib=settings.get("memory_gib", MEMORY_GIB), write_files=settings.get("write_files", False),
+                   isolation=settings.get("isolation", True), network=settings.get("network", True))
+
+    def execute(self, tool_name, args, *, tool_call_id):
+        """Run one call in the worker and return the router envelope and its HTTP status."""
+        try:
+            worker, request, answer = self._submit(tool_name, args)
+        except (ValueError, RuntimeError, OSError) as exc:
+            return _failure(tool_name, tool_call_id, f"the generated-tool worker is unavailable: {exc}", "WorkerError")
+        try:
+            outcome = answer.result(timeout=self.timeout)
+        except concurrent.futures.TimeoutError:
+            outcome = None
+        return self._finish(worker, request, answer, outcome, tool_name, tool_call_id)
+
+    async def execute_async(self, tool_name, args, *, tool_call_id):
+        """Run one call like execute, awaiting the answer on the event loop instead of in a thread.
+
+        The router uses this, so a generated tool waiting for the calls it makes back
+        into the router holds none of the thread-pool workers those calls need.
+        """
+        loop = asyncio.get_running_loop()
+        try:
+            worker, request, answer = await loop.run_in_executor(None, self._submit, tool_name, args)
+        except (ValueError, RuntimeError, OSError) as exc:
+            return _failure(tool_name, tool_call_id, f"the generated-tool worker is unavailable: {exc}", "WorkerError")
+        # asyncio.wait, unlike wait_for, does not cancel the future the worker's reader resolves.
+        done, _ = await asyncio.wait({asyncio.wrap_future(answer)}, timeout=self.timeout)
+        return self._finish(worker, request, answer, answer.result() if done else None, tool_name, tool_call_id)
+
+    def close(self):
+        """Stop every worker; later calls fail."""
+        atexit.unregister(self.close)  # the exit hook would keep a closed router, and its catalog bytes, alive
+        with self.lock:
+            self.closed = True
+            workers, self.current = list(self.workers), None
+        for worker in workers:
+            worker.kill()
+        for worker in workers:
+            worker.reader.join(timeout=5)
+
+    def confinement(self, home):
+        """The isolation spec of a worker whose private directory is home."""
+        from .isolation import python_masks, system_paths
+
+        environment, expand = self.environment, os.path.expanduser
+        # Where Hugging Face and torch put their caches unless HF_HOME or TORCH_HOME says otherwise.
+        xdg = environment.get("XDG_CACHE_HOME") or expand("~/.cache")
+        caches = [environment.get("HF_HOME") or os.path.join(xdg, "huggingface"), environment.get("HF_HUB_CACHE"),
+                  environment.get("HUGGINGFACE_HUB_CACHE"), environment.get("TRANSFORMERS_CACHE"),
+                  environment.get("TORCH_HOME") or os.path.join(xdg, "torch")]
+        caches = list(dict.fromkeys(path for path in caches if path and os.path.isdir(path)))
+        masks = [os.path.join(cache, name) for cache in caches for name in ("token", "stored_tokens")]
+        # A cache inside another is covered by the outer mount.
+        caches = [path for path in caches if not any(path.startswith(other.rstrip("/") + "/") for other in caches)]
+        package_root = os.path.realpath(PACKAGE_ROOT)
+        read = system_paths(network=self.network) + [str(home / "catalog")]
+        read += [entry for entry in environment.get("PYTHONPATH", "").split(os.pathsep)
+                 if entry and os.path.isdir(entry) and os.path.realpath(entry) != package_root]
+        # Certificate bundles, and files that granted variables name (a key file, service-account credentials).
+        read += [environment[name] for name in ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                                                *sorted(self.granted))
+                 if environment.get(name) and os.path.isabs(environment[name]) and os.path.exists(environment[name])]
+        write, overlay = [], []
+        if self.limits["file_bytes"] is None:
+            # The host's caches stay read-only; writes and downloads go to the worker's private layer.
+            overlay = caches
+            if environment.get("IMAGE_UPLOAD_PROVIDER", "").lower() == "local":
+                # The local image host serves this directory, so uploads must land in the host's copy.
+                uploads = environment.get("IMAGE_UPLOAD_LOCAL_DIR") or os.path.join(tempfile.gettempdir(),
+                                                                                     "openvlharness-uploads")
+                os.makedirs(uploads, mode=0o700, exist_ok=True)
+                write.append(uploads)
+        else:
+            read += caches
+        temporary = ["/tmp", "/var/tmp", expand("~")] + ([environment["TMPDIR"]] if environment.get("TMPDIR") else [])
+        return {"root": str(home / "root"), "read": read, "write": write, "overlay": overlay, "tmp": temporary,
+                "mask": masks + python_masks(), "cwd": str(home), "network": self.network, "cleanup": str(home),
+                "parent": os.getpid()}
+
+    def _submit(self, tool_name, args):
+        """Send one call to the worker taking new calls; return the worker, the call ID and its answer."""
+        worker = self._worker()
+        request, answer = worker.submit(tool_name, args)
+        return worker, request, answer
+
+    def _finish(self, worker, request, answer, outcome, tool_name, tool_call_id):
+        """Turn the worker's answer into the router envelope; outcome None means the time limit passed."""
+        if outcome is None:
+            if worker.abandon(request):
+                self._retire(worker)
+                return _failure(tool_name, tool_call_id, f"{tool_name} did not finish within {self.timeout:g} seconds",
+                                "TimeoutError")
+            outcome = answer.result()
+        if "failure" in outcome:
+            return _failure(tool_name, tool_call_id, "the generated-tool worker stopped while "
+                            f"{tool_name} was running: {outcome['failure']}", "WorkerError")
+        if outcome["ok"]:
+            return _build_success_payload(tool_name, tool_call_id, outcome["result"], outcome["meta"]), 200
+        return (_build_error_payload(tool_name, tool_call_id, "tool_execution_error", outcome["message"],
+                                     {"exception_type": outcome["exception_type"]}),
+                400 if outcome["argument_error"] else 500)
+
+    def _start(self):
+        """Start a worker and wait until it has loaded the catalog.
+
+        Raises:
+            CatalogLoadError: The catalog does not load.
+            WorkerStartError: The worker does not start, load or report its tools.
+        """
+        try:
+            worker = _Worker(self, self.files, self.environment, self.limits)
+        except OSError as exc:
+            raise WorkerStartError(f"the ToolSmith worker cannot start: {exc}") from exc
+        with self.lock:
+            self.workers.add(worker)
+        try:
+            ready = worker.ready.result(timeout=LOAD_SECONDS)
+        except concurrent.futures.TimeoutError:
+            self._discard(worker)
+            raise WorkerStartError(f"the ToolSmith worker did not load the catalog within {LOAD_SECONDS} seconds")
+        try:
+            error = ready.get("error")
+            tools = ready.get("tools")
+            if error is None and not (isinstance(tools, list) and all(
+                    isinstance(tool, dict) and tool_problem(tool) is None for tool in tools)):
+                error = {"type": "RuntimeError", "message": "the worker reported no valid tool list"}
+            if error is None and self.tools is not None and [tool["tool_name"] for tool in tools] != list(self.tools):
+                error = {"type": "RuntimeError", "message": "a restarted worker loaded different tools"}
+        except BaseException:  # whatever the check meets, the worker it started does not outlive it
+            self._discard(worker)
+            raise
+        if error is not None:
+            self._discard(worker)
+            message = str(error.get("message")).replace(str(worker.catalog), str(self.directory))
+            raise (CatalogLoadError if error.get("type") in ("CatalogLoadError", "ValueError") else
+                   WorkerStartError)(message)
+        worker.tools = tools
+        return worker
+
+    @staticmethod
+    def _discard(worker):
+        """Stop a worker that did not start and remove its private directory before the caller gives up."""
+        worker.kill()
+        worker.reader.join(timeout=EXIT_SECONDS + 5)
+        shutil.rmtree(worker.home, ignore_errors=True)
+
+    def _worker(self):
+        """Return the worker that takes new calls, starting one if the last has stopped or been retired."""
+        with self.start_lock:
+            with self.lock:
+                if self.closed:
+                    raise RuntimeError("the tool router is shutting down")
+                worker = self.current
+            if worker is not None and not (worker.stopped or worker.retiring):
+                return worker
+            worker = self._start()
+            with self.lock:
+                self.current = worker
+            return worker
+
+    def _retire(self, worker):
+        """Send no new calls to a worker whose call ran past the limit; it stops once its other calls finish."""
+        with self.lock:
+            if self.current is worker:
+                self.current = None
+        worker.retire()
+
+    def _stopped(self, worker):
+        """Forget a worker whose process has ended."""
+        with self.lock:
+            self.workers.discard(worker)
+            if self.current is worker:
+                self.current = None
+
+    def _forward(self, worker, message):
+        """Answer one call_tool from the worker: run it through the router, unless the tool is refused."""
+        name, call_id = message["tool"], message["tool_call_id"]
+        if name in self.refused:
+            reply = {"payload": _build_error_payload(name, call_id, "tool_not_allowed",
+                                                     f"Generated tools cannot call {name}")}
+        else:
+            try:
+                reply = {"payload": self.client.execute(name, message["args"], tool_call_id=call_id)}
+            except Exception as exc:
+                reply = {"error": {"module": type(exc).__module__, "type": type(exc).__name__, "message": _text(exc),
+                                   "status_code": getattr(exc, "status_code", None)}}
+        try:
+            worker.send({"type": "reply", "id": message["id"], **reply})
+        except (TypeError, ValueError) as exc:
+            worker.send({"type": "reply", "id": message["id"], "error": {
+                "module": "builtins", "type": "RuntimeError", "message": f"{name}: the reply is not JSON: {exc}"}})
+
+
+def catalog_tools(directory=None, *, settings=None):
+    """Return each catalog tool's name, description and input schema (see catalog_snapshot)."""
+    return catalog_snapshot(directory, settings=settings)[0]
+
+
+def catalog_snapshot(directory=None, *, settings=None):
+    """Return each catalog tool's name, description and input schema without running catalog code here.
+
+    A worker (confined as settings, a toolsmith.worker mapping, say) loads the catalog,
+    reports its tools and stops. Reading metadata needs no network, so a confined worker
+    gets none, as Gate 1 runs do, and reaches no network service while catalog code runs
+    at import. Without isolation it shares the host's network.
+
+    Returns:
+        (tools, fingerprint): a mapping of tool names to objects with tool_name,
+        tool_description and input_schema, and the digest of the files they came from.
+
+    Raises:
+        CatalogLoadError, WorkerStartError: As CatalogWorker.
+    """
+    settings = {**(settings or {}), "network": False}
+    worker = CatalogWorker(directory, client=_NoCalls(), environment=settings.get("environment", ()),
+                           memory_gib=settings.get("memory_gib", MEMORY_GIB),
+                           write_files=settings.get("write_files", False), isolation=settings.get("isolation", True),
+                           network=settings.get("network", True), report_environment=False)
+    try:
+        return {name: SimpleNamespace(**metadata) for name, metadata in worker.tools.items()}, worker.fingerprint
+    finally:
+        worker.close()
+
+
+class _NoCalls:
+    """Client for a worker that only reports its tools: a call made while the catalog loads fails."""
+
+    def execute(self, tool_name, args, *, tool_call_id):
+        return _build_error_payload(tool_name, tool_call_id, "unavailable",
+                                    "tools cannot be called while the catalog loads")
+
+
+def _rebuild(error):
+    """Recreate an exception the router's client raised, so call_tool fails as it does in the router."""
+    message = str(error.get("message", ""))
+    module, name = error.get("module"), error.get("type")
+    if module == "openvlharness.services.http" and name == "HTTPStatusError":
+        from ..services.http import HTTPStatusError
+
+        return HTTPStatusError(message, error.get("status_code"))
+    if module == "requests.exceptions":
+        import requests
+
+        kind = getattr(requests.exceptions, str(name), None)
+        if isinstance(kind, type) and issubclass(kind, requests.exceptions.RequestException):
+            return kind(message)
+    return RuntimeError(message)
+
+
+class _Router:
+    """The client generated tools get in the worker: each call goes to the router process."""
+
+    def __init__(self, channel):
+        self.channel = channel
+        self.ids = itertools.count(1)
+        self.waiting = {}
+        self.lock = threading.Lock()
+
+    def execute(self, tool_name, args, *, tool_call_id):
+        """Return the router's execute envelope for one call, as ToolClient.execute does.
+
+        Raises:
+            TypeError, ValueError: The call cannot be sent as JSON.
+            Exception: The router's client failed; the same exception class for
+                requests and HTTP status errors, otherwise RuntimeError.
+        """
+        if not (isinstance(tool_name, str) and isinstance(args, dict) and isinstance(tool_call_id, str)):
+            raise TypeError("call_tool needs a tool name and keyword arguments")
+        with self.lock:
+            call = next(self.ids)
+            answer = self.waiting[call] = concurrent.futures.Future()
+        try:
+            self.channel.send({"type": "call", "id": call, "tool": tool_name, "args": args,
+                               "tool_call_id": tool_call_id}, allow_nan=False)
+        except BaseException:
+            with self.lock:
+                self.waiting.pop(call, None)
+            raise
+        reply = answer.result()
+        if "error" in reply:
+            raise _rebuild(reply["error"])
+        return reply["payload"]
+
+    def answer(self, message):
+        """Deliver the router's reply to the waiting call."""
+        with self.lock:
+            answer = self.waiting.pop(message.get("id"), None)
+        if answer is not None:
+            answer.set_result(message)
+
+
+def _run(tools, message, channel):
+    """Run one call and send its result; the fields mirror the router's envelope for an in-process tool."""
+    reply = {"type": "result", "id": message["id"]}
+    try:
+        result = tools[message["tool"]].execute(**message["args"])
+        extra = {}
+        if isinstance(result, ServiceResult):
+            extra, result = result.metadata, result.value
+        result, meta = _normalize_result_payload(result)
+        meta.update(extra)
+        reply.update(ok=True, result=result, meta=meta)
+    except BaseException as exc:
+        reply.update(ok=False, message=_text(exc), exception_type=type(exc).__name__,
+                     argument_error=isinstance(exc, ToolArgumentError))
+    try:
+        channel.send(reply)
+    except MessageTooLarge:  # this call fails; the worker and its other calls go on
+        channel.send({"type": "result", "id": message["id"], "ok": False, "exception_type": "MessageTooLarge",
+                      "message": f"the result of {message['tool']} is larger than the {_size(channel.send_limit)} "
+                                 "limit", "argument_error": False})
+    except (TypeError, ValueError) as exc:
+        channel.send({"type": "result", "id": message["id"], "ok": False, "message": f"the result is not JSON: {exc}",
+                      "exception_type": type(exc).__name__, "argument_error": False})
+
+
+def _prefer_oom_kill():
+    """Ask Linux to stop the worker before other processes when memory runs out; elsewhere do nothing."""
+    try:
+        with open("/proc/self/oom_score_adj", "w") as stream:
+            stream.write("1000")
+    except OSError:
+        pass
+
+
+def main(directory, limits):
+    """Load the catalog, report its tools, then run calls until the router closes the pipe."""
+    channel = _Channel(os.fdopen(os.dup(0), "rb"), os.fdopen(os.dup(1), "wb"))
+    # Messages use private copies of the pipes; prints from tools go to stderr, which the router copies to its own.
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    os.dup2(2, 1)
+    limits = json.loads(limits)
+    _die_with(limits.pop("parent", None))
+    channel.send_limit = limits.pop("message_bytes", MAX_MESSAGE_BYTES)
+    _prefer_oom_kill()
+    limit_resources(**limits)
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    router = _Router(channel)
+    try:
+        tools = load_catalog(directory, client=router)
+    except BaseException as exc:  # a CatalogLoadError names the module; anything else is reported as it is
+        if isinstance(exc, CatalogLoadError):
+            kind, message = "CatalogLoadError", _text(exc)
+        else:
+            kind, message = "RuntimeError", f"the ToolSmith catalog cannot load: {describe(exc)}"
+        channel.send({"type": "ready", "error": {"type": kind, "message": message}})
+        os._exit(1)
+    try:
+        channel.send({"type": "ready", "tools": [{
+            "tool_name": tool.tool_name, "tool_description": tool.tool_description, "input_schema": tool.input_schema}
+            for tool in tools.values()]})
+    except MessageTooLarge as exc:
+        channel.send({"type": "ready", "error": {"type": "ValueError", "message": f"the tool list: {exc}"}})
+        os._exit(1)
+    while (message := channel.receive()) is not None:
+        if message["type"] == "execute":
+            threading.Thread(target=_run, args=(tools, message, channel), daemon=True).start()
+        elif message["type"] == "reply":
+            router.answer(message)
+    # The router has gone without stopping the worker (it was killed): remove the private copy it made.
+    home = Path(directory).parent
+    if home.name.startswith(HOME_PREFIX):
+        shutil.rmtree(home, ignore_errors=True)
+    os._exit(0)
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:])

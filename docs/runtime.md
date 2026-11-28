@@ -1,12 +1,16 @@
 # Runtime contracts
 
 `bootstrap.py` resolves one agent-system YAML, validates configuration and builds
-one `MainAgent`, a model adapter, the selected flat capabilities and a memory
-factory. There is no backend discovery during a question.
+one agent, a model adapter, the selected flat capabilities and a memory factory.
+The agent is a `MainAgent`, or, when the configuration has a `toolsmith` section, a
+`ToolSmithAgent`: a `MainAgent` that also offers each question the `toolsmith.top_k`
+generated tools of its catalog whose descriptions are closest to the question. The
+capabilities and the catalog are fixed when the agent is built; there is no backend
+discovery during a question.
 
 ```mermaid
 flowchart LR
-    B[bootstrap] --> A[MainAgent]
+    B[bootstrap] --> A[MainAgent or ToolSmithAgent]
     B --> M[Model adapter]
     B --> C[Selected capabilities]
     A --> M
@@ -75,7 +79,8 @@ tokenizer for the 168000-token context cap. If the tokenizer cannot load, a
 warning records that the provider enforces context size. GPT profiles use
 `openai_v1`, stateless Responses (`store=false`) and provider context
 enforcement. Kimi K3 uses `openai_v1`, Chat Completions and provider context
-enforcement.
+enforcement. `agent.prompt_bundle` replaces the orchestrator's system prompt with
+another packaged one.
 
 The paper configurations use 15 iterations. When the iterations run out, Qwen
 and Kimi K3 send an extra final-answer request; they also continue after an
@@ -106,6 +111,14 @@ and the shared user prefix. The resume identity combines these with the agent
 configuration, excluding credentials. Editing a referenced registry entry or
 prompt content therefore rejects resume into the same run, even when the YAML
 alias is unchanged. Unreferenced registry entries do not affect the identity.
+With a `toolsmith` section the identity also covers a SHA-256 of the names and
+contents of the catalog's module files (the packaged catalog when none is set)
+and of the version of the rules the loader reads them by (`LOADER_RULES`), so a
+catalog grown in place, or loaded under other rules, starts a new run instead of
+resuming one. It is the digest of the snapshot the tool router serves, which the
+evaluator first checks against the configured catalog's files, and which its
+agent read the tools from. An evaluator that cannot read those files stops,
+unless `toolsmith.trust_router_catalog` lets it trust the router.
 A saved manifest whose identity hash differs is rejected; start a new run
 directory rather than mixing new inference into those saved results.
 
@@ -176,6 +189,7 @@ where the table names a model.
 | `agent.max_context_length` | positive integer or null | null | `168000`; Kimi K3 `256000` | Context budget including the reserved output tokens; must exceed the orchestrator's `max_tokens` plus 512. Qwen profiles count tokens locally and compact history to fit. Other profiles, or null, leave enforcement to the provider. |
 | `agent.tool_choice` | string | `auto` | `auto` | Sent as the provider's `tool_choice` on regular requests. Not validated locally. |
 | `agent.paired_sampling_seed` | boolean | `false` | `false` | When true, Chat Completions requests for a sample with a task ID carry a seed derived from that ID, the iteration index and `HARNESS_SEARCH_SAMPLE_INDEX`. Responses requests carry no seed. |
+| `agent.prompt_bundle` | string | the orchestrator profile's bundle | not set; ToolSmith presets `toolsmith` | Orchestrator system prompt, read from `openvlharness/prompts/<bundle>_system.txt`. |
 | `memory.modules` | list of `{name: ...}` mappings | required | `image`, `tool_context`, `url` | Enabled memory modules, unique and ordered `image`, `tool_context`, `url`. `image` is required. `tool_context` stores typed tool results (depth, camera, segmentation, OCR) as bindings for code execution; `url` stores webpage references for later tool calls. |
 | `memory.modules[url].webpage_env_update_limit` | positive integer or null | `20` | `20` | Number of most recent webpage references listed in each Environment Update; null lists all. Older references stay resolvable. No other module accepts options. |
 | `memory.emit_policy` | `always` or `on_change` | `always` | `always` | `always` emits the inventory after every successful tool turn; `on_change` emits only when images, the webpage count or the binding count changed. |
@@ -209,6 +223,16 @@ where the table names a model.
 | `services.models.<name>.presence_penalty` | number, -2 to 2 | provider default | Qwen `1.5` | Qwen profiles. |
 | `services.models.<name>.reasoning_effort` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max` | provider default | GPT `medium` | GPT and Kimi profiles; each model rejects the levels it does not support. |
 | `services.models.<name>.return_token_ids` | boolean | `false` | Qwen `false` | Requests token IDs for raw trace export. `true` is accepted only for `qwen3-vl-8b-instruct`; `--save-raw-trace` sets it. Qwen profiles. |
+| `toolsmith.catalog` | directory | the packaged catalog | not set | Generated tools the router serves and the agent can retrieve. With a `toolsmith` section the agent is a `ToolSmithAgent`; see [ToolSmith](../toolsmith/README.md). |
+| `toolsmith.top_k` | positive integer | `10` | not set | Generated tools added to the base tools for each question. |
+| `toolsmith.encoder` | string | `BAAI/bge-m3` | not set | Sentence-transformers model that embeds questions and tool descriptions for retrieval. |
+| `toolsmith.trust_router_catalog` | boolean | `false` | not set | For an evaluator that cannot read `toolsmith.catalog` (not on its host, say): `true` runs on the catalog the router serves and logs it, and the run records that catalog's digest; `false` stops, naming the path. With readable files the router must serve exactly them either way. |
+| `toolsmith.worker.environment` | list of variable names | `[]` | not set; ToolSmith preset: the Serper, TMDB and image-upload credentials | Credential-like environment variables the process running the generated tools inherits. It inherits no other variable whose name contains `KEY`, `TOKEN`, `SECRET`, `PASSWORD` or `CREDENTIAL` or starts with `AWS_` or `GOOGLE_APPLICATION`. The filter goes by name only: other secrets, such as `DATABASE_URL`, `*_PASS`, `GITHUB_PAT` or a password in a proxy URL, are inherited, so keep them out of the router's environment. |
+| `toolsmith.worker.timeout_seconds` | positive number | 90% of `services.client.timeout_seconds` | not set | Wall-clock limit of one generated-tool call. A call past it returns an error, and the router sends later calls to a new worker; the old one is stopped once each of its other calls has finished or passed its own limit. Keep it below the client timeout so the error reaches the agent before the agent gives up and retries the call. |
+| `toolsmith.worker.memory_gib` | positive number | `128` | not set | Address-space limit of each worker process, in GiB. Enforced on Linux, per process: a tool's child processes each get the full limit, and memory-backed temporary directories are counted separately. Other platforms (macOS rejects the limit) run the worker without it and the router warns. For a hard memory limit use a cgroup or a container. |
+| `toolsmith.worker.write_files` | boolean | `false` | not set; ToolSmith preset `true` | Lets generated tools write files, as local image uploads, model downloads and PyTorch (temporary files) do. With isolation the host's model caches stay read-only: writes to them land in a private in-memory layer of at most 1 GiB, discarded with the worker, where renaming a cached directory fails (EXDEV) and recreating a deleted one can fail (EIO, on Linux 5.15); tools should write their own files elsewhere. Otherwise the worker cannot write to files. |
+| `toolsmith.worker.isolation` | boolean | `true` | not set | Runs the worker in Linux user, mount, PID and IPC namespaces: it sees, read-only, the interpreter, every directory on the router's `sys.path` and `PYTHONPATH`, the catalog copy, the model caches, the files that granted variables name (a `*_FILE` key file, say), certificate bundles, a few settings from `/etc` and the host's `/sys`; with `write_files` and `IMAGE_UPLOAD_PROVIDER=local`, it can write the upload directory the local image host serves. It has a private `/tmp`, home directory and `/dev/shm` of at most 1 GiB each, and sees no other host files or processes; it cannot create nested user namespaces, and on Linux 5.14 and later runs at most 4,096 processes and threads. Needs unprivileged user namespaces, in which the sandbox can refuse nested ones; without them the router does not start unless this is `false`. |
+| `toolsmith.worker.network` | boolean | `true` | not set | With isolation, `false` gives the worker no network access, and sets `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` in it so cached models load at once; `call_tool` still works. With isolation, the workers that only read tool descriptions, for the pipeline and for an agent whose router lists no catalog (`GET /toolsmith/catalog`), get no network access whatever this says; without isolation every worker shares the host's network. With `true` the worker shares the host's network: loopback services such as the tool router, the host's abstract UNIX sockets and, in `/proc/net`, its connections. |
 
 Each selected backend needs a `services.tools.<backend>` mapping. The model
 generation options (`max_tokens` through `return_token_ids`) apply to

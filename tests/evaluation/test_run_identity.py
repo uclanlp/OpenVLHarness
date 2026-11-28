@@ -108,6 +108,21 @@ def test_manifest_rejects_prompt_content_change(tmp_path, monkeypatch, filename)
         validate_manifest_compatibility(existing, expected)
 
 
+def test_manifest_hashes_the_configured_prompt_bundle(tmp_path, monkeypatch):
+    resources = files("openvlharness.prompts")
+    for name in ("toolsmith_system.txt", "user_prefix.txt"):
+        (tmp_path / name).write_bytes(resources.joinpath(name).read_bytes())
+    monkeypatch.setattr(run_identity, "files", lambda package: tmp_path, raising=False)
+    config = _agent_cfg()
+    config["agent"]["prompt_bundle"] = "toolsmith"
+    existing = _manifest(config)
+    assert set(existing["resolved_model_profiles"]["orchestrator"]["prompt_sha256"]) == {
+        "toolsmith_system.txt", "user_prefix.txt"}
+    (tmp_path / "toolsmith_system.txt").write_text("Changed prompt content")
+    with pytest.raises(ValueError, match="agent config mismatch"):
+        validate_manifest_compatibility(existing, _manifest(config))
+
+
 def test_unreferenced_registry_entries_do_not_change_identity(local_registry):
     path, registry = local_registry
     config = _agent_cfg()
@@ -227,3 +242,109 @@ def test_manifest_compat_rejects_judge_model_change():
         assert "judge model mismatch" in str(exc)
         return
     raise AssertionError("Expected ValueError for judge model mismatch")
+
+
+def _toolsmith_cfg(catalog=None):
+    config = _agent_cfg()
+    config["toolsmith"] = {} if catalog is None else {"catalog": str(catalog)}
+    return config
+
+
+def _module(name):
+    return (f"from openvlharness.toolsmith import GeneratedTool\n\n\nclass Tool(GeneratedTool):\n"
+            f"    def __init__(self):\n        super().__init__(tool_name={name!r}, tool_description='d', "
+            f"input_schema={{}})\n")
+
+
+def test_toolsmith_identity_covers_the_files_the_catalog_loader_imports(tmp_path):
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    (catalog / "lookup.py").write_text(_module("lookup"))
+    first = _manifest(_toolsmith_cfg(catalog))
+    assert first["toolsmith_catalog_sha256"] == run_identity._agent_identity_payload(
+        _toolsmith_cfg(catalog))["toolsmith_catalog_sha256"]
+    (catalog / "_helpers.py").write_text("UNUSED = 1\n")
+    (catalog / "notes.txt").write_text("not a module\n")
+    (catalog / "__pycache__").mkdir()
+    assert build_agent_match_hash(_toolsmith_cfg(catalog)) == first["agent_config_hash"]
+    hashes = {first["agent_config_hash"]}
+    for change in (lambda: (catalog / "lookup.py").write_text(_module("lookup") + "# grown in place\n"),
+                   lambda: (catalog / "added.py").write_text(_module("added")),
+                   lambda: (catalog / "added.py").rename(catalog / "renamed.py")):
+        change()
+        expected = _manifest(_toolsmith_cfg(catalog))
+        assert expected["agent_config_hash"] not in hashes
+        hashes.add(expected["agent_config_hash"])
+        with pytest.raises(ValueError, match="agent config mismatch"):
+            validate_manifest_compatibility(first, expected)
+
+
+def test_toolsmith_identity_covers_the_packaged_default_catalog(tmp_path, monkeypatch):
+    from openvlharness.toolsmith import catalog as catalog_module
+
+    packaged = run_identity._agent_identity_payload(_toolsmith_cfg())
+    assert packaged["toolsmith_catalog_sha256"] == catalog_module.catalog_fingerprint(catalog_module.DEFAULT_CATALOG)
+    copy_dir = tmp_path / "tools"
+    copy_dir.mkdir()
+    for path in catalog_module.catalog_modules():
+        (copy_dir / path.name).write_bytes(path.read_bytes())
+    monkeypatch.setattr(catalog_module, "DEFAULT_CATALOG", copy_dir)
+    unchanged = build_agent_match_hash(_toolsmith_cfg())
+    (copy_dir / "unit_compute.py").write_text((copy_dir / "unit_compute.py").read_text() + "# edited\n")
+    assert build_agent_match_hash(_toolsmith_cfg()) != unchanged
+
+
+def test_manifest_records_the_agent_class_the_configuration_builds(tmp_path):
+    from openvlharness.bootstrap import agent_class_name
+
+    assert _manifest(_agent_cfg())["agent_class"] == agent_class_name(_agent_cfg()) == "MainAgent"
+    assert _manifest(_toolsmith_cfg())["agent_class"] == agent_class_name(_toolsmith_cfg()) == "ToolSmithAgent"
+
+
+def test_identity_without_toolsmith_is_unchanged():
+    config = _agent_cfg()
+    payload = run_identity._agent_identity_payload(config)
+    assert set(payload) == {"config", "resolved_model_profiles"}
+    before = {"config": config, "resolved_model_profiles": payload["resolved_model_profiles"]}
+    assert build_agent_match_hash(config) == run_identity.sha256_text(
+        run_identity.canonical_json(run_identity.strip_sensitive_fields(before)))
+    manifest = _manifest(config)
+    assert "toolsmith_catalog_sha256" not in manifest
+    assert manifest["matching_policy"]["agent"] == "full_config_and_resolved_model_profiles_without_sensitive_fields"
+
+
+def test_inference_starts_only_when_the_router_serves_the_run_catalog(tmp_path, monkeypatch):
+    import requests
+
+    from evaluation_kit import cli
+    from openvlharness.toolsmith.catalog import catalog_fingerprint
+
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    (catalog / "lookup.py").write_text(_module("lookup"))
+    config = _toolsmith_cfg(catalog)
+    answers = []
+
+    class Reply:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            if isinstance(self.body, Exception):
+                raise self.body
+
+        def json(self):
+            return self.body
+
+    monkeypatch.setattr(requests, "get", lambda url, timeout: answers.append(url) or Reply(served))
+    served = {"toolsmith": {"catalog_sha256": catalog_fingerprint(catalog)}}
+    cli._check_router_catalog(config)
+    config["services"]["client"]["base_url"] += "/"  # ToolClient accepts a trailing slash
+    cli._check_router_catalog(config)
+    assert answers == ["http://localhost:8101/env"] * 2
+    for served, message in (({"toolsmith": {"catalog_sha256": "0" * 64}}, "serves ToolSmith catalog 0000"),
+                            ({"config": {}}, "serves no ToolSmith catalog"),
+                            (requests.ConnectionError("refused"), "cannot read which ToolSmith catalog")):
+        with pytest.raises(SystemExit, match=message):
+            cli._check_router_catalog(config)
+

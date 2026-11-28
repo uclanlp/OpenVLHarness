@@ -22,20 +22,24 @@ PAPER_BACKENDS = dict(zip(PAPER_CAPABILITIES, (
 RAW_BACKENDS = {"sam3_segment", "ocr", "depth_estimation", "camera_trajectory", "grounding_dino"}
 
 
-def _expand(value, missing, path=""):
+def _expand(value, missing, path="", stand_in=None):
     """Recursively copy configuration values, resolving required ${NAME} variables.
 
     Unset names are left unexpanded and recorded in missing, mapped to the key
-    paths that reference them.
+    paths that reference them, unless stand_in(path) returns a value to use instead.
     """
     if isinstance(value, dict):
-        return {key: _expand(item, missing, f"{path}.{key}" if path else str(key)) for key, item in value.items()}
+        return {key: _expand(item, missing, f"{path}.{key}" if path else str(key), stand_in)
+                for key, item in value.items()}
     if isinstance(value, list):
-        return [_expand(item, missing, f"{path}[{index}]") for index, item in enumerate(value)]
+        return [_expand(item, missing, f"{path}[{index}]", stand_in) for index, item in enumerate(value)]
     if isinstance(value, str):
         def env(match):
             name = match.group(1)
             if name not in os.environ:
+                substitute = stand_in(path) if stand_in else None
+                if substitute is not None:
+                    return substitute
                 paths = missing.setdefault(name, [])
                 if path not in paths:
                     paths.append(path)
@@ -45,28 +49,34 @@ def _expand(value, missing, path=""):
     return value
 
 
-def expand_environment(config, *, label, source="", hint=""):
+def expand_environment(config, *, label, source="", hint="", guide="the README quick start", stand_in=None):
     """Return a copy of a configuration with ${NAME} placeholders resolved from the environment.
+
+    guide names where the variables are explained; stand_in(path), when given, returns a
+    value for an unset variable at that key path, or None to require it.
 
     Raises ValueError naming every unset variable and the keys that reference it.
     """
     missing = {}
-    config = _expand(copy.deepcopy(config), missing)
+    config = _expand(copy.deepcopy(config), missing, stand_in=stand_in)
     if missing:
         listed = ", ".join(f"{name} ({', '.join(paths)})" for name, paths in missing.items())
         plural = len(missing) > 1
         raise ValueError(f"Missing environment variable{'s' if plural else ''} required by {label}"
-                         f"{source}: {listed}. Set {'them' if plural else 'it'} as in the README quick start{hint}.")
+                         f"{source}: {listed}. Set {'them' if plural else 'it'} as in {guide}{hint}.")
     return config
 
 
-def load_agent_config(config, *, save_raw_trace=False):
+def load_agent_config(config, *, save_raw_trace=False, stand_in=None):
     """Load, expand and validate an agent-system configuration.
 
     Args:
         config: Configuration mapping or path to a YAML file. Mappings are copied.
         save_raw_trace: Enable token IDs for the supported Qwen orchestrator profile.
             The returned configuration records this effective setting.
+        stand_in: For callers that use only part of the configuration: a function of
+            a key path that returns a value for an unset variable there, or None to
+            require it (see expand_environment).
 
     Returns:
         A validated configuration with environment placeholders resolved.
@@ -84,23 +94,63 @@ def load_agent_config(config, *, save_raw_trace=False):
         with open(config) as stream:
             config = yaml.safe_load(stream)
     config = expand_environment(config, label="agent configuration", source=source,
-                                hint=", or remove unused capabilities and services")
+                                hint=", or remove unused capabilities and services", stand_in=stand_in)
     if not isinstance(config, dict) or config.get("agent_name") != "MainAgent":
         raise ValueError("Use the OpenVLHarness agent-system format with agent_name: MainAgent")
-    allowed = {"agent_name", "agent_config_version", "agent", "memory", "capabilities", "services"}
+    allowed = {"agent_name", "agent_config_version", "agent", "memory", "capabilities", "services", "toolsmith"}
     if set(config) - allowed:
         raise ValueError(f"Unknown agent-system sections: {sorted(set(config) - allowed)}")
     for section in ("agent", "memory", "capabilities", "services"):
         if not isinstance(config.get(section), dict):
             raise ValueError(f"{section} must be a mapping")
+    if "toolsmith" in config:
+        toolsmith = config["toolsmith"]
+        if not isinstance(toolsmith, dict) or set(toolsmith) - {"catalog", "top_k", "encoder", "worker",
+                                                                 "trust_router_catalog"}:
+            raise ValueError("toolsmith must be a mapping with optional catalog, top_k, encoder, worker and "
+                             "trust_router_catalog")
+        if type(toolsmith.get("trust_router_catalog", False)) is not bool:
+            raise ValueError("toolsmith.trust_router_catalog must be true or false")
+        if type(toolsmith.get("top_k", 10)) is not int or toolsmith.get("top_k", 10) <= 0:
+            raise ValueError("toolsmith.top_k must be a positive integer")
+        # An explicit null is rejected: callers read these keys with defaults that null would bypass. The
+        # directory itself may be missing here: an evaluator reads the catalog from its router, and the
+        # router and the pipeline refuse a missing one when they load it (CatalogLoadError).
+        if "catalog" in toolsmith and not (isinstance(toolsmith["catalog"], (str, os.PathLike))
+                                           and str(toolsmith["catalog"]).strip()):
+            raise ValueError(f"toolsmith.catalog {toolsmith['catalog']!r} is not a directory path")
+        if "encoder" in toolsmith and not (isinstance(toolsmith["encoder"], str) and toolsmith["encoder"].strip()):
+            raise ValueError("toolsmith.encoder must name a sentence-transformers model")
+        worker = toolsmith.get("worker", {})
+        if not isinstance(worker, dict) or set(worker) - {"environment", "timeout_seconds", "memory_gib",
+                                                          "write_files", "isolation", "network"}:
+            raise ValueError("toolsmith.worker must be a mapping with optional environment, timeout_seconds, "
+                             "memory_gib, write_files, isolation and network")
+        names = worker.get("environment", [])
+        if not isinstance(names, list) or not all(
+                isinstance(name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) for name in names):
+            raise ValueError("toolsmith.worker.environment must list environment variable names")
+        for key in ("timeout_seconds", "memory_gib"):
+            value = worker.get(key, 1)
+            if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"toolsmith.worker.{key} must be a positive number")
+        for key in ("write_files", "isolation", "network"):
+            if type(worker.get(key, False)) is not bool:
+                raise ValueError(f"toolsmith.worker.{key} must be true or false")
     memory_factory(config["memory"])()
     agent = config["agent"]
-    if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed"}:
+    if set(agent) - {"model_service", "max_iterations", "max_context_length", "tool_choice", "paired_sampling_seed",
+                     "prompt_bundle"}:
         raise ValueError("Unknown agent options")
     if type(agent.get("max_iterations", 15)) is not int or agent.get("max_iterations", 15) <= 0:
         raise ValueError("agent.max_iterations must be a positive integer")
     if type(agent.get("paired_sampling_seed", False)) is not bool:
         raise ValueError("agent.paired_sampling_seed must be boolean")
+    bundle = agent.get("prompt_bundle")
+    # An explicit null is rejected too: callers read the key with a default that null would bypass.
+    if "prompt_bundle" in agent and not (isinstance(bundle, str) and re.fullmatch(r"\w+", bundle)
+                                         and files("openvlharness.prompts").joinpath(f"{bundle}_system.txt").is_file()):
+        raise ValueError(f"agent.prompt_bundle {bundle!r} is not a packaged prompt bundle")
     caps = config["capabilities"]
     if set(caps) - {"registries", "tools"}:
         raise ValueError("Unknown capability options")
@@ -257,6 +307,11 @@ def resolved_model_id(config):
     return ModelAdapter(model).model
 
 
+def agent_class_name(config):
+    """Name the agent class build_agent constructs for a configuration mapping."""
+    return "ToolSmithAgent" if "toolsmith" in config else "MainAgent"
+
+
 def build_agent(config):
     """Build a configured agent with prompts, tools and a memory factory.
 
@@ -264,7 +319,8 @@ def build_agent(config):
         config: Agent-system mapping or YAML path accepted by load_agent_config.
 
     Returns:
-        A MainAgent ready to accept image/text questions.
+        A MainAgent ready to accept image/text questions, or a ToolSmithAgent
+        when the configuration has a toolsmith section.
 
     Raises:
         ValueError: Configuration or model-profile validation fails.
@@ -280,8 +336,13 @@ def build_agent(config):
                            max_context_length=options.get("max_context_length"))
     adapter.load_tokenizer()
     resources = files("openvlharness.prompts")
-    system = resources.joinpath(adapter.profile["prompt_bundle"] + "_system.txt").read_text()
+    system = resources.joinpath(options.get("prompt_bundle", adapter.profile["prompt_bundle"]) + "_system.txt").read_text()
     prefix = resources.joinpath("user_prefix.txt").read_text()
-    return MainAgent(adapter, build_capabilities(config), memory_factory(config["memory"]),
-        system, prefix, max_iterations=options.get("max_iterations", 15),
-        tool_choice=options.get("tool_choice", "auto"), paired_sampling_seed=options.get("paired_sampling_seed", False))
+    arguments = (adapter, build_capabilities(config), memory_factory(config["memory"]), system, prefix)
+    settings = {"max_iterations": options.get("max_iterations", 15), "tool_choice": options.get("tool_choice", "auto"),
+                "paired_sampling_seed": options.get("paired_sampling_seed", False)}
+    if agent_class_name(config) == "ToolSmithAgent":  # the class run manifests record
+        from .toolsmith.agent import ToolSmithAgent
+        return ToolSmithAgent(*arguments, toolsmith=config["toolsmith"],
+                              client_config=config["services"]["client"], **settings)
+    return MainAgent(*arguments, **settings)

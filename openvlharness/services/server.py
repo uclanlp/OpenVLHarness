@@ -1,6 +1,7 @@
 """Configured tool router: python -m openvlharness.services.server --config ..."""
 import argparse
 import asyncio
+import contextlib
 import importlib
 import logging
 import sys
@@ -13,8 +14,9 @@ from starlette.concurrency import run_in_threadpool
 from ..bootstrap import load_agent_config, build_capabilities, RAW_BACKENDS
 from ..contracts import ServiceResult
 from . import degradation
+from .client import ToolClient
 from .models import ModelAdapter, AuxiliaryModel
-from .tools.base import ToolArgumentError
+from .tools.base import RUNTIME_FIELDS, ToolArgumentError
 from .envelope import _normalize_result_payload, _build_error_payload, _build_success_payload
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,13 @@ class ExecuteRequest(BaseModel):
     tool_name: str
     tool_call_id: str
     args: dict = Field(default_factory=dict)
+
+
+def check_task_arguments(args):
+    """Raise ToolArgumentError when task arguments carry runtime or service fields."""
+    forbidden = RUNTIME_FIELDS & set(args)
+    if forbidden:
+        raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
 
 
 def redact(value):
@@ -86,11 +95,15 @@ def create_app(config, *, implementations=None):
         environment settings and health/status endpoints.
 
     Raises:
-        ValueError: Configuration or backend concurrency limits are invalid.
+        ValueError: Configuration or backend concurrency limits are invalid, or
+            the ToolSmith catalog cannot be loaded.
+        RuntimeError: The ToolSmith worker does not start.
         KeyError: An injected implementation is missing for a selected backend.
 
-    Construction does not start an HTTP server or model worker. Tool execution
-    runs in a thread pool after acquiring the appropriate backend semaphore.
+    Construction does not start an HTTP server or model worker; with a toolsmith
+    section it starts the worker process that runs the generated tools (see
+    openvlharness.toolsmith.worker). Tool execution runs in a thread pool after
+    acquiring the appropriate backend semaphore.
     """
     config = load_agent_config(config)
     capabilities = build_capabilities(config)
@@ -120,10 +133,31 @@ def create_app(config, *, implementations=None):
             else:
                 tool = cls()
         registry[cap.concrete_name] = (tool, cap.backend, service)
+    worker = None
+    if "toolsmith" in config:
+        # Only ToolSmith routers load the worker module, which needs POSIX resource limits.
+        from ..toolsmith.errors import CatalogLoadError
+        from ..toolsmith.worker import CatalogWorker
+
+        # Generated tools run in a separate worker process; calls they make come back through this router.
+        worker = CatalogWorker.from_config(config, client=ToolClient(**settings["client"]), base_tools=set(registry))
+        shadowed = sorted(set(worker.tools) & set(registry))
+        if shadowed:
+            worker.close()
+            raise CatalogLoadError(f"the ToolSmith catalog {worker.directory} has tools that shadow base tools: "
+                                   f"{', '.join(shadowed)}; rename them")
+        registry.update((name, (worker, "toolsmith", {})) for name in worker.tools)
     _warn_if_serper_key_missing([cap.backend for cap in capabilities.values()])
     semaphores = {name: asyncio.Semaphore(limit) for name, limit in limits.items()}
     active = dict.fromkeys(limits, 0)
-    app = FastAPI(title="OpenVLHarness tool router")
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        yield
+        if worker is not None:
+            worker.close()
+
+    app = FastAPI(title="OpenVLHarness tool router", lifespan=lifespan)
     app.state.registry = registry
     app.state.backend_groups = BACKEND_GROUPS
     app.state.semaphores = semaphores
@@ -145,11 +179,25 @@ def create_app(config, *, implementations=None):
 
     @app.get("/env")
     async def environment():
-        """Return redacted service settings and fixed search/extraction policy."""
-        return {"config": redact(settings), "scope": "configured services; credentials redacted",
-                "search": {"summarize": True, "multimodal": True, "num_results": 10,
-                           "keep_k": 3, "max_tokens": 4096, "thinking": False},
-                "webpage": {"max_urls": 5, "max_tokens": 16384}}
+        """Return redacted service settings, fixed search/extraction policy and the served ToolSmith catalog."""
+        reported = {"config": redact(settings), "scope": "configured services; credentials redacted",
+                    "search": {"summarize": True, "multimodal": True, "num_results": 10,
+                               "keep_k": 3, "max_tokens": 4096, "thinking": False},
+                    "webpage": {"max_urls": 5, "max_tokens": 16384}}
+        if worker is not None:
+            # The digest of the catalog snapshot the worker runs, which evaluations compare with their own.
+            reported["toolsmith"] = {"catalog_sha256": worker.fingerprint}
+        return reported
+
+    if worker is not None:
+        @app.get("/toolsmith/catalog")
+        async def toolsmith_catalog():
+            """Return the served catalog's tools, as the worker validated them, and the digest of that snapshot.
+
+            Evaluators read their generated-tool metadata here instead of loading the catalog themselves.
+            Only a ToolSmith router has this route.
+            """
+            return {"catalog_sha256": worker.fingerprint, "tools": list(worker.tools.values())}
 
     @app.get("/backend-status")
     async def status():
@@ -166,13 +214,7 @@ def create_app(config, *, implementations=None):
         tool, backend, service = registry[request.tool_name]
         args = dict(request.args)
         try:
-            # Only resolved task data crosses this boundary; endpoints come from deployment config,
-            # and images arrive as base64 so callers cannot make tools open router-host files.
-            forbidden = {"server_url", "timeout_seconds", "llm_model", "llm_base_url", "llm_api_key",
-                         "box_threshold", "text_threshold", "num_results", "gl", "hl",
-                         "image_path", "image_paths"} & set(args)
-            if forbidden:
-                raise ToolArgumentError(f"Runtime/service fields cannot be supplied as task arguments: {sorted(forbidden)}")
+            check_task_arguments(args)
             if backend in RAW_BACKENDS:
                 args["server_url"] = service["server_url"]
             result = tool.execute(**args)
@@ -188,6 +230,17 @@ def create_app(config, *, implementations=None):
             return _build_error_payload(request.tool_name, request.tool_call_id, "tool_execution_error",
                 str(exc), {"exception_type": type(exc).__name__}), status
 
+    async def generated(request):
+        """Run a generated tool in the worker, awaiting it without holding a thread-pool worker."""
+        args = dict(request.args)
+        try:
+            check_task_arguments(args)
+            return await worker.execute_async(request.tool_name, args, tool_call_id=request.tool_call_id)
+        except Exception as exc:
+            status = 400 if isinstance(exc, ToolArgumentError) else 500
+            return _build_error_payload(request.tool_name, request.tool_call_id, "tool_execution_error",
+                str(exc), {"exception_type": type(exc).__name__}), status
+
     @app.post("/execute")
     async def call(request: ExecuteRequest):
         """Dispatch an HTTP tool request under its shared backend concurrency limit."""
@@ -196,7 +249,10 @@ def create_app(config, *, implementations=None):
                 request.tool_call_id, "tool_not_found", f"Tool not found: {request.tool_name}"))
         backend = registry[request.tool_name][1]
         group = BACKEND_GROUPS.get(backend)
-        if group:
+        if backend == "toolsmith":
+            # Calls the generated tool makes come back here and need thread-pool workers of their own.
+            payload, code = await generated(request)
+        elif group:
             # Acquire before occupying a threadpool worker, including shared depth/camera capacity.
             async with semaphores[group]:
                 active[group] += 1
@@ -222,7 +278,14 @@ def main():
         sys.exit(f"error: {exc}")
     settings = config["services"]["server"]
     import uvicorn
-    uvicorn.run(create_app(config), host=settings.get("host", "127.0.0.1"), port=settings.get("port", 8101))
+
+    from ..toolsmith.errors import ToolSmithStartError
+
+    try:
+        app = create_app(config)
+    except ToolSmithStartError as exc:  # a catalog that does not load, say; other errors keep their traceback
+        sys.exit(f"error: {exc}")
+    uvicorn.run(app, host=settings.get("host", "127.0.0.1"), port=settings.get("port", 8101))
 
 
 if __name__ == "__main__":

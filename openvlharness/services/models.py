@@ -72,6 +72,29 @@ def require_raw_trace_profile(alias):
     return profile
 
 
+class IncompleteReply(RuntimeError):
+    """A model reply that stopped before it ended (out of tokens, or filtered), or that holds no text."""
+
+
+def _check_complete(response, text, protocol):
+    """Raise IncompleteReply unless a parsed response ended normally with some text."""
+    if protocol == "responses":
+        reason = (response.get("incomplete_details") or {}).get("reason") or "unknown"
+        stopped = reason if response.get("status") == "incomplete" else None
+    else:
+        reason = ((response.get("choices") or [{}])[0] or {}).get("finish_reason")
+        stopped = reason if reason in ("length", "content_filter") else None
+    if stopped in ("max_output_tokens", "length"):
+        raise IncompleteReply(f"the reply stopped at its token limit ({stopped}); raise its max_tokens (in the "
+                              "ToolSmith pipeline, a new max_tokens retries what failed, as --retry-failed does)")
+    if stopped == "content_filter":
+        raise IncompleteReply("the provider's content filter stopped the reply (content_filter)")
+    if stopped:
+        raise IncompleteReply(f"the reply is incomplete ({stopped})")
+    if not (text or "").strip():
+        raise IncompleteReply("the reply holds no text")
+
+
 class AuxiliaryModel:
     """Run search summarization and evidence extraction through a configured model.
 
@@ -96,12 +119,16 @@ class AuxiliaryModel:
         self.client = OpenAI(base_url=base, api_key=self.api_key or "empty",
                              timeout=Timeout(self.adapter.timeout, connect=5), max_retries=self.adapter.retry)
 
-    def generate(self, prompt_or_messages, system_prompt=None, **generation_kwargs):
+    def generate(self, prompt_or_messages, system_prompt=None, *, require_complete=False, **generation_kwargs):
         """Generate auxiliary text from a prompt or chat-style messages.
 
         Args:
             prompt_or_messages: Prompt string or list of message dictionaries.
             system_prompt: System instruction inserted only if none is present.
+            require_complete: Raise IncompleteReply for a reply that ran out of
+                tokens (a reasoning model's budget includes its reasoning), that the
+                provider's content filter or anything else stopped, or that holds no
+                text, instead of returning what it holds.
             **generation_kwargs: max_tokens, temperature and top_p. Defaults are
                 8192, 0.0 and 1.0. Responses uses medium reasoning; Chat Completions
                 applies sampling options and disables template thinking.
@@ -112,6 +139,7 @@ class AuxiliaryModel:
         Raises:
             ValueError: Unsupported generation options are supplied.
             RuntimeError: The response has an invalid protocol structure.
+            IncompleteReply: require_complete is set and the reply is incomplete or empty.
         """
         messages = ([{"role": "user", "content": prompt_or_messages}]
                     if isinstance(prompt_or_messages, str) else cp.deepcopy(prompt_or_messages))
@@ -137,7 +165,10 @@ class AuxiliaryModel:
         else:
             extra = {"chat_template_kwargs": payload.pop("chat_template_kwargs")}
             response = self.client.chat.completions.create(**payload, extra_body=extra).model_dump()
-        return self.adapter.parse(response, 0)[0]
+        text = self.adapter.parse(response, 0)[0]
+        if require_complete:
+            _check_complete(response, text, self.adapter.protocol)
+        return text
 
     generate_messages = generate
 

@@ -66,6 +66,19 @@ Other registered names, such as MMBench, TextVQA, DocVQA, ChartQA, MME, POPE and
 inherited VLMEvalKit loaders; they remain registered but are not part of the paper and are
 untested here.
 
+## ToolSmith training pools
+
+The [ToolSmith](../../toolsmith/README.md) pipeline mines the baseline agent's failures on
+these splits to grow its catalog; they are training data, not evaluation data. They
+download with their images on first use from
+[uclanlp/ToolSmith-Datasets](https://huggingface.co/datasets/uclanlp/ToolSmith-Datasets).
+
+| `--data` | Class | File | Rows | Metric | Judge or extractor (default prompt) |
+| --- | --- | --- | ---: | --- | --- |
+| `FVQA_train` | `ImageShortQADataset` | `image_shortqa.py` | 3,312 | judged accuracy | judge (`judge_vdr`) |
+| `Infoseek_GDM_val` | `ImageShortQADataset` | `image_shortqa.py` | 3,000 | judged accuracy | judge (`judge_vdr`) |
+| `EncyclopedicVQA_val` | `ImageShortQADataset` | `image_shortqa.py` | 2,862 | judged accuracy | judge (`judge_vdr`) |
+
 ## Class tree
 
 ```

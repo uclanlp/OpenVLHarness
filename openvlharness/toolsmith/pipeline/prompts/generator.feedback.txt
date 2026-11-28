@@ -1,0 +1,15 @@
+You previously wrote a tool for this subtask, but it did not pass the quality gate.
+
+Failed subtask:
+  query: {question}
+
+Quality gate feedback:
+  {feedback}
+
+Your previous code:
+```python
+{code}
+```
+
+Fix the issues flagged above. Keep what worked.
+Return the revised JSON.

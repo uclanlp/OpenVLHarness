@@ -63,3 +63,35 @@ def test_router_cli_reports_configuration_errors_without_a_traceback(tmp_path):
                 pytest.raises(SystemExit) as caught:
             server.main()
         assert str(caught.value.code).startswith(expected)
+
+
+def test_router_cli_reports_a_catalog_that_does_not_load_without_a_traceback(tmp_path):
+    pytest.importorskip("fastapi")
+    from openvlharness.services import server
+    from openvlharness.toolsmith.errors import CatalogLoadError, WorkerStartError
+
+    argv = ["openvlharness.services.server", "--config", str(CONFIGS / "qwen3_8b_paper.yaml")]
+    for failure in (CatalogLoadError("the ToolSmith catalog /srv/catalog cannot load broken.py: SyntaxError: "
+                                     "expected ':'"),
+                    WorkerStartError("Generated tools run confined by Linux user namespaces, which this host does "
+                                     "not allow (...)")):
+        with patch.object(server, "load_agent_config", return_value={"services": {"server": {}}}), \
+                patch.object(server, "create_app", side_effect=failure), patch.object(sys, "argv", argv), \
+                pytest.raises(SystemExit) as caught:
+            server.main()
+        assert caught.value.code == f"error: {failure}"
+
+
+def test_router_cli_keeps_the_traceback_of_any_other_error(tmp_path):
+    # As on main: a configuration the router cannot serve, or a bug, is not a ToolSmith start-up failure.
+    pytest.importorskip("fastapi")
+    from openvlharness.services import server
+
+    argv = ["openvlharness.services.server", "--config", str(CONFIGS / "qwen3_8b_paper.yaml")]
+    for failure in (ValueError("Server limits must name known backend groups and use positive integers"),
+                    RuntimeError("a bug")):
+        with patch.object(server, "load_agent_config", return_value={"services": {"server": {}}}), \
+                patch.object(server, "create_app", side_effect=failure), patch.object(sys, "argv", argv), \
+                pytest.raises(type(failure)) as caught:
+            server.main()
+        assert caught.value is failure

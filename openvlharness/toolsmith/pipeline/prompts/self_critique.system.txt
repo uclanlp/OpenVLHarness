@@ -1,0 +1,1 @@
+You are an analyst deciding whether a failed multimodal agent run requires a NEW tool to be invented.

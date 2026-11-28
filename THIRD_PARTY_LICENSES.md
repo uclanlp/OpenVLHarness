@@ -61,6 +61,47 @@ terms of service, which you should review before use or redistribution.
 - **Serper** search, Lens and scrape APIs for the search tools, under the
   Serper terms of service.
 
+## Models, services and data used by ToolSmith
+
+As above, none of these is distributed with this repository.
+
+- **BGE-M3** (`BAAI/bge-m3`, BAAI), the sentence encoder for tool retrieval and
+  for clustering failures in the pipeline: MIT License.
+- **CLIP ViT-B/32** (OpenAI's weights, which open_clip downloads from
+  `timm/vit_base_patch32_clip_224.openai`) for the packaged `image_similarity`
+  tool: Apache License 2.0 on its Hugging Face card. OpenAI's model card,
+  reproduced there, says any deployed use of the model, commercial or not, is
+  out of scope.
+- **BioCLIP** (`imageomics/bioclip`, Imageomics Institute) for the packaged
+  `species_id` tool: MIT License.
+- **Wikidata** (the Wikidata API and query service, Wikimedia Foundation),
+  called by the packaged tools through `wikidata_query`: structured data under
+  CC0 1.0, and use subject to the Wikimedia Terms of Use and User-Agent policy.
+- **Nominatim** (`nominatim.openstreetmap.org`, OpenStreetMap Foundation),
+  called through `gazetteer_lookup`: OpenStreetMap data under the Open Database
+  License (© OpenStreetMap contributors, attribution required). The Nominatim
+  Usage Policy allows at most one request per second and asks for a User-Agent
+  that identifies the application.
+- **MusicBrainz** (MetaBrainz Foundation), called by `media_catalog`: core data
+  under CC0 and supplementary data under CC BY-NC-SA 3.0. The API allows on
+  average one request per second from an IP address.
+- **TMDB** (The Movie Database), called by `media_catalog` with your
+  `TMDB_API_KEY`, under the TMDB API Terms of Use: free for non-commercial use
+  that credits TMDB as the source of the data, with a license from TMDB needed
+  for commercial use. This product uses the TMDB API but is not endorsed or
+  certified by TMDB.
+- **OpenAI API** for the pipeline's generator, critic and analyst
+  (`gpt-5-2025-08-07` in `configs/toolsmith/pipeline.yaml`), under OpenAI's
+  terms of use and usage policies.
+- **ToolSmith training pools**
+  ([uclanlp/ToolSmith-Datasets](https://huggingface.co/datasets/uclanlp/ToolSmith-Datasets):
+  `FVQA_train`, `Infoseek_GDM_val` and `EncyclopedicVQA_val`). The packaging is
+  under the MIT License; the questions, answers and images keep their original
+  licenses: the FVQA and InfoSeek annotations are Apache-2.0, EncyclopedicVQA
+  follows the terms of its release, and the images follow the terms of their
+  sources (OVEN, iNaturalist 2021, Google Landmarks v2 and the FVQA image
+  sources). See the dataset card.
+
 ## Datasets
 
 Benchmark data is downloaded from the original sources or from the

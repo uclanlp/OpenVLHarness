@@ -192,6 +192,10 @@ class ImageShortQADataset(ImageBaseDataset):
         'FVQA_test_300': '',
         'Infoseek_GDM_test_300': '',
         'EncyclopedicVQA_test_300': '',
+        # ToolSmith training pools (uclanlp/ToolSmith-Datasets), not evaluation data.
+        'FVQA_train': '',
+        'Infoseek_GDM_val': '',
+        'EncyclopedicVQA_val': '',
     }
 
     DATASET_MD5 = {
